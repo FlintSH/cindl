@@ -12,6 +12,8 @@ import { Mark } from '../ui/Mark.tsx'
 import { WorkView } from '../work/WorkView.tsx'
 import { CommandPalette, type Command } from './CommandPalette.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
+import { Notices } from './Notices.tsx'
+import { SignIn } from './SignIn.tsx'
 import { LinkStatusDot } from './LinkStatus.tsx'
 import { NavList } from './Navigation.tsx'
 import { ShortcutsDialog } from './ShortcutsDialog.tsx'
@@ -22,6 +24,9 @@ export function AppShell() {
   const link = useLink()
   const open = useOpenRequests()
   const canCreate = useCan('sessions.create')
+  // Native clients without a session sign in first; the demo never needs to.
+  const needsSignIn =
+    !link.demo && (link.phase === 'unconfigured' || link.phase === 'signed-out')
   const [theme] = usePreference('theme')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -187,19 +192,26 @@ export function AppShell() {
       </nav>
       <main className={styles.main} id="main">
         <ErrorBoundary key={window.location.hash} label="this view">
-          {route.view === 'talk' ? (
-            <TalkView ref={talk} conversationId={route.conversationId} />
-          ) : null}
-          {route.view === 'work' ? <WorkView /> : null}
-          {route.view === 'library' ? (
-            <LibraryView section={route.section} item={route.item} />
-          ) : null}
-          {route.view === 'agent' ? <AgentView section={route.section} /> : null}
+          {needsSignIn ? (
+            <SignIn />
+          ) : (
+            <>
+              {route.view === 'talk' ? (
+                <TalkView ref={talk} conversationId={route.conversationId} />
+              ) : null}
+              {route.view === 'work' ? <WorkView /> : null}
+              {route.view === 'library' ? (
+                <LibraryView section={route.section} item={route.item} />
+              ) : null}
+              {route.view === 'agent' ? <AgentView section={route.section} /> : null}
+            </>
+          )}
         </ErrorBoundary>
       </main>
       <nav className={styles.bottomNav} aria-label="Primary">
         <NavList current={current} workCount={open.length} />
       </nav>
+      <Notices />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

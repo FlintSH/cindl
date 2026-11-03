@@ -11,6 +11,11 @@ export interface DesktopBridge {
   readonly kind: 'cindl-desktop'
   readonly bridgeVersion: 1
   readonly platform: 'linux' | 'win32' | 'darwin'
+  /**
+   * Rejects with a plain `CindlErrorShape` object, not an Error: contextBridge
+   * does not carry Error identity or custom properties across the boundary.
+   * Renderers revive it (apps/web/src/platform/client.ts `reviveError`).
+   */
   call<K extends OpName>(name: K, args: OpArgs<K>): Promise<OpResult<K>>
   subscribe(listener: (event: CindlEvent) => void): () => void
   /** Native save dialog for text the renderer already holds (e.g. an exported transcript). */

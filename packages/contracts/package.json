@@ -18,5 +18,6 @@
   "devDependencies": {
     "@types/node": "catalog:",
     "typescript": "catalog:"
-  }
+  },
+  "sideEffects": false
 }

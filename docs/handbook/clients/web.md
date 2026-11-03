@@ -16,6 +16,21 @@ page. That mount is a pending owner decision, so today:
   data in that state.
 - Developers use the **synthetic demo** (below).
 
+## Inside the desktop app
+
+The desktop app loads this same build, which then talks to the desktop main
+process instead of Hermes directly:
+
+- With no Hermes session, the renderer shows a sign-in screen that asks only
+  for the Hermes address (https, or plain http on 127.0.0.1 or [::1]). Hermes's
+  own sign-in page opens in the system browser, so Cindl never handles a
+  password or a verification code.
+- Notices from the desktop app (for example, that tokens are kept in memory
+  only on this machine) appear in the corner of the window until dismissed.
+- Errors cross the desktop bridge as plain objects and are turned back into
+  `CindlError` values with their stable code. Anything unrecognised becomes an
+  `internal` error rather than an unexplained failure.
+
 ## Run the synthetic demo
 
 ```sh
