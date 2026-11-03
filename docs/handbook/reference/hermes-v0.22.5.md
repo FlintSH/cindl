@@ -539,8 +539,10 @@ node packages/hermes-adapter/scripts/live-probe.ts --origin https://hermes.examp
 ```
 
 `--token-file` holds a native access token (or a stored token set with
-`access_token`); `--cookie-file` holds a `Cookie` header value. The probe
-calls only `GET /api/status`, `GET /api/auth/me`, `POST /api/auth/ws-ticket`
+`access_token`); `--cookie-file` holds a `Cookie` header value. The origin
+must pass the rule sign-in uses (https, or plain http only on 127.0.0.1 or
+[::1]); anything else exits 2 before a request is sent, so the token or
+cookie never travels in clear text. The probe calls only `GET /api/status`, `GET /api/auth/me`, `POST /api/auth/ws-ticket`
 (one ticket), the `/api/ws` handshake (`client.capabilities` without
 `server_requests`, then `gateway.capabilities` or `runtime.describe`) and one
 `session.list` whose rows it counts. It prints versions, auth flows, the

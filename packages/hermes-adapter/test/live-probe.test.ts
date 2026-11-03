@@ -69,6 +69,38 @@ describe('live probe', () => {
     expect(fake.gateway.advertisements).toEqual([{}])
   })
 
+  it('refuses an origin sign-in would refuse before sending anything', async () => {
+    for (const origin of [
+      'http://hermes.example.test',
+      'ws://hermes.example.test',
+      'https://owner:fixture-password@hermes.example.test',
+      'https://hermes.example.test/api',
+      'not a url',
+    ]) {
+      const requests: string[] = []
+      const lines: string[] = []
+      const code = await runProbe(
+        { origin, token: 'fixture-access-token', cookieHeader: 'session=fixture-cookie' },
+        {
+          out: (line) => lines.push(line),
+          fetch: (url) => {
+            requests.push(url)
+            return Promise.reject(new Error('the probe must not send anything'))
+          },
+          socketFactory: () => {
+            throw new Error('the probe must not open a socket')
+          },
+        },
+      )
+      expect(code, origin).toBe(2)
+      expect(requests, origin).toEqual([])
+      expect(lines.join('\n'), origin).toMatch(/^error: --origin /)
+      expect(lines.join('\n'), origin).not.toMatch(
+        /fixture-password|fixture-access-token/,
+      )
+    }
+  })
+
   it('stops at an unauthenticated token without retrying', async () => {
     const { code, output, fake } = await probe({}, 'not-a-valid-token')
     expect(code).toBe(3)

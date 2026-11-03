@@ -12,6 +12,7 @@
 // never routes approvals or questions to the probe.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
+import { HermesOrigin } from '@cindl/contracts'
 import { HermesConnection, type ConnectionState } from '../src/connection.ts'
 import { safeText } from '../src/diagnostics.ts'
 import { isBaselineVersion } from '../src/compat.ts'
@@ -66,13 +67,17 @@ const nodeWebSocket: SocketFactory = (url, protocols) => {
 /** Exit codes: 0 compatible, 2 usage, 3 not signed in, 4 unreachable, 5 incompatible. */
 export async function runProbe(options: ProbeOptions, io: ProbeIo): Promise<number> {
   const say = (line: string) => io.out(redactText(line))
-  let origin: string
-  try {
-    origin = new URL(options.origin).origin
-  } catch {
-    say('error: --origin must be a URL such as https://hermes.example.test')
+  // The rule sign-in uses (https, or plain http only on 127.0.0.1 or [::1]),
+  // checked before any request so a token or cookie never travels in clear
+  // text. The refused value is not echoed: it may carry credentials.
+  const parsed = HermesOrigin.safeParse(options.origin)
+  if (!parsed.success) {
+    say(
+      `error: --origin ${parsed.error.issues[0]?.message ?? 'is not usable.'} For example https://hermes.example.test`,
+    )
     return 2
   }
+  const origin = parsed.data
   const baseFetch = io.fetch ?? ((url, init) => fetch(url, init))
   const cookieHeader = options.cookieHeader
   const probeFetch: FetchLike = cookieHeader
