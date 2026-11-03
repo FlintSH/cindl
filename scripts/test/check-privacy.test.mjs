@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import { writeFileSync } from 'node:fs'
+import { symlinkSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
 import { fake, git, makeRepo, run, tempDir, writeFiles } from './helpers.mjs'
@@ -97,6 +97,9 @@ describe('check-privacy', () => {
       'GitLab token': fake('gl', 'pat-', 'z'.repeat(20)),
       'Hugging Face token': fake('h', 'f_', 'Q'.repeat(30)),
       'npm token': fake('np', 'm_', 'N'.repeat(36)),
+      'Stripe live key': fake('sk', '_live_', 'S1'.repeat(10)),
+      'Telegram bot token': fake('123456789', ':AA', 'T'.repeat(33)),
+      'AWS secret access key': fake('aws_secret', '_access_key = ', 'W'.repeat(40)),
     }
     const dir = makeRepo(t, {
       ...BASE,
@@ -113,6 +116,128 @@ describe('check-privacy', () => {
       assert.match(result.output, new RegExp(`: ${rule.replace(/[()]/g, '\\$&')}`))
       assert.ok(!result.output.includes(value), `${rule} was printed in full`)
     }
+  })
+
+  it('flags credentials as they appear in pasted diagnostics', (t) => {
+    const ticket = fake('hermes-gateway', '-ticket.', 'Tk7', 'q'.repeat(9))
+    const lines = [
+      `Sec-WebSocket-Protocol: hermes-gateway-v1, ${ticket}`,
+      `Authorization: ${fake('Bear', 'er ', 'eyZ9', 'x'.repeat(12))}`,
+      `GET /api/display/ws?${fake('tic', 'ket=', 'a1b2', 'c3d4e5')}`,
+      `{"${fake('access', '_token')}": "${fake('at', '_live_', '42abcdef')}"}`,
+    ]
+    const result = scan(t, { 'docs/diag.md': `${lines.join('\n')}\n` })
+    assert.equal(result.code, 1, result.output)
+    for (const rule of [
+      'WebSocket ticket',
+      'Authorization header value',
+      'secret in a URL query',
+      'secret key/value pair',
+    ])
+      assert.match(result.output, new RegExp(`docs/diag\\.md:\\d+: ${rule}`))
+  })
+
+  it('leaves placeholders, prose and short test vectors alone', (t) => {
+    const result = scan(t, {
+      'docs/how.md': [
+        'Send `Authorization: Bearer <token>` with the ticket `hermes-gateway-ticket.<ticket>`.',
+        'Token handling stays in the main process; use ?ticket=${TICKET} and password: [redacted].',
+        'Set api_key=YOUR_KEY_1 in your own shell.',
+      ].join('\n'),
+      'packages/a/test/redact.test.ts': `export const v = ['${fake('Bear', 'er ', 'abc12345678')}', '${fake('pass', 'word: "hunter2-x"')}']\n`,
+    })
+    assert.equal(result.code, 0, result.output)
+    const long = scan(t, {
+      'src/leak.ts': `export const h = '${fake('Bear', 'er ', 'A1'.repeat(16))}'\n`,
+    })
+    assertFlagged(long, /src\/leak\.ts:1: Authorization header value/)
+  })
+
+  it('does not mistake versions, file names or expressions for addresses or hosts', (t) => {
+    const result = scan(t, {
+      'test/ua.test.ts':
+        "export const ua = 'Mozilla/5.0 Chrome/138.0.0.0 Safari/537.36'\n",
+      'docs/env.md': 'Copy `.env.example` to `.env.local` and never commit it.\n',
+      '.github/workflows/x.yml': 'if: ${{ !github.event.repository.private }}\n',
+    })
+    assert.equal(result.code, 0, result.output)
+  })
+
+  it('allows screenshots in nested folders of the reviewed evidence paths', (t) => {
+    const dir = makeRepo(t, BASE)
+    writeFiles(dir, {
+      'docs/handbook/public/screenshots/web/talk-dark.png': Buffer.from([0, 137, 80, 78]),
+    })
+    git(dir, ['add', '--all'])
+    const result = run('check-privacy.mjs', ['--root', dir])
+    assert.equal(result.code, 0, result.output)
+  })
+
+  it('scans a symbolic link as its target text and rejects links out of the tree', (t) => {
+    const dir = makeRepo(t, BASE)
+    symlinkSync(`../../${['nas', 'lan'].join('.')}/share`, join(dir, 'docs/nas-link'))
+    symlinkSync('/etc/hosts', join(dir, 'docs/hosts-link'))
+    symlinkSync('missing-target.md', join(dir, 'docs/dangling-link'))
+    git(dir, ['add', '--all'])
+    const result = run('check-privacy.mjs', ['--root', dir])
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /docs\/nas-link: link target: private hostname \(\.lan\)/)
+    assert.match(
+      result.output,
+      /docs\/hosts-link: symbolic link points outside the repository/,
+    )
+    assert.doesNotMatch(result.output, /dangling-link/)
+  })
+
+  it('names every kind of credential file and build output it refuses', (t) => {
+    const refused = {
+      credentials: [
+        'deploy/id_rsa',
+        'config/auth.json',
+        'config/credentials-prod.json',
+        'data/cookies-work.json',
+        'e2e/storage-state.json',
+        'android/google-services.json',
+        'ios/GoogleService-Info.plist',
+        'data/state.sqlite',
+        'data/cache.db',
+        'home/.hermes/config.yaml',
+        'android/release.keystore',
+        'android/keystore.properties',
+        'captures/session.har',
+        'certs/client.p12',
+      ],
+      output: [
+        'node_modules/x/index.js',
+        'apps/web/build/a.js',
+        'out/main.js',
+        'coverage/lcov.info',
+        '.vite/deps.json',
+        'test-results/a.txt',
+        'apps/android/android/build.gradle',
+        'logs/run.log',
+        'apps/web/assets/app.js.map',
+        'packages/a/tsconfig.tsbuildinfo',
+        'docs/.DS_Store',
+        'release/cindl.apk',
+        'release/Cindl.AppImage',
+      ],
+    }
+    const files = Object.fromEntries(
+      [...refused.credentials, ...refused.output].map((path) => [path, 'x\n']),
+    )
+    const result = scan(t, files)
+    assert.equal(result.code, 1)
+    for (const path of refused.credentials)
+      assert.match(
+        result.output,
+        new RegExp(`${path.replace(/[.]/g, '\\.')}: this kind of file`),
+      )
+    for (const path of refused.output)
+      assert.match(
+        result.output,
+        new RegExp(`${path.replace(/[.]/g, '\\.')}: build output`),
+      )
   })
 
   it('allows the copyright holder only in the licence files and README licence section', (t) => {

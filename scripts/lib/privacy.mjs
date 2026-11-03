@@ -2,9 +2,9 @@
 // repository is public: it holds source and synthetic examples only. Every
 // rule here is deliberately narrow and explained; extending an allowlist is a
 // reviewed change to this file, never an inline exemption.
-import { existsSync, readFileSync, statSync } from 'node:fs'
+import { existsSync, lstatSync, readFileSync, readlinkSync } from 'node:fs'
 import { isIPv6 } from 'node:net'
-import { join } from 'node:path'
+import { isAbsolute, join, normalize } from 'node:path'
 import { listFiles } from './git.mjs'
 
 const KiB = 1024
@@ -29,13 +29,13 @@ export const ALLOWED_FILES = [
   },
   { path: /(^|\/)pnpm-lock\.yaml$/, binary: false, max: 4 * MiB, why: 'lockfiles' },
   {
-    path: /^docs\/handbook\/public\/screenshots\/[^/]+\.(png|webp|jpe?g)$/,
+    path: /^docs\/handbook\/public\/screenshots\/.+\.(png|webp|jpe?g)$/,
     binary: true,
     max: 1 * MiB,
     why: 'reviewed screenshots of synthetic data',
   },
   {
-    path: /^docs\/handbook\/public\/media\/[^/]+\.(webm|mp4|png|webp)$/,
+    path: /^docs\/handbook\/public\/media\/.+\.(webm|mp4|png|webp)$/,
     binary: true,
     max: 8 * MiB,
     why: 'reviewed recordings of synthetic data',
@@ -74,10 +74,10 @@ export const SECRET_FILES = [
 ]
 
 /**
- * Credential formats. Thresholds follow the product's own redactor
- * (packages/hermes-adapter/src/redact.ts): anything Cindl would redact from a
- * log must not appear literally in the repository. Tests assemble synthetic
- * secrets at runtime instead (see packages/hermes-adapter/test/redact.test.ts).
+ * Credential formats, flagged in every file. Thresholds follow the product's
+ * own redactor (packages/hermes-adapter/src/redact.ts). Tests assemble
+ * synthetic secrets at runtime instead (see
+ * packages/hermes-adapter/test/redact.test.ts).
  */
 export const SECRET_PATTERNS = [
   ['PEM private key', /-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY-----/g],
@@ -95,6 +95,46 @@ export const SECRET_PATTERNS = [
   ['Telegram bot token', /\b\d{8,10}:AA[A-Za-z0-9_-]{33}\b/g],
 ]
 
+/**
+ * Credentials as they appear in pasted diagnostics, which the redactor also
+ * removes: WebSocket tickets, Authorization header values, secret query
+ * parameters and secret key/value pairs. A value counts when it has letters
+ * and digits and is not a placeholder. In documents and configuration any
+ * such value of 8 or more characters is flagged. In code, where tests keep
+ * short synthetic vectors and types name these keys, only ticket, header and
+ * query values of 24 or more characters are.
+ */
+export const DIAGNOSTIC_SECRETS = [
+  {
+    rule: 'WebSocket ticket',
+    pattern: /hermes-gateway-ticket\.([A-Za-z0-9_-]+)/g,
+    code: true,
+  },
+  {
+    rule: 'Authorization header value',
+    pattern: /\b(?:Bearer|Basic|Token)\s+([A-Za-z0-9._~+/=-]+)/g,
+    code: true,
+  },
+  {
+    rule: 'secret in a URL query',
+    pattern:
+      /[?&](?:ticket|token|access_token|refresh_token|code|code_verifier)=([^&#\s'"<>]+)/gi,
+    code: true,
+  },
+  {
+    rule: 'secret key/value pair',
+    pattern:
+      /["']?(?:password|passphrase|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)["']?\s*[:=]\s*["']?([^"'\s,;}<>]+)/gi,
+    code: false,
+  },
+]
+const PLACEHOLDER = /[<>{}$*]|\.\.\.|…|\[redacted\]|^(your|example|placeholder|changeme)/i
+const credentialLike = (value, min) =>
+  value.length >= min &&
+  /[A-Za-z]/.test(value) &&
+  /\d/.test(value) &&
+  !PLACEHOLDER.test(value)
+
 // Documentation and test-only names (RFC 2606, RFC 6761).
 const EXAMPLE_DOMAIN = /(^|\.)(example\.(com|net|org)|example|test|invalid|localhost)$/i
 const LOOPBACK_HOST = /^(localhost|127(?:\.\d{1,3}){3}|\[::1\])$/i
@@ -102,6 +142,9 @@ const FILE_EXTENSION_TLD =
   /\.(png|jpe?g|gif|svg|webp|ico|css|js|mjs|cjs|ts|tsx|json|md|html|woff2?|ttf)$/i
 const ALLOWED_EMAILS = new Set(['git@github.com', 'noreply@github.com'])
 const CODE_FILE = /\.(ts|tsx|js|jsx|mjs|cjs|vue|css|scss|sh)$/
+// Dotted names that are code or workflow expressions, not hosts.
+const EXPRESSION_ROOT =
+  /^(github|env|vars|secrets|steps|needs|matrix|inputs|runner|job|jobs|strategy|window|document|process|self|globalthis|chrome|this|import)\./i
 
 // The Android emulator's fixed virtual network: host loopback alias, DNS and
 // the emulator itself. The same on every emulator; they identify no network.
@@ -159,7 +202,17 @@ function* contentFindings(path, text, { holder, markers }) {
     for (const match of text.matchAll(pattern))
       yield { rule, line: lineOf(text, match.index), value: match[0] }
 
-  for (const match of text.matchAll(/(?<![\w.])((?:\d{1,3}\.){3}\d{1,3})(?!\w|\.\d)/g)) {
+  const code = CODE_FILE.test(path)
+  for (const { rule, pattern, code: inCode } of DIAGNOSTIC_SECRETS) {
+    if (code && !inCode) continue
+    for (const match of text.matchAll(pattern))
+      if (credentialLike(match[1].replace(/[.,]+$/, ''), code ? 24 : 8))
+        yield { rule, line: lineOf(text, match.index), value: match[1] }
+  }
+
+  // A dotted quad right after "word/" is a version (Chrome/138.0.0.0), not an address.
+  const ipv4 = /(?<![\w.])(?<![A-Za-z]\/)((?:\d{1,3}\.){3}\d{1,3})(?!\w|\.\d)/g
+  for (const match of text.matchAll(ipv4)) {
     const address = match[1]
     if (
       address.split('.').every((octet) => Number(octet) <= 255) &&
@@ -199,9 +252,11 @@ function* contentFindings(path, text, { holder, markers }) {
     }
   }
 
+  // Not after a dot (".env.local" is a file name) and not an expression path.
   const hosts =
-    /\b(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(ts\.net|localdomain|local|lan|internal|home\.arpa|home|corp|intranet|private)\b(?![.-]?\w)/gi
+    /(?<![.\w-])(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+(ts\.net|localdomain|local|lan|internal|home\.arpa|home|corp|intranet|private)\b(?![.-]?\w)/gi
   for (const match of text.matchAll(hosts)) {
+    if (EXPRESSION_ROOT.test(match[0])) continue
     const before = text.slice(Math.max(0, match.index - 3), match.index)
     const after = text.slice(
       match.index + match[0].length,
@@ -209,7 +264,7 @@ function* contentFindings(path, text, { holder, markers }) {
     )
     const hostContext =
       before.endsWith('://') || before.endsWith('@') || /^:\d/.test(after)
-    if (match[1].toLowerCase() === 'ts.net' || !CODE_FILE.test(path) || hostContext)
+    if (match[1].toLowerCase() === 'ts.net' || !code || hostContext)
       yield {
         rule: `private hostname (.${match[1]})`,
         line: lineOf(text, match.index),
@@ -289,8 +344,25 @@ export function scanRepository(root, { untracked = false, markers = [] } = {}) {
       problems.push(`${path}: build output, cache or local state must not be committed`)
     if (SECRET_FILES.some((pattern) => pattern.test(path)))
       problems.push(`${path}: this kind of file holds credentials or runtime data`)
-    if (!existsSync(absolute)) continue
-    const stats = statSync(absolute)
+    let stats
+    try {
+      stats = lstatSync(absolute)
+    } catch {
+      continue // deleted in the working tree; nothing to scan
+    }
+    if (stats.isSymbolicLink()) {
+      // Git stores a link's target path as its content: scan that text, never
+      // the file it points at, and reject links that leave the repository.
+      const target = readlinkSync(absolute)
+      if (isAbsolute(target) || normalize(join(path, '..', target)).startsWith('..'))
+        problems.push(`${path}: symbolic link points outside the repository`)
+      scanned++
+      for (const finding of contentFindings(path, target, { holder, markers }))
+        problems.push(
+          `${path}: link target: ${finding.rule}${finding.value ? `: ${mask(finding.value)}` : ''}`,
+        )
+      continue
+    }
     if (!stats.isFile()) continue
     const buffer = readFileSync(absolute)
     const binary = buffer.subarray(0, 8000).includes(0)
