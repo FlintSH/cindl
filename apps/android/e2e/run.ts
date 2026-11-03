@@ -29,6 +29,7 @@ import {
   type TokenStorage,
 } from './keystore.ts'
 import { runExitCode, type StepStatus } from './outcome.ts'
+import { heldControl, inControl } from './screenControl.ts'
 import {
   center,
   commonAncestor,
@@ -226,9 +227,14 @@ function installApk(path: string) {
  * Work, Computer: the synthetic screen (scenario/screen.ts, in the demo app or
  * behind the fake Hermes's /api/display/ws) drawn by the Kotlin painter, read
  * back as a pixel of its desktop; then, in control, a tap that the screen
- * answers with its orange pointer marker where it landed.
+ * answers with its orange pointer marker where it landed. `whileInControl`
+ * runs after that tap, before control is given back.
  */
-async function agentScreen({ note, shot, audit }: StepContext, source: string) {
+async function agentScreen(
+  { note, shot, audit }: StepContext,
+  source: string,
+  whileInControl: () => void = () => undefined,
+) {
   await startOnTalk()
   await openDestination('Work', named('Needs you'))
   const live = await device.reveal(
@@ -251,30 +257,44 @@ async function agentScreen({ note, shot, audit }: StepContext, source: string) {
   note(`the picture of ${source} is drawn: ${JSON.stringify(colour)} at screen (20, 200)`)
 
   // In control, a tap draws the synthetic screen's pointer marker where it landed.
-  await tapRevealed('Take control…', 'Take control')
-  await device.tap('Take control now', 'Take control now')
-  const controlled = await device.reveal(
-    (text) => text.startsWith('The agent’s screen, live. You are in control'),
-    'the screen in control',
-  )
-  const target = screenToDevice(controlled.node.bounds, DEMO_SCREEN, { x: 320, y: 376 })
-  await device.tapAt(target)
-  let marked = device.pixel(target.x, target.y)
-  for (let tries = 0; tries < 20 && !near(marked, MARKER_ORANGE); tries++) {
-    await sleep(500)
-    marked = device.pixel(target.x, target.y)
-  }
-  shot('agent-screen-tap')
-  await audit('Agent screen in control', await device.dump())
-  if (!near(marked, MARKER_ORANGE))
-    throw new Error(
-      `A tap in control did not draw the marker of ${source}: ${JSON.stringify(marked)} at device ${target.x},${target.y}`,
-    )
-  note(`in control, a tap drew the orange marker of ${source} where it landed`)
-  await tapRevealed('Give control back', 'Give control back')
-  await device.reveal(
-    (text) => text.startsWith('The agent’s screen, live. Watching.'),
-    'the screen watched again',
+  await inControl(
+    {
+      takeControl: async () => {
+        await tapRevealed('Take control…', 'Take control')
+        await device.tap('Take control now', 'Take control now')
+      },
+      act: async () => {
+        const controlled = await device.reveal(
+          (text) => text.startsWith('The agent’s screen, live. You are in control'),
+          'the screen in control',
+        )
+        const target = screenToDevice(controlled.node.bounds, DEMO_SCREEN, {
+          x: 320,
+          y: 376,
+        })
+        await device.tapAt(target)
+        let marked = device.pixel(target.x, target.y)
+        for (let tries = 0; tries < 20 && !near(marked, MARKER_ORANGE); tries++) {
+          await sleep(500)
+          marked = device.pixel(target.x, target.y)
+        }
+        shot('agent-screen-tap')
+        await audit('Agent screen in control', await device.dump())
+        if (!near(marked, MARKER_ORANGE))
+          throw new Error(
+            `A tap in control did not draw the marker of ${source}: ${JSON.stringify(marked)} at device ${target.x},${target.y}`,
+          )
+        note(`in control, a tap drew the orange marker of ${source} where it landed`)
+      },
+      giveBack: async () => {
+        await tapRevealed('Give control back', 'Give control back')
+        await device.reveal(
+          (text) => text.startsWith('The agent’s screen, live. Watching.'),
+          'the screen watched again',
+        )
+      },
+    },
+    whileInControl,
   )
 }
 
@@ -951,22 +971,19 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
     async (context) => {
       needsSignIn()
       const viewersBefore = [...hermes.gateway.displayViewers]
-      await agentScreen(context, "the fake Hermes's synthetic screen")
+      const seen: { control?: { passedInput: number } } = {}
+      // Read in control: the fake forgets who held control once it is given back.
+      await agentScreen(context, "the fake Hermes's synthetic screen", () => {
+        seen.control = heldControl(viewersBefore, hermes.gateway.displayViewers)
+      })
       if (
         !hermes.calls.some(
           (call) => call.kind === 'ws' && call.name === '/api/display/ws',
         )
       )
         throw new Error('The app never opened the screen socket (/api/display/ws)')
-      const viewers = [...hermes.gateway.displayViewers].filter(
-        (viewer) => !viewersBefore.includes(viewer),
-      )
-      const held = viewers.find((viewer) => viewer.heldEver)
-      if (!held) throw new Error('No screen view held control on the fake Hermes')
-      if (held.filter.passedInput === 0)
-        throw new Error('No input reached the fake Hermes through its lease gate')
       context.note(
-        `the fake Hermes served /api/display/ws; the view held control and ${held.filter.passedInput} input messages passed its lease gate`,
+        `the fake Hermes served /api/display/ws; the view held control and ${seen.control?.passedInput ?? 0} input messages passed its lease gate`,
       )
     },
   )

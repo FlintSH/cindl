@@ -182,7 +182,10 @@ until the owner decides about those terms.
   - **The agent's screen:** the fake's synthetic screen, served over
     `/api/display/ws`, drawn by the Kotlin painter (a pixel of its desktop
     read back), and in control, a tap that reaches the fake through its lease
-    gate and draws the orange pointer marker where it landed.
+    gate and draws the orange pointer marker where it landed. The fake is
+    asked which view held control before the app gives control back: once the
+    lease returns to the agent, it no longer says
+    (`apps/android/test/e2e-screen.test.ts` runs that order on loopback).
   - **Chat:** a message answered by the fake.
 
   Against a second stand-in whose authorize page can be held open: the app

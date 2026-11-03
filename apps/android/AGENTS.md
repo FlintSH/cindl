@@ -66,6 +66,8 @@ Working here:
   outcome in `e2e/outcome.ts`, where a blocked step fails the job, and the
   token-storage evidence in `e2e/keystore.ts`, which searches every file of
   the app's storage and the device log for the tokens the fake issued and
-  keeps facts, never a value) are unit-tested in `test/e2e.test.ts`. Use
+  keeps facts, never a value) are unit-tested in `test/e2e.test.ts`; the
+  in-control order of `e2e/screenControl.ts` (check, then give control back)
+  runs on loopback against the fake Hermes in `test/e2e-screen.test.ts`. Use
   accessibility labels as selectors, so a renamed label breaks a test rather
   than TalkBack silently.
