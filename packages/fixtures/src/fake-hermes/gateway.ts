@@ -431,7 +431,8 @@ export class FakeGateway {
   /**
    * An app-level prompt (empty session_id, like display.install.sudo): registered for
    * every connection's `session.events.since {session_id: ""}` but written only to `to`,
-   * the connection that started the operation (server_requests.py:166-188). Without `to`
+   * the connection that started the operation (server_requests.py:168-190;
+   * server.py:711-714 sends a frame without a session to the current transport). Without `to`
    * another surface started it and no connection here receives the frame.
    */
   appRequest(method: string, params: Json, to?: FakeConnection): Promise<Json | null> {

@@ -119,7 +119,7 @@ export const MemoryResponse = z.object({
 export type MemoryResponse = z.infer<typeof MemoryResponse>
 
 /**
- * GET /api/learning/graph (agent/learning_graph.py:218-256): only the `memory`
+ * GET /api/learning/graph (agent/learning_graph.py:218-255): only the `memory`
  * cards are read; the skill graph is ignored. `body` is truncated to 1200
  * characters by Hermes; `fingerprint` is sha256(entry.strip())[:12].
  */

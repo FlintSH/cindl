@@ -10,7 +10,8 @@
  * Legacy sidecar (desktop backend contract 8) JSON-RPC methods: what a
  * standalone `hermes serve` offers on /api/ws (tui_gateway/ws.py:357-379).
  * Approvals and questions are answered with `request.answer` only; the
- * sidecar's `approval.respond` (oldest-first, with an `all` flag) is not used.
+ * sidecar's `approval.respond` (the oldest pending approval unless given a
+ * `request_id`, with an `all` flag) is not used.
  */
 export const sidecarMethods = [
   'client.capabilities',

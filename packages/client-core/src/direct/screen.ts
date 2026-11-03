@@ -11,7 +11,10 @@ import { createRfbClient, keysymForKey, type RfbClient, type RfbRegion } from '.
 /** How long `display.frame` waits for a change, and `display.watch` for the RFB handshake. */
 const FRAME_WAIT_MS = 2_000
 const READY_TIMEOUT_MS = 10_000
-/** A deliberate close: Hermes hands control back if this viewer held it (display.py:234-240). */
+/**
+ * A deliberate close. Hermes treats 1000 and 1001 from the viewer as closing
+ * the window and hands control back if it held it (display.py:38, 192-196, 234-240).
+ */
 const CLOSE_DONE = 1000
 /** Any other close keeps a lease this viewer holds, as a dropped link does (display.py:234-240). */
 const CLOSE_KEEP_LEASE = 4100

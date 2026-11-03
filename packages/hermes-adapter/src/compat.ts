@@ -10,7 +10,7 @@ import { HERMES_BASELINE } from '@cindl/contracts'
 export const GATEWAY_SUBPROTOCOL = 'hermes-gateway-v1'
 export const ticketSubprotocol = (ticket: string) => `hermes-gateway-ticket.${ticket}`
 
-/** WebSocket paths on `hermes serve` (hermes_cli/web_routers/chat_ws.py:702, display.py:73). */
+/** WebSocket paths on `hermes serve` (hermes_cli/web_routers/chat_ws.py:702, display.py:75). */
 export const wsPaths = { gateway: '/api/ws', display: '/api/display/ws' } as const
 
 /**

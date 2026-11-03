@@ -460,7 +460,7 @@ export async function startFakeHermes(
     if (method === 'GET' && path === '/api/auth/me')
       return { ...FIXTURE_OWNER, user_id: session.userId, expires_at: session.expiresAt }
     if (method === 'POST' && path === '/api/auth/ws-ticket') {
-      // routes.py:556-571: needs a gated session; loopback mode has none.
+      // routes.py:556-564: needs a gated session; loopback mode has none.
       if (mode === 'loopback') throw detail(401, 'Unauthorized')
       return {
         ticket: auth.mintTicket({ userId: session.userId, provider: session.provider }),

@@ -23,7 +23,8 @@ Machine-readable sources in this repository:
 ## Deployment modes
 
 `hermes dashboard` and `hermes serve` run the same FastAPI app. Its auth mode
-is fixed at bind time (`hermes_cli/web_server_boundary.py:106-148`):
+is fixed at bind time (`hermes_cli/web_server.py:916-945`, with the rules in
+`web_server_boundary.py:106-148`):
 
 | Mode     | When                                                            | Credentials                                                                                                | Cindl                                                                                                                                 |
 | -------- | --------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
@@ -45,7 +46,7 @@ the browser.
 | `GET /api/auth/providers`                  | public  | `providers[{name, display_name, supports_password}]`                       | `dashboard_auth/routes.py:203-213`         |
 | `GET /api/auth/me`                         | session | `{user_id, provider, display_name, expires_at}` (e-mail dropped)           | `routes.py:524-553`                        |
 | `POST /api/auth/ws-ticket`                 | session | `{ticket, ttl_seconds: 30}`, single use                                    | `routes.py:556-564`, `ws_tickets.py:20-64` |
-| `GET /auth/native/authorize`               | public  | 302 to the loopback redirect with `code` and `state`                       | `routes.py:242-335`                        |
+| `GET /auth/native/authorize`               | public  | 302 to the loopback redirect with `code` and `state`                       | `routes.py:242-276, 289-336`               |
 | `POST /auth/native/token`                  | public  | `{access_token, refresh_token, token_type, expires_at, provider, user_id}` | `routes.py:111-117, 574-591`               |
 | `POST /auth/native/refresh`                | public  | same token set, rotated                                                    | `routes.py:594-617`                        |
 | `GET /api/sessions/{id}/mutation-snapshot` | session | `{session_id, exists, runtime_revision, runtime_generation}`               | `web_routers/sessions.py:586-598`          |
@@ -79,7 +80,7 @@ bearer to public endpoints.
   pending per client IP and 256 overall (`native_flow.py:28-33`).
 - `POST /auth/native/token {code, code_verifier}`: the code is removed before
   the PKCE check, so a wrong verifier burns it; every failure is a generic 400
-  (`native_flow.py:140-152`, `routes.py:574-591`).
+  (`native_flow.py:145-158`, `routes.py:574-591`).
 - `POST /auth/native/refresh {refresh_token, provider?}`: 401
   `{error: "session_expired"}` when every provider rejects the token, 503 when
   one is unreachable (`routes.py:594-617`). Cindl rotates once per expiry,
@@ -105,11 +106,13 @@ bearer to public endpoints.
 3. Hermes checks the credential, then Host and Origin, all before accepting
    the upgrade (`web_routers/chat_ws.py:161-173`). An absent Origin, or a
    non-http(s) one such as `app://`, is trusted; an http(s) Origin must name
-   the bound host or the `public_url` host (`web_server_boundary.py:192-218`).
+   a host the listener accepts: the bound host (any loopback alias on a
+   loopback bind), a `public_url` host, or any host on a 0.0.0.0 or :: bind
+   (`web_server_boundary.py:79-103, 192-218`).
    A refusal at this stage is a close before accept, which uvicorn delivers as
    an opaque **HTTP 403**: a bad, used or expired ticket and a refused Origin
    look the same to the client (the display route documents this,
-   `web_routers/display.py:73-81`). Cindl retries with a fresh ticket and
+   `web_routers/display.py:77-84`). Cindl retries with a fresh ticket and
    backoff and, after repeated refusals, names Host/Origin as the likely cause.
 
 ### Handshake
@@ -123,7 +126,7 @@ session_authority?}}}` (`tui_gateway/ws.py:548-554`).
   matters when no attached client made it: Hermes then sends nothing and an
   approval is withdrawn at once (`server_requests.py:30-34, 156-161`;
   `session_transports.py:58-67`; `server.py:849-859`). The result lists every server-request method of the
-  build and `declines_not_shown: true` (`methods_voice.py:521-538`).
+  build and `declines_not_shown: true` (`methods_voice.py:521-539`).
 - `session_authority: true` appears only when a session authority is attached.
   The gateway attaches one when it hosts the dashboard listener or redeems a
   local ticket (`gateway/run_api.py:63-71, 366`); a standalone `hermes serve`
@@ -145,8 +148,8 @@ session_authority?}}}` (`tui_gateway/ws.py:548-554`).
   requests and `clarify.lock` skip it (`ws.py:107-115, 502-504`):
   `request.answer`, which Cindl answers with, waits its turn.
 - Unknown params keys answer JSON-RPC error **4000** ("out of sync");
-  unknown methods **-32601** (`tui_gateway/contracts/registry.py:89-118`,
-  `ws.py:368-385`). Cindl treats either for a method on its allowlist as a
+  unknown methods **-32601** (`tui_gateway/rpc_dispatch.py:22-31`,
+  `contracts/registry.py:89-118`). Cindl treats either for a method on its allowlist as a
   version mismatch and marks the link `incompatible`.
 - Heartbeat: Cindl sends `ping` (on the contract, `{pong: true}`) every 15 s
   and treats 45 s without any inbound frame as a dead socket. Hermes also
@@ -164,20 +167,22 @@ session_authority?}}}` (`tui_gateway/ws.py:548-554`).
 (`session.history`, `session.steer`, `process.list`, ...). Anything off the
 allowlist is refused before it reaches the wire, including every
 `connectors.*` call and both `approval.respond` verbs: the sidecar's resolves
-the oldest pending approval and takes an `all` flag (`methods_prompt.py:1325-1340`),
+the approval a `request_id` names, else the oldest pending one, and takes an `all`
+flag (`methods_prompt.py:1325-1339`, `tools/approval.py:142-160`),
 and the canonical one is keyed by a `prompt_id` Cindl does not use (see
 [Answering](#answering)).
 
 ## Sessions
 
 - A stored session id (`YYYYMMDD_HHMMSS_<6 hex>`) is durable; a runtime id
-  (8 hex) names a live agent in one process (`hermes_state_ids.py:1-6`,
-  `methods_session.py:67`). Events carry runtime ids; REST takes stored ids.
+  (8 hex) names a live agent in one process (`hermes_state_ids.py:53-62`,
+  `methods_session.py:65-67`). Events carry runtime ids; REST takes stored ids.
 - `session.create {title?, close_on_disconnect: false, idempotency_key?}`
   returns both ids. The stored row appears with the first prompt.
   `close_on_disconnect` defaults to false; detached sessions are reaped after
   `dashboard.ws_orphan_reap_grace_s` (20 s) unless a client re-attaches
-  (`config_defaults.py:1036-1041`).
+  (`config_defaults.py:1034-1041`; a detached turn that is still running is
+  interrupted only once it has been idle for 600 s).
 - `session.resume {session_id: <stored id>}` re-attaches a live session to the
   calling socket, alongside other clients, or builds a new runtime session
   (`methods_session.py:868-891, 1049-1082`). It returns the transcript, live
@@ -214,7 +219,7 @@ transcript when the epoch changed or the window was truncated.
 Hermes sends a session's request to every client attached to the session,
 whether or not it advertised `server_requests` (`transport.py:284-325`); the
 **first answer wins** and settles it for all. A reply for an id that is no longer open is dropped
-(`server_requests.py:1-35, 191-227, 281-317`). Unanswered requests are listed
+(`server_requests.py:1-35, 191-248, 281-317`). Unanswered requests are listed
 again, with the same `srq-<12 hex>` id, in the `open_requests` of
 `session.resume` and `session.events.since` (`server_requests.py:71,
 365-369`; `server.py:797-810`). Hermes withdraws a request with
@@ -319,7 +324,7 @@ would reach no one; repeated stalls back off like failed connects.
 Cindl never sends an empty `{}` result. Hermes reads it as cancel-all: locked
 answers stay, the rest are unanswered, and the outcome is `cancelled`
 (`tools/clarify_batch.py:15-31`; the owner path does the same,
-`gateway/session_clarify_batch.py:32-43`). The model then gets
+`gateway/session_clarify_batch.py:32-42`). The model then gets
 `{responses: [{status: "unanswered", user_response: null}, ...], outcome:
 "cancelled"}` with no notice (`server.py:1112-1121`,
 `tools/clarify_tool.py:87-108`), the same result an interrupt or a withdrawn
@@ -350,7 +355,7 @@ Hermes reclaims a session (`session.reclaimed`,
 
 | Kind                                                                                              | Cindl's reply                                                                                               | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `preview.act`, `preview.read`, `terminal.read`, `theme.apply`, `window.read`, `tour`              | error **4404** ("not shown"), only on a sidecar socket that reports `declines_not_shown`; otherwise nothing | Window-owned bridges. On the sidecar 4404 is one client's vote: Hermes settles a session's request only when every answering client attached to that session declined, then hands the tool `{"success": false, "error": "No Hermes Desktop window is showing this chat..."}`, which it returns to the model as a refusal (`server_requests.py:22-26, 117-121, 254-278`; `agent_callbacks.py:145-150, 169-176`; `server.py:1155-1161, 1213-1226`; `theme_bridge.py:21-23`). The session owner settles on any error reply, 4404 included (`gateway/session_server_requests.py:74-93`), and a canonical socket still reports `declines_not_shown` through the sidecar handler (`ws_legacy_fallback.py:53-63`, `methods_voice.py:539`), so Cindl never declines there. An app-level request (empty `session_id`) has no attached clients, so no vote ever settles it (`server_requests.py:264-271`); Cindl sends nothing and shows it read-only in Work. |
+| `preview.act`, `preview.read`, `terminal.read`, `theme.apply`, `window.read`, `tour`              | error **4404** ("not shown"), only on a sidecar socket that reports `declines_not_shown`; otherwise nothing | Window-owned bridges. On the sidecar 4404 is one client's vote: Hermes settles a session's request only when every answering client attached to that session declined, then hands the tool `{"success": false, "error": "No Hermes Desktop window is showing this chat..."}`, which it returns to the model as a refusal (`server_requests.py:24-28, 117-121, 254-279`; `agent_callbacks.py:145-150, 169-176`; `server.py:1155-1161, 1213-1226`; `theme_bridge.py:21-23`). The session owner settles on any error reply, 4404 included (`gateway/session_server_requests.py:74-93`), and a canonical socket still reports `declines_not_shown` through the sidecar handler (`ws_legacy_fallback.py:53-63`, `methods_voice.py:539`), so Cindl never declines there. An app-level request (empty `session_id`) has no attached clients, so no vote ever settles it (`server_requests.py:264-271`); Cindl sends nothing and shows it read-only in Work. |
 | `sudo`, `display.install.sudo`, `secret`, `vault.unlock_prompt`, `vault.save_login`, `vault.code` | **nothing**, ever                                                                                           | These read the reply's `value` as the password, code or secret (`server.py:1092-1097`). Once every client attached to the session declined with 4404, Hermes settles a session's request, these included, with the non-empty "not shown" string (`server_requests.py:254-278`): `secret_cb` would store it as the secret (`agent_callbacks.py:251-254`), and sudo, `vault.unlock_prompt` and `vault.code` would try it as the password or code (`agent_callbacks.py:256-266, 278-279`); `vault.save_login` discards it because it is not JSON (`agent_callbacks.py:268-275`). `display.install.sudo` is app-level (`methods_display.py:202-206`), which no vote settles. An error reply or an empty value settles the request as skipped for every client (`server_requests.py:301-303`; `gateway/session_server_requests.py:84-90`). It stays open for the terminal or the desktop app, or Hermes's own deadline ends it.                           |
 | `theme.pick`, `setup_beat`, unknown kinds                                                         | **nothing**                                                                                                 | Any reply would settle the request before the client that can answer it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
@@ -371,7 +376,8 @@ Unknown types are ignored, never guessed.
 
 Both are whole-file rewrites with no server-side compare-and-swap and no
 backup. Skill names are looked up by name, never by path, with a 100,000
-character limit (`tools/skill_manager_tool.py:41-63`). SOUL.md writes are
+character limit (`web_routers/skills.py:398-413`,
+`tools/skill_manager_tool.py:110, 183-186, 240`). SOUL.md writes are
 atomic (temp file and replace) and the profile name is validated and must
 exist (`web_server_profiles.py:190-199`). Cindl re-reads and compares the
 SHA-256 of the version the owner reviewed before writing, which narrows but
@@ -414,12 +420,12 @@ separate surface (`web_routers/status.py:693-743`,
   refuses with "memory node id is stale" when no entry has that text any more
   (`learning_mutations.py:52-112`). The id is therefore a per-entry
   compare-and-swap version.
-- Ids without a fingerprint resolve by position (`learning_mutations.py:63-77`);
+- Ids without a fingerprint resolve by position (`learning_mutations.py:72-80`);
   ids outside the `memory:` namespace address skills on the same routes
   (`learning_mutations.py:127-133, 182-207`). Cindl refuses both.
 - A replacement may not push the file past its character limit: MEMORY.md
   2200, USER.md 1375 by default (`tools/memory_tool.py:47-60`,
-  `learning_mutations.py:101-109`). Empty text is refused; delete instead.
+  `learning_mutations.py:108-113`). Empty text is refused; delete instead.
 - There is no undo. An edit or delete rewrites the file atomically and keeps
   no copy (`tools/memory_tool_store.py:338-367, 676-683`). A `.bak.<ts>`
   snapshot is written only when Hermes refuses to touch a file that drifted
@@ -427,7 +433,9 @@ separate surface (`web_routers/status.py:693-743`,
   host path, which Cindl never shows (`memory_tool_store.py:49-60, 685-700`).
 - The dashboard edit path does not run the memory tool's injection scan, and
   memory enters the system prompt as a snapshot at session start, so edits
-  apply to new sessions (`tools/memory_tool.py:1-5`).
+  apply to new sessions (`tools/memory_tool.py:2-4`; the tool scans only its own
+  add and replace, `memory_tool_store.py:28-31, 374, 402`, and
+  `learning_mutations.py:99-114` does not).
 - Wrong profile: 400 for an invalid name, 404 for an unknown one
   (`web_server_profiles.py:190-199`).
 
@@ -507,7 +515,7 @@ The direct client shows the screen (ADR 0012) in
 - `display.input` sends pointer and key events only while this connection's
   viewer holds the lease, which is what `leaseHeldByThisDevice` reports.
   Hermes's `RfbClientFilter` drops keyboard, pointer and clipboard messages
-  from every other viewer as well (`tools/bot_desktop/rfb_filter.py:42-120`).
+  from every other viewer as well (`tools/bot_desktop/rfb_filter.py:20, 76-77`).
 - `display.acquireControl` names the watching viewer's id. After a reconnect
   that id belongs to a closed connection, so input waits; taking control opens
   the view again under a fresh id and then acquires the lease for it.
