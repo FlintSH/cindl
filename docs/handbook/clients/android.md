@@ -492,8 +492,18 @@ Hermes server, Chrome's Custom Tab, and a phone.
     **Discard the draft**). Editing afresh, saving or discarding that fresh
     text leaves it; if the fresh text must be kept too, it is kept beside it
     and waits under **Unsaved drafts**. Drafts for entries Hermes no longer
-    lists stay there too, to copy or discard; TalkBack names each discard
-    button by its draft.
+    lists stay there too, to copy or discard. TalkBack names each discard
+    button by its draft's first line, numbered among drafts that share one
+    ("Discard draft 2 of 3: …"). A draft kept beside a listed entry's own
+    draft says "Written for agent note 2." while that entry is listed.
+  - An entry's name in labels (Open, Close, the lock's "now here") is
+    Hermes's title; when that is empty (a first line of only heading marks),
+    its first line with words; when it has none, its place ("agent note 3"),
+    so no two entries share a name (web parity, e395d03 and cb9caeb).
+  - Discarding a draft Hermes refused as stale clears the refusal; saving
+    the same stale text again is refused again. On Android the refusal could
+    not outlive a discard anyway (Edit clears it), unlike the web's disabled
+    "Confirm and save".
   - When a locked editor's entry has moved, the lock says where the text you
     were editing goes when you close it: back with the entry, back to the
     entry it was written for, or under **Unsaved drafts**.
