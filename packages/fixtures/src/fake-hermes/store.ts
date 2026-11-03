@@ -162,10 +162,27 @@ export class FixtureStore {
     },
   ]
 
+  /**
+   * The profile `hermes -p <name> serve` runs as. An omitted, empty or
+   * `current` profile means this one, never `default`
+   * (web_server_profiles.py:31-34).
+   */
+  served = 'default'
+
   profile(name: string | undefined): FixtureProfile {
     return this.profiles.get(
-      name && name !== 'current' ? name : 'default',
+      name && name !== 'current' ? name : this.served,
     ) as FixtureProfile
+  }
+
+  /** Profiles that profile-scoped requests named other than the served one. */
+  readonly otherProfileScopes: string[] = []
+
+  /** Test control: serve another profile, creating it when it is new. */
+  serveAs(name: string): FixtureProfile {
+    if (!this.profiles.has(name)) this.profiles.set(name, new FixtureProfile(name))
+    this.served = name
+    return this.profile(name)
   }
 
   /** `YYYYMMDD_HHMMSS_<6 hex>` like hermes_state_ids.py. */

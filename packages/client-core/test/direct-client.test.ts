@@ -137,7 +137,10 @@ describe('direct client: sign-in, capabilities and conversations', () => {
     const caps = state.capabilities
     expect(caps['chat.stream']?.state).toBe('available')
     expect(caps['sessions.replay']?.state).toBe('limited')
-    expect(caps['soul.write']?.state).toBe('limited')
+    // SOUL.md waits for display.status to name the profile Hermes serves.
+    await h.waitFor(
+      () => h.store.getState().capabilities['soul.write']?.state === 'limited',
+    )
     // Memory entries need the learning routes, which the read-only probe found.
     await h.waitFor(
       () => h.store.getState().capabilities['memory.text']?.state === 'available',
@@ -1252,6 +1255,7 @@ describe('direct client: prompts', () => {
 describe('direct client: owner edits, routines, connections, screen', () => {
   it('writes SOUL.md only when the reviewed version still matches', async () => {
     const h = await harness()
+    await h.waitFor(() => h.store.getState().capabilities['soul.read'] !== undefined)
     const read = await h.client.call('soul.read', {})
     expect(read.version).toBe(sha256Hex(read.content))
     h.fake.store.profile('default').soul = 'Changed on the host (fixture)\n'
@@ -1367,6 +1371,78 @@ describe('direct client: owner edits, routines, connections, screen', () => {
     expect(returned).toMatchObject({ controller: 'agent', leaseHeldByThisDevice: false })
     expect(h.fake.calls.some((c) => /display\.(start|stop|install)/.test(c.name))).toBe(
       false,
+    )
+  })
+})
+
+describe('direct client: the profile Hermes serves', () => {
+  const soulKnown = (h: Harness) =>
+    h.waitFor(() => h.store.getState().capabilities['soul.read'] !== undefined)
+
+  it('edits the served profile, never `default`, under hermes -p <name> serve', async () => {
+    const fake = await fakeHermes()
+    const studio = fake.store.serveAs('studio')
+    studio.soul = '# SOUL (fixture)\n\nStudio voice (fixture).\n'
+    studio.memory.memory = ['Studio-only note (fixture).']
+    const fallback = fake.store.profile('default')
+    const defaultSoul = fallback.soul
+    const defaultMemory = [...fallback.memory.memory]
+    const h = await harness({ fake })
+    await soulKnown(h)
+    await h.waitFor(
+      () => h.store.getState().capabilities['memory.text']?.state === 'available',
+    )
+
+    const soul = await h.client.call('soul.read', {})
+    expect(soul.content).toContain('Studio voice')
+    await h.client.call('soul.write', {
+      content: 'Studio, edited (fixture)\n',
+      expectedVersion: soul.version,
+      confirm: true,
+    })
+    expect(studio.soul).toBe('Studio, edited (fixture)\n')
+
+    const entries = await h.client.call('memory.entries', {})
+    expect(entries.map((e) => e.preview)).toEqual([
+      'Studio-only note (fixture).',
+      ...studio.memory.profile,
+    ])
+    const [first] = entries
+    await h.client.call('memory.delete', { id: first?.id ?? '', confirm: true })
+    expect(studio.memory.memory).toEqual([])
+    // The default profile was never read or touched, and no request named a
+    // profile Hermes does not serve (that loads its secrets upstream).
+    expect(fallback.soul).toBe(defaultSoul)
+    expect(fallback.memory.memory).toEqual(defaultMemory)
+    expect(fake.store.otherProfileScopes).toEqual([])
+  })
+
+  it('refuses SOUL.md when Hermes serves a home no profile name addresses', async () => {
+    const fake = await fakeHermes()
+    fake.store.serveAs('custom')
+    const h = await harness({ fake })
+    await soulKnown(h)
+    const capability = h.store.getState().capabilities['soul.write']
+    expect(capability?.state).toBe('unavailable')
+    expect(capability?.reason).toMatch(/no profile name addresses/)
+    expect(await codeOf(h.client.call('soul.read', {}))).toBe('unavailable')
+    expect(h.fake.calls.some((c) => /\/soul$/.test(c.name))).toBe(false)
+  })
+
+  it('uses a profile the platform pinned for SOUL.md and memory entries', async () => {
+    const fake = await fakeHermes()
+    const studio = fake.store.profile('studio')
+    studio.memory.memory = ['Pinned-profile note (fixture).']
+    const h = await harness({ fake, deps: { profile: 'studio' } })
+    await soulKnown(h)
+    await h.waitFor(
+      () => h.store.getState().capabilities['memory.text']?.state === 'available',
+    )
+    expect((await h.client.call('memory.entries', {}))[0]?.preview).toBe(
+      'Pinned-profile note (fixture).',
+    )
+    expect((await h.client.call('soul.read', {})).content).toContain(
+      'studio fixture agent',
     )
   })
 })

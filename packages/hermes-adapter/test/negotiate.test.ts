@@ -69,6 +69,7 @@ describe('capability negotiation', () => {
       signedIn: true,
       handshake: sidecar,
       display: running,
+      soulProfile: 'named',
     })
     expect(state(map, 'chat.stream')).toBe('available')
     expect(state(map, 'sessions.replay')).toBe('limited')
@@ -97,6 +98,18 @@ describe('capability negotiation', () => {
       display: { ...running, running: false },
     })
     expect(stopped['computer.view']?.state).toBe('unavailable')
+  })
+
+  it('offers SOUL.md only once the profile it names is known', () => {
+    const online = { checkedAt, signedIn: true, handshake: sidecar, display: running }
+    expect(negotiateCapabilities(online)['soul.read']).toBeUndefined()
+    expect(negotiateCapabilities(online)['soul.write']).toBeUndefined()
+    const unnamed = negotiateCapabilities({ ...online, soulProfile: 'unnamed' })
+    expect(unnamed['soul.write']?.state).toBe('unavailable')
+    expect(unnamed['soul.write']?.reason).toMatch(/no profile name addresses/)
+    expect(
+      negotiateCapabilities({ ...online, soulProfile: 'named' })['soul.read']?.state,
+    ).toBe('available')
   })
 
   it('reports approvals unavailable when Hermes does not offer them on this connection', () => {

@@ -227,11 +227,23 @@ export async function startFakeHermes(
   // --- profile scoping (web_server_profiles.py:190-199, 277-307) ------------
 
   const scopedProfile = (name: string | null | undefined): FixtureProfile => {
-    if (!name || name === 'current') return store.profile('default')
+    if (!name || name === 'current') return store.profile(undefined)
     if (!validProfileName(name))
       throw detail(400, `Invalid profile name: ${JSON.stringify(name)}`)
     const profile = store.profiles.get(name)
     if (!profile) throw detail(404, `Profile '${name}' does not exist.`)
+    return profile
+  }
+
+  /**
+   * `?profile=` or a body `profile` on a profile-scoped route (`_profile_scope`).
+   * Naming a profile other than the served one switches Hermes to
+   * multi-profile hosting and loads that profile's secrets
+   * (web_server_profiles.py:296-311), so the fake records it.
+   */
+  const profileScope = (name: string | null | undefined): FixtureProfile => {
+    const profile = scopedProfile(name)
+    if (profile.name !== store.served) store.otherProfileScopes.push(profile.name)
     return profile
   }
 
@@ -514,7 +526,7 @@ export async function startFakeHermes(
     }
 
     if (path === '/api/skills' && method === 'GET') {
-      const profile = scopedProfile(url.searchParams.get('profile'))
+      const profile = profileScope(url.searchParams.get('profile'))
       return [...profile.skills].map(([name, skill]) => ({
         name,
         description: skill.description,
@@ -530,7 +542,7 @@ export async function startFakeHermes(
         throw new HttpError(422, {
           detail: [{ type: 'missing', loc: ['query', 'name'] }],
         })
-      const skill = scopedProfile(url.searchParams.get('profile')).skills.get(name)
+      const skill = profileScope(url.searchParams.get('profile')).skills.get(name)
       if (!skill) throw detail(404, `Skill '${name}' not found.`)
       return {
         name,
@@ -541,7 +553,7 @@ export async function startFakeHermes(
     if (path === '/api/skills/content' && method === 'PUT') {
       const body = await json()
       required(body, 'name', 'content')
-      const profile = scopedProfile(
+      const profile = profileScope(
         typeof body.profile === 'string' ? body.profile : url.searchParams.get('profile'),
       )
       const skill = profile.skills.get(String(body.name))
@@ -571,7 +583,7 @@ export async function startFakeHermes(
       }
     }
     if (path === '/api/memory' && method === 'GET') {
-      const profile = scopedProfile(url.searchParams.get('profile'))
+      const profile = profileScope(url.searchParams.get('profile'))
       return {
         active: '',
         providers: [
@@ -591,7 +603,7 @@ export async function startFakeHermes(
     if (path.startsWith('/api/learning/') && options.learningRoutes === false)
       throw detail(404, 'Not Found')
     if (path === '/api/learning/graph' && method === 'GET') {
-      const profile = scopedProfile(url.searchParams.get('profile'))
+      const profile = profileScope(url.searchParams.get('profile'))
       const memory = cards(profile).map(({ source, entry }, index) => {
         const first =
           entry
@@ -632,7 +644,7 @@ export async function startFakeHermes(
           throw new HttpError(422, {
             detail: [{ type: 'missing', loc: ['query', 'id'] }],
           })
-        const profile = scopedProfile(url.searchParams.get('profile'))
+        const profile = profileScope(url.searchParams.get('profile'))
         return learningMutation(
           () => {
             if (!id.startsWith('memory:')) {
@@ -657,7 +669,7 @@ export async function startFakeHermes(
       if (method === 'PUT' || method === 'DELETE') {
         const body = await json()
         required(body, ...(method === 'PUT' ? ['id', 'content'] : ['id']))
-        const profile = scopedProfile(
+        const profile = profileScope(
           typeof body.profile === 'string'
             ? body.profile
             : url.searchParams.get('profile'),

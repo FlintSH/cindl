@@ -100,7 +100,11 @@ export interface DirectClientDeps {
   crypto?: CryptoProvider
   /** Native only: the system-browser + loopback leg of sign-in. */
   authorizer?: LoopbackAuthorizer
-  /** Hermes profile for SOUL.md. Default `default`. */
+  /**
+   * A Hermes profile the platform pins for SOUL.md and memory entries.
+   * Without one Cindl uses the profile Hermes serves: no `profile` on the
+   * learning routes, and for SOUL.md the name display.status reports.
+   */
   profile?: string
   /** Redacted diagnostics. */
   log?: DiagnosticSink
@@ -162,7 +166,13 @@ class DirectHermesClient implements DirectClient {
   /** The live picture; undefined when the platform has no binary WebSocket. */
   readonly #screen: LiveScreen | undefined
   readonly #listeners = new Set<(event: CindlEvent) => void>()
-  readonly #profile: string
+  /** The platform's pinned profile, if any. */
+  readonly #configuredProfile: string | undefined
+  /**
+   * The served profile's name from display.status: undefined until known,
+   * null when Hermes serves a home no profile name addresses.
+   */
+  #servedProfile: string | null | undefined
   readonly #requestSyncMs: number
   #origin: string | undefined
   #storage: DirectStorage | undefined
@@ -221,7 +231,8 @@ class DirectHermesClient implements DirectClient {
       auth: deps.auth,
     }
     this.#normalizer = this.#newNormalizer()
-    this.#profile = ProfileName.parse(deps.profile ?? 'default')
+    this.#configuredProfile =
+      deps.profile === undefined ? undefined : ProfileName.parse(deps.profile)
     this.#requestSyncMs = deps.connection?.requestSyncMs ?? 15_000
     this.#screen = deps.displaySocketFactory
       ? new LiveScreen({
@@ -494,6 +505,11 @@ class DirectHermesClient implements DirectClient {
       ...(online && this.#display.status ? { display: this.#display.status } : {}),
       ...(this.#memoryProbe ? { memory: this.#memoryProbe } : {}),
       liveView: this.#screen !== undefined,
+      ...(this.#configuredProfile || this.#servedProfile
+        ? { soulProfile: 'named' as const }
+        : this.#servedProfile === null
+          ? { soulProfile: 'unnamed' as const }
+          : {}),
     })
     const json = JSON.stringify(map)
     if (json === this.#capabilitiesJson) return
@@ -1330,6 +1346,25 @@ class DirectHermesClient implements DirectClient {
     }
     this.#display.lease = status.lease
     this.#display.profile = sha256Hex(status.profile_key)
+    // The only answer that names the served profile; `custom` names none.
+    const served = status.profile
+    this.#servedProfile =
+      served && served !== 'custom' && ProfileName.safeParse(served).success
+        ? served
+        : null
+  }
+
+  /** The profile SOUL.md routes name: the pinned one, else the one Hermes serves. */
+  #soulProfile(): string {
+    const name = this.#configuredProfile ?? this.#servedProfile
+    if (!name)
+      throw new CindlError(
+        'unavailable',
+        this.#servedProfile === null
+          ? 'Hermes serves a home that no profile name addresses, so Cindl cannot name its SOUL.md.'
+          : 'Hermes has not said which profile it serves yet.',
+      )
+    return name
   }
 
   /**
@@ -1405,7 +1440,7 @@ class DirectHermesClient implements DirectClient {
   async #probeMemory(): Promise<void> {
     if (this.#memoryProbe || !this.#signedIn) return
     try {
-      await this.#restOrThrow().learningGraph(this.#profile)
+      await this.#restOrThrow().learningGraph(this.#configuredProfile)
       this.#memoryProbe = 'responds'
     } catch (error) {
       if (asCindlError(error, 'learning graph').code !== 'not-found') return
@@ -1760,9 +1795,9 @@ class DirectHermesClient implements DirectClient {
       await this.#restOrThrow().writeSkillContent(name, content)
       return this.#readSkill(name)
     },
-    'soul.read': ({ profile }) => this.#readSoul(profile ?? this.#profile),
+    'soul.read': ({ profile }) => this.#readSoul(profile ?? this.#soulProfile()),
     'soul.write': async ({ profile, content, expectedVersion }) => {
-      const name = profile ?? this.#profile
+      const name = profile ?? this.#soulProfile()
       const current = await this.#readSoul(name)
       if (current.version !== expectedVersion)
         throw new CindlError(
@@ -1773,7 +1808,10 @@ class DirectHermesClient implements DirectClient {
       return this.#readSoul(name)
     },
     'memory.overview': async () =>
-      memoryOverviewFrom(await this.#restOrThrow().memory(), this.#now()),
+      memoryOverviewFrom(
+        await this.#restOrThrow().memory(this.#configuredProfile),
+        this.#now(),
+      ),
     'connections.mcp': async () => {
       const result = wire.parseWire(
         wire.McpServersStatusResult,
@@ -1793,12 +1831,19 @@ class DirectHermesClient implements DirectClient {
     // Gated on memory.text: available only once the learning routes answered.
     // The fingerprint in each id is the entry's version; Hermes refuses a stale
     // one (conflict) and text over its store limit (invalid). No undo.
-    'memory.entries': () => this.#memoryEntries().list(this.#profile),
-    'memory.read': ({ id }) => this.#memoryEntries().read(id, this.#profile),
+    // No profile unless pinned: Hermes then uses the profile it serves.
+    'memory.entries': () => this.#memoryEntries().list(this.#configuredProfile),
+    'memory.read': ({ id }) => this.#memoryEntries().read(id, this.#configuredProfile),
     'memory.write': ({ id, content }) =>
-      this.#memoryEntries().write(id, content, { confirm: true, profile: this.#profile }),
+      this.#memoryEntries().write(id, content, {
+        confirm: true,
+        ...(this.#configuredProfile ? { profile: this.#configuredProfile } : {}),
+      }),
     'memory.delete': ({ id }) =>
-      this.#memoryEntries().delete(id, { confirm: true, profile: this.#profile }),
+      this.#memoryEntries().delete(id, {
+        confirm: true,
+        ...(this.#configuredProfile ? { profile: this.#configuredProfile } : {}),
+      }),
     'display.status': () => this.#readDisplay(),
     // The live picture (ADR 0012). Never starts, stops or installs the screen.
     'display.watch': () => this.#screenOrThrow().watch(),
@@ -1877,6 +1922,7 @@ class DirectHermesClient implements DirectClient {
     this.#deviceLoaded = false
     this.#epoch = 0
     this.#display = { previous: new Set() }
+    this.#servedProfile = undefined
     this.#screen?.close()
     this.#memoryProbe = undefined
     this.#normalizer = this.#newNormalizer()

@@ -1332,7 +1332,8 @@ export class FakeGateway {
   #displaySnapshot(): Json {
     const display = this.#store.display
     return {
-      profile: 'default',
+      // The served profile's name (runtime.py:641-646); `custom` for a home outside profiles/.
+      profile: this.#store.served,
       supported: display.supported,
       installed: display.installed,
       missing: display.installed ? [] : ['Xvnc'],

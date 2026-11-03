@@ -371,6 +371,21 @@ exist (`web_server_profiles.py:190-199`). Cindl re-reads and compares the
 SHA-256 of the version the owner reviewed before writing, which narrows but
 cannot close the race; both capabilities are `limited`.
 
+### Which profile
+
+Hermes serves one profile (`hermes -p <name> serve`); an omitted, empty or
+`current` profile means that one (`web_server_profiles.py:31-34`). A named
+profile is a different thing: `default` under `hermes -p work serve` is
+another profile's home, and naming one on a profile-scoped route also
+switches the process to multi-profile hosting and loads that profile's
+secrets (`web_server_profiles.py:296-311`). So unless the platform pins a
+profile, Cindl sends none on `GET /api/memory` and the learning routes.
+SOUL.md routes need a name in the path; Cindl uses the `profile` that
+`display.status` reports for the served home (`contracts/display.py`,
+`tools/bot_desktop/runtime.py:641-646`). Until that answer arrives,
+`soul.read` and `soul.write` are unknown; a home outside `profiles/` reports
+`custom`, which names nothing, so both are then `unavailable`.
+
 ## Memory
 
 `GET /api/memory` reports sizes and providers only. Individual entries are a
@@ -415,8 +430,9 @@ returns it under its new id, and `memory.delete` removes it (with
 positional ones before anything is sent. A stale id answers `conflict`, text
 over the store's limit `invalid`, and Hermes's own messages, which can hold
 host paths, are never shown. The capability `memory.text` is `available` only
-once a read-only `GET /api/learning/graph` answered (probed once per sign-in);
-a 404 makes it `unsupported`. Cindl never reads memory through `/api/fs/*` or
+once a read-only `GET /api/learning/graph` answered (probed once per sign-in,
+for the served profile unless the platform pinned one); a 404 makes it
+`unsupported`. Cindl never reads memory through `/api/fs/*` or
 any other filesystem route, and never uses `POST /api/memory/reset`.
 
 ## Routines

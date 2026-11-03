@@ -40,5 +40,6 @@ Planned, not built: canonical sessions, steer and process operations.
   the fake's own controls (`beforeHandle`, `afterHandle`, `respondError`,
   `failNext`, `frozen`, `dropConnections`, `appRequest` for app-level prompts,
   `stopScreen`/`startScreen`, `otherProfileDisplay` and `displayViewers` for
-  the screen and its socket, whose
-  input passes the ported `RfbClientFilter`) rather than mocks.
+  the screen and its socket, whose input passes the ported `RfbClientFilter`;
+  `store.serveAs` and `store.otherProfileScopes` for the served profile)
+  rather than mocks.

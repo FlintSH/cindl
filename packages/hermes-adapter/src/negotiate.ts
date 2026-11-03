@@ -38,6 +38,13 @@ export interface NegotiationInput {
   memory?: 'responds' | 'missing'
   /** The platform can open the screen's binary WebSocket (a `BinaryWebSocketFactory`). */
   liveView?: boolean
+  /**
+   * Whether SOUL.md routes, which name a profile in their path, can name the
+   * right one: `named` when the platform configured a profile or
+   * display.status named the profile Hermes serves, `unnamed` when it serves
+   * a home no profile name addresses. Undefined until known.
+   */
+  soulProfile?: 'named' | 'unnamed'
 }
 
 /** Fixed v0.22.5 facts, independent of the connection. */
@@ -111,6 +118,18 @@ export function negotiateCapabilities(input: NegotiationInput): CapabilityMap {
   restGate('skills.write', 'PUT /api/skills/content', noCas)
   restGate('soul.read', 'GET /api/profiles/{name}/soul')
   restGate('soul.write', 'PUT /api/profiles/{name}/soul', noCas)
+  // A guessed name such as `default` would read and replace another
+  // profile's SOUL.md under `hermes -p <name> serve`.
+  if (input.signedIn && input.soulProfile === 'unnamed') {
+    const reason =
+      'Hermes serves a home that no profile name addresses, so Cindl cannot name its SOUL.md.'
+    set('soul.read', 'unavailable', rpc('display.status', version), reason)
+    set('soul.write', 'unavailable', rpc('display.status', version), reason)
+  } else if (input.signedIn && input.soulProfile === undefined) {
+    // Unknown until display.status names the served profile.
+    delete map['soul.read']
+    delete map['soul.write']
+  }
   restGate('memory.overview', 'GET /api/memory')
   // Single entries only when the learning routes answered; never through filesystem routes.
   const learning = rest('GET /api/learning/graph', version)

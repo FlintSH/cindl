@@ -302,6 +302,11 @@ export const DisplayLease = z.object({
 export type DisplayLease = z.infer<typeof DisplayLease>
 
 export const DisplayStatus = z.object({
+  /**
+   * The profile the answer speaks for (contracts/display.py): the served
+   * profile's name, `custom` for a home outside profiles/ (runtime.py:641-646).
+   */
+  profile: z.string().optional(),
   supported: z.boolean(),
   installed: z.boolean(),
   running: z.boolean(),
