@@ -48,7 +48,7 @@ when the table and the contract differ.
 | `display.releaseControl` | `computer.control`     | yes           | Return the input lease.                                                                                                   |
 | `display.watch`          | `computer.view`        | no            | Start showing the agent-owned screen. Never starts the screen.                                                            |
 | `display.frame`          | `computer.view`        | no            | What changed on the screen since the last call; waits a few seconds for a change.                                         |
-| `display.unwatch`        | `computer.view`        | no            | Stop showing the screen.                                                                                                  |
+| `display.unwatch`        | `computer.view`        | yes           | Stop showing the screen. Hands control back if this device held it.                                                       |
 | `display.input`          | `computer.control`     | yes           | Pointer and key input, sent only while this device holds control. Never logged.                                           |
 
 <!-- END GENERATED: client-operations -->

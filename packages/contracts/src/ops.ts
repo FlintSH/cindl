@@ -374,8 +374,8 @@ export const clientOps = {
     args: z.object({ viewId: DisplayViewId }),
     result: z.object({ stopped: z.boolean() }),
     capability: 'computer.view',
-    mutates: false,
-    summary: 'Stop showing the screen.',
+    mutates: true,
+    summary: 'Stop showing the screen. Hands control back if this device held it.',
   }),
   'display.input': op({
     args: z.object({

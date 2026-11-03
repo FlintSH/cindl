@@ -72,12 +72,14 @@ React tree, for the same reason.
 
 **Consequences.**
 
-- Three clients share one RFB implementation and none of them puts the
-  ticket in a renderer.
+- Three clients share one RFB implementation. The desktop and Android
+  clients keep the ticket out of their UI.
 - Raw encoding is heavy (a full 1280x800 frame is 4 MB), so updates are
   incremental and pulled until a compressed encoding lands.
 - In the web client the ticket briefly exists in the page. That page is
-  same-origin with Hermes and already holds the session cookie, which is
-  documented in the threat model.
+  same-origin with Hermes and already holds the session that can mint a
+  ticket, so the ticket adds nothing it lacks. The
+  [threat model](../../security/threat-model.md) records this under "Ticket
+  leakage via logs or URLs".
 - Nothing here is validated against a live Hermes until the owner authorises
   a live run.
