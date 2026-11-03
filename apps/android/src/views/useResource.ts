@@ -1,11 +1,32 @@
 import { isCindlError } from '@cindl/contracts'
 import { useEffect, useEffectEvent, useState } from 'react'
 
-interface ResourceState<T> {
+export interface ResourceState<T> {
   key: string
   token: number
   data?: T
   error?: string
+}
+
+/** A replacement applies only while the state still belongs to its key. */
+export function replaceForKey<T>(
+  previous: ResourceState<T> | undefined,
+  next: ResourceState<T>,
+): ResourceState<T> | undefined {
+  return previous === undefined || previous.key === next.key ? next : previous
+}
+
+/**
+ * A failed reload keeps what was last read for the same key beside the error,
+ * so an open editor and its draft survive it.
+ */
+export function failedRead<T>(
+  previous: ResourceState<T> | undefined,
+  failed: { key: string; token: number; error: string },
+): ResourceState<T> {
+  return previous?.key === failed.key && previous.data !== undefined
+    ? { ...failed, data: previous.data }
+    : failed
 }
 
 /**
@@ -29,12 +50,9 @@ export function useResource<T>(
         if (alive) setState({ key, token, data })
       },
       (error: unknown) => {
-        if (alive)
-          setState({
-            key,
-            token,
-            error: isCindlError(error) ? error.message : fallbackError,
-          })
+        if (!alive) return
+        const message = isCindlError(error) ? error.message : fallbackError
+        setState((previous) => failedRead(previous, { key, token, error: message }))
       },
     )
     return () => {
@@ -47,6 +65,9 @@ export function useResource<T>(
     error: current?.error,
     loading: !current || current.token !== token,
     reload: () => setToken((value) => value + 1),
-    replace: (data: T) => setState({ key, token, data }),
+    // Only for the key it was given: a late save for another key (the owner
+    // moved on) must not replace what is loaded now.
+    replace: (data: T) =>
+      setState((previous) => replaceForKey(previous, { key, token, data })),
   }
 }

@@ -269,9 +269,21 @@ phone.
   and notes about you, each named by its place in its list. Editing one goes
   through a review of the exact changes and a confirmation, and the save names
   the entry Hermes listed (its id includes a fingerprint of its text), so
-  Hermes refuses it if the entry changed after it was read; the draft is kept
-  to review again. Deleting asks first and cannot be undone: Hermes keeps no
-  backup.
+  Hermes refuses it if the entry changed after it was read. Deleting asks
+  first, names the entry and cannot be undone: Hermes keeps no backup.
+- **An open memory entry stays bound to the entry that was read.** If the
+  list later shows the same text under a new number (an earlier entry was
+  removed), the editor follows it. Any other text at its place could be the
+  entry changed elsewhere, or another entry removed, merged or added there,
+  and Hermes's list cannot tell which, so the editor locks: the draft stays,
+  read-only, and nothing is saved or deleted until you choose **Use this
+  draft for the entry now here** (and that entry has been read). Drafts are
+  kept under the entry they were written for, never its place; one whose entry
+  Hermes no longer lists appears under **Unsaved drafts**, to copy or discard,
+  and never moves to another entry. An entry removed while open keeps its row
+  and draft until you close it. After a save, the text it replaced stays on
+  screen: restorable only onto the version that save produced, otherwise shown
+  to copy.
 - **The agent's screen** (Work, Computer) shows the screen's state and who
   controls it, with Take control and Give control back. The live picture is
   not in the Android app yet, and the card says so, even in the demo, which

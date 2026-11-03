@@ -1,6 +1,6 @@
 import { diffLines, diffStats } from '@cindl/client-core'
 import { isCindlError, type VersionedDocument } from '@cindl/contracts'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { Text, TextInput, View } from 'react-native'
 import { useBackHandler, useDestinationActive } from '../nav/NavProvider.tsx'
 import { Dialog } from '../overlay/Sheet.tsx'
@@ -8,9 +8,14 @@ import { describeFailure, NOT_APPLIED, SAVE_UNCERTAIN } from '../talk/failures.t
 import { useTheme } from '../theme/theme.tsx'
 import { Button, Note, Txt } from '../ui/primitives.tsx'
 import { keptDrafts } from './drafts.ts'
-
-type Stage =
-  { kind: 'view' } | { kind: 'edit'; draft: string } | { kind: 'review'; draft: string }
+import {
+  initialStage,
+  lockedDraft,
+  previousTextOffer,
+  reviewMoved,
+  reviewStage,
+  type Stage,
+} from './editorModel.ts'
 
 /**
  * Owner edits go through three explicit steps: edit, review the exact diff
@@ -23,30 +28,64 @@ type Stage =
 export function DocumentEditor({
   document,
   label,
+  draftKey = document.key,
   canWrite,
   writeNote,
+  locked,
+  onAdopt,
   onSave,
   onReload,
 }: {
   document: VersionedDocument
   label: string
+  /** Where a kept draft lives: the identity of the document it was written for. */
+  draftKey?: string
   canWrite: boolean
   writeNote?: string | undefined
+  /**
+   * Why this editor may no longer save (its document is gone, or the one shown
+   * may not be it). The draft stays visible, read-only, and is kept.
+   */
+  locked?: string | undefined
+  /**
+   * The owner's explicit choice to use a locked draft for the document now
+   * shown. Without it, nothing written for one document reaches another.
+   */
+  onAdopt?: (() => void) | undefined
   onSave: (content: string, expectedVersion: string) => Promise<VersionedDocument>
   onReload: () => void
 }) {
   const theme = useTheme()
   const active = useDestinationActive()
-  const [stage, setStage] = useState<Stage>(() => {
-    const kept = keptDrafts.get(document.key)
-    return kept === undefined ? { kind: 'view' } : { kind: 'edit', draft: kept }
-  })
-  const restored = keptDrafts.has(document.key) && stage.kind !== 'view'
+  const [stage, setStage] = useState<Stage>(() => initialStage(keptDrafts.get(draftKey)))
+  const restored = keptDrafts.has(draftKey) && stage.kind !== 'view'
+  // A locked editor keeps its draft under the key it was written for, so closing
+  // it loses nothing (it is listed to copy) and it never returns to another document.
+  const keep = lockedDraft(locked, stage)
+  useEffect(() => {
+    if (keep !== undefined) keptDrafts.set(draftKey, keep)
+  }, [draftKey, keep])
   const [failure, setFailure] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
-  const [backup, setBackup] = useState<string>()
+  // The text a save replaced, with the version that save produced.
+  const [backup, setBackup] = useState<{ content: string; version: string }>()
   const [discarding, setDiscarding] = useState(false)
   const dirty = stage.kind !== 'view' && stage.draft !== document.content
+  const lockNotice = locked ? (
+    <View style={{ gap: theme.space[2] }}>
+      <Txt tone="danger" accessibilityRole="alert" accessibilityLiveRegion="assertive">
+        {locked}
+      </Txt>
+      {onAdopt && stage.kind !== 'view' ? (
+        <Button
+          label="Use this draft for the entry now here"
+          variant="quiet"
+          style={{ alignSelf: 'flex-start' }}
+          onPress={onAdopt}
+        />
+      ) : null}
+    </View>
+  ) : null
 
   const leaveEditing = () => {
     if (dirty) setDiscarding(true)
@@ -79,7 +118,7 @@ export function DocumentEditor({
             variant="danger"
             onPress={() => {
               setDiscarding(false)
-              keptDrafts.delete(document.key)
+              keptDrafts.delete(draftKey)
               setFailure(undefined)
               setStage({ kind: 'view' })
             }}
@@ -104,9 +143,11 @@ export function DocumentEditor({
     </View>
   )
 
-  if (stage.kind === 'view')
+  if (stage.kind === 'view') {
+    const previous = previousTextOffer(backup, document, locked)
     return (
       <View style={{ gap: theme.space[3] }}>
+        {lockNotice}
         <View
           style={{
             padding: theme.space[4],
@@ -123,21 +164,29 @@ export function DocumentEditor({
         <Note>
           {`Read ${new Date(document.readAt).toLocaleString()} from ${document.source}. Version ${document.version.slice(0, 12)}.`}
         </Note>
-        {backup !== undefined ? (
+        {previous === 'restore' && backup ? (
           <View style={{ gap: theme.space[2] }}>
             <Note>The previous version is kept on this screen until you leave it.</Note>
             <Button
               label="Restore previous version"
               variant="quiet"
               style={{ alignSelf: 'flex-start' }}
-              onPress={() => setStage({ kind: 'edit', draft: backup })}
+              onPress={() => setStage({ kind: 'edit', draft: backup.content })}
             />
+          </View>
+        ) : previous === 'copy' && backup ? (
+          // Restoring now would write over something else: the text is only shown.
+          <View style={{ gap: theme.space[2] }}>
+            <Note>The text your last save replaced, kept on this screen to copy:</Note>
+            <Text selectable style={[theme.text.code, { color: theme.colors.text }]}>
+              {backup.content}
+            </Text>
           </View>
         ) : null}
         {actions(
           <>
             <Button label="Reload" variant="quiet" onPress={onReload} />
-            {canWrite ? (
+            {canWrite && !locked ? (
               <Button
                 label="Edit"
                 onPress={() => {
@@ -151,11 +200,13 @@ export function DocumentEditor({
         {writeNote ? <Note>{writeNote}</Note> : null}
       </View>
     )
+  }
 
   if (stage.kind === 'edit')
     return (
       <View style={{ gap: theme.space[3] }}>
-        {restored ? (
+        {lockNotice}
+        {restored && !locked ? (
           <Txt variant="label" tone="secondary" accessibilityLiveRegion="polite">
             Your unsaved draft was kept after the conflict. Review it against the current
             version before saving.
@@ -164,6 +215,7 @@ export function DocumentEditor({
         <TextInput
           accessibilityLabel={`Edit ${document.key}`}
           value={stage.draft}
+          editable={!locked}
           onChangeText={(draft) => setStage({ kind: 'edit', draft })}
           multiline
           autoCorrect={false}
@@ -188,7 +240,7 @@ export function DocumentEditor({
               label="Discard changes"
               variant="quiet"
               onPress={() => {
-                keptDrafts.delete(document.key)
+                keptDrafts.delete(draftKey)
                 setFailure(undefined)
                 setStage({ kind: 'view' })
               }}
@@ -196,8 +248,8 @@ export function DocumentEditor({
             <Button
               label="Review changes"
               variant="primary"
-              disabled={stage.draft === document.content}
-              onPress={() => setStage({ kind: 'review', draft: stage.draft })}
+              disabled={Boolean(locked) || stage.draft === document.content}
+              onPress={() => setStage(reviewStage(stage.draft, document))}
             />
           </>,
         )}
@@ -205,7 +257,9 @@ export function DocumentEditor({
       </View>
     )
 
-  const draft = stage.draft
+  const { draft, base } = stage
+  // What the owner reviewed is no longer what is shown: saving needs a fresh review.
+  const moved = reviewMoved(base, document)
   const { lines, exact } = diffLines(document.content, draft)
   const stats = diffStats(lines)
   const save = async () => {
@@ -213,13 +267,13 @@ export function DocumentEditor({
     setFailure(undefined)
     try {
       const previous = document.content
-      await onSave(draft, document.version)
-      keptDrafts.delete(document.key)
-      setBackup(previous)
+      const saved = await onSave(draft, base)
+      keptDrafts.delete(draftKey)
+      setBackup({ content: previous, version: saved.version })
       setStage({ kind: 'view' })
     } catch (error) {
       if (isCindlError(error) && error.code === 'conflict') {
-        keptDrafts.set(document.key, draft)
+        keptDrafts.set(draftKey, draft)
         setFailure({ message: `${error.message} Your draft is kept.`, conflict: true })
       } else {
         const copy = describeFailure(error, SAVE_UNCERTAIN, NOT_APPLIED)
@@ -234,6 +288,7 @@ export function DocumentEditor({
   }
   return (
     <View style={{ gap: theme.space[3] }}>
+      {lockNotice}
       <Txt>
         {`Review before saving: ${stats.added} line${stats.added === 1 ? '' : 's'} added, ${stats.removed} removed.${
           exact ? '' : ' (Large document: shown as a full replacement.)'
@@ -282,6 +337,13 @@ export function DocumentEditor({
           </Text>
         ))}
       </View>
+      {moved && !locked ? (
+        <Txt tone="danger" accessibilityRole="alert" accessibilityLiveRegion="assertive">
+          This text changed in Hermes while you were reviewing, so the changes above are
+          against the new version. Go back to editing and review your draft again before
+          saving.
+        </Txt>
+      ) : null}
       {failure ? (
         <Txt tone="danger" accessibilityRole="alert" accessibilityLiveRegion="assertive">
           {failure.message}
@@ -309,7 +371,7 @@ export function DocumentEditor({
           <Button
             label={saving ? 'Saving…' : 'Confirm and save'}
             variant="primary"
-            disabled={saving || Boolean(failure?.conflict)}
+            disabled={saving || moved || Boolean(locked) || Boolean(failure?.conflict)}
             busy={saving}
             onPress={() => void save()}
           />

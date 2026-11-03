@@ -455,9 +455,12 @@ async function demoSuite() {
       )
       // Deleting asks first and says it is permanent; keeping the entry sends nothing.
       await tapRevealed('Delete entry…', 'Delete entry')
+      // The confirmation names the entry it deletes.
       const warning = await device.waitFor(
-        (text) => text.includes('Hermes keeps no backup, so this cannot be undone.'),
-        'the delete warning',
+        (text) =>
+          text.startsWith('Delete “The kiln firing log') &&
+          text.includes('Hermes keeps no backup, so this cannot be undone.'),
+        'the delete warning naming the entry',
       )
       shot('memory-delete-warning')
       await audit('Memory delete warning', warning.root)
