@@ -170,6 +170,26 @@ export function buildClarifyAnswer(
     : undefined
 }
 
+/**
+ * "Skip all": one reply that skips every open question. There is no decline:
+ * an empty reply reaches the agent like an interrupt, while a skip gives each
+ * question a clean "skipped" (contract v4, tools/clarify_batch.py at v0.22.5).
+ * Questions another device locked are left out, as in every reply.
+ */
+export function skipAllAnswer(
+  request: Pick<ServerRequest, 'questions' | 'lockedAnswers'>,
+): RequestAnswer {
+  return {
+    kind: 'clarify',
+    answers: Object.fromEntries(
+      splitQuestions(request).open.map((question) => [
+        question.qid,
+        { skipped: true as const },
+      ]),
+    ),
+  }
+}
+
 const draftsByRequest = new Map<string, ClarifyDrafts>()
 
 /** Drafts survive remounts (switching views, a re-sent request) for this session. */

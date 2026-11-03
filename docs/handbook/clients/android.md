@@ -227,9 +227,11 @@ Hermes server and on a phone.
   nesting is shown as plain text.
 - **Decisions:** approvals offer only Allow once and Deny and lock on the first
   tap; withheld standing grants are explained under "Why only once?". A
-  question set is answered (or each question skipped) and sent once; answers
-  another device already gave are shown as such and never overridden, and
-  nothing typed is lost by picking or skipping.
+  question set is answered (or each question skipped) and sent once; **Skip
+  all** skips every open question in one reply. There is no decline: an empty
+  reply would reach the agent like an interrupt. Answers another device
+  already gave are shown as such and never overridden, and nothing typed is
+  lost by picking or skipping.
 - **System back** closes an open sheet or dialog first, then steps out of an
   editor review, then a skill detail, then returns to Talk, then from a side
   conversation to the main one, and only then leaves the app.

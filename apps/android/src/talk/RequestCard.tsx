@@ -29,6 +29,7 @@ import {
   isQuickQuestion,
   pickChoice,
   setSkipped,
+  skipAllAnswer,
   splitQuestions,
   typeAnswer,
   withDraft,
@@ -400,10 +401,10 @@ function QuestionForm({
           </Note>
           <Actions>
             <Button
-              label="Decline all"
+              label="Skip all"
               variant="quiet"
               disabled={busy}
-              onPress={() => void onAnswer({ kind: 'clarify-cancel' })}
+              onPress={() => void onAnswer(skipAllAnswer(request))}
             />
             <Button
               label="Send answers"

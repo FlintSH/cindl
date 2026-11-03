@@ -1,4 +1,9 @@
-import { clientOps, type ClarifyQuestion, type ServerRequest } from '@cindl/contracts'
+import {
+  clarifyAnswersComplete,
+  clientOps,
+  type ClarifyQuestion,
+  type ServerRequest,
+} from '@cindl/contracts'
 import { describe, expect, it } from 'vitest'
 import {
   answerArgs,
@@ -13,6 +18,7 @@ import {
   requestKeyOf,
   responseFor,
   setSkipped,
+  skipAllAnswer,
   splitQuestions,
   typeAnswer,
   withDraft,
@@ -92,7 +98,7 @@ describe('a question draft never discards what the owner typed or picked', () =>
   })
 })
 
-describe('one reply for the whole clarify set (contract v3)', () => {
+describe('one reply for the whole clarify set (contract v4)', () => {
   it('is only complete when every open question is answered or skipped', () => {
     const request = clarify()
     let drafts: ClarifyDrafts = withDraft(
@@ -112,10 +118,25 @@ describe('one reply for the whole clarify set (contract v3)', () => {
         notes: { skipped: true },
       },
     })
+    expect(answer).toBeDefined()
+    if (answer)
+      expect(() =>
+        clientOps['request.answer'].args.parse(answerArgs(request, answer)),
+      ).not.toThrow()
+  })
+
+  it('skips every open question for "Skip all", never a locked one (no decline in v4)', () => {
+    const request = clarify({ lockedAnswers: { glazes: { choices: ['Celadon'] } } })
+    const answer = skipAllAnswer(request)
+    expect(answer).toEqual({
+      kind: 'clarify',
+      answers: { venue: { skipped: true }, notes: { skipped: true } },
+    })
+    expect(
+      answer.kind === 'clarify' && clarifyAnswersComplete(request, answer.answers),
+    ).toBe(true)
     expect(() =>
-      clientOps['request.answer'].args.parse(
-        answerArgs(request, answer ?? { kind: 'clarify-cancel' }),
-      ),
+      clientOps['request.answer'].args.parse(answerArgs(request, answer)),
     ).not.toThrow()
   })
 
