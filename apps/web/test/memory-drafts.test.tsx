@@ -3,11 +3,12 @@
 // their assertions unchanged. Synthetic data only.
 import { sha256Hex } from '@cindl/client-core'
 import { CindlProvider } from '@cindl/client-react'
-import { CindlError, type CindlClientApi } from '@cindl/contracts'
+import { CindlError, type CindlClientApi, type CindlEvent } from '@cindl/contracts'
 import { createScenarioClient } from '@cindl/fixtures/scenario'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { LibraryView } from '../src/library/LibraryView.tsx'
+import { AppShell } from '../src/shell/AppShell.tsx'
 import { forgetDocumentDrafts, keptDocumentDrafts } from '../src/views/DocumentEditor.tsx'
 
 afterEach(() => {
@@ -658,5 +659,73 @@ describe('focus around adoption and locking', () => {
     await releaseList(h)
     const after = focusName()
     expect(after).not.toBe('BODY')
+  })
+})
+
+describe('SO2: an involuntary sign-out', () => {
+  it('forgets kept memory drafts before another sign-in', async () => {
+    window.history.replaceState(null, '', '#/library/memory')
+    const scenario = createScenarioClient({ speed: 0 })
+    const mem = memoryBackend(fixtureEntries)
+    let releaseList: (() => void) | undefined
+    let holdList = false
+    const listeners = new Set<(event: CindlEvent) => void>()
+    const api: CindlClientApi = {
+      call: (async (name: string, args: unknown) => {
+        if (name === 'memory.entries' && holdList) {
+          holdList = false
+          await new Promise<void>((resolve) => (releaseList = resolve))
+        }
+        const op = mem.ops[name]
+        if (op) return op(args as never)
+        return scenario.call(name as never, args as never)
+      }) as CindlClientApi['call'],
+      subscribe: (listener) => {
+        listeners.add(listener)
+        const off = scenario.subscribe(listener)
+        return () => {
+          listeners.delete(listener)
+          off()
+        }
+      },
+    }
+    render(
+      <CindlProvider api={api}>
+        <AppShell />
+      </CindlProvider>,
+    )
+    await settle()
+    await settle()
+    await open(/The kiln firing log/)
+    holdList = true
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reload' })[0]!)
+    await settle()
+    editTo('Edit agent note 2', D_K)
+    mem.remove(/kiln firing log/)
+    releaseList?.()
+    await settle()
+    await settle()
+    const locked = lockedNow()
+    fireEvent.click(button(/Close memory entry/)!)
+    await settle()
+    const keptBefore = keptMemoryDrafts()
+    // Hermes refuses the session (token revoked on the host): the client reports signed-out.
+    const at = new Date().toISOString()
+    const emit = (link: Record<string, unknown>) =>
+      act(() => {
+        for (const l of listeners)
+          l({
+            type: 'link.changed',
+            link: { since: at, connectionEpoch: 2, ...link },
+          } as unknown as CindlEvent)
+      })
+    emit({ phase: 'signed-out', demo: false })
+    await settle()
+    const signIn = Boolean(screen.queryByRole('button', { name: /Sign in/ }))
+    const keptAfter = keptMemoryDrafts()
+    expect(locked).toBe(true)
+    expect(keptBefore).toEqual([D_K])
+    expect(signIn).toBe(true)
+    expect(keptAfter).toEqual([])
   })
 })

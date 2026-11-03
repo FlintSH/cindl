@@ -13,6 +13,7 @@ import { WorkView } from '../work/WorkView.tsx'
 import { CommandPalette, type Command } from './CommandPalette.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { pruneRequestDrafts } from '../talk/RequestCard.tsx'
+import { forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
 import { Notices } from './Notices.tsx'
 import { SignIn } from './SignIn.tsx'
 import { LinkStatusDot } from './LinkStatus.tsx'
@@ -37,6 +38,12 @@ export function AppShell() {
   useEffect(() => applyTheme(theme), [theme])
   // Drafts belong to open requests only.
   useEffect(() => pruneRequestDrafts(new Set(open.map((r) => r.requestId))), [open])
+  // Nothing typed on this device outlives the session, however it ended: the
+  // sign-out button, or Hermes refusing the session. Kept document drafts go
+  // too, so none returns after another sign-in, to this Hermes or another.
+  useEffect(() => {
+    if (!link.demo && link.phase === 'signed-out') forgetDocumentDrafts()
+  }, [link.demo, link.phase])
   useEffect(() => {
     document.title = link.demo ? `Cindl (${SYNTHETIC_DEMO_LABEL.toLowerCase()})` : 'Cindl'
   }, [link.demo])

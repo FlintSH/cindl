@@ -144,7 +144,8 @@ from the desktop app's custom protocol.
 - **Drafts stay on this device, briefly:** answers being written, and document
   drafts kept after a save conflict, a lock or while used for another memory
   entry, live in memory only. An answer's draft is dropped once its request
-  closes, and every draft is forgotten on sign-out.
+  closes, and every draft is forgotten when the session ends, whether you sign
+  out or Hermes refuses the session.
 
 ## Keyboard
 

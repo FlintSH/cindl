@@ -27,8 +27,12 @@ and text fingerprint, and locks (keeping the draft, saving and deleting
 nothing) whenever its place shows other text. A draft reaches another entry
 only through the owner's explicit choice, after that entry is read and found
 still in place, and stays kept for the entry it was written for until it is
-saved or discarded. A delete confirmation names the text read under the id the
-delete sends (see the [web client page](../../clients/web.md)).
+saved or discarded; another entry's own kept draft is only ever saved or
+discarded by an action on that draft. A delete confirmation names the text read
+under the id the delete sends (see the [web client page](../../clients/web.md)).
+Entries with identical text in one store share one identity: Hermes resolves
+either to the first, they share one kept draft, and an editor may follow
+either. Kept drafts are forgotten whenever the session ends.
 
 **Consequences.** Conflict detection narrows but cannot close a race window;
 the UI and docs say so.

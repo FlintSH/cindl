@@ -26,7 +26,8 @@ const stores: Array<{ store: MemoryStore; title: string; hint: string }> = [
 /**
  * An entry's identity across renumbering: Hermes ids carry the global index,
  * which shifts when an earlier entry is removed, and the text's fingerprint,
- * which only changes with the text.
+ * which only changes with the text. Entries with identical text in one store
+ * share one identity (Hermes resolves either to the first), a known limit.
  */
 const fingerprintOf = (id: string) => {
   const [, store, , fingerprint] = id.split(':')
@@ -82,8 +83,8 @@ export function MemoryEntries() {
   const entries = list.data ?? []
   const selected = open ? atPosition(entries, open) : undefined
   // Drafts kept for entries Hermes no longer lists (removed, or rewritten
-  // elsewhere). They never attach to another entry; the owner copies or
-  // discards them. Shown while no entry is open, which also keeps a locked
+  // elsewhere). They attach to no other entry (except one with identical text,
+  // which shares the identity); the owner copies or discards them. Shown while no entry is open, which also keeps a locked
   // editor's draft from appearing twice.
   const listed = new Set(entries.map((entry) => fingerprintOf(entry.id)))
   const orphans =
