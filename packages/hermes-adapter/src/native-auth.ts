@@ -33,6 +33,14 @@ export interface NativeAuthOptions {
 }
 
 /**
+ * The secret-store key NativeAuth keeps an origin's tokens under. Platforms
+ * that migrate or inspect the store use this instead of repeating the format.
+ */
+export function nativeTokensKey(origin: string): string {
+  return `cindl.hermes.native-tokens.v1|${new URL(origin).origin}`
+}
+
+/**
  * RFC 8252 native sign-in for desktop and Android (ADR 0003), against
  * hermes_cli/dashboard_auth/routes.py at v0.22.5:
  * authorize (system browser + loopback) → `/auth/native/token` → bearer
@@ -56,7 +64,7 @@ export class NativeAuth {
     this.#options = options
     this.#log = options.diagnostics ?? silentDiagnostics
     const origin = new URL(options.origin).origin
-    this.#key = `cindl.hermes.native-tokens.v1|${origin}`
+    this.#key = nativeTokensKey(origin)
     this.#public = new RestClient({
       origin,
       fetch: options.fetch,

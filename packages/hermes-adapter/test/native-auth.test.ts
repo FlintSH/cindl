@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import {
   createPkcePair,
   NativeAuth,
+  nativeTokensKey,
   RestClient,
   webCryptoProvider,
   type LoopbackLeg,
@@ -87,9 +88,7 @@ describe('native PKCE sign-in', () => {
       userId: 'fixture-owner',
       persistent: true,
     })
-    expect([...secrets.map.keys()]).toEqual([
-      `cindl.hermes.native-tokens.v1|${fake.origin}`,
-    ])
+    expect([...secrets.map.keys()]).toEqual([nativeTokensKey(fake.origin)])
     await expect(rest.me()).resolves.toMatchObject({ user_id: 'fixture-owner' })
     const stored = JSON.parse([...secrets.map.values()][0] as string) as {
       access_token: string
@@ -213,6 +212,16 @@ describe('native PKCE sign-in', () => {
       'auth.stored-tokens-not-deleted',
     )
     expect(log.text()).not.toContain('disk full')
+  })
+
+  it('exports the key it stores tokens under, one per origin, for platform migrations', () => {
+    expect(nativeTokensKey('https://hermes.example.test')).toBe(
+      'cindl.hermes.native-tokens.v1|https://hermes.example.test',
+    )
+    // One record per origin, however the origin was written.
+    expect(nativeTokensKey('https://HERMES.example.test:443/')).toBe(
+      nativeTokensKey('https://hermes.example.test'),
+    )
   })
 
   it('keeps tokens in memory only when the OS secret store is unavailable', async () => {

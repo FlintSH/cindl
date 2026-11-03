@@ -87,7 +87,10 @@ bearer to public endpoints.
   shares one refresh between concurrent requests, forgets tokens on 401 and
   keeps them on 503.
 - Tokens live in the OS-backed store only (Electron `safeStorage`, Android
-  Keystore). Without one, Cindl keeps them in memory and says so. Sign-out is
+  Keystore), one record per origin under `nativeTokensKey(origin)`
+  (`cindl.hermes.native-tokens.v1|<origin>`), which the adapter exports so a
+  platform migration never repeats the format. Without a store, Cindl keeps
+  them in memory and says so. Sign-out is
   local: logout does not revoke native tokens, which are stateless (basic
   provider defaults: 12 h access, 30 d refresh). Sign-out always deletes the
   stored record, even when the store has stopped encrypting, since its
