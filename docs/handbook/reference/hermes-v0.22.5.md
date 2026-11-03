@@ -492,8 +492,10 @@ The direct client shows the screen (ADR 0012) in
   socket and the later view; ending a view settles its handshake at once, and
   sign-out or `stop()` also cancels a watch still waiting for its ticket.
 - `display.frame` returns what changed, waiting up to 2 s for a change. It
-  keeps at most one update request in flight, and it never returns the blank
-  framebuffer of a socket that has not painted yet.
+  keeps at most one update request in flight. A new socket, and a screen that
+  just changed size, start as a black framebuffer: until the server paints
+  it, a frame has no regions rather than that black (a first Raw frame of a
+  1280x800 screen is 4 MB, so slow links wait).
 - `display.input` sends pointer and key events only while this connection's
   viewer holds the lease, which is what `leaseHeldByThisDevice` reports.
   Hermes's `RfbClientFilter` drops keyboard, pointer and clipboard messages

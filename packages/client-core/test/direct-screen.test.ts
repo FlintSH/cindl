@@ -11,6 +11,7 @@ import {
   systemClock,
   type BinaryWebSocketFactory,
   type BinaryWebSocketLike,
+  type Clock,
   type DirectClientDeps,
 } from '../src/index.ts'
 import { harness, type Harness } from './direct-harness.ts'
@@ -391,9 +392,32 @@ interface StubSocket extends BinaryWebSocketLike {
   drop(code: number): void
 }
 
+/** A clock whose timers fire only when the test says so. */
+function manualClock(): Clock & { fire(): void } {
+  const timers = new Map<number, () => void>()
+  let next = 0
+  return {
+    now: () => Date.now(),
+    setTimeout(callback) {
+      next += 1
+      timers.set(next, callback)
+      return next
+    },
+    clearTimeout(handle) {
+      timers.delete(handle as number)
+    },
+    fire() {
+      for (const [id, callback] of [...timers]) {
+        timers.delete(id)
+        callback()
+      }
+    },
+  }
+}
+
 /** A LiveScreen over stub sockets; `observe` defaults to an immediate ticket. */
 function stubScreen(
-  options: { path?: string; observe?: () => Promise<ObservedScreen> } = {},
+  options: { path?: string; observe?: () => Promise<ObservedScreen>; clock?: Clock } = {},
 ) {
   const opened: string[] = []
   const sockets: StubSocket[] = []
@@ -422,7 +446,7 @@ function stubScreen(
       sockets.push(socket)
       return socket
     },
-    clock: systemClock,
+    clock: options.clock ?? systemClock,
     origin: () => 'https://hermes.example.test',
     observe:
       options.observe ??
@@ -438,6 +462,95 @@ function stubScreen(
   })
   return { live, opened, sockets, logs }
 }
+
+/** The server side of the RFB 3.8 handshake (security None) for a `width` x `height` screen. */
+function serverHandshake(socket: StubSocket, width = 64, height = 32): void {
+  socket.feed([...'RFB 003.008\n'].map((c) => c.charCodeAt(0)))
+  socket.feed([1, 1]) // one security type: None
+  socket.feed([0, 0, 0, 0]) // SecurityResult OK
+  const init = new Uint8Array(24)
+  init[0] = width >> 8
+  init[1] = width & 0xff
+  init[2] = height >> 8
+  init[3] = height & 0xff
+  socket.feed(init) // ServerInit, empty name
+}
+
+const u16 = (value: number) => [(value >> 8) & 0xff, value & 0xff]
+const s32 = (value: number) => [
+  (value >>> 24) & 0xff,
+  (value >>> 16) & 0xff,
+  (value >>> 8) & 0xff,
+  value & 0xff,
+]
+/** A FramebufferUpdate header for `count` rectangles. */
+const updateHeader = (count: number) => [0, 0, ...u16(count)]
+/** A Raw rectangle of one colour, in the client's pixel format (R, G, B, unused). */
+const rawRect = (
+  rect: { x: number; y: number; width: number; height: number },
+  colour: readonly number[],
+) => [
+  ...u16(rect.x),
+  ...u16(rect.y),
+  ...u16(rect.width),
+  ...u16(rect.height),
+  ...s32(0),
+  ...Array.from({ length: rect.width * rect.height }, () => [...colour, 0]).flat(),
+]
+/** The DesktopSize pseudo-rectangle (encoding -223). */
+const desktopSize = (width: number, height: number) => [
+  ...u16(0),
+  ...u16(0),
+  ...u16(width),
+  ...u16(height),
+  ...s32(-223),
+]
+
+/** Watch a stub screen through the handshake; returns the view and its socket. */
+async function watchedStub(clock: Clock) {
+  const stub = stubScreen({ clock })
+  const watching = stub.live.watch()
+  await vi.waitFor(() => expect(stub.sockets).toHaveLength(1))
+  const socket = stub.sockets[0] as StubSocket
+  serverHandshake(socket, 4, 2)
+  const { viewId } = await watching
+  return { ...stub, socket, viewId }
+}
+
+describe('live screen: frames', () => {
+  it('shows nothing until the screen first paints, never the blank framebuffer', async () => {
+    const clock = manualClock()
+    const { live, socket, viewId } = await watchedStub(clock)
+    // The first update is slow: the wait ends before any paint.
+    const waiting = live.frame(viewId)
+    clock.fire()
+    expect((await waiting).regions).toEqual([])
+    socket.feed([
+      ...updateHeader(1),
+      ...rawRect({ x: 1, y: 0, width: 1, height: 1 }, [10, 20, 30]),
+    ])
+    expect(pixel(await live.frame(viewId), 1, 0)).toEqual([10, 20, 30])
+  })
+
+  it('shows nothing between a resize and the paint that follows it', async () => {
+    const clock = manualClock()
+    const { live, socket, viewId } = await watchedStub(clock)
+    socket.feed([
+      ...updateHeader(1),
+      ...rawRect({ x: 0, y: 0, width: 4, height: 2 }, [1, 2, 3]),
+    ])
+    expect(pixel(await live.frame(viewId), 0, 0)).toEqual([1, 2, 3])
+    // DesktopSize arrives in one message, the repaint in the next.
+    socket.feed([...updateHeader(2), ...desktopSize(6, 2)])
+    const waiting = live.frame(viewId)
+    clock.fire()
+    expect((await waiting).regions).toEqual([])
+    socket.feed(rawRect({ x: 0, y: 0, width: 6, height: 2 }, [4, 5, 6]))
+    const repainted = await live.frame(viewId)
+    expect(repainted).toMatchObject({ width: 6, height: 2 })
+    expect(pixel(repainted, 5, 1)).toEqual([4, 5, 6])
+  })
+})
 
 describe('live screen: the ticket', () => {
   it('sends it only to the pinned route on the Hermes origin, over wss', async () => {

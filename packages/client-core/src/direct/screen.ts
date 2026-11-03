@@ -6,7 +6,7 @@ import {
 } from '@cindl/contracts'
 import { displayCloseCodes, wsPaths } from '@cindl/hermes-adapter'
 import type { BinaryWebSocketFactory, BinaryWebSocketLike, Clock } from '../platform.ts'
-import { createRfbClient, keysymForKey, type RfbClient } from '../rfb.ts'
+import { createRfbClient, keysymForKey, type RfbClient, type RfbRegion } from '../rfb.ts'
 
 /** How long `display.frame` waits for a change, and `display.watch` for the RFB handshake. */
 const FRAME_WAIT_MS = 2_000
@@ -135,9 +135,11 @@ export class LiveScreen {
   async frame(viewId: string): Promise<DisplayFrame> {
     const view = this.#viewFor(viewId)
     if (!view.painted) {
-      // A new socket starts black: wait for the picture instead of showing that.
+      // A new or resized framebuffer is black until the server paints it:
+      // wait for the picture, and show nothing rather than that.
       await this.#wait(view, FRAME_WAIT_MS)
       if (view.ended) throw view.ended
+      if (!view.painted) return this.#frame(view, [])
     }
     let regions = view.rfb?.takeUpdate() ?? []
     if (regions.length === 0) {
@@ -148,9 +150,13 @@ export class LiveScreen {
     }
     // The caller paints these, then asks again: the next change is already on its way.
     this.#request(view)
+    return this.#frame(view, regions)
+  }
+
+  #frame(view: View, regions: readonly RfbRegion[]): DisplayFrame {
     const size = view.rfb?.size ?? view.size ?? { width: 1, height: 1 }
     return {
-      viewId,
+      viewId: view.viewId,
       width: size.width,
       height: size.height,
       regions: regions.map(({ x, y, width, height, rgba }) => ({
@@ -336,9 +342,10 @@ export class LiveScreen {
           view.painted = true
           view.wake?.()
         },
-        // The update that resized the screen also repaints it; onUpdate wakes the viewer.
+        // The resized framebuffer is black until the rest of that update paints it.
         onResize: (size) => {
           view.size = size
+          view.painted = false
         },
         onError: () => {
           this.#options.log('direct.screen-protocol-error')
