@@ -41,6 +41,8 @@ its evidence.
   keyboard.
 - [Desktop](clients/desktop.md): the Electron app, its two flavours, sign-in,
   token storage and security model.
+- [Android](clients/android.md): the native app, demo and real builds, sign-in,
+  the agent's screen, CI builds and what only a device can prove.
 
 ## Reference
 

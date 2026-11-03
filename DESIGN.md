@@ -103,8 +103,8 @@ using it.
 - Visible focus ring (`--color-focus`, 2px, offset 2px) on every interactive
   element. Keyboard reaches everything; shortcuts are in `apps/web/src/shortcuts.ts`
   and listed in the shortcuts dialog (`?`).
-- Touch targets at least 44px on coarse pointers and Android; 32px minimum
-  on fine pointers.
+- Touch targets at least 44px on coarse pointers, 48dp on Android (its
+  platform minimum); 32px minimum on fine pointers.
 - Landmarks (`nav`, `main`, `aside`), named controls, `role="status"` for the
   presence line, `role="alert"` for errors, native `<dialog>` for overlays.
 - Text reflows at 320px and 200% zoom without horizontal scrolling of prose.

@@ -256,9 +256,20 @@ const invariantSyntax = [
  */
 const bundledSyntax = [...invariantSyntax, noComputedAssetUrl, ...noGlobalReach]
 const browserSyntax = [...bundledSyntax, noAssignedAlias, storageMember(STORAGE)]
-const BUNDLED = ['apps/*/src/**', 'packages/*/src/**']
+const BUNDLED = [
+  'apps/*/src/**',
+  'packages/*/src/**',
+  // The Android app's entry and local native-module bridges ship in its bundle.
+  'apps/android/index.ts',
+  'apps/android/modules/**',
+]
 const BROWSER = [
   'apps/web/src/**',
+  // The Android app's JavaScript is held to the browser scope too: no storage
+  // outside its platform layer, no global aliases.
+  'apps/android/src/**',
+  'apps/android/index.ts',
+  'apps/android/modules/**',
   // The desktop preload runs in the page's frames (its storage included), and
   // the shared modules are bundled into it.
   'apps/desktop/src/preload/**',
@@ -331,7 +342,7 @@ const blocks = tseslint.config(
   },
   {
     // The demo switch: one literal import of the labelled scenario, nothing else.
-    files: ['apps/web/src/platform/client.ts'],
+    files: ['apps/web/src/platform/client.ts', 'apps/android/src/platform/client.ts'],
     rules: {
       'no-restricted-syntax': [
         'error',

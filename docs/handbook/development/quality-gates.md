@@ -59,19 +59,24 @@ same files from a package config that spreads the root one, such as
   package, including relative `node_modules` paths, repeated slashes,
   `import.meta.glob` and fixture asset URLs; no browser storage or cookies by
   name, computed key, destructuring or `Reflect`.
-- **Shipped sources** (`apps/*/src`, `packages/*/src`): also no computed
+- **Shipped sources** (`apps/*/src`, `packages/*/src`, and the Android app's
+  `index.ts` and `modules/` bridges): also no computed
   `new URL(…, import.meta.url)`, no aliases of global objects or
   `document.defaultView`, no `Reflect` or property-descriptor calls on them,
   and no `navigator.storage` through another object. Scripts and tests may
   stub globals.
-- **Browser-facing sources** (`apps/web/src`, the desktop preload and the
-  modules it bundles from `apps/desktop/src/shared`, and the browser
-  packages): also no alias of a global object made by assignment, and no
+- **Browser-facing sources** (`apps/web/src`, the Android app's sources,
+  entry and native-module bridges, the desktop preload and the modules it
+  bundles from `apps/desktop/src/shared`, and the browser packages): also no
+  alias of a global object made by assignment, and no
   storage or cookie property through any object. Node code keeps legitimate
   `cookie` fields, such as HTTP headers, and Electron main names its
   BrowserWindow `window`.
-- **`apps/web/src/platform/client.ts`** (the demo switch): one literal
-  `import('@cindl/fixtures/scenario')`, and every other rule.
+- **`apps/web/src/platform/client.ts`** and
+  **`apps/android/src/platform/client.ts`** (the demo switches): one literal
+  `import('@cindl/fixtures/scenario')`, and every other rule. The Android
+  app's own config adds its checks (raw colours, DOM globals, storage only in
+  `src/platform`) on top of these scopes.
 - **`apps/web/src/platform/preferences.ts`:** `localStorage` only; every other
   storage API stays off limits.
 

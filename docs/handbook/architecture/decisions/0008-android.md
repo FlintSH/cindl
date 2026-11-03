@@ -1,6 +1,6 @@
 # 0008 Native Android with Expo / React Native
 
-**Status:** Accepted (Google's Android SDK licence approved for Cindl APK builds and emulator tests on existing GitHub build runners only; test APKs built in CI on PR #4, none on `main` yet)
+**Status:** Accepted (Google's Android SDK licence approved for Cindl APK builds and emulator tests on existing GitHub build runners only; test APKs built in CI on PR #4, none on `main` yet). Real builds run the direct client with one PKCE implementation, the adapter's `NativeAuth`, and keep tokens in the Keystore; the agent's screen paints through a local Expo module (`apps/android/modules/cindl-screen`). The SDK package list is unchanged. Tested in Node against the fake Hermes; the Kotlin modules compile and run only on the GitHub runners, and no device run has happened.
 
 **Decision.** The Android app is React Native on Expo SDK 58 (React Native
 0.88, React 19.3) using native components, not a WebView. It shares
