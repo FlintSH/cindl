@@ -98,10 +98,11 @@ from the desktop app's custom protocol.
   to the app that started the operation, the only place Hermes asks.
 - **The agent's screen:** Work > Computer shows the agent-owned screen live
   when Hermes's screen is running and the client supports the picture (the
-  labelled demo streams a synthetic one). Watching sends nothing. After "Take
+  labelled demo streams a synthetic one). Watching sends no input. After "Take
   control" the screen takes pointer and keyboard input; Tab is never
-  forwarded, so focus can always leave it. Input is never logged. Cindl never
-  starts, stops or installs the screen.
+  forwarded, so focus can always leave it. Input is never logged. Leaving the
+  screen closes its view, even one still opening. Cindl never starts, stops or
+  installs the screen.
 - **Memory edits are explicit:** each entry changes only after you review a
   diff and confirm, and only if it has not changed in Hermes since you read it.
   An editor stays bound to the entry it read. It follows the entry when

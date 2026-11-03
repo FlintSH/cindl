@@ -30,7 +30,10 @@ React tree, for the same reason.
   (None only), ServerInit, a fixed 32-bit true-colour pixel format, the Raw
   and CopyRect encodings and the DesktopSize pseudo-encoding. Compressed
   encodings (Tight, ZRLE) come later, behind a zlib interface the platform
-  supplies.
+  supplies. A server is untrusted input: the client ends the view on a
+  screen over 8192 pixels on a side or 4096x4096 in area (a 64 MiB
+  framebuffer), at start or on a resize, and on a desktop name over 4096
+  bytes, before buffering it.
 - **The platform supplies the socket.** `BinaryWebSocketFactory`
   (`packages/client-core/src/platform.ts`) opens a binary WebSocket whose
   messages arrive as bytes. A platform without one leaves the live picture

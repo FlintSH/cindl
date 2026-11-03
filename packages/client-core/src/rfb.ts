@@ -17,6 +17,11 @@ import { CindlError } from '@cindl/contracts'
 
 /** Largest framebuffer side Cindl accepts (an 8K screen is 7680 wide). */
 export const RFB_MAX_SIDE = 8192
+/**
+ * Largest screen area Cindl accepts (16.8 million pixels, a 64 MiB
+ * framebuffer), so a hostile server cannot demand 256 MiB per resize.
+ */
+export const RFB_MAX_PIXELS = 4096 * 4096
 /** Pixels Cindl requests: 32 bits, little-endian, red in the low byte. */
 const BYTES_PER_PIXEL = 4
 /** Dirty rectangles kept apart before they merge into their bounding box. */
@@ -150,6 +155,8 @@ const protocolError = (detail: string) =>
   new CindlError('protocol', 'The agent’s screen sent data Cindl cannot read.', detail)
 
 const validSide = (side: number) => side >= 1 && side <= RFB_MAX_SIDE
+const validSize = (width: number, height: number) =>
+  validSide(width) && validSide(height) && width * height <= RFB_MAX_PIXELS
 
 /** Merges `next` into the list, keeping at most MAX_DIRTY_RECTS. */
 function addDirty(list: RfbRect[], next: RfbRect): RfbRect[] {
@@ -370,7 +377,7 @@ export function createRfbClient(options: RfbClientOptions): RfbClient {
         const w = u16(head, 0)
         const h = u16(head, 2)
         const nameLength = u32(head, 20)
-        if (!validSide(w) || !validSide(h)) {
+        if (!validSize(w, h)) {
           fail(protocolError(`rfb framebuffer ${w}x${h}`))
           return false
         }
@@ -424,7 +431,7 @@ export function createRfbClient(options: RfbClientOptions): RfbClient {
         const encoding = s32(head, 8)
         const left = step.left - 1
         if (encoding === ENCODING_DESKTOP_SIZE) {
-          if (!validSide(rect.width) || !validSide(rect.height)) {
+          if (!validSize(rect.width, rect.height)) {
             fail(protocolError(`rfb desktop size ${rect.width}x${rect.height}`))
             return false
           }

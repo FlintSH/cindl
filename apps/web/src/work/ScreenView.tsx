@@ -75,8 +75,14 @@ export function ScreenView({ controlling }: { controlling: boolean }) {
     const run = async () => {
       try {
         const opened = await api.call('display.watch', {})
+        if (!alive) {
+          // Closed while the watch was on its way: end the view it opened.
+          void api
+            .call('display.unwatch', { viewId: opened.viewId })
+            .catch(() => undefined)
+          return
+        }
         viewId = opened.viewId
-        if (!alive) return
         current.current = opened.viewId
         setView(opened)
         while (alive) {

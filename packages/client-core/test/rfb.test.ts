@@ -1,6 +1,11 @@
 import { CindlError } from '@cindl/contracts'
 import { describe, expect, it } from 'vitest'
-import { createRfbClient, keysymForKey, RFB_MAX_SIDE } from '../src/rfb.ts'
+import {
+  createRfbClient,
+  keysymForKey,
+  RFB_MAX_PIXELS,
+  RFB_MAX_SIDE,
+} from '../src/rfb.ts'
 
 // A byte-level stand-in for Hermes's /api/display/ws (raw RFB from Xvnc).
 const ascii = (text: string) => Uint8Array.from(text, (c) => c.charCodeAt(0))
@@ -237,6 +242,28 @@ describe('RFB framebuffer', () => {
     ])
   })
 
+  // Review fbf44d4 M18: a vertical overlap smears if source rows are read as
+  // views of the framebuffer being written.
+  it('copies a downward overlapping rectangle without smearing', () => {
+    const { client } = ready(1, 3)
+    client.receive(
+      update(
+        raw(0, 0, 1, 3, [
+          [10, 10, 10],
+          [20, 20, 20],
+          [30, 30, 30],
+        ]),
+      ),
+    )
+    client.takeUpdate()
+    // Rows 0-1 move down by one: the source and destination overlap.
+    client.receive(update(copy(0, 1, 1, 2, 0, 0)))
+    const [region] = client.takeUpdate()
+    expect([...(region as { rgba: Uint8Array }).rgba]).toEqual([
+      10, 10, 10, 255, 20, 20, 20, 255,
+    ])
+  })
+
   it('keeps separate changes apart and merges them past sixteen', () => {
     const { client } = ready(64, 64)
     client.takeUpdate()
@@ -340,6 +367,31 @@ describe('RFB from an untrusted server', () => {
     client.requestUpdate()
     expect(sent).toEqual([])
     expect(errors).toHaveLength(1)
+  })
+
+  // Review fbf44d4 M20: the desktop name is skipped, but a hostile length must
+  // not make the client wait for (and buffer) gigabytes first.
+  it('refuses an oversized desktop name before buffering it', () => {
+    const { client, errors } = session()
+    for (const part of [VERSION, NONE_ONLY, SECURITY_OK]) client.receive(part)
+    client.receive(
+      Uint8Array.of(...u16(4), ...u16(3), ...new Array<number>(16).fill(0), ...u32(4097)),
+    )
+    expect(errors[0]?.code).toBe('protocol')
+    expect(client.state).toBe('failed')
+  })
+
+  // Review fbf44d4 note 2: sides within limits can still multiply past them.
+  it('refuses a screen whose area is too large, at start and on resize', () => {
+    const side = Math.ceil(Math.sqrt(RFB_MAX_PIXELS)) + 1
+    const start = session()
+    for (const part of [VERSION, NONE_ONLY, SECURITY_OK]) start.client.receive(part)
+    start.client.receive(serverInit(side, side))
+    expect(start.errors[0]?.code).toBe('protocol')
+    const resized = ready()
+    resized.client.receive(update(desktopSize(side, side)))
+    expect(resized.errors[0]?.code).toBe('protocol')
+    expect(resized.client.state).toBe('failed')
   })
 
   it('refuses an oversized framebuffer before allocating it', () => {
