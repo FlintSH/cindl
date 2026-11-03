@@ -367,9 +367,92 @@ describe('direct client: approvals and questions', () => {
       command: 'apt list (fixture)',
     })
     await h.waitFor(() =>
-      h.store.getState().notices.some((n) => n.message.includes('(sudo)')),
+      h.store.getState().notices.some((n) => n.message.includes('a sudo password')),
     )
+    // Nothing was sent: it stays open for the terminal or the desktop app.
     expect([...h.fake.gateway.open.values()].map((r) => r.method)).toEqual(['sudo'])
+    expect(h.fake.gateway.settled).toEqual([])
+  })
+
+  it('answers through request.answer and stays answering until Hermes acknowledges', async () => {
+    const h = await harness()
+    const outcome = approvalScript(h)
+    const { request } = await openRequest(h)
+    let release: () => void = () => undefined
+    h.fake.gateway.beforeHandle = (method) =>
+      method === 'request.answer'
+        ? new Promise<void>((resolve) => {
+            release = resolve
+          })
+        : undefined
+    const answered = approve(h, request.requestId, 'once')
+    await h.waitFor(() => h.rpcCalls('request.answer') === 1)
+    expect(requestOf(h, request.requestId)?.status).toBe('answering')
+    expect(h.events.some((e) => e.type === 'request.closed')).toBe(false)
+    release()
+    await expect(answered).resolves.toMatchObject({ status: 'answered' })
+    await h.waitFor(() => outcome.done)
+    expect(outcome.result).toEqual({ choice: 'once' })
+    // Settled by the acknowledged call, never by a bare response frame.
+    expect(h.fake.gateway.settled).toEqual([
+      expect.objectContaining({ id: request.requestId, outcome: 'answered' }),
+    ])
+    expect(h.fake.gateway.settled[0]?.by).toBeUndefined()
+  })
+
+  it('reports a request Hermes no longer waited for as resolved elsewhere', async () => {
+    const h = await harness()
+    approvalScript(h)
+    const { request } = await openRequest(h)
+    // Another client answered it with a bare frame: the sidecar tells this client nothing.
+    const open = h.fake.gateway.open.get(request.requestId)
+    h.fake.gateway.open.delete(request.requestId)
+    open?.settle({ choice: 'deny' })
+    const result = await h.client.call('request.answer', {
+      requestId: request.requestId,
+      answer: { kind: 'approval', choice: 'once' },
+    })
+    expect(result.status).toBe('resolved-elsewhere')
+    const closing = h.events.filter(
+      (e) =>
+        (e.type === 'request.closed' || e.type === 'request.answer-failed') &&
+        e.requestId === request.requestId,
+    )
+    expect(closing).toEqual([
+      {
+        type: 'request.closed',
+        requestId: request.requestId,
+        status: 'resolved-elsewhere',
+      },
+    ])
+  })
+
+  it('shows a request that arrives before the reply binding its session', async () => {
+    const fake = await fakeHermes()
+    const other = await connectRawClient(fake, fake.signIn())
+    const created = (await other.request('session.create', {})) as {
+      result: { session_id: string; stored_session_id: string }
+    }
+    const { session_id: sid, stored_session_id: storedId } = created.result
+    await other.request('prompt.submit', { session_id: sid, text: 'hello (fixture)' })
+    const h = await harness({ fake })
+    await h.waitFor(() => fake.store.sessions.get(storedId)?.rows.length === 2)
+    await h.client.call('conversations.list', {})
+    let raised: Promise<unknown> | undefined
+    // Hermes attaches this socket, then asks before it writes the resume reply.
+    fake.gateway.afterHandle = (method) => {
+      if (method !== 'session.resume' || raised) return
+      raised = fake.gateway.serverRequest(sid, 'approval', {
+        request_id: 'e'.repeat(32),
+        command: 'ls (fixture)',
+      })
+    }
+    await h.client.call('conversations.history', { conversationId: storedId })
+    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+    expect(request.conversationId).toBe(storedId)
+    await approve(h, request.requestId, 'deny')
+    await expect(raised).resolves.toEqual({ choice: 'deny' })
+    other.close()
   })
 })
 
@@ -503,14 +586,23 @@ describe('direct client: reconnect and replay', () => {
     const h = await harness()
     const outcome = approvalScript(h)
     const { request } = await openRequest(h)
+    // A silently dead socket: the answer is written but Hermes never reads it.
     h.fake.gateway.frozen = true
-    await approve(h, request.requestId, 'deny')
-    expect(requestOf(h, request.requestId)?.status).toBe('answered')
+    const lost = approve(h, request.requestId, 'deny')
+    await h.waitFor(() => requestOf(h, request.requestId)?.status === 'answering')
     await pause(30)
     h.fake.gateway.frozen = false
     expect(h.fake.gateway.open.has(request.requestId)).toBe(true)
     h.fake.gateway.dropConnections()
-    // Hermes still holds it after the reconnect, so that answer did not land.
+    // No acknowledgement: the call fails and the request is answerable again.
+    expect(await codeOf(lost)).toBe('offline')
+    expect(
+      h.events.filter(
+        (e) => e.type === 'request.answer-failed' && e.requestId === request.requestId,
+      ),
+    ).toHaveLength(1)
+    await online(h, 2)
+    // Hermes still lists it after the reconnect, so that answer did not land.
     await h.waitFor(() => requestOf(h, request.requestId)?.status === 'open')
     expect(outcome.done).toBeUndefined()
     await approve(h, request.requestId, 'once')

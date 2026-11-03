@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   connectRawClient,
+  NOT_SHOWN_MESSAGE,
   startFakeHermes,
   type FakeHermes,
   type RawClient,
@@ -165,13 +166,9 @@ describe('fake Hermes: server requests', () => {
     const asked = client.nextServerRequest()
     await client.request('prompt.submit', { session_id: sid, text: 'go' })
     const request = await asked
-    const other = await connectRawClient(fake, fake.signIn())
-    const resolved = (await other.request('approval.respond', {
-      session_id: sid,
-      choice: 'deny',
-    })) as { result: Json }
-    expect(resolved.result).toEqual({ resolved: 1 })
-    await waitFor(() => events(client, 'request.cancel').length)
+    // approval.respond, a chat platform or /approve (approval_gateway_wait.py:209-221).
+    fake.gateway.resolveElsewhere(request.id, 'deny')
+    await waitFor(() => events(client, 'request.cancel').length > 0)
     expect(events(client, 'request.cancel')).toEqual([
       { id: request.id, method: 'approval', reason: 'resolved' },
     ])
@@ -179,6 +176,76 @@ describe('fake Hermes: server requests', () => {
     // A late frame for it is dropped, like server_requests.resolve_response.
     client.send({ id: request.id, result: { choice: 'once' } })
     await waitFor(() => fake.gateway.droppedResponses.includes(request.id))
+  })
+
+  it('acknowledges request.answer with ok, then expired, and refuses a malformed one', async () => {
+    const { fake, client, sid } = await setup()
+    const outcome: { result?: unknown } = {}
+    fake.gateway.script = async (turn) => {
+      outcome.result = await turn.approval()
+    }
+    const asked = client.nextServerRequest()
+    await client.request('prompt.submit', { session_id: sid, text: 'go' })
+    const request = await asked
+    const answer = (params: Json) =>
+      client.request('request.answer', params) as Promise<{
+        result?: Json
+        error?: { code: number }
+      }>
+    // Hermes leaves required and type checks to the handler (rpc_dispatch.py:24-30); the
+    // fake still records the malformed client params, which this test sends on purpose.
+    expect((await answer({ id: request.id })).error?.code).toBe(4002)
+    expect((await answer({ id: request.id, result: 'deny' })).error?.code).toBe(4002)
+    expect(fake.violations.length).toBe(2)
+    fake.violations.length = 0
+    expect(fake.gateway.open.has(request.id)).toBe(true)
+    expect((await answer({ id: request.id, result: { choice: 'deny' } })).result).toEqual(
+      {
+        status: 'ok',
+      },
+    )
+    await waitFor(() => outcome.result)
+    expect(outcome.result).toEqual({ choice: 'deny' })
+    // The first answer won; a second one is told nothing waits for it anymore.
+    expect((await answer({ id: request.id, result: { choice: 'once' } })).result).toEqual(
+      {
+        status: 'expired',
+      },
+    )
+    expect(fake.gateway.settled).toEqual([
+      {
+        id: request.id,
+        method: 'approval',
+        outcome: 'answered',
+        result: { choice: 'deny' },
+      },
+    ])
+  })
+
+  it('settles even a credential prompt with a non-empty value once every client declined', async () => {
+    // Pins upstream _decline (server_requests.py:254-278): it does not look at the method, so a
+    // unanimous 4404 hands `secret_cb` a "not shown" string as the secret. Cindl never sends one.
+    const { fake, client, sid, storedId } = await setup()
+    const other = await connectRawClient(fake, fake.signIn())
+    await other.request('session.resume', { session_id: storedId })
+    const pending = fake.gateway.serverRequest(sid, 'secret', {
+      prompt: 'Synthetic key prompt (fixture)',
+      env_var: 'FIXTURE_KEY',
+    })
+    const [first, second] = await Promise.all([
+      client.nextServerRequest(),
+      other.nextServerRequest(),
+    ])
+    client.send({ id: first.id, error: { code: 4404, message: 'not shown (fixture)' } })
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(fake.gateway.open.has(first.id)).toBe(true)
+    other.send({ id: second.id, error: { code: 4404, message: 'not shown (fixture)' } })
+    const settled = await pending
+    // A non-empty value: `_ask` would hand this string to secret_cb as the secret.
+    expect(typeof settled?.value === 'string' && JSON.parse(settled.value)).toEqual({
+      success: false,
+      error: NOT_SHOWN_MESSAGE,
+    })
     other.close()
   })
 

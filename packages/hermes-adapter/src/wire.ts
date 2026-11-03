@@ -254,6 +254,9 @@ export const PromptSubmitResult = z.object({
   user_row_id: nullable(z.number().int()),
 })
 
+/** `request.answer` (tui_gateway/methods_prompt.py:1289-1302; RequestAnswerResult). */
+export const RequestAnswerResult = z.object({ status: z.enum(['ok', 'expired']) })
+
 export const SessionInterruptResult = z.object({
   status: z.enum(['interrupted', 'not_interrupted']),
 })

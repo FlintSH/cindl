@@ -11,6 +11,8 @@ import {
 } from '@cindl/contracts'
 import { z } from 'zod'
 import { boundedText, safeText } from './diagnostics.ts'
+import { asCindlError, NotSentError, protocolError } from './errors.ts'
+import { parseWire, RequestAnswerResult } from './wire.ts'
 
 /**
  * Server-to-client requests Cindl answers (ADR 0005), shaped as
@@ -28,6 +30,9 @@ import { boundedText, safeText } from './diagnostics.ts'
  * tools/clarify_tool.py:36-47), skipped as `null`. Locked questions are left
  * out because Hermes lays the reply over the locks (tools/clarify_batch.py:27-30).
  * Requests are keyed by Hermes's `srq-<12 hex>` id, which survives reconnects.
+ *
+ * Answers go through `request.answer` (`sendAnswer`), which Hermes
+ * acknowledges, never as a bare response frame, which it does not.
  */
 
 const PERMITTED: readonly ApprovalChoice[] = ['once', 'deny']
@@ -68,7 +73,8 @@ export interface InboundRequestInput {
   /** Connection epoch the request was (re)delivered on; diagnostics only. */
   lastSeenEpoch: number
   receivedAt: string
-  conversationId?: string
+  /** The conversation (stored session) `params.session_id` belongs to. */
+  conversationId: string
 }
 
 export interface MappedRequest {
@@ -119,7 +125,7 @@ export function mapServerRequest(input: InboundRequestInput): MappedRequest | un
     lastSeenEpoch: input.lastSeenEpoch,
     receivedAt: input.receivedAt,
     status: 'open' as const,
-    ...(input.conversationId ? { conversationId: input.conversationId } : {}),
+    conversationId: input.conversationId,
   }
   if (input.method === 'approval') {
     const parsed = ApprovalParams.safeParse(input.params)
@@ -227,4 +233,53 @@ export function answerResult(
     else throw new CindlError('invalid', 'That question takes a single answer.')
   }
   return { answers }
+}
+
+/** How one answer ended. Exactly one per `sendAnswer` call. */
+export type AnswerOutcome =
+  /**
+   * Hermes's request registry took the answer (`request.answer` → `ok`). It
+   * says nothing about whether a command or tool then succeeded.
+   */
+  | { kind: 'answered' }
+  /** Hermes no longer waited for it (`expired`): answered elsewhere, withdrawn or timed out. */
+  | { kind: 'no-longer-pending' }
+  /**
+   * The answer did not reach Hermes, Hermes refused it (the request is still
+   * open), or no acknowledgement came back. `delivered` is false only when
+   * nothing left this device. Re-sending is safe either way: the first answer
+   * wins and a later one gets `expired` (server_requests.py:281-317).
+   */
+  | { kind: 'failed'; delivered: boolean; error: CindlError }
+
+/**
+ * Answer an open server request through `request.answer {id, result}`, the
+ * acknowledged path on the sidecar (tui_gateway/methods_prompt.py:1289-1302):
+ * Hermes settles it like a response frame (`resolve_response`) and replies
+ * `ok`, or `expired` when nothing waits for that id anymore. A bare response
+ * frame gets no reply at all, so it cannot tell the two apart.
+ */
+export async function sendAnswer(
+  rpc: (method: string, params: Record<string, unknown>) => Promise<unknown>,
+  requestId: string,
+  result: Record<string, unknown>,
+): Promise<AnswerOutcome> {
+  let raw: unknown
+  try {
+    raw = await rpc('request.answer', { id: requestId, result })
+  } catch (error) {
+    return {
+      kind: 'failed',
+      delivered: !(error instanceof NotSentError),
+      error: asCindlError(error, 'request.answer'),
+    }
+  }
+  const parsed = parseWire(RequestAnswerResult, raw)
+  if (!parsed)
+    return {
+      kind: 'failed',
+      delivered: true,
+      error: protocolError('request.answer: unexpected result'),
+    }
+  return parsed.status === 'ok' ? { kind: 'answered' } : { kind: 'no-longer-pending' }
 }

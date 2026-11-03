@@ -39,6 +39,7 @@ import {
   RestClient,
   routineFromJob,
   safeText,
+  sendAnswer,
   skillFromRow,
   transcriptToHistory,
   unsupportedReasons,
@@ -119,7 +120,7 @@ type Handler<K extends OpName> = (args: OpArgs<K>) => Promise<OpResult<K>> | OpR
 interface TrackedRequest {
   request: ServerRequest
   runtimeSessionId: string
-  conversationId: string | undefined
+  conversationId: string
 }
 
 type ReattachOutcome = 'ok' | 'gone' | 'abort'
@@ -173,6 +174,11 @@ class DirectHermesClient implements DirectClient {
   readonly #historyLoaded = new Set<string>()
   readonly #requests = new Map<string, TrackedRequest>()
   readonly #noticed = new Set<string>()
+  /** Requests for a runtime session this socket has not bound yet, by session id. */
+  readonly #waiting = new Map<
+    string,
+    Array<{ inbound: InboundServerRequest; epoch: number }>
+  >()
   readonly #prompts = new Map<string, PendingPrompt>()
   readonly #accepted = new Set<string>()
   #main: string | undefined
@@ -537,6 +543,8 @@ class DirectHermesClient implements DirectClient {
     const previous = this.#handshake
     this.#handshake = handshake
     this.#epoch = handshake.connectionEpoch
+    // Requests waiting for a binding belonged to the old socket; open_requests re-delivers them.
+    this.#waiting.clear()
     void this.#storage?.saveEpoch(this.#epoch)
     if (this.#display.viewerId && this.#display.viewerEpoch !== this.#epoch) {
       // Viewer ids belong to the connection that minted them (methods_display.py).
@@ -708,8 +716,8 @@ class DirectHermesClient implements DirectClient {
       [...this.#requests.values()].map((tracked) => tracked.conversationId),
     )
     for (const conversationId of conversations) {
-      const sid = conversationId && this.#runtime.get(conversationId)
-      if (!conversationId || !sid) continue
+      const sid = this.#runtime.get(conversationId)
+      if (!sid) continue
       const before = this.#trackedIn(conversationId)
       try {
         const since = wire.parseWire(
@@ -845,6 +853,9 @@ class DirectHermesClient implements DirectClient {
     const conversation = this.#conversations.get(storedId)
     if (conversation && conversation.session.runtimeId !== sid)
       this.#upsert({ ...conversation, session: { storedId, runtimeId: sid } })
+    const waiting = this.#waiting.get(sid)
+    this.#waiting.delete(sid)
+    for (const { inbound, epoch } of waiting ?? []) this.#onServerRequest(inbound, epoch)
   }
 
   #detachRuntime(storedId: string): void {
@@ -966,6 +977,20 @@ class DirectHermesClient implements DirectClient {
     const sid =
       typeof inbound.params.session_id === 'string' ? inbound.params.session_id : ''
     const conversationId = this.#stored.get(sid)
+    if (!conversationId) {
+      // A request can beat the reply that binds its session (session.resume
+      // attaches before it answers); it is shown once the binding lands, and
+      // stays open in Hermes meanwhile.
+      if (sid && epoch === this.#epoch) {
+        const waiting = this.#waiting.get(sid) ?? []
+        if (!waiting.some((w) => w.inbound.id === inbound.id))
+          this.#waiting.set(sid, [...waiting.slice(-19), { inbound, epoch }])
+      }
+      this.#log.log('info', 'direct.request-session-not-bound', {
+        method: inbound.method,
+      })
+      return
+    }
     const existing = this.#requests.get(inbound.id)
     const mapped = mapServerRequest({
       requestId: inbound.id,
@@ -973,7 +998,7 @@ class DirectHermesClient implements DirectClient {
       params: inbound.params,
       lastSeenEpoch: epoch,
       receivedAt: existing?.request.receivedAt ?? this.#now(),
-      ...(conversationId ? { conversationId } : {}),
+      conversationId,
     })
     // A frame Cindl cannot read stays open for clients that can.
     if (!mapped) {
@@ -988,18 +1013,25 @@ class DirectHermesClient implements DirectClient {
     // Hermes holds it open, so even a request this client answered before is
     // answerable again: that answer did not land (the reducer reopens it).
     this.#emit({ type: 'request.opened', request: mapped.request })
-    if (conversationId)
-      this.#emit({ type: 'session.status', conversationId, status: 'waiting-on-you' })
+    this.#emit({ type: 'session.status', conversationId, status: 'waiting-on-you' })
     this.#scheduleRequestSync()
   }
 
   #onUnhandledServerRequest(request: UnhandledServerRequest): void {
     if (request.action !== 'leave-open' || this.#noticed.has(request.id)) return
     this.#noticed.add(request.id)
+    const asking =
+      request.upstreamKind === 'other'
+        ? `input Cindl does not handle (${safeText(request.method, 40)})`
+        : request.upstreamKind === 'secret'
+          ? 'a secret'
+          : request.upstreamKind === 'vault'
+            ? 'a password-manager code or password'
+            : 'a sudo password'
     this.#emit({
       type: 'notice',
       level: 'warning',
-      message: `Hermes is waiting for input Cindl does not handle (${safeText(request.method, 40)}). Answer it where Hermes asked, or it times out.`,
+      message: `Hermes is waiting for ${asking}. Cindl never answers it: answer where Hermes asked, or it times out.`,
     })
   }
 
@@ -1368,7 +1400,7 @@ class DirectHermesClient implements DirectClient {
       await this.#rpc('session.interrupt', { session_id: sid })
       return { requested: true as const }
     },
-    'request.answer': ({ requestId, answer }) => {
+    'request.answer': async ({ requestId, answer }) => {
       const tracked = this.#requests.get(requestId)
       if (!tracked) throw new CindlError('not-found', 'This request is no longer open.')
       this.#require(
@@ -1379,25 +1411,47 @@ class DirectHermesClient implements DirectClient {
       // No second answer from this device while this one is on its way.
       this.#requests.delete(requestId)
       this.#emit({ type: 'request.opened', request: answering })
-      const sent = this.#connection?.channel?.respondTo(requestId, result) ?? 'not-sent'
-      if (sent === 'not-sent') {
-        this.#requests.set(requestId, tracked)
-        this.#emit({ type: 'request.answer-failed', requestId })
-        throw new CindlError(
-          'offline',
-          'Not connected to Hermes. The answer was not sent.',
-          'request.answer: not sent',
-        )
-      }
-      // `answered` means sent: Hermes keeps the first reply and does not acknowledge it.
-      this.#emit({ type: 'request.closed', requestId, status: 'answered' })
-      if (tracked.conversationId)
+      const outcome = await sendAnswer(
+        (method, params) => this.#rpc(method, params),
+        requestId,
+        result,
+      )
+      // Exactly one event ends `answering`.
+      if (outcome.kind === 'answered') {
+        // Hermes's request registry took it; not proof that a command or tool succeeded.
+        this.#emit({ type: 'request.closed', requestId, status: 'answered' })
         this.#emit({
           type: 'session.status',
           conversationId: tracked.conversationId,
           status: 'working',
         })
-      return { ...answering, status: 'answered' as const }
+        return { ...answering, status: 'answered' as const }
+      }
+      if (outcome.kind === 'no-longer-pending') {
+        this.#emit({ type: 'request.closed', requestId, status: 'resolved-elsewhere' })
+        return { ...answering, status: 'resolved-elsewhere' as const }
+      }
+      // Answerable again (unless a reconnect already re-delivered it). If the
+      // answer did land, a second one is told the request already ended.
+      if (!this.#requests.has(requestId)) this.#requests.set(requestId, tracked)
+      this.#emit({ type: 'request.answer-failed', requestId })
+      if (!outcome.delivered)
+        throw new CindlError(
+          'offline',
+          'Not connected to Hermes. The answer was not sent.',
+          outcome.error.detail,
+        )
+      if (outcome.error.code === 'offline' || outcome.error.code === 'timeout')
+        throw new CindlError(
+          outcome.error.code,
+          'Hermes did not confirm this answer. Answering again is safe: if the first one counted, Hermes says the request already ended.',
+          outcome.error.detail,
+        )
+      throw new CindlError(
+        outcome.error.code,
+        'Hermes did not accept this answer. The request is still open.',
+        outcome.error.detail,
+      )
     },
     'routines.list': async () => {
       const raw = await this.#rpc('cron.manage', {
@@ -1539,6 +1593,7 @@ class DirectHermesClient implements DirectClient {
     this.#historyLoaded.clear()
     this.#requests.clear()
     this.#noticed.clear()
+    this.#waiting.clear()
     this.#prompts.clear()
     this.#accepted.clear()
     this.#handshake = undefined

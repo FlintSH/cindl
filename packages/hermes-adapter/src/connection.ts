@@ -2,7 +2,7 @@ import { CindlError, type AuthorityMode } from '@cindl/contracts'
 import type { z } from 'zod'
 import { GATEWAY_SUBPROTOCOL, ticketSubprotocol, wsPaths } from './compat.ts'
 import { safeText, silentDiagnostics, type Diagnostics } from './diagnostics.ts'
-import { asCindlError, protocolError } from './errors.ts'
+import { asCindlError, NotSentError, protocolError } from './errors.ts'
 import type { SocketFactory, SocketLike, Timers } from './platform.ts'
 import type { RestClient } from './rest.ts'
 import {
@@ -198,10 +198,7 @@ export class HermesConnection {
     options: { timeoutMs?: number } = {},
   ): Promise<unknown> {
     const channel = this.channel
-    if (!channel)
-      return Promise.reject(
-        new CindlError('offline', 'Not connected to Hermes.', `${method}: not online`),
-      )
+    if (!channel) return Promise.reject(new NotSentError(`${method}: not online`))
     return channel.request(method, params, options).catch((error: unknown) => {
       if (isVersionMismatch(error)) this.#incompatible(error as CindlError)
       throw error
@@ -281,7 +278,13 @@ export class HermesConnection {
       this.#options.advertiseServerRequests === false ? {} : { server_requests: true },
       ClientCapabilitiesResult,
     )
-    channel.setDeclinesCounted(capabilities.declines_not_shown === true)
+    // A canonical socket answers client.capabilities from the sidecar handler
+    // (tui_gateway/ws_legacy_fallback.py:53-63, methods_voice.py:539), but the
+    // owner settles its requests on any error reply, 4404 included
+    // (gateway/session_server_requests.py:74-93): never decline there.
+    channel.setDeclinesCounted(
+      !sessionAuthority && capabilities.declines_not_shown === true,
+    )
     const handshake: Handshake = {
       connectionEpoch: epoch,
       replayEpoch: payload.replay_epoch,

@@ -16,17 +16,22 @@ export type AnsweredMethod = (typeof answeredServerRequests)[number]
 
 /**
  * "No window here shows this session" (tui_gateway/server_requests.py:117-121).
- * Hermes counts it as one client's vote and settles the request only when
- * every answering client declined (:254-278), so another client can still
- * answer. Sent only when `client.capabilities` reported `declines_not_shown`.
+ * On the sidecar Hermes counts it as one client's vote and settles the request
+ * only when every answering client declined (:254-278), so the window showing
+ * the session can still answer. The session owner (gateway) settles on any
+ * error reply instead (gateway/session_server_requests.py:74-93), so the
+ * decline is sent only on a sidecar connection whose `client.capabilities`
+ * reported `declines_not_shown`.
  */
 export const NOT_SHOWN_CODE = 4404
 
 /**
  * Bridges answered by the window that shows the session; any other client
  * declines with 4404 (apps/desktop .../gateway-event/server-requests.ts
- * `WINDOW_OWNED_REQUESTS` at v0.22.5). A unanimous decline settles them with a
- * "no window is showing this chat" result, which these tools report as such.
+ * `WINDOW_OWNED_REQUESTS` at v0.22.5). A unanimous decline settles them with
+ * `{"success": false, "error": <not shown>}`, which these tools return to the
+ * model as a refusal (tui_gateway/agent_callbacks.py:145-150, 169-176;
+ * server.py:1155-1161, 1213-1226; theme_bridge.py:21-23).
  */
 export const windowOwnedRequests = [
   'preview.act',
@@ -38,14 +43,29 @@ export const windowOwnedRequests = [
 ] as const
 
 /**
- * What Cindl does with a server request it does not answer. Hermes delivers
- * each request to every attached client and the FIRST reply wins, so an error
- * reply would close the request for a client that can answer it
- * (server_requests.py:281-317). Credential prompts (secret, sudo, vault.*,
- * display.install.sudo) must not be declined either: a unanimous decline
- * settles with a "not shown" value that `_ask` hands back as the answer
- * (tui_gateway/agent_callbacks.py:244-283). Those stay unanswered: another
- * client answers them, or Hermes's own deadline fails them closed.
+ * What a request Cindl does not answer is asking for. Credential prompts
+ * read the reply's `value` as the password, code or secret itself
+ * (tui_gateway/server.py:1092-1097; agent_callbacks.py:231-279;
+ * methods_display.py:202-206).
+ */
+export type UnsupportedKind = 'sudo' | 'secret' | 'vault' | 'other'
+
+export function unsupportedKind(method: string): UnsupportedKind {
+  if (method === 'sudo' || method === 'display.install.sudo') return 'sudo'
+  if (method === 'secret') return 'secret'
+  if (method.startsWith('vault.')) return 'vault'
+  return 'other'
+}
+
+/**
+ * What Cindl does with a server request it does not answer. Nothing is ever
+ * sent for a credential prompt or an unknown kind: not a decline, not an
+ * error, not an empty value. A unanimous 4404 settles any request with a
+ * non-empty "not shown" string that `_ask` returns as the value
+ * (server_requests.py:254-278), which `secret_cb` would store as the secret
+ * (agent_callbacks.py:251-254); an error or empty reply settles it as skipped
+ * for every client (server_requests.py:301-303; gateway/session_server_requests.py:84-90).
+ * Those requests stay open for the client that can answer them, or time out.
  */
 export function unhandledRequestAction(
   method: string,
@@ -59,16 +79,16 @@ export function unhandledRequestAction(
 export interface UnhandledServerRequest {
   id: string
   method: string
+  upstreamKind: UnsupportedKind
   sessionId: string | undefined
   replayed: boolean
   action: 'decline' | 'leave-open'
 }
 
 /**
- * One server-to-client request (tui_gateway/server_requests.py). Answer it by
- * calling `respond` or `fail` exactly once; the frame goes out on the channel
- * that received the request and reuses its JSON-RPC id. Later calls return
- * false and send nothing.
+ * One server-to-client request Cindl can answer (tui_gateway/server_requests.py),
+ * as delivered. It carries no way to reply on the socket: answers go through
+ * the acknowledged `request.answer` method (requests.ts `sendAnswer`).
  */
 export interface InboundServerRequest {
   readonly id: string
@@ -76,9 +96,6 @@ export interface InboundServerRequest {
   readonly params: Record<string, unknown>
   /** Delivered from a reconnect snapshot (`open_requests`) rather than live. */
   readonly replayed: boolean
-  readonly settled: boolean
-  respond(result: Record<string, unknown>): boolean
-  fail(code: number, message: string): boolean
 }
 
 export interface RpcCloseInfo {
@@ -140,7 +157,7 @@ export class RpcChannel {
   readonly #log: Diagnostics
   readonly #options: RpcChannelOptions
   readonly #pending = new Map<number, Pending>()
-  readonly #answered = new Set<string>()
+  readonly #declined = new Set<string>()
   #allowed: ReadonlySet<string> = new Set()
   #declinesCounted = false
   #nextId = 0
@@ -174,25 +191,16 @@ export class RpcChannel {
     this.#allowed = new Set(methods)
   }
 
-  /** From `client.capabilities` → `declines_not_shown`: Hermes counts 4404 as a decline. */
+  /**
+   * True only on a sidecar connection whose `client.capabilities` reported
+   * `declines_not_shown`: there a 4404 is a vote, elsewhere it settles.
+   */
   setDeclinesCounted(value: boolean): void {
     this.#declinesCounted = value
   }
 
-  /**
-   * Answer a server request by its id on this channel. Hermes resolves answers
-   * by id across connections, so a request re-delivered after a reconnect can
-   * be answered here. `duplicate`: this channel already answered that id;
-   * `not-sent`: the socket is not open, nothing left this device.
-   */
-  respondTo(
-    id: string,
-    result: Record<string, unknown>,
-  ): 'sent' | 'duplicate' | 'not-sent' {
-    if (this.#answered.has(id)) return 'duplicate'
-    if (!this.#send({ jsonrpc: '2.0', id, result })) return 'not-sent'
-    this.#answered.add(id)
-    return 'sent'
+  get declinesCounted(): boolean {
+    return this.#declinesCounted
   }
 
   startHeartbeat(): void {
@@ -344,19 +352,17 @@ export class RpcChannel {
     params: Record<string, unknown>,
     replayed: boolean,
   ): void {
-    let settled = false
-    const settle = (frame: Record<string, unknown>) => {
-      if (settled || this.#answered.has(id)) return false
-      settled = true
-      this.#answered.add(id)
-      return this.#send({ jsonrpc: '2.0', id, ...frame })
-    }
     if (!(answeredServerRequests as readonly string[]).includes(method)) {
       const action = unhandledRequestAction(method, this.#declinesCounted)
-      if (action === 'decline')
-        settle({
+      // The only frame Cindl ever writes in reply to a server request, once per id.
+      if (action === 'decline' && !this.#declined.has(id)) {
+        this.#declined.add(id)
+        this.#send({
+          jsonrpc: '2.0',
+          id,
           error: { code: NOT_SHOWN_CODE, message: 'Cindl is not showing this session.' },
         })
+      }
       this.#log.log('info', 'rpc.server-request-not-answered', {
         method: safeText(method, 80),
         action,
@@ -365,6 +371,7 @@ export class RpcChannel {
         this.#options.onUnhandledServerRequest?.({
           id,
           method,
+          upstreamKind: unsupportedKind(method),
           sessionId:
             typeof params.session_id === 'string' ? params.session_id : undefined,
           replayed,
@@ -375,22 +382,16 @@ export class RpcChannel {
       }
       return
     }
-    const request: InboundServerRequest = {
-      id,
-      method: method as AnsweredMethod,
-      params,
-      replayed,
-      get settled() {
-        return settled
-      },
-      respond: (result) => settle({ result }),
-      fail: (code, message) => settle({ error: { code, message } }),
-    }
     try {
-      this.#options.onServerRequest(request)
+      this.#options.onServerRequest({
+        id,
+        method: method as AnsweredMethod,
+        params,
+        replayed,
+      })
     } catch (error) {
-      // Never answer on a handler crash: an error reply would close the
-      // request for every other client. It stays open for them or times out.
+      // Nothing is sent on a handler crash either: the request stays open for
+      // every other client, or Hermes times it out.
       this.#log.log('error', 'rpc.server-request-handler-failed', {
         method,
         error: error instanceof Error ? error.name : 'unknown',

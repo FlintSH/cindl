@@ -1012,21 +1012,18 @@ export class FakeGateway {
           .filter((r) => r.sid === params.session_id && r.method === 'approval')
           .map((r) => ({ ...r.params })),
       }),
-    'approval.respond': (_c, params, id) => {
-      const target = [...this.open.values()].find(
-        (r) =>
-          r.method === 'approval' &&
-          r.sid === params.session_id &&
-          (params.request_id === undefined || r.requestId === params.request_id),
-      )
-      if (!target) return ok(id, { resolved: 0 })
-      this.resolveElsewhere(target.id, params.choice === 'once' ? 'once' : 'deny')
-      return ok(id, { resolved: 1 })
-    },
+    // tui_gateway/methods_prompt.py:1289-1302: settle like a response frame (no transport, so
+    // never a 4404 vote) and say whether anything was still waiting.
     'request.answer': (_c, params, id) => {
-      const request = this.open.get(str(params.id))
-      if (!request) return ok(id, { status: 'expired' })
-      this.#resolveResponse({ id: request.id, result: params.result }, undefined)
+      const requestId = str(params.id)
+      const result = params.result
+      if (!requestId || !result || typeof result !== 'object' || Array.isArray(result))
+        return err(id, 4002, 'id and an object result required')
+      if (!this.open.has(requestId)) {
+        this.droppedResponses.push(requestId)
+        return ok(id, { status: 'expired' })
+      }
+      this.#resolveResponse({ id: requestId, result }, undefined)
       return ok(id, { status: 'ok' })
     },
     'subagent.list': (_c, _p, id) => ok(id, { subagents: [] }),

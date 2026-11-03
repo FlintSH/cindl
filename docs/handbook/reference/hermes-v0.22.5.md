@@ -122,12 +122,15 @@ session_authority?}}}` (`tui_gateway/ws.py:548-554`).
   approvals at once (`tui_gateway/server_requests.py:30-34, 156-161`;
   `server.py:849-859`). The result lists every server-request method of the
   build and `declines_not_shown: true` (`methods_voice.py:521-538`).
-- `session_authority: true` appears only when a session authority is attached,
-  which `hermes serve` does not do; the gateway's own listener does
-  (`ws.py:357-365`). Cindl then negotiates `runtime.describe` and uses only
-  canonical method names on that socket, but it does not implement canonical
-  sessions yet, so chat features report `unsupported` there. On the sidecar it
-  probes `gateway.capabilities` (`{per_session_exclusive_submit}`).
+- `session_authority: true` appears only when a session authority is attached.
+  The gateway attaches one when it hosts the dashboard listener or redeems a
+  local ticket (`gateway/run_api.py:63-71, 366`); a standalone `hermes serve`
+  has none, so its `/api/ws` runs the legacy sidecar dispatcher
+  (`ws.py:357-379`). On a canonical socket Cindl negotiates
+  `runtime.describe` and uses only canonical method names, but it does not
+  implement canonical sessions yet, so chat features report `unsupported`
+  there. On the sidecar it probes `gateway.capabilities`
+  (`{per_session_exclusive_submit}`).
 
 ### Framing and liveness
 
@@ -149,13 +152,16 @@ session_authority?}}}` (`tui_gateway/ws.py:548-554`).
 
 `client.capabilities`, `gateway.capabilities`, `ping`, `session.create`,
 `session.list`, `session.resume`, `session.title`, `session.events.since`,
-`session.interrupt`, `prompt.submit`, `cron.manage`, `mcp.servers.status`,
-`display.status`, `display.observe`, `display.lease.acquire`,
-`display.lease.release`. The allowlist in `upstream-surface.ts` also names
-methods Cindl may use later (`session.history`, `session.steer`,
-`approval.respond`, `request.answer`, `process.list`, ...). Anything off the
-allowlist, including every `connectors.*` call, is refused before it reaches
-the wire.
+`session.interrupt`, `prompt.submit`, `request.answer`, `cron.manage`,
+`mcp.servers.status`, `display.status`, `display.observe`,
+`display.lease.acquire`, `display.lease.release`. The allowlist in
+`upstream-surface.ts` also names methods Cindl may use later
+(`session.history`, `session.steer`, `process.list`, ...). Anything off the
+allowlist is refused before it reaches the wire, including every
+`connectors.*` call and both `approval.respond` verbs: the sidecar's resolves
+the oldest pending approval and takes an `all` flag (`methods_prompt.py:1325-1340`),
+and the canonical one is keyed by a `prompt_id` Cindl does not use (see
+[Answering](#answering)).
 
 ## Sessions
 
@@ -201,54 +207,111 @@ transcript when the epoch changed or the window was truncated.
 ## Server-to-client requests
 
 Hermes sends a request to every client attached to the session that
-advertised `server_requests`; the **first reply wins** and settles it for all.
-An error reply counts as "no answer" and also settles it. A reply for an id
-that is no longer open is dropped (`server_requests.py:1-35, 191-227,
-281-317`). Unanswered requests are re-listed in `open_requests` with the same
-id after a reconnect (`server_requests.py:365-369`, `server.py:797-810`).
-Withdrawals arrive as `request.cancel {id, method, reason}`.
+advertised `server_requests`; the **first answer wins** and settles it for
+all. A reply for an id that is no longer open is dropped
+(`server_requests.py:1-35, 191-227, 281-317`). Unanswered requests are listed
+again, with the same `srq-<12 hex>` id, in the `open_requests` of
+`session.resume` and `session.events.since` (`server_requests.py:71,
+365-369`; `server.py:797-810`). Hermes withdraws a request with
+`request.cancel {id, method, reason}`; `reason: resolved` means an approval
+was settled from another surface such as `approval.respond`, a chat platform
+or `/approve` (`approval_gateway_wait.py:201-221`). When another client
+answers with a response frame, the sidecar tells the other clients nothing:
+no event and no cancel (`rpc_dispatch.py:54-58`, `server_requests.py:281-317`).
 
 ### Approval and clarify
 
 | Request    | Params                                                                                                                                  | Result Cindl sends                                                  |
 | ---------- | --------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
 | `approval` | `{session_id, request_id, command (redacted by Hermes), description, choices, allow_session, allow_permanent, smart_denied, tool_name}` | `{choice: "once" \| "deny"}`, never `all`, never `session`/`always` |
-| `clarify`  | `{session_id, questions[{qid, question, choices?, multi_select}], answers?}`                                                            | `{answers: {qid: string \| null}}`; `{}` declines the whole set     |
+| `clarify`  | `{session_id, questions[{qid, question, choices?, multi_select}], answers?}`                                                            | `{answers: {qid: string \| null}}` for the open questions           |
 
 - Choices default to `once` (+ `session`, `always` unless smart-denied or
   disallowed) + `deny` (`server.py:781-794`). Cindl offers only the
   intersection with `once`/`deny` and lists the rest as withheld.
 - A multi-select answer is a JSON array string, which Hermes parses
   (`tools/clarify_tool.py:36-47`); `null` marks a skipped question.
+- `answers` on a re-listed clarify request holds the answers other clients
+  already locked with `clarify.lock` (`server_requests.py:93-99`). Hermes lays
+  a reply over the locks (`tools/clarify_batch.py:27-31`), so Cindl shows them
+  and sends only the questions that are still open.
 - Approvals wait `approvals.timeout` (default 300 s,
   `tools/approval_context.py:305-313`); clarify waits `clarify.timeout`
   (default 3600 s, `tools/clarify_gateway.py:296-308`). Both fail closed and
   announce the end with `request.cancel`; interrupts also emit
-  `approval.cancelled`. Cindl takes Hermes's announcement, or the request's
-  absence from `open_requests` after a reconnect, as the end; it does not
-  guess a local deadline because the windows are configurable.
-- An error reply to an approval withdraws it rather than denying it
-  (`server.py:849-862`).
+  `approval.cancelled`. Cindl does not guess a local deadline because the
+  windows are configurable.
 
-How Cindl tracks them: each request is keyed by its `srq-` id, which stays the
-same when Hermes re-lists it after a reconnect, and can be answered from any
-connection. Before sending an answer, the device records it in a local ledger;
-it never sends a second, different answer for the same id. If Hermes still
-lists an answered request after a reconnect, the reply was lost in transit, and
-Cindl re-sends the same recorded decision (the first reply wins, so this cannot
-answer twice). After every reconnect Cindl emits `requests.synced` with the ids
-Hermes still holds open; anything else it showed as open was resolved elsewhere
-or timed out.
+### Answering
+
+Cindl answers with `request.answer {id, result}`
+(`methods_prompt.py:1289-1302`), never with a bare JSON-RPC response frame.
+Both settle the request the same way (`resolve_response`), but only the method
+is acknowledged: `{status: "ok"}` when Hermes's request registry took the
+answer, `{status: "expired"}` when nothing waits for that id anymore. A
+response frame gets no reply at all (`rpc_dispatch.py:54-58`). The method has
+no error form, so it can neither decline nor withdraw a request. Missing or
+malformed fields answer error 4002 and leave the request open (Hermes checks
+only unknown keys before the handler, `rpc_dispatch.py:24-30`).
+
+Each answer ends Cindl's `answering` state with exactly one event:
+
+- `ok`: `request.closed` with status `answered`. Hermes accepted the answer;
+  that says nothing about whether the command or tool then succeeded.
+- `expired`: `request.closed` with status `resolved-elsewhere`. Another
+  client answered first, or Hermes withdrew it or timed it out.
+- The call was not sent, Hermes refused it, or no acknowledgement came back:
+  `request.answer-failed`, and the request is answerable again. Answering
+  again is safe: if the first answer did land, Hermes says `expired`.
+
+The session owner (canonical) surface works differently and Cindl does not
+use it: approvals arrive as `approval.request` events and clarify questions
+as `clarify.request` events, one per question, each keyed by a `prompt_id`
+(the approval's 32-hex `request_id` or a 10-hex clarify id;
+`gateway/session_pending_controls.py:20-50`, `tools/approval_gateway_wait.py:32`,
+`gateway/run_turn_runner.py:606`). They are answered with
+`approval.respond` / `clarify.respond {session_id, execution_generation,
+prompt_id, choice | answer}`, which return `resolved` or `already_resolved`
+(`gateway/session_controls.py:840-850`, `session_pending_controls.py:65-101`,
+`contracts/canonical.py:356-369`).
+
+### Tracking after a reconnect
+
+Nothing about requests is stored on the device. After a reconnect Cindl
+re-attaches each conversation, replays the events it missed (a replayed
+`request.cancel` closes a request with Hermes's reason), offers every request
+Hermes still lists (one this device had answered becomes answerable again:
+that answer did not land), then emits `requests.synced {conversationId,
+openRequestIds}`. Any other request it showed as open in that conversation
+ended without an event. A request that arrives while that list is on its way
+is newer than the list and stays open; one that arrives before the reply that
+binds its session (`session.resume` attaches before it answers) is shown once
+the binding lands. While a card is open Cindl repeats the check every 15 s,
+because the sidecar does not report answers from other clients.
+
+### Declining a clarify set
+
+A `{}` result cancels the whole set: locked answers stay, the rest are
+unanswered, and the outcome is `cancelled` (`tools/clarify_batch.py:15-31`;
+the owner path does the same, `gateway/session_clarify_batch.py:32-43`). The
+model gets `{responses: [{status: "unanswered", user_response: null}, ...],
+outcome: "cancelled"}` with no notice (`server.py:1112-1121`,
+`tools/clarify_tool.py:87-108`), the same result an interrupt or a withdrawn
+request produces (`server_requests.py:339-352`). It does not tell the model
+that the user declined. Skipping every open question (`null`) does: the
+outcome is `submitted` and each question is `skipped`. Planned: replace the
+decline with skip-all (a contract change).
 
 ### Requests Cindl does not answer
 
-A blanket error reply would close a request for the client that can answer
-it, so Cindl's non-answer depends on the kind:
+Any reply settles a request for every client, so Cindl's non-answer depends
+on the kind:
 
-| Kind                                                                                                                                         | Cindl's reply                | Why                                                                                                                                                                                                                                                                                                                                                                                     |
-| -------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `preview.act`, `preview.read`, `terminal.read`, `theme.apply`, `window.read`, `tour`                                                         | error **4404** ("not shown") | Window-owned bridges. Hermes counts 4404 as one client declining and settles only when every client declined (`server_requests.py:117-121, 254-278`); the desktop app does the same (`WINDOW_OWNED_REQUESTS`). Sent only when `declines_not_shown` is true.                                                                                                                             |
-| `secret`, `sudo`, `vault.unlock_prompt`, `vault.save_login`, `vault.code`, `display.install.sudo`, `theme.pick`, `setup_beat`, unknown kinds | **no reply**                 | A unanimous decline settles with a "not shown" value that `_ask` hands back as the answer, which would be stored as a secret or tried as a password (`agent_callbacks.py:244-283`). An error reply would beat a client that can answer. Another client answers, or Hermes's own deadline fails the request closed. Cindl tells the user Hermes is waiting for input it does not handle. |
+| Kind                                                                                              | Cindl's reply                                                                                               | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| ------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `preview.act`, `preview.read`, `terminal.read`, `theme.apply`, `window.read`, `tour`              | error **4404** ("not shown"), only on a sidecar socket that reports `declines_not_shown`; otherwise nothing | Window-owned bridges. On the sidecar 4404 is one client's vote: Hermes settles only when every answering client declined, then hands the tool `{"success": false, "error": "No Hermes Desktop window is showing this chat..."}`, which it returns to the model as a refusal (`server_requests.py:22-26, 117-121, 254-278`; `agent_callbacks.py:145-150, 169-176`; `server.py:1155-1161, 1213-1226`; `theme_bridge.py:21-23`). The session owner settles on any error reply, 4404 included (`gateway/session_server_requests.py:74-93`), and a canonical socket still reports `declines_not_shown` through the sidecar handler (`ws_legacy_fallback.py:53-63`, `methods_voice.py:539`), so Cindl never declines there.               |
+| `sudo`, `display.install.sudo`, `secret`, `vault.unlock_prompt`, `vault.save_login`, `vault.code` | **nothing**, ever                                                                                           | These read the reply's `value` as the password, code or secret (`server.py:1092-1097`). A unanimous 4404 settles any request, these included, with the non-empty "not shown" string (`server_requests.py:254-278`): `secret_cb` would store it as the secret (`agent_callbacks.py:251-254`), and sudo, the vault and the display installer would try it as the password or code (`agent_callbacks.py:256-279`, `methods_display.py:202-206`). An error reply or an empty value settles the request as skipped for every client (`server_requests.py:301-303`; `gateway/session_server_requests.py:84-90`). It stays open for the terminal or the desktop app, or Hermes's own deadline ends it; Cindl shows that Hermes is waiting. |
+| `theme.pick`, `setup_beat`, unknown kinds                                                         | **nothing**                                                                                                 | Any reply would settle the request before the client that can answer it.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 
 ## Events
 

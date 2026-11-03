@@ -23,9 +23,13 @@ steer and process operations.
   upstream shape in `wire.ts` so unknown keys (host paths, e-mail) are dropped.
 - Canonical (session authority) and legacy sidecar protocols are separate code
   paths; never mix them on one connection.
-- Never reply to a server request Cindl does not handle with an error: the
-  first reply closes it for every client. Window-owned bridges get 4404;
-  credential prompts get no reply (`rpc.ts` `unhandledRequestAction`).
+- Answer approvals and clarify only with `request.answer` (`sendAnswer`),
+  which Hermes acknowledges; never with a bare response frame.
+- Never send anything for sudo, secret, vault or unknown requests: no error,
+  no -32601, no empty value. Any reply settles them for every client and a
+  credential prompt reads it as the answer. The 4404 vote is only for
+  window-owned bridges on a sidecar that counts declines, never on a
+  canonical socket (`rpc.ts` `unhandledRequestAction`).
 - A prompt whose outcome is unknown is `uncertain` and never resent.
 - Treat tickets, `hermes-gateway-ticket.*` subprotocols, tokens, cookies, codes,
   verifiers and display viewer ids as secrets: only `redact*` output may be

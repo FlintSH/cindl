@@ -30,6 +30,7 @@ function clarify(questions: Array<Record<string, unknown>>) {
     params,
     lastSeenEpoch: 1,
     receivedAt,
+    conversationId: 'c1',
   })
   if (!mapped) throw new Error('not mapped')
   return ServerRequest.parse(mapped.request)
@@ -225,6 +226,7 @@ describe('clarify requests', () => {
       params,
       lastSeenEpoch: 2,
       receivedAt,
+      conversationId: 'c1',
     })
     const request = ServerRequest.parse(mapped?.request)
     expect(request.lockedAnswers).toEqual({
@@ -261,6 +263,7 @@ describe('clarify requests', () => {
         params,
         lastSeenEpoch: 2,
         receivedAt,
+        conversationId: 'c1',
       })?.request,
     )
     expect(request.lockedAnswers).toEqual({
@@ -289,6 +292,7 @@ describe('clarify requests', () => {
           params,
           lastSeenEpoch: 1,
           receivedAt,
+          conversationId: 'c1',
         }),
       ).toBeUndefined()
   })
@@ -301,6 +305,7 @@ describe('clarify requests', () => {
         params: { session_id: 's', questions: [] },
         lastSeenEpoch: 1,
         receivedAt,
+        conversationId: 'c1',
       }),
     ).toBeUndefined()
     expect(
@@ -310,6 +315,7 @@ describe('clarify requests', () => {
         params: { session_id: 's' },
         lastSeenEpoch: 1,
         receivedAt,
+        conversationId: 'c1',
       }),
     ).toBeUndefined()
   })
