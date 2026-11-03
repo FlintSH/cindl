@@ -9,6 +9,7 @@ import {
   parseOpArgs,
   ServerRequest,
   clarifyAnswersComplete,
+  openQuestionIds,
 } from '../src/index.ts'
 
 describe('client operation registry', () => {
@@ -76,7 +77,17 @@ describe('client operation registry', () => {
         answer: { kind: 'approval', choice: 'deny' },
       }),
     ).toMatchObject({ requestId: 'srq-0123456789ab' })
-    for (const requestId of [7, '', '../x', 'srq 1', 'a?b', '#x'])
+    for (const requestId of [
+      7,
+      '',
+      '../x',
+      'srq 1',
+      'a?b',
+      '#x',
+      'srq-demo0000000z',
+      'SRQ-0123456789AB',
+      'srq-0123456789abc',
+    ])
       expect(() =>
         parseOpArgs('request.answer', {
           requestId,
@@ -126,6 +137,28 @@ describe('client operation registry', () => {
     ).toBe(false)
     expect(clarifyAnswersComplete({ questions: [] }, {})).toBe(false)
   })
+
+  it('leaves questions another client locked out of the submission', () => {
+    const request = {
+      questions: [
+        { qid: 'q1', question: 'A?', multiSelect: false },
+        { qid: 'q2', question: 'B?', multiSelect: false },
+      ],
+      lockedAnswers: { q1: { text: 'answered on the desktop app' } },
+    }
+    expect(openQuestionIds(request)).toEqual(['q2'])
+    expect(clarifyAnswersComplete(request, { q2: { skipped: true } })).toBe(true)
+    // Including a locked question would override the other client's answer.
+    expect(
+      clarifyAnswersComplete(request, { q1: { skipped: true }, q2: { skipped: true } }),
+    ).toBe(false)
+    expect(
+      clarifyAnswersComplete(
+        { ...request, lockedAnswers: { q1: { skipped: true }, q2: { text: 'x' } } },
+        {},
+      ),
+    ).toBe(false)
+  })
 })
 
 describe('sign-in origin', () => {
@@ -140,6 +173,8 @@ describe('sign-in origin', () => {
   })
 
   it.each([
+    'https://hermes.example.test.',
+    'https://hermes.example.test:0',
     'http://hermes.example.test',
     'http://localhost:9119',
     'http://10.0.2.2:9119',
@@ -165,6 +200,7 @@ describe('identifiers', () => {
     ).toBeTruthy()
     expect(parseOpArgs('soul.read', { profile: 'default' })).toBeTruthy()
     expect(parseOpArgs('skills.read', { name: 'calendar-triage' })).toBeTruthy()
+    expect(parseOpArgs('skills.read', { name: 'Ops/Inventory sheets' })).toBeTruthy()
   })
 
   it.each(['../../etc', 'a/b', '%2e%2e', 'x?y=1#z', 'Default', '-lead', ''])(
@@ -174,7 +210,7 @@ describe('identifiers', () => {
     },
   )
 
-  it.each(['../x?y=1#z', 'a/b', '.hidden', 'name with space', '%2e%2e'])(
+  it.each(['../x?y=1#z', 'a/b/c', '..', ' lead', 'trail ', 'a?b', '%2e%2e', 'tab\there'])(
     'rejects hostile skill name %j',
     (name) => {
       expect(() => parseOpArgs('skills.read', { name })).toThrow()
@@ -196,7 +232,7 @@ describe('identifiers', () => {
 
 describe('contract surface', () => {
   it('is versioned and enumerable for docs coverage', () => {
-    expect(CONTRACTS_VERSION).toBe(2)
+    expect(CONTRACTS_VERSION).toBe(3)
     expect(new Set(cindlEventTypes).size).toBe(cindlEventTypes.length)
     expect(new Set(capabilityIds).size).toBe(capabilityIds.length)
   })

@@ -1,6 +1,6 @@
 # 0008 Native Android with Expo / React Native
 
-**Status:** Accepted (build pipeline pending)
+**Status:** Accepted (build pipeline in progress)
 
 **Decision.** The Android app is React Native on Expo SDK 58 (React Native
 0.88, React 19.3) using native components, not a WebView. It shares

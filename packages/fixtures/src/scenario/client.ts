@@ -2,8 +2,8 @@
  * In-memory SYNTHETIC implementation of CindlClientApi for UI development,
  * component tests and documentation screenshots. It never contacts Hermes and
  * always reports `link.demo = true` so every client shows a "Synthetic demo"
- * banner. Integration tests of the real adapter use the fake Hermes server
- * instead; this scenario only exercises UI behaviour.
+ * banner. Integration tests of the real adapter will use a fake Hermes server
+ * (in progress); this scenario only exercises UI behaviour.
  */
 import { sha256Hex } from '@cindl/client-core'
 import {
@@ -357,7 +357,11 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
         )
       return prompt
     },
-    'prompt.discard': ({ clientId }) => ({ discarded: prompts.delete(clientId) }),
+    'prompt.discard': ({ clientId }) => {
+      const discarded = prompts.delete(clientId)
+      if (discarded) emit({ type: 'prompt.removed', clientId })
+      return { discarded }
+    },
     'conversation.interrupt': ({ conversationId }) => {
       for (const handle of streams.get(conversationId) ?? []) timers.clearTimeout(handle)
       if (streams.delete(conversationId)) {

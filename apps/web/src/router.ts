@@ -1,3 +1,4 @@
+import { EntityId, SkillName } from '@cindl/contracts'
 import { useEffect, useState } from 'react'
 
 /**
@@ -43,7 +44,10 @@ export function parseRoute(hash: string): Route {
       const section = librarySections.includes(a as LibrarySection)
         ? (a as LibrarySection)
         : 'skills'
-      return b ? { view: 'library', section, item: b } : { view: 'library', section }
+      // An item must be a valid skill name; anything else shows the section.
+      return b && SkillName.safeParse(b).success
+        ? { view: 'library', section, item: b }
+        : { view: 'library', section }
     }
     case 'agent':
       return {
@@ -53,7 +57,10 @@ export function parseRoute(hash: string): Route {
           : 'identity',
       }
     default:
-      return a ? { view: 'talk', conversationId: a } : { view: 'talk' }
+      // A malformed conversation id opens Talk on the main conversation.
+      return a && EntityId.safeParse(a).success
+        ? { view: 'talk', conversationId: a }
+        : { view: 'talk' }
   }
 }
 

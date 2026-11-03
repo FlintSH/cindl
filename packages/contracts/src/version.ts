@@ -3,7 +3,7 @@
  * change to a schema, event or operation, and follow the contract-change
  * protocol in packages/contracts/AGENTS.md.
  */
-export const CONTRACTS_VERSION = 2
+export const CONTRACTS_VERSION = 3
 
 /**
  * The Hermes release this contract was verified against. Other versions are

@@ -1,19 +1,23 @@
 import { useOpenRequests, useTool } from '@cindl/client-react'
+import type { ServerRequest } from '@cindl/contracts'
 import { HelpCircle, ShieldAlert, X } from 'lucide-react'
 import { Button, SectionTitle } from '../ui/primitives.tsx'
 import { duration } from './format.ts'
-import { requestDomId } from './RequestCard.tsx'
 import { ToolIcon } from './ToolRow.tsx'
 import styles from './talk.module.css'
 
-function Evidence({ toolId }: { toolId: string }) {
+function Evidence({ toolId, blocked }: { toolId: string; blocked: boolean }) {
   const tool = useTool(toolId)
   if (!tool)
     return <p className={styles.marginEmpty}>This step is no longer available.</p>
   return (
     <div className={styles.evidence}>
       <p className={styles.evidenceTitle}>
-        <ToolIcon status={tool.status} /> {tool.title}
+        <ToolIcon
+          status={tool.status}
+          blocked={blocked && (tool.status === 'running' || tool.status === 'generating')}
+        />{' '}
+        {tool.title}
       </p>
       <dl className={styles.facts}>
         <dt>Tool</dt>
@@ -59,11 +63,14 @@ export function WorkingMargin({
   selectedToolId,
   onClearSelection,
   onClose,
+  onShowRequest,
 }: {
   conversationId: string
   selectedToolId: string | undefined
   onClearSelection: () => void
   onClose: () => void
+  /** Reveal the request's card in the conversation (closing any modal sheet first). */
+  onShowRequest: (request: ServerRequest) => void
 }) {
   const requests = useOpenRequests(conversationId)
   return (
@@ -88,7 +95,7 @@ export function WorkingMargin({
       </header>
       <div className={styles.marginBody}>
         {selectedToolId ? (
-          <Evidence toolId={selectedToolId} />
+          <Evidence toolId={selectedToolId} blocked={requests.length > 0} />
         ) : requests.length ? (
           // The actionable card lives in the conversation; the margin only points to it,
           // so one request never shows two sets of decision buttons.
@@ -103,13 +110,7 @@ export function WorkingMargin({
                   <Button
                     variant="quiet"
                     aria-label={`Show ${label}: ${request.title}`}
-                    onClick={() => {
-                      const card = document.getElementById(requestDomId(request))
-                      card?.scrollIntoView({ block: 'center' })
-                      card
-                        ?.querySelector<HTMLElement>('h3')
-                        ?.focus({ preventScroll: true })
-                    }}
+                    onClick={() => onShowRequest(request)}
                   >
                     Show
                   </Button>

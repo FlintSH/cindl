@@ -1,4 +1,5 @@
 import type { ServerRequest, ToolActivity } from '@cindl/contracts'
+import { entry } from './records.ts'
 import { selectOpenRequests } from './selectors.ts'
 import type { ClientState } from './state.ts'
 
@@ -53,10 +54,10 @@ export function selectConversationActivity(
       p.state === 'accepted' &&
       p.disposition === 'queued',
   ).length
-  const turnOpen = (state.messages[conversationId] ?? []).some(
+  const turnOpen = (entry(state.messages, conversationId) ?? []).some(
     (m) => m.status === 'streaming',
   )
-  const conversation = state.conversations[conversationId]
+  const conversation = entry(state.conversations, conversationId)
   const otherExecuting = Object.values(state.conversations).filter(
     (c) => c.id !== conversationId && c.status === 'working',
   ).length

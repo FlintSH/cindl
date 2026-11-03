@@ -1,4 +1,5 @@
 import {
+  entry,
   selectCan,
   selectConversationActivity,
   type ConversationActivity,
@@ -46,14 +47,12 @@ export const useCan = (id: CapabilityId) => useCindlState((state) => selectCan(s
 export const useConversations = (): Conversation[] => useStableArray(selectConversations)
 export const useMainConversation = () => useCindlState(selectMainConversation)
 export const useConversation = (id: string | undefined) =>
-  useCindlState((state) => (id ? state.conversations[id] : undefined))
+  useCindlState((state) => entry(state.conversations, id))
 
 const empty: readonly Message[] = []
 export const useMessages = (conversationId: string | undefined) =>
-  useCindlState((state) =>
-    conversationId ? (state.messages[conversationId] ?? empty) : empty,
-  )
-export const useTool = (id: string) => useCindlState((state) => state.tools[id])
+  useCindlState((state) => entry(state.messages, conversationId) ?? empty)
+export const useTool = (id: string) => useCindlState((state) => entry(state.tools, id))
 
 export function useUncertainPrompts(conversationId: string | undefined): PendingPrompt[] {
   const selector = useCallback(

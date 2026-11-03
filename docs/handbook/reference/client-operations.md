@@ -2,8 +2,9 @@
 
 `CindlClientApi` is the only surface UI code calls
 (`packages/contracts/src/ops.ts`). Every operation validates its arguments
-with Zod; on Electron the main process validates them again before anything
-reaches Hermes. There is no generic RPC or REST passthrough.
+with Zod; the desktop app's main process is designed to validate them again
+before anything reaches Hermes (in progress). There is no generic RPC or REST
+passthrough.
 
 | Operation                | Requires capability    | Changes state | Summary                                                                                     |
 | ------------------------ | ---------------------- | ------------- | ------------------------------------------------------------------------------------------- |

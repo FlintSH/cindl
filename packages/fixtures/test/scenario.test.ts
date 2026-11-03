@@ -57,10 +57,10 @@ describe('synthetic scenario client', () => {
 
   it('answers a request once, with an offered choice only', async () => {
     const { client, flush } = harness()
-    const requestId = 'srq-demo00000001'
+    const requestId = 'srq-00000000dea1'
     await expect(
       client.call('request.answer', {
-        requestId: 'srq-unknown00001',
+        requestId: 'srq-0000000000ff',
         answer: { kind: 'approval', choice: 'once' },
       }),
     ).rejects.toMatchObject({ code: 'not-found' })
@@ -80,7 +80,7 @@ describe('synthetic scenario client', () => {
 
   it('requires one submission covering every clarify question', async () => {
     const { client, flush } = harness()
-    const requestId = 'srq-demo00000002'
+    const requestId = 'srq-00000000dea2'
     await expect(
       client.call('request.answer', {
         requestId,

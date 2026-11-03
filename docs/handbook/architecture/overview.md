@@ -38,8 +38,8 @@ Hermes `hermes serve` backend. There is no Cindl server.
    runs the direct Hermes client; the Electron renderer reaches it over the
    preload bridge; the synthetic demo uses `@cindl/fixtures`.
 2. UI calls operations (`prompt.submit`, `request.answer`, `soul.write`, ...).
-   Each operation's arguments are validated against its schema, and the IPC
-   boundary re-validates them in the main process.
+   Each operation's arguments are validated against its schema; the desktop
+   app's main process is designed to validate them again (in progress).
 3. The client emits normalized `CindlEvent`s. `client-core` reduces them into
    one state tree; UI reads it through hooks. Hermes wire events never reach
    components directly.
@@ -67,8 +67,10 @@ Hermes `hermes serve` backend. There is no Cindl server.
 5. Converse: `prompt.submit` returns `streaming | queued | steered | redirected`;
    output arrives as `message.*`, `tool.*`, `status.update` and related events.
 6. Decide: approvals and clarifications are server-to-client JSON-RPC requests;
-   Cindl answers each once, by id, with an offered choice. Requests it does not
-   implement get JSON-RPC error `-32601`.
+   Cindl answers each once, by id, with an offered choice. Hermes keeps the
+   first reply from any client, so requests Cindl does not handle are declined
+   in a way that leaves them answerable elsewhere (ADR 0005); the exact reply per
+   request kind is being verified.
 7. Reconnect: `session.events.since` replays a bounded in-memory window and
    reports `epoch`, `truncated` and `open_requests`. On an epoch change or
    truncation the client reloads history instead of trusting partial replay.

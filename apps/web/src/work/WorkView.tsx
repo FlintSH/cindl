@@ -21,6 +21,8 @@ function Running() {
   const activeTools = Object.values(running).filter(
     (t) => t.status === 'running' || t.status === 'generating',
   )
+  // A step in a conversation that waits on the owner is blocked, not running.
+  const waitingOn = new Set(useOpenRequests().map((r) => r.conversationId))
   if (!working.length && !activeTools.length)
     return (
       <p className={styles.empty}>
@@ -48,9 +50,13 @@ function Running() {
           <span className={styles.rowTitle}>{t.title}</span>
           <span className={styles.rowDetail}>{t.progress ?? t.name}</span>
           <span className={styles.rowAside}>
-            <Badge tone="accent">
-              {t.status === 'generating' ? 'Preparing' : 'Running'}
-            </Badge>
+            {waitingOn.has(t.conversationId) ? (
+              <Badge tone="warning">Waiting for you</Badge>
+            ) : (
+              <Badge tone="accent">
+                {t.status === 'generating' ? 'Preparing' : 'Running'}
+              </Badge>
+            )}
           </span>
         </li>
       ))}
@@ -146,6 +152,19 @@ function Routines() {
 
 function Computer() {
   const api = useCindlApi()
+  const [controlError, setControlError] = useState<string>()
+  const controlCall = async (call: () => Promise<unknown>) => {
+    setControlError(undefined)
+    try {
+      await call()
+    } catch (err) {
+      setControlError(
+        isCindlError(err)
+          ? err.message
+          : 'Cindl could not confirm the change. Check the screen state before trying again.',
+      )
+    }
+  }
   const canControl = useCan('computer.control')
   const display = useCindlState((state) => state.display)
   const [confirming, setConfirming] = useState(false)
@@ -178,7 +197,9 @@ function Computer() {
       </dl>
       <div className={styles.actions}>
         {display.leaseHeldByThisDevice ? (
-          <Button onClick={() => void api.call('display.releaseControl', {})}>
+          <Button
+            onClick={() => void controlCall(() => api.call('display.releaseControl', {}))}
+          >
             Give control back
           </Button>
         ) : display.status === 'running' && canControl ? (
@@ -191,7 +212,9 @@ function Computer() {
                 variant="primary"
                 onClick={() => {
                   setConfirming(false)
-                  void api.call('display.acquireControl', { confirm: true })
+                  void controlCall(() =>
+                    api.call('display.acquireControl', { confirm: true }),
+                  )
                 }}
               >
                 Take control now
@@ -202,6 +225,11 @@ function Computer() {
           )
         ) : null}
       </div>
+      {controlError ? (
+        <p className={styles.error} role="alert">
+          {controlError}
+        </p>
+      ) : null}
       {confirming ? (
         <p className={styles.note}>
           Taking control pauses Hermes's input on its screen and evicts any other

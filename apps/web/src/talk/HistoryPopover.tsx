@@ -1,4 +1,5 @@
 import { useCan, useCindlApi, useConversations } from '@cindl/client-react'
+import { isCindlError } from '@cindl/contracts'
 import { Pin, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { navigate } from '../router.ts'
@@ -20,6 +21,7 @@ export function HistoryPopover({
   const api = useCindlApi()
   const conversations = useConversations()
   const canCreate = useCan('sessions.create')
+  const [error, setError] = useState<string>()
   const [query, setQuery] = useState('')
   const filtered = useMemo(
     () =>
@@ -87,13 +89,24 @@ export function HistoryPopover({
               type="button"
               className={styles.historyNew}
               onClick={() =>
-                void api
-                  .call('conversations.create', {})
-                  .then((created) => open_(created.id))
+                void api.call('conversations.create', {}).then(
+                  (created) => open_(created.id),
+                  (err: unknown) =>
+                    setError(
+                      isCindlError(err)
+                        ? err.message
+                        : 'The side conversation could not be started.',
+                    ),
+                )
               }
             >
               <Plus size={15} aria-hidden="true" /> New side conversation
             </button>
+            {error ? (
+              <p className={styles.historyEmpty} role="alert">
+                {error}
+              </p>
+            ) : null}
           </div>
         ) : null}
       </div>

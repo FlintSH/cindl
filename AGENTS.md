@@ -123,7 +123,9 @@ age. Keep both protections: pick an older version instead of adding exclusions.
 
 ## Parallel work and file ownership
 
-Work in task-owned Git worktrees. One coordinator owns root files
+Work in task-owned Git worktrees. `main` only moves by merging reviewed work;
+day-to-day commits, coordinator ones included, go on a branch (check
+`git branch --show-current` before committing). One coordinator owns root files
 (`package.json`, `pnpm-workspace.yaml`, `tsconfig.base.json`,
 `eslint.config.mjs`, `vitest.config.ts`, Prettier/Git config, this file,
 `README.md`, `DESIGN.md`, `SECURITY.md`) and `packages/contracts`. A stream may:

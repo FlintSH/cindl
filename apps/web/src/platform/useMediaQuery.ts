@@ -1,6 +1,6 @@
 import { useSyncExternalStore } from 'react'
 
-/** Live `matchMedia` result. Layout breakpoints are literal: 768, 1024, 1280. */
+/** Live `matchMedia` result. Layout breakpoints are literal: 768 and 1280. */
 export function useMediaQuery(query: string): boolean {
   return useSyncExternalStore(
     (onChange) => {

@@ -248,6 +248,7 @@ function Device() {
   const api = useCindlApi()
   const link = useLink()
   const [done, setDone] = useState(false)
+  const [failed, setFailed] = useState(false)
   return (
     <section className={styles.section} aria-labelledby="device-title">
       <SectionTitle id="device-title">This device</SectionTitle>
@@ -259,11 +260,22 @@ function Device() {
       <div className={styles.actions}>
         <Button
           disabled={link.phase === 'signed-out'}
-          onClick={() => void api.call('auth.signOut', {}).then(() => setDone(true))}
+          onClick={() =>
+            void api.call('auth.signOut', {}).then(
+              () => setDone(true),
+              () => setFailed(true),
+            )
+          }
         >
           Sign out on this device
         </Button>
       </div>
+      {failed ? (
+        <p className={styles.error} role="alert">
+          Signing out did not complete. Try again; until it does, this device may still be
+          signed in.
+        </p>
+      ) : null}
       {done ? (
         <p className={styles.note} role="status">
           Signed out on this device.

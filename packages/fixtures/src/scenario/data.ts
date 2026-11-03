@@ -169,7 +169,7 @@ export const messages: Message[] = [
 
 export const requests: ServerRequest[] = [
   {
-    requestId: 'srq-demo00000001',
+    requestId: 'srq-00000000dea1',
     hermesApprovalId: 'apr-demo-1',
     lastSeenEpoch: 1,
     kind: 'approval',
@@ -184,7 +184,7 @@ export const requests: ServerRequest[] = [
     status: 'open',
   },
   {
-    requestId: 'srq-demo00000002',
+    requestId: 'srq-00000000dea2',
     lastSeenEpoch: 1,
     kind: 'clarify',
     conversationId: 'demo-main',

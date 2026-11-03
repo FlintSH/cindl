@@ -41,16 +41,17 @@ from the desktop app's custom protocol.
 
 - **Content-Security-Policy** in production builds: no remote scripts, styles,
   fonts or images; `connect-src 'self'`.
-- **Agent output is untrusted:** no raw HTML; remote images are not fetched
-  until you choose **Load image**; links open in a new tab without referrer and
-  show their destination; non-web link schemes are inert.
+- **Agent output is untrusted:** no raw HTML; images in messages are never
+  loaded (remote, relative or inline), and Cindl names what it withheld; every
+  link shows its destination host next to its text and opens in a new tab
+  without referrer; non-web link schemes are inert.
 - **Not framable:** a meta-tag policy cannot stop framing, so a same-origin
   mount must send `Content-Security-Policy: frame-ancestors 'none'` (or
   `X-Frame-Options: DENY`) for Cindl's pages; otherwise a page elsewhere could
   frame the decision cards.
 - **No tokens in the browser:** the web client relies on Hermes's HttpOnly
-  session cookie. Only non-secret preferences (theme, working margin, pinned
-  conversation) are stored locally.
+  session cookie. Only non-secret preferences (theme and whether the working
+  margin is open) are stored locally.
 
 ## Keyboard
 

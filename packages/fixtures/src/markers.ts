@@ -9,7 +9,7 @@
 export const SYNTHETIC_FIXTURE_MARKERS = [
   'Lumen & Kiln',
   'hermes.synthetic.invalid',
-  'srq-demo00000001',
+  'srq-00000000dea1',
   'apr-demo-1',
   'demo-main',
   'Harbor Loft (fictional)',

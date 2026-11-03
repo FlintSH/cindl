@@ -8,7 +8,7 @@ import {
   type ServerRequest,
 } from '@cindl/contracts'
 import { HelpCircle, ShieldAlert } from 'lucide-react'
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './talk.module.css'
 
@@ -19,18 +19,37 @@ export const requestDomId = (request: Pick<ServerRequest, 'requestId'>) =>
 const uncertain =
   'Cindl could not confirm your answer. Hermes may have received it; check before answering again.'
 
-type Draft = { selected: string[]; other: string; skipped: boolean }
-const emptyDraft: Draft = { selected: [], other: '', skipped: false }
+/**
+ * Per-question draft. Nothing the owner typed or picked is discarded by
+ * another control: choosing an option keeps the typed text, and skipping keeps
+ * both until the owner sends.
+ */
+type Draft = { selected: string[]; other: string; useOther: boolean; skipped: boolean }
+const emptyDraft: Draft = { selected: [], other: '', useOther: false, skipped: false }
+
+/** Drafts survive remounts (switching views, re-sent requests) for the session. */
+const draftsByRequest = new Map<string, Record<string, Draft>>()
 
 function responseFor(
   question: ClarifyQuestion,
   draft: Draft,
 ): ClarifyResponse | undefined {
   if (draft.skipped) return { skipped: true }
-  if (draft.other.trim()) return { text: draft.other.trim() }
-  if (draft.selected.length)
-    return { choices: question.multiSelect ? draft.selected : draft.selected.slice(0, 1) }
-  return undefined
+  const typed = draft.other.trim()
+  if (!question.choices?.length) return typed ? { text: typed } : undefined
+  if (!question.multiSelect) {
+    if (draft.useOther) return typed ? { text: typed } : undefined
+    return draft.selected[0] ? { choices: [draft.selected[0]] } : undefined
+  }
+  if (!draft.selected.length) return typed ? { text: typed } : undefined
+  return { choices: typed ? [...draft.selected, typed] : draft.selected }
+}
+
+function describeResponse(response: ClarifyResponse | undefined): string {
+  if (!response) return 'unknown'
+  if ('skipped' in response) return 'skipped'
+  if ('text' in response) return response.text
+  return response.choices.join(', ')
 }
 
 function QuestionFields({
@@ -45,11 +64,12 @@ function QuestionFields({
   onChange: (draft: Draft) => void
 }) {
   const name = useId()
-  const toggle = (choice: string) =>
+  const choices = question.choices ?? []
+  const single = !question.multiSelect && choices.length > 0
+  const pick = (choice: string) =>
     onChange({
       ...draft,
-      skipped: false,
-      other: question.multiSelect ? draft.other : '',
+      useOther: false,
       selected: question.multiSelect
         ? draft.selected.includes(choice)
           ? draft.selected.filter((c) => c !== choice)
@@ -59,31 +79,52 @@ function QuestionFields({
   return (
     <fieldset className={styles.questionSet} disabled={disabled}>
       <legend className={styles.requestBody}>{question.question}</legend>
-      {question.choices?.map((choice) => (
+      {choices.map((choice) => (
         <label key={choice} className={styles.option}>
           <input
             type={question.multiSelect ? 'checkbox' : 'radio'}
             name={name}
-            checked={!draft.skipped && draft.selected.includes(choice)}
-            onChange={() => toggle(choice)}
+            disabled={draft.skipped}
+            checked={
+              question.multiSelect
+                ? draft.selected.includes(choice)
+                : !draft.useOther && draft.selected[0] === choice
+            }
+            onChange={() => pick(choice)}
           />
           <span>{choice}</span>
         </label>
       ))}
+      {single ? (
+        <label className={styles.option}>
+          <input
+            type="radio"
+            name={name}
+            disabled={draft.skipped}
+            checked={draft.useOther}
+            onChange={() => onChange({ ...draft, useOther: true })}
+          />
+          <span>Other</span>
+        </label>
+      ) : null}
       <label className={styles.otherLabel}>
         <span className="visually-hidden">Your own answer to: {question.question}</span>
         <input
           className={styles.clarifyInput}
           placeholder={
-            question.choices?.length ? 'Or type your own answer' : 'Type your answer'
+            !choices.length
+              ? 'Type your answer'
+              : question.multiSelect
+                ? 'Add your own answer'
+                : 'Your own answer'
           }
           value={draft.other}
+          disabled={draft.skipped}
           onChange={(event) =>
             onChange({
               ...draft,
-              skipped: false,
               other: event.target.value,
-              selected: question.multiSelect ? draft.selected : [],
+              useOther: single ? true : draft.useOther,
             })
           }
         />
@@ -92,7 +133,7 @@ function QuestionFields({
         <input
           type="checkbox"
           checked={draft.skipped}
-          onChange={(event) => onChange({ ...emptyDraft, skipped: event.target.checked })}
+          onChange={(event) => onChange({ ...draft, skipped: event.target.checked })}
         />
         <span>Skip this question</span>
       </label>
@@ -111,10 +152,21 @@ export function RequestCard({ request }: { request: ServerRequest }) {
   const titleId = useId()
   const [error, setError] = useState<string>()
   const [submitting, setSubmitting] = useState(false)
-  const [drafts, setDrafts] = useState<Record<string, Draft>>({})
+  const [drafts, setDraftsState] = useState<Record<string, Draft>>(
+    () => draftsByRequest.get(request.requestId) ?? {},
+  )
+  const setDraft = (qid: string, draft: Draft) =>
+    setDraftsState((current) => {
+      const next = { ...current, [qid]: draft }
+      draftsByRequest.set(request.requestId, next)
+      return next
+    })
+  // A ref, not state: two clicks in the same task must not both send.
+  const sending = useRef(false)
   const busy = submitting || request.status === 'answering'
   const send = async (answer: RequestAnswer) => {
-    if (busy) return
+    if (sending.current || request.status === 'answering') return
+    sending.current = true
     setSubmitting(true)
     setError(undefined)
     try {
@@ -125,12 +177,19 @@ export function RequestCard({ request }: { request: ServerRequest }) {
           ? err.message
           : uncertain,
       )
+      sending.current = false
       setSubmitting(false)
     }
   }
   const approval = request.kind === 'approval'
   const Icon = approval ? ShieldAlert : HelpCircle
-  const questions = request.questions ?? []
+  const locked = request.lockedAnswers ?? {}
+  const lockedQuestions = (request.questions ?? []).filter((q) =>
+    Object.hasOwn(locked, q.qid),
+  )
+  // Only questions nobody has answered yet are Cindl's to answer; a locked
+  // answer from another device is shown, never overridden.
+  const questions = (request.questions ?? []).filter((q) => !Object.hasOwn(locked, q.qid))
   const quick =
     questions.length === 1 &&
     !questions[0]?.multiSelect &&
@@ -165,6 +224,18 @@ export function RequestCard({ request }: { request: ServerRequest }) {
           {request.title}
         </h3>
       </header>
+      {!approval && lockedQuestions.length ? (
+        <ul className={styles.lockedList} aria-label="Answered on another device">
+          {lockedQuestions.map((question) => (
+            <li key={question.qid}>
+              <span className={styles.lockedQuestion}>{question.question}</span>
+              <span className={styles.lockedAnswer}>
+                Answered on another device: {describeResponse(locked[question.qid])}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
       {approval ? (
         <>
           {request.command ? (
@@ -215,6 +286,10 @@ export function RequestCard({ request }: { request: ServerRequest }) {
             </details>
           ) : null}
         </>
+      ) : !questions.length ? (
+        <p className={styles.requestNote}>
+          Every question was answered on another device. Hermes is using those answers.
+        </p>
       ) : quick && questions[0] ? (
         <div className={styles.question}>
           <p className={styles.requestBody}>{questions[0].question}</p>
@@ -263,9 +338,7 @@ export function RequestCard({ request }: { request: ServerRequest }) {
               question={question}
               draft={drafts[question.qid] ?? emptyDraft}
               disabled={busy}
-              onChange={(draft) =>
-                setDrafts((current) => ({ ...current, [question.qid]: draft }))
-              }
+              onChange={(draft) => setDraft(question.qid, draft)}
             />
           ))}
           <div className={styles.requestFooter}>

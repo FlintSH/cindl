@@ -30,7 +30,6 @@
     "@cindl/fixtures": "workspace:*",
     "@playwright/test": "1.64.1",
     "@testing-library/react": "16.3.3",
-    "@testing-library/user-event": "14.6.8",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
     "@vitejs/plugin-react": "6.1.2",

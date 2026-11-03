@@ -166,6 +166,8 @@ describe('streaming messages', () => {
 
 describe('server requests', () => {
   const id = 'srq-00000000000a'
+  const other = 'srq-00000000000b'
+  const deny = { kind: 'approval' as const, choice: 'deny' as const }
 
   it('treats a re-sent frame after reconnect as the same request, not a second card', () => {
     const state = run([
@@ -178,58 +180,161 @@ describe('server requests', () => {
   })
 
   it('keeps an in-flight answer when the request is re-sent', () => {
-    const answer = { kind: 'approval' as const, choice: 'deny' as const }
     const state = run([
       { type: 'request.opened', request: approval() },
-      { type: 'request.opened', request: approval({ status: 'answering', answer }) },
+      {
+        type: 'request.opened',
+        request: approval({ status: 'answering', answer: deny }),
+      },
       { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
     ])
     expect(state.requests[id]).toMatchObject({
       status: 'answering',
-      answer,
+      answer: deny,
       lastSeenEpoch: 2,
     })
   })
 
-  it('does not reopen a request that was already answered when a frame is replayed', () => {
+  it('records only that this client answered when Hermes broadcasts the resolution', () => {
     const state = run([
-      { type: 'request.opened', request: approval() },
+      {
+        type: 'request.opened',
+        request: approval({ status: 'answering', answer: deny }),
+      },
+      { type: 'request.closed', requestId: id, status: 'resolved-elsewhere' },
+    ])
+    expect(state.requests[id]?.status).toBe('answered')
+  })
+
+  it('makes a request answerable again when the answer could not be sent', () => {
+    const state = run([
+      {
+        type: 'request.opened',
+        request: approval({ status: 'answering', answer: deny }),
+      },
+      { type: 'request.answer-failed', requestId: id },
+    ])
+    expect(state.requests[id]?.status).toBe('open')
+    expect(state.requests[id]?.answer).toBeUndefined()
+  })
+
+  it('reopens an answered request that Hermes re-sends (that answer did not land)', () => {
+    const state = run([
+      {
+        type: 'request.opened',
+        request: approval({ status: 'answering', answer: deny }),
+      },
       { type: 'request.closed', requestId: id, status: 'answered' },
       { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
     ])
-    expect(state.requests[id]?.status).toBe('answered')
-    expect(selectOpenRequests(state)).toHaveLength(0)
+    expect(state.requests[id]?.status).toBe('open')
   })
 
-  it('closes requests Hermes no longer holds open after a reconnect', () => {
-    const other = 'srq-00000000000b'
+  it('never reopens a request Hermes cancelled or expired', () => {
+    for (const status of ['cancelled', 'expired'] as const) {
+      const state = run([
+        { type: 'request.opened', request: approval() },
+        { type: 'request.closed', requestId: id, status },
+        { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
+      ])
+      expect(state.requests[id]?.status).toBe(status)
+    }
+  })
+
+  it('syncs one conversation at a time and never relabels an answer as resolved elsewhere', () => {
     const state = run([
       { type: 'request.opened', request: approval() },
-      { type: 'request.opened', request: approval({ requestId: other }) },
-      { type: 'requests.synced', openRequestIds: [other] },
+      {
+        type: 'request.opened',
+        request: approval({ requestId: other, conversationId: 'c2' }),
+      },
+      {
+        type: 'request.opened',
+        request: approval({
+          requestId: 'srq-00000000000c',
+          status: 'answering',
+          answer: deny,
+        }),
+      },
+      { type: 'requests.synced', conversationId: 'c1', openRequestIds: [] },
     ])
     expect(state.requests[id]?.status).toBe('resolved-elsewhere')
+    expect(state.requests['srq-00000000000c']?.status).toBe('answered')
+    // Another conversation's open request is untouched by c1's sync.
     expect(state.requests[other]?.status).toBe('open')
-  })
-
-  it('closes cancelled requests and never reopens them', () => {
-    const state = run([
-      { type: 'request.opened', request: approval() },
-      { type: 'request.closed', requestId: id, status: 'cancelled' },
-      { type: 'request.opened', request: approval() },
-    ])
-    expect(state.requests[id]?.status).toBe('cancelled')
   })
 
   it('ignores ids it has never seen, including inherited object keys', () => {
     const state = run([
       { type: 'request.closed', requestId: 'toString', status: 'cancelled' },
     ])
-    expect(state.requests).toEqual({})
+    expect(Object.keys(state.requests)).toEqual([])
+  })
+})
+
+describe('prompts', () => {
+  it('removes a dismissed prompt record', () => {
+    const prompt = {
+      clientId: 'p1',
+      conversationId: 'c1',
+      text: 'hello',
+      createdAt: '2026-01-01T00:00:00.000Z',
+      state: 'uncertain' as const,
+    }
+    const state = run([
+      { type: 'prompt.updated', prompt },
+      { type: 'prompt.removed', clientId: 'p1' },
+    ])
+    expect(Object.keys(state.prompts)).toEqual([])
   })
 })
 
 describe('message completion', () => {
+  it('keeps text that streamed after a tool row below it when the final text extends it', () => {
+    const tool = {
+      id: 't2',
+      conversationId: 'c1',
+      name: 'x',
+      title: 'Step',
+      status: 'complete' as const,
+    }
+    const state = run([
+      {
+        type: 'message.started',
+        conversationId: 'c1',
+        messageId: 'm1',
+        role: 'assistant',
+      },
+      {
+        type: 'message.delta',
+        conversationId: 'c1',
+        messageId: 'm1',
+        kind: 'text',
+        text: 'Checking. ',
+      },
+      { type: 'tool.updated', activity: tool },
+      {
+        type: 'message.delta',
+        conversationId: 'c1',
+        messageId: 'm1',
+        kind: 'text',
+        text: 'Done',
+      },
+      {
+        type: 'message.completed',
+        conversationId: 'c1',
+        messageId: 'm1',
+        status: 'complete',
+        text: 'Checking. Done.',
+      },
+    ])
+    expect(state.messages.c1?.[0]?.parts).toEqual([
+      { type: 'text', text: 'Checking. ' },
+      { type: 'tool', toolId: 't2' },
+      { type: 'text', text: 'Done.' },
+    ])
+  })
+
   it('replaces streamed text in place so tool rows keep their position', () => {
     const tool = {
       id: 't1',

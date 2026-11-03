@@ -11,6 +11,7 @@ import { TalkView, type TalkHandle } from '../talk/TalkView.tsx'
 import { Mark } from '../ui/Mark.tsx'
 import { WorkView } from '../work/WorkView.tsx'
 import { CommandPalette, type Command } from './CommandPalette.tsx'
+import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { LinkStatusDot } from './LinkStatus.tsx'
 import { NavList } from './Navigation.tsx'
 import { ShortcutsDialog } from './ShortcutsDialog.tsx'
@@ -133,7 +134,7 @@ export function AppShell() {
           queueMicrotask(() => talk.current?.newSideConversation())
           break
         case 'toggle-margin':
-          setPreference('marginOpen', !document.querySelector('[data-margin="open"]'))
+          if (route.view === 'talk') talk.current?.toggleMargin()
           break
         case 'focus-composer':
           talk.current?.focusComposer()
@@ -185,14 +186,16 @@ export function AppShell() {
         </div>
       </nav>
       <main className={styles.main} id="main">
-        {route.view === 'talk' ? (
-          <TalkView ref={talk} conversationId={route.conversationId} />
-        ) : null}
-        {route.view === 'work' ? <WorkView /> : null}
-        {route.view === 'library' ? (
-          <LibraryView section={route.section} item={route.item} />
-        ) : null}
-        {route.view === 'agent' ? <AgentView section={route.section} /> : null}
+        <ErrorBoundary key={window.location.hash} label="this view">
+          {route.view === 'talk' ? (
+            <TalkView ref={talk} conversationId={route.conversationId} />
+          ) : null}
+          {route.view === 'work' ? <WorkView /> : null}
+          {route.view === 'library' ? (
+            <LibraryView section={route.section} item={route.item} />
+          ) : null}
+          {route.view === 'agent' ? <AgentView section={route.section} /> : null}
+        </ErrorBoundary>
       </main>
       <nav className={styles.bottomNav} aria-label="Primary">
         <NavList current={current} workCount={open.length} />

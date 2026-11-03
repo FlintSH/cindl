@@ -19,6 +19,8 @@ import {
   useRef,
   useState,
 } from 'react'
+import { hasEntry } from '@cindl/client-core'
+import { isCindlError, type ServerRequest } from '@cindl/contracts'
 import { usePreference } from '../platform/preferences.ts'
 import { useMediaQuery } from '../platform/useMediaQuery.ts'
 import { Overlay } from '../shell/Overlay.tsx'
@@ -28,7 +30,7 @@ import { Composer, type ComposerHandle } from './Composer.tsx'
 import { HistoryPopover } from './HistoryPopover.tsx'
 import { MessageView } from './MessageView.tsx'
 import { composerHint, presenceCopy } from './presence.ts'
-import { RequestCard } from './RequestCard.tsx'
+import { RequestCard, requestDomId } from './RequestCard.tsx'
 import { WorkingMargin } from './WorkingMargin.tsx'
 import styles from './talk.module.css'
 
@@ -39,7 +41,11 @@ export interface TalkHandle {
   focusComposer(): void
   openHistory(): void
   newSideConversation(): void
+  toggleMargin(): void
 }
+
+const failureText = (err: unknown, fallback: string) =>
+  isCindlError(err) ? err.message : fallback
 
 export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefined }>(
   function TalkView({ conversationId: requestedId }, ref) {
@@ -52,6 +58,9 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     const messages = useMessages(conversationId)
     const activity = useConversationActivity(conversationId)
     const canCreate = useCan('sessions.create')
+    const canHistory = useCan('sessions.history')
+    const [problem, setProblem] = useState<string>()
+    const [historyError, setHistoryError] = useState<{ id: string; message: string }>()
     const uncertain = useUncertainPrompts(conversationId)
     const [historyOpen, setHistoryOpen] = useState(false)
     const [marginPreference, setMarginPreference] = usePreference('marginOpen')
@@ -69,9 +78,11 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     const [atBottom, setAtBottom] = useState(true)
     const composer = useRef<ComposerHandle>(null)
     const scroller = useRef<HTMLDivElement>(null)
-    const requested = useRef(new Set<string>())
+    // In-flight history loads. After `history.reset` the transcript is missing
+    // again and, with nothing in flight, it is fetched again.
+    const inflight = useRef(new Set<string>())
     const loaded = useCindlState((state) =>
-      conversationId ? conversationId in state.messages : true,
+      conversationId ? hasEntry(state.messages, conversationId) : true,
     )
 
     useImperativeHandle(ref, () => ({
@@ -79,40 +90,81 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
       openHistory: () => setHistoryOpen(true),
       newSideConversation: async () => {
         if (!canCreate) return
-        const created = await api.call('conversations.create', {})
-        navigate({ view: 'talk', conversationId: created.id })
+        try {
+          const created = await api.call('conversations.create', {})
+          navigate({ view: 'talk', conversationId: created.id })
+        } catch (err) {
+          setProblem(failureText(err, 'The side conversation could not be started.'))
+        }
       },
+      toggleMargin: () => setMarginOpen(!marginOpen),
     }))
 
+    const historyFailed = historyError?.id === conversationId
     useEffect(() => {
-      if (!conversationId || loaded || requested.current.has(conversationId)) return
-      requested.current.add(conversationId)
-      void api
-        .call('conversations.history', { conversationId })
-        .catch(() => requested.current.delete(conversationId))
-    }, [api, conversationId, loaded])
+      if (!conversationId || !conversation || loaded || !canHistory || historyFailed)
+        return
+      if (inflight.current.has(conversationId)) return
+      inflight.current.add(conversationId)
+      api.call('conversations.history', { conversationId }).then(
+        () => inflight.current.delete(conversationId),
+        (err: unknown) => {
+          inflight.current.delete(conversationId)
+          setHistoryError({
+            id: conversationId,
+            message: failureText(err, 'The conversation could not be loaded.'),
+          })
+        },
+      )
+    }, [api, conversationId, conversation, loaded, canHistory, historyFailed])
 
     useLayoutEffect(() => {
       const el = scroller.current
       if (el && atBottom) el.scrollTop = el.scrollHeight
     })
 
+    if (requestedId && !conversation && conversations.length) {
+      return (
+        <div className={styles.emptyTalk} role="status">
+          <p>This conversation is not available on this connection.</p>
+          <Button variant="primary" onClick={() => navigate({ view: 'talk' })}>
+            Open the main conversation
+          </Button>
+        </div>
+      )
+    }
+
     if (!conversationId || !conversation) {
       return (
         <div className={styles.emptyTalk}>
           <p>No conversations yet.</p>
-          <Button
-            variant="primary"
-            onClick={() =>
-              void (async () => {
-                const created = await api.call('conversations.create', { title: 'Main' })
-                await api.call('conversations.setMain', { conversationId: created.id })
-                navigate({ view: 'talk', conversationId: created.id })
-              })()
-            }
-          >
-            Start a conversation
-          </Button>
+          {canCreate ? (
+            <Button
+              variant="primary"
+              onClick={() =>
+                void (async () => {
+                  try {
+                    const created = await api.call('conversations.create', {
+                      title: 'Main',
+                    })
+                    await api.call('conversations.setMain', {
+                      conversationId: created.id,
+                    })
+                    navigate({ view: 'talk', conversationId: created.id })
+                  } catch (err) {
+                    setProblem(failureText(err, 'The conversation could not be started.'))
+                  }
+                })()
+              }
+            >
+              Start a conversation
+            </Button>
+          ) : (
+            <p className={styles.loading}>
+              Starting conversations is not available on this connection.
+            </p>
+          )}
+          {problem ? <p role="alert">{problem}</p> : null}
         </div>
       )
     }
@@ -126,8 +178,24 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
       setMarginOpen(true)
     }
     const startSide = async () => {
-      const created = await api.call('conversations.create', {})
-      navigate({ view: 'talk', conversationId: created.id })
+      try {
+        const created = await api.call('conversations.create', {})
+        navigate({ view: 'talk', conversationId: created.id })
+      } catch (err) {
+        setProblem(failureText(err, 'The side conversation could not be started.'))
+      }
+    }
+    const revealRequest = (request: ServerRequest) => {
+      const go = () => {
+        const card = document.getElementById(requestDomId(request))
+        card?.scrollIntoView({ block: 'center' })
+        card?.querySelector<HTMLElement>('h3')?.focus({ preventScroll: true })
+      }
+      if (wide) return go()
+      // Below 1280px the margin is a modal sheet and everything behind it is
+      // inert, so close it first, then reveal and focus the card.
+      setSheetOpen(false)
+      requestAnimationFrame(() => requestAnimationFrame(go))
     }
     const jumpToLatest = () => {
       const el = scroller.current
@@ -206,7 +274,25 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                 aria-label="Messages"
                 aria-live="off"
               >
-                {!loaded ? <p className={styles.loading}>Loading conversation…</p> : null}
+                {problem ? (
+                  <p className={styles.notice} data-level="error" role="alert">
+                    {problem}
+                  </p>
+                ) : null}
+                {!loaded && !canHistory ? (
+                  <p className={styles.loading}>
+                    History is not available on this connection.
+                  </p>
+                ) : !loaded && historyFailed ? (
+                  <div className={styles.notice} data-level="error" role="alert">
+                    {historyError?.message}{' '}
+                    <Button variant="quiet" onClick={() => setHistoryError(undefined)}>
+                      Retry
+                    </Button>
+                  </div>
+                ) : !loaded ? (
+                  <p className={styles.loading}>Loading conversation…</p>
+                ) : null}
                 {messages.map((message) => (
                   <MessageView
                     key={message.id}
@@ -266,6 +352,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
             selectedToolId={selectedToolId}
             onClearSelection={() => setSelection(undefined)}
             onClose={() => setMarginOpen(false)}
+            onShowRequest={revealRequest}
           />
         ) : null}
         {!wide ? (
@@ -280,6 +367,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
               selectedToolId={selectedToolId}
               onClearSelection={() => setSelection(undefined)}
               onClose={() => setSheetOpen(false)}
+              onShowRequest={revealRequest}
             />
           </Overlay>
         ) : null}

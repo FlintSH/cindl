@@ -54,13 +54,25 @@ export const CindlEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('tool.updated'), activity: ToolActivity }),
   z.object({ type: z.literal('prompt.updated'), prompt: PendingPrompt }),
   z.object({ type: z.literal('request.opened'), request: ServerRequest }),
+  /** Hermes closed a request. If this client had sent an answer, the reducer records `answered`. */
   z.object({
     type: z.literal('request.closed'),
     requestId: z.string(),
-    status: z.enum(['answered', 'resolved-elsewhere', 'cancelled', 'expired', 'failed']),
+    status: z.enum(['answered', 'resolved-elsewhere', 'cancelled', 'expired']),
   }),
-  /** After (re)connect or replay: the requests Hermes still holds open. Others are closed. */
-  z.object({ type: z.literal('requests.synced'), openRequestIds: z.array(z.string()) }),
+  /**
+   * After (re)connect or replay, per conversation: the requests Hermes still
+   * holds open there. That conversation's other open requests are closed.
+   */
+  z.object({
+    type: z.literal('requests.synced'),
+    conversationId: z.string(),
+    openRequestIds: z.array(z.string()),
+  }),
+  /** This client's answer could not be sent; the request is answerable again. */
+  z.object({ type: z.literal('request.answer-failed'), requestId: z.string() }),
+  /** A local prompt record (queued or uncertain) was dismissed or delivered. */
+  z.object({ type: z.literal('prompt.removed'), clientId: z.string() }),
   z.object({
     type: z.literal('session.status'),
     conversationId: z.string(),

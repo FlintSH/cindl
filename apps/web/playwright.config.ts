@@ -31,7 +31,8 @@ export default defineConfig({
     command:
       'pnpm run build:demo && pnpm exec vite preview --outDir dist-demo --host 127.0.0.1 --port 4173 --strictPort',
     url: 'http://127.0.0.1:4173',
-    reuseExistingServer: !process.env.CI,
+    // Never test whatever happens to be listening on the port (shared machines).
+    reuseExistingServer: false,
     timeout: 120_000,
   },
 })

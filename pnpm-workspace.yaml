@@ -23,5 +23,4 @@ catalog:
   zod: 4.6.7
 
 # Dependency install scripts are denied unless reviewed and listed here.
-allowBuilds:
-  esbuild: true
+allowBuilds: {}

@@ -49,19 +49,18 @@ describe('hooks return stable snapshots', () => {
   })
 
   it('keeps derived values identical across unrelated state changes', async () => {
-    const values: Array<{ uncertain: unknown; activity: unknown }> = []
-    let notify: (() => Promise<void>) | undefined
+    const values: Array<{ uncertain: unknown; activity: unknown; display: unknown }> = []
+    let change: (() => Promise<unknown>) | undefined
     function Probe() {
       const api = useCindlApi()
       values.push({
         uncertain: useUncertainPrompts('demo-main'),
         activity: useConversationActivity('demo-main'),
+        display: useCindlState((state) => state.display),
       })
-      notify = async () => {
-        // A link change is unrelated to the main conversation's prompts and activity.
-        await api.call('link.get', {})
-      }
-      useCindlState((state) => state.notices.length)
+      // Taking control changes the display state only: unrelated to the main
+      // conversation's prompts and activity.
+      change = () => api.call('display.acquireControl', { confirm: true })
       return null
     }
     const client = createScenarioClient({ speed: 0 })
@@ -75,9 +74,10 @@ describe('hooks return stable snapshots', () => {
     })
     const before = values.at(-1)
     await act(async () => {
-      await notify?.()
+      await change?.()
     })
     const after = values.at(-1)
+    expect(after?.display).not.toBe(before?.display)
     expect(after?.uncertain).toBe(before?.uncertain)
     expect(after?.activity).toBe(before?.activity)
   })

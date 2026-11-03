@@ -7,6 +7,12 @@ import styles from './views.module.css'
 type Stage =
   { kind: 'view' } | { kind: 'edit'; draft: string } | { kind: 'review'; draft: string }
 
+/**
+ * Drafts kept after a save conflict, by document key, so a reload (which can
+ * remount or fail) never loses what the owner wrote. Cleared on save or discard.
+ */
+const keptDrafts = new Map<string, string>()
+
 function Review({ before, draft }: { before: string; draft: string }) {
   const { lines, exact } = useMemo(() => diffLines(before, draft), [before, draft])
   const stats = diffStats(lines)
@@ -48,7 +54,11 @@ export function DocumentEditor({
   onSave: (content: string, expectedVersion: string) => Promise<VersionedDocument>
   onReload: () => void
 }) {
-  const [stage, setStage] = useState<Stage>({ kind: 'view' })
+  const [stage, setStage] = useState<Stage>(() => {
+    const kept = keptDrafts.get(document.key)
+    return kept === undefined ? { kind: 'view' } : { kind: 'edit', draft: kept }
+  })
+  const restored = keptDrafts.has(document.key) && stage.kind !== 'view'
   const [error, setError] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
   const [backup, setBackup] = useState<string>()
@@ -89,6 +99,12 @@ export function DocumentEditor({
   if (stage.kind === 'edit')
     return (
       <div className={styles.section}>
+        {restored ? (
+          <p className={styles.note} role="status">
+            Your unsaved draft was kept after the conflict. Review it against the current
+            version before saving.
+          </p>
+        ) : null}
         <label className="visually-hidden" htmlFor="doc-editor">
           Edit {document.key}
         </label>
@@ -100,7 +116,13 @@ export function DocumentEditor({
           onChange={(event) => setStage({ kind: 'edit', draft: event.target.value })}
         />
         <div className={styles.actions}>
-          <Button variant="quiet" onClick={() => setStage({ kind: 'view' })}>
+          <Button
+            variant="quiet"
+            onClick={() => {
+              keptDrafts.delete(document.key)
+              setStage({ kind: 'view' })
+            }}
+          >
             Discard changes
           </Button>
           <Button
@@ -121,12 +143,14 @@ export function DocumentEditor({
     try {
       const previous = document.content
       await onSave(draft, document.version)
+      keptDrafts.delete(document.key)
       setBackup(previous)
       setStage({ kind: 'view' })
     } catch (err) {
-      if (isCindlError(err) && err.code === 'conflict')
+      if (isCindlError(err) && err.code === 'conflict') {
+        keptDrafts.set(document.key, draft)
         setError({ message: `${err.message} Your draft is kept.`, conflict: true })
-      else if (
+      } else if (
         isCindlError(err) &&
         ['invalid', 'unsupported', 'unavailable', 'unauthenticated', 'offline'].includes(
           err.code,

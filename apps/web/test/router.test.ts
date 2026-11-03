@@ -18,6 +18,20 @@ describe('hash routes', () => {
     expect(parseRoute(formatRoute(route))).toEqual(route)
   })
 
+  it.each(['#/talk/a%2Fb', '#/talk/..', '#/talk/%20x', '#/talk/a%3Fb'])(
+    'ignores a conversation id the contract would reject: %s',
+    (hash) => {
+      expect(parseRoute(hash)).toEqual({ view: 'talk' })
+    },
+  )
+
+  it('ignores a skill name the contract would reject', () => {
+    expect(parseRoute('#/library/skills/..%2Fx')).toEqual({
+      view: 'library',
+      section: 'skills',
+    })
+  })
+
   it('treats unknown destinations and sections as defaults', () => {
     expect(parseRoute('#/nowhere')).toEqual({ view: 'talk' })
     expect(parseRoute('#/agent/nope')).toEqual({ view: 'agent', section: 'identity' })

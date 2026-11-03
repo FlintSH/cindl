@@ -19,11 +19,11 @@ export function NotConnected() {
         </p>
         <ul className={styles.options}>
           <li>
-            Use the <strong>Cindl desktop app</strong>, which signs in with the Hermes
-            native flow.
+            The <strong>Cindl desktop app</strong> (in progress) will sign in with the
+            Hermes native flow.
           </li>
           <li>
-            Use the <strong>Cindl Android app</strong>.
+            The <strong>Cindl Android app</strong> is in progress.
           </li>
           <li>
             Developers can run the clearly labelled synthetic demo with{' '}

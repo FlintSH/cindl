@@ -20,6 +20,11 @@ const rulesFor = async (code: string, filePath = 'apps/web/src/probe.ts') => {
 describe('Cindl lint invariants', () => {
   it.each([
     ["import { scenarioData } from '@cindl/fixtures'", 'no-restricted-imports'],
+    ["import { x } from '../../fixtures/src/index.ts'", 'no-restricted-imports'],
+    [
+      "export const load = () => import('../../fixtures/src/index.ts')",
+      'no-restricted-syntax',
+    ],
     [
       "import { x } from '../../../packages/fixtures/src/index.ts'",
       'no-restricted-imports',
@@ -30,6 +35,18 @@ describe('Cindl lint invariants', () => {
     ],
     [
       "export const load = () => import('../../../packages/fixtures/src/index.ts')",
+      'no-restricted-syntax',
+    ],
+    [
+      "const name = '@cindl/fixtures/scenario'\nexport const load = () => import(name)",
+      'no-restricted-syntax',
+    ],
+    [
+      "export const load = () => import(`@cindl/${'fixtures'}/scenario`)",
+      'no-restricted-syntax',
+    ],
+    [
+      "declare const require: (id: string) => unknown\nexport const x = require('@cindl/fixtures')",
       'no-restricted-syntax',
     ],
   ])('blocks fixture access: %s', async (code, rule) => {
@@ -43,6 +60,19 @@ describe('Cindl lint invariants', () => {
     ["self.sessionStorage.setItem('t', 'x')", 'no-restricted-properties'],
     ["indexedDB.open('t')", 'no-restricted-globals'],
     ["document.cookie = 't=1'", 'no-restricted-properties'],
+    ["window['localStorage'].setItem('t', 'x')", 'no-restricted-syntax'],
+    ["window.document.cookie = 't=1'", 'no-restricted-syntax'],
+    ["void caches.open('t')", 'no-restricted-globals'],
+    ["void window.caches.open('t')", 'no-restricted-properties'],
+    ["void cookieStore.get('t')", 'no-restricted-globals'],
+    ['void navigator.storage.persist()', 'no-restricted-properties'],
+    ["globalThis['sessionStorage'].setItem('t', 'x')", 'no-restricted-syntax'],
+    ["document['cookie'] = 't=1'", 'no-restricted-syntax'],
+    ['const { localStorage: store } = window\nstore.clear()', 'no-restricted-syntax'],
+    [
+      'const { indexedDB } = globalThis\nvoid indexedDB.open("x")',
+      'no-restricted-syntax',
+    ],
   ])('blocks browser storage: %s', async (code, rule) => {
     expect(await rulesFor(code)).toContain(rule)
   })

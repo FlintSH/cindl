@@ -7,8 +7,9 @@ this Hermes version but not right now), `unsupported` (not exposed by this
 version or transport), `unknown` (not checked; never shown as working).
 
 The "v0.22.5 source" column is what the adapter uses at the verified baseline.
-Live negotiation results can differ per instance and are shown on
-**Agent → Runtime**.
+Live negotiation is not implemented yet (the transport is in progress); once
+it is, results can differ per instance. **Agent → Runtime** shows whatever the
+current client reports, including the synthetic demo's states.
 
 | Capability             | Meaning                              | v0.22.5 source                                                                     | Expected at v0.22.5                                                                       |
 | ---------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |

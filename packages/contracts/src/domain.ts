@@ -150,13 +150,12 @@ export const RequestAnswer = z.discriminatedUnion('kind', [
 export type RequestAnswer = z.infer<typeof RequestAnswer>
 
 /**
- * Hermes server-request id (`srq-…`): the JSON-RPC id of the request frame.
- * Stable across reconnects (Hermes re-sends with the same id) and answerable
- * from any attached client; the first reply wins.
+ * Hermes server-request id, `srq-<12 hex>` (tui_gateway/server_requests.py at
+ * v0.22.5): the JSON-RPC id of the request frame. Stable across reconnects
+ * (Hermes re-sends with the same id) and answerable from any attached client;
+ * the first reply wins.
  */
-export const RequestId = z
-  .string()
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/, 'Not a Hermes request id')
+export const RequestId = z.string().regex(/^srq-[0-9a-f]{12}$/, 'Not a Hermes request id')
 export type RequestId = z.infer<typeof RequestId>
 
 /**
@@ -182,11 +181,19 @@ export const ServerRequest = z.object({
   /** Approval: choices Hermes offered that Cindl deliberately does not send. */
   withheldChoices: z.array(z.string()).optional(),
   questions: z.array(ClarifyQuestion).optional(),
+  /**
+   * Clarify: answers other clients already locked per question (`clarify.lock`,
+   * replayed on reconnect). Cindl shows them and never overrides them.
+   */
+  lockedAnswers: z.record(z.string(), ClarifyResponse).optional(),
   receivedAt: isoTime,
   /**
-   * answered: this client's answer was accepted. resolved-elsewhere: it closed
-   * without this client's answer (another client answered, or Hermes timed it
-   * out) as observed on reconnect.
+   * open: answerable. answering: this client is sending its answer.
+   * answered: this client sent an answer; Hermes keeps the first reply and does
+   * not acknowledge, so it may not be the one used. resolved-elsewhere: it
+   * closed without an answer from this client (another client answered, or it
+   * was withdrawn). cancelled/expired: Hermes cancelled it or it timed out. A
+   * failed send returns the request to open; there is no terminal failure.
    */
   status: z.enum([
     'open',
@@ -195,23 +202,35 @@ export const ServerRequest = z.object({
     'resolved-elsewhere',
     'cancelled',
     'expired',
-    'failed',
   ]),
   answer: RequestAnswer.optional(),
 })
 export type ServerRequest = z.infer<typeof ServerRequest>
 
-/** True when `answers` covers every question of the request exactly once. */
+/** Questions still waiting for an answer: those no other client has locked. */
+export function openQuestionIds(
+  request: Pick<ServerRequest, 'questions' | 'lockedAnswers'>,
+): string[] {
+  const locked = request.lockedAnswers ?? {}
+  return (request.questions ?? [])
+    .map((q) => q.qid)
+    .filter((qid) => !Object.hasOwn(locked, qid))
+}
+
+/**
+ * True when `answers` covers exactly the open questions: every unlocked
+ * question once, and no locked one (a reply's value would override a lock).
+ */
 export function clarifyAnswersComplete(
-  request: Pick<ServerRequest, 'questions'>,
+  request: Pick<ServerRequest, 'questions' | 'lockedAnswers'>,
   answers: Record<string, ClarifyResponse>,
 ): boolean {
-  const qids = (request.questions ?? []).map((q) => q.qid)
+  const open = openQuestionIds(request)
   const keys = Object.keys(answers)
   return (
-    qids.length > 0 &&
-    keys.length === qids.length &&
-    qids.every((qid) => Object.hasOwn(answers, qid))
+    open.length > 0 &&
+    keys.length === open.length &&
+    open.every((qid) => Object.hasOwn(answers, qid))
   )
 }
 

@@ -25,7 +25,10 @@ import { LinkState } from './link.ts'
  * them as well; these schemas stop hostile values (`../x`, `?a#b`, `%2e`) early.
  */
 /** Hermes session ids look like `20260102_080000_ab12cd`; other opaque ids use the same charset. */
-const entityId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/, 'Not a valid id')
+export const EntityId = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/, 'Not a valid id')
+const entityId = EntityId
 /** Client-generated ids (e.g. UUIDs). */
 const clientId = z
   .string()
@@ -34,10 +37,19 @@ const clientId = z
 export const ProfileName = z
   .string()
   .regex(/^[a-z0-9][a-z0-9_-]{0,63}$/, 'Not a Hermes profile name')
-/** Skill names: no separators, query or encoding characters. */
+/**
+ * Skill names as Hermes lists them: a name or `category/name`, possibly with
+ * spaces (hand-written frontmatter). Excluded: control characters, `\\`, `?`,
+ * `#`, `%`, `..`, and leading or trailing `/` or spaces. Sent as a query value.
+ */
 export const SkillName = z
   .string()
-  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/, 'Not a skill name')
+  .max(200)
+  .regex(
+    // eslint-disable-next-line no-control-regex -- control characters are excluded on purpose
+    /^(?!.*\.\.)(?! )(?!.* $)[^\x00-\x1f\x7f/\\?#%]+(?:\/[^\x00-\x1f\x7f/\\?#%]+)?$/,
+    'Not a skill name',
+  )
 
 const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]'])
 
@@ -65,6 +77,9 @@ export const HermesOrigin = z
       return reject('Remove credentials from the address.')
     if (url.pathname !== '/' && url.pathname !== '')
       return reject('Use only the scheme, host and port.')
+    if (url.hostname.endsWith('.'))
+      return reject('Remove the trailing dot from the host name.')
+    if (url.port === '0') return reject('Port 0 is not a usable port.')
     if (url.protocol === 'https:') return url.origin
     if (url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname)) return url.origin
     return reject('Use https:// (plain http is allowed only for 127.0.0.1 or [::1]).')
