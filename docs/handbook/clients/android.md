@@ -126,7 +126,9 @@ until the owner decides about those terms.
 - **Demo APK:** the four destinations; system back closing a skill detail, a
   sheet and a side conversation before leaving the app; the approval card
   (Allow once and Deny only) and the question set; the sudo prompt's card
-  offering nothing to send; a memory entry's delete warning and a reviewed
+  offering nothing to send; agent output with a link (its host shown, a
+  confirmation with the full address before anything opens) and a withheld
+  remote image; a memory entry's delete warning and a reviewed
   edit; Work, Computer saying there is no live picture; sending a message
   with the
   on-screen keyboard open (composer above the keyboard, navigation hidden);

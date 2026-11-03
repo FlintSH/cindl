@@ -20,16 +20,19 @@ import { NO_LIVE_PICTURE } from '../src/work/screen.ts'
 import { createDevice, PACKAGE } from './device.ts'
 import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
 import {
+  center,
   commonAncestor,
   find,
   findAll,
   flatten,
+  height,
   interactiveWithin,
   label,
   TERMS_PROMPT,
   type Match,
   type TargetAudit,
   type UiNode,
+  width,
 } from './ui.ts'
 
 type Status = 'passed' | 'failed' | 'blocked'
@@ -369,6 +372,69 @@ async function demoSuite() {
       await device.waitUntilGone('Send answers', 'The question card')
       shot('questions-answered')
       note('both questions answered and sent as one set')
+    },
+  )
+
+  await step(
+    'Agent output: a link asks before opening, an image is withheld',
+    async ({ note, shot, audit }) => {
+      await startOnTalk()
+      await device.tap(
+        (text) => text.endsWith('Switch conversation'),
+        'the conversation switcher',
+      )
+      await device.tap('Search conversations', 'the conversation search')
+      await device.type('offsite')
+      if (device.keyboard().shown) await device.key('KEYCODE_BACK')
+      await device.tap(
+        (text) => text.startsWith('Studio offsite planning'),
+        'the offsite conversation',
+      )
+      // The link shows where it goes next to its text.
+      const reply = await device.reveal(
+        (text) => text.includes('the venue page (harbor-loft.example.test)'),
+        'the reply with a link',
+      )
+      // A link is a span of the paragraph; React Native gives it an accessibility node
+      // of its own (what TalkBack activates), which is where a finger must land.
+      const link = findAll(reply.root, 'the venue page').find(
+        (node) =>
+          node !== reply.node && width(node.bounds) > 0 && height(node.bounds) > 0,
+      )
+      if (!link)
+        throw new Error('The link "the venue page" has no node of its own to tap')
+      await device.tapAt(center(link.bounds))
+      const dialog = await device.waitFor('Open this link?', 'the link confirmation')
+      for (const expected of [
+        'This opens harbor-loft.example.test in your browser:',
+        'https://harbor-loft.example.test/visit',
+      ])
+        if (!find(dialog.root, expected))
+          throw new Error(`The link confirmation does not show "${expected}"`)
+      shot('link-confirmation')
+      await audit('Link confirmation', dialog.root)
+      await device.tap('Cancel', 'Cancel')
+      await device.waitUntilGone('Open this link?', 'The link confirmation')
+      const focus = device.shell('dumpsys window | grep -E "mCurrentFocus" || true')
+      if (!focus.includes(`${PACKAGE}/`))
+        throw new Error(`Cancel left the app: ${focus.trim()}`)
+      note(
+        'the link showed its host; tapping it asked first with the full address; Cancel opened nothing',
+      )
+
+      await device.reveal(
+        'Image from harbor-loft.example.test not shown. (Harbor Loft floor plan)',
+        'the withheld image',
+      )
+      shot('image-withheld')
+      note(
+        'the floor plan image was not loaded; its placeholder names harbor-loft.example.test',
+      )
+      await device.key('KEYCODE_BACK')
+      await device.waitFor(
+        (text) => text.endsWith(', Main. Switch conversation'),
+        'the main conversation',
+      )
     },
   )
 

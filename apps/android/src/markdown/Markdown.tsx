@@ -7,6 +7,7 @@ import { Button, Txt } from '../ui/primitives.tsx'
 import {
   blockedImage,
   collectDefinitions,
+  linkConfirmation,
   linkDestinationLabel,
   linkTarget,
   MAX_MARKDOWN_DEPTH,
@@ -50,6 +51,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
     depth: 0,
     openLink: setPending,
   }
+  const confirmation = pending ? linkConfirmation(pending) : undefined
   const close = () => {
     setPending(undefined)
     setOpenError(undefined)
@@ -59,7 +61,7 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
       {renderBlocks(root.children, context)}
       <Dialog
         open={pending !== undefined}
-        title="Open this link?"
+        title={confirmation?.title ?? ''}
         onCancel={close}
         actions={
           <>
@@ -77,15 +79,11 @@ export const Markdown = memo(function Markdown({ text }: { text: string }) {
           </>
         }
       >
-        {pending ? (
+        {confirmation ? (
           <View style={{ gap: theme.space[2] }}>
-            <Txt tone="secondary">
-              {pending.url.startsWith('mailto:')
-                ? 'This opens your email app with this address:'
-                : `This opens ${pending.host} in your browser:`}
-            </Txt>
+            <Txt tone="secondary">{confirmation.lead}</Txt>
             <Txt variant="code" selectable>
-              {pending.url}
+              {confirmation.url}
             </Txt>
             {openError ? <Txt tone="danger">{openError}</Txt> : null}
           </View>

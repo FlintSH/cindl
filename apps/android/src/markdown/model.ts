@@ -106,6 +106,25 @@ export function blockedImage(
   }
 }
 
+/**
+ * What the confirmation says before a link leaves the app: where it goes, by
+ * host, and the full address, so a link whose text names one place but points
+ * at another is caught before anything opens.
+ */
+export function linkConfirmation(target: ExternalLink): {
+  title: string
+  lead: string
+  url: string
+} {
+  return {
+    title: 'Open this link?',
+    lead: target.url.toLowerCase().startsWith('mailto:')
+      ? 'This opens your email app with this address:'
+      : `This opens ${target.host} in your browser:`,
+    url: target.url,
+  }
+}
+
 /** Destination shown next to the link text, so it is visible without a long-press. */
 export function linkDestinationLabel(target: ExternalLink): string {
   return target.url.toLowerCase().startsWith('mailto:')

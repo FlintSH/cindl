@@ -1,7 +1,13 @@
+/// <reference types="node" />
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { scenarioData } from '@cindl/fixtures/scenario'
+import type { Image, Link } from 'mdast'
 import { describe, expect, it } from 'vitest'
 import {
   blockedImage,
   collectDefinitions,
+  linkConfirmation,
   MAX_MARKDOWN_DEPTH,
   linkDestinationLabel,
   linkTarget,
@@ -137,6 +143,59 @@ describe('hostile structure', () => {
     )
     expect(linkTarget('https://docs.example.test@attacker.example.test/')).toMatchObject({
       host: 'attacker.example.test',
+    })
+  })
+})
+
+// The demo's agent reply with a link and a remote image (conversation "Studio offsite
+// planning", message m-off-2): what the emulator suite checks on screen.
+describe('the demo reply with a link and a remote image', () => {
+  const reply = scenarioData.messages.find((message) => message.id === 'm-off-2')
+  const text = reply?.parts.find((part) => part.type === 'text')?.text ?? ''
+  const nodes = (type: string) => {
+    const found: unknown[] = []
+    const walk = (node: { type: string; children?: unknown[] }) => {
+      if (node.type === type) found.push(node)
+      for (const child of node.children ?? []) walk(child as typeof node)
+    }
+    walk(parseMarkdown(text))
+    return found
+  }
+
+  it('shows the link with its host and asks before opening, naming the full address', () => {
+    const [link] = nodes('link') as Link[]
+    const target = linkTarget(link?.url)
+    if (target.kind !== 'external')
+      throw new Error('the demo link should open externally')
+    expect(linkDestinationLabel(target)).toBe('harbor-loft.example.test')
+    expect(linkConfirmation(target)).toEqual({
+      title: 'Open this link?',
+      lead: 'This opens harbor-loft.example.test in your browser:',
+      url: 'https://harbor-loft.example.test/visit',
+    })
+    const mail = linkTarget('mailto:orders@supplier.example.test')
+    if (mail.kind === 'external')
+      expect(linkConfirmation(mail).lead).toBe(
+        'This opens your email app with this address:',
+      )
+  })
+
+  it('has no image component that could load one', () => {
+    const source = readFileSync(
+      join(import.meta.dirname, '..', 'src', 'markdown', 'Markdown.tsx'),
+      'utf8',
+    )
+    const fromReactNative =
+      /import \{([^}]*)\} from 'react-native'/.exec(source)?.[1] ?? ''
+    expect(fromReactNative.split(',').map((name) => name.trim())).not.toContain('Image')
+    expect(source).not.toMatch(/expo-image|ImageBackground|\buri:/)
+  })
+
+  it('withholds the floor plan image and names its host', () => {
+    const [image] = nodes('image') as Image[]
+    expect(blockedImage(image?.url, image?.alt)).toEqual({
+      text: 'Image from harbor-loft.example.test not shown. (Harbor Loft floor plan)',
+      label: 'Image not shown: Harbor Loft floor plan',
     })
   })
 })
