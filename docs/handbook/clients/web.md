@@ -114,18 +114,29 @@ from the desktop app's custom protocol.
   and saves or deletes nothing. When an entry before it in the same store was
   removed, the entry moved up a place: the locked editor says where the same
   text is now (its row reads "No longer at this place" when nothing took its
-  place), and your draft comes back when you open it there.
+  place), and your draft comes back when you open it there. A locked editor
+  can reload the list.
   - "Use this draft for the entry now here" reads that entry first. Nothing
     changes unless the read succeeds and the entry is still at that place; a
-    failed read is shown, and you can try again. Then you review the draft
-    against that entry's text before saving.
+    failed read is shown, and you can try again. If the entry changed again,
+    Cindl fetches the list, so the next try uses the entry now there. Then you
+    review the draft against that entry's text before saving.
   - A draft stays kept for the entry it was written for until you save or
-    discard it, including while you edit it for another entry, so closing the
-    editor loses nothing and another entry's own draft is never replaced.
-    Drafts for entries Hermes no longer lists stay under "Unsaved drafts", to
-    copy or discard; each discard button names its draft.
-  - A delete names the text it removes: the text Cindl read under the id the
-    delete sends. Deleting warns first, because Hermes keeps no backup.
+    discard that draft, including while you edit it for another entry. So
+    closing the editor loses nothing, and if that entry moves, the draft waits
+    under "Unsaved drafts" rather than following it.
+  - An entry's own kept draft is never replaced or forgotten by other text.
+    When the editor shows the entry without it, the draft is offered (Continue
+    the draft, Discard the draft). Editing afresh, saving or discarding that
+    fresh text leaves it; if the fresh text must be kept too, it is kept beside
+    it. Drafts for entries Hermes no longer lists stay under "Unsaved drafts",
+    to copy or discard; each discard button names its draft.
+  - A delete names the text it removes: the first line with words in it, of
+    the text Cindl read under the id the delete sends. Deleting warns first,
+    because Hermes keeps no backup.
+  - Focus stays in the editor: it moves into your draft when an adoption
+    completes, and onto the lock notice when a lock removes the control you
+    were on. The adopt button is described by the entry now at the place.
   - After a save, the text it replaced stays on screen: ready to restore while
     the entry is still the one you saved, and otherwise only to copy.
   - Known limit: entries with identical text in one store look the same to

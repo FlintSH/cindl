@@ -1,14 +1,18 @@
 import { diffLines, diffStats } from '@cindl/client-core'
 import { isCindlError, type VersionedDocument } from '@cindl/contracts'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './views.module.css'
 
-/** `base` is the version the owner reviewed the draft against. */
+/**
+ * `base` is the version the owner reviewed the draft against. `keptAs` is the
+ * kept-draft key this draft came from or was filed under; a save or discard
+ * forgets that key only, never another kept draft.
+ */
 type Stage =
   | { kind: 'view' }
-  | { kind: 'edit'; draft: string }
-  | { kind: 'review'; draft: string; base: string }
+  | { kind: 'edit'; draft: string; keptAs?: string | undefined }
+  | { kind: 'review'; draft: string; base: string; keptAs?: string | undefined }
 
 /**
  * Drafts kept after a save conflict or when an editor locks, by draft key, so
@@ -35,6 +39,20 @@ export function keptDocumentDrafts(
 /** Forget one kept draft. */
 export function forgetDocumentDraft(key: string) {
   keptDrafts.delete(key)
+}
+
+/**
+ * Where to keep a draft: the key it already has, else the document's key,
+ * unless that holds a different draft, which is never replaced. Then the draft
+ * is filed beside it (`<key>#2`, `#3`…), and lists of kept drafts show it.
+ */
+function keepKey(draftKey: string, keptAs: string | undefined, draft: string) {
+  if (keptAs !== undefined) return keptAs
+  const existing = keptDrafts.get(draftKey)
+  if (existing === undefined || existing === draft) return draftKey
+  let n = 2
+  while (keptDrafts.has(`${draftKey}#${n}`)) n += 1
+  return `${draftKey}#${n}`
 }
 
 function Review({ before, draft }: { before: string; draft: string }) {
@@ -73,6 +91,7 @@ export function DocumentEditor({
   locked,
   onAdopt,
   adoption,
+  nowHere,
   draftNote,
   keepDraft = false,
   onDiscard,
@@ -96,20 +115,30 @@ export function DocumentEditor({
   onAdopt?: (() => void) | undefined
   /** An adoption under way (`busy`) or refused (`error`); the draft stays kept either way. */
   adoption?: { busy: boolean; error?: string | undefined } | undefined
+  /** What a locked editor's adoption would use the draft for, said beside the button. */
+  nowHere?: string | undefined
   /** Said above a draft in place of the kept-after-a-conflict note. */
   draftNote?: string | undefined
   /** Keep the draft under `draftKey` while it is edited, not only once locked. */
   keepDraft?: boolean
-  /** The owner discarded the draft (it is forgotten under `draftKey` first). */
+  /** The owner discarded the draft (its kept copy, if any, is forgotten first). */
   onDiscard?: (() => void) | undefined
   onSave: (content: string, expectedVersion: string) => Promise<VersionedDocument>
   onReload: () => void
 }) {
   const [stage, setStage] = useState<Stage>(() => {
     const kept = keptDrafts.get(draftKey)
-    return kept === undefined ? { kind: 'view' } : { kind: 'edit', draft: kept }
+    return kept === undefined
+      ? { kind: 'view' }
+      : { kind: 'edit', draft: kept, keptAs: draftKey }
   })
-  const restored = keptDrafts.has(draftKey) && stage.kind !== 'view'
+  const [, setKeptSeen] = useState(0)
+  const keptAs = stage.kind === 'view' ? undefined : stage.keptAs
+  // The box holds this document's kept draft.
+  const restored = keptAs === draftKey && keptDrafts.has(draftKey)
+  // A kept draft for this document that the box is not showing: offered, never
+  // replaced or forgotten by what happens in the box.
+  const otherKept = keptAs === draftKey ? undefined : keptDrafts.get(draftKey)
   // A locked editor keeps its draft under the key it was written for, so
   // closing it loses nothing (the owner can copy it from the list of kept
   // drafts) and it never returns to a different document. So does an editor
@@ -117,18 +146,42 @@ export function DocumentEditor({
   const keptDraft =
     (locked || keepDraft) && stage.kind !== 'view' ? stage.draft : undefined
   useEffect(() => {
-    if (keptDraft !== undefined) keptDrafts.set(draftKey, keptDraft)
-  }, [draftKey, keptDraft])
+    if (keptDraft === undefined) return
+    const key = keepKey(draftKey, keptAs, keptDraft)
+    keptDrafts.set(key, keptDraft)
+    if (key !== keptAs)
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- records where the draft was filed, once
+      setStage((now) => (now.kind === 'view' ? now : { ...now, keptAs: key }))
+  }, [draftKey, keptAs, keptDraft])
+  // Focus follows the editor's state: into the draft when a lock lifts (an
+  // adoption), and onto the notice when a lock takes away the focused control.
+  const box = useRef<HTMLTextAreaElement>(null)
+  const notice = useRef<HTMLDivElement>(null)
+  const wasLocked = useRef(Boolean(locked))
+  useEffect(() => {
+    const lockedNow = Boolean(locked)
+    if (wasLocked.current && !lockedNow) box.current?.focus()
+    const page = notice.current?.ownerDocument
+    if (!wasLocked.current && lockedNow && page?.activeElement === page?.body)
+      notice.current?.focus()
+    wasLocked.current = lockedNow
+  }, [locked])
+  const hereId = useId()
   const [error, setError] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
   // The text a save replaced, offered back only while the document is still
   // the version that save produced (not another entry, nor a later change).
   const [backup, setBackup] = useState<{ content: string; version: string }>()
   const lockNotice = locked ? (
-    <div className={styles.section}>
+    <div className={styles.section} ref={notice} tabIndex={-1}>
       <p className={styles.error} role="alert">
         {locked}
       </p>
+      {nowHere ? (
+        <p className={styles.note} id={hereId}>
+          Now at this place: “{nowHere}”.
+        </p>
+      ) : null}
       {adoption?.error ? (
         <>
           <p className={styles.error} role="alert">
@@ -142,11 +195,22 @@ export function DocumentEditor({
           Reading the entry now here…
         </p>
       ) : null}
-      {onAdopt && stage.kind !== 'view' ? (
+      {stage.kind !== 'view' ? (
         <div className={styles.actions}>
-          <Button variant="quiet" disabled={Boolean(adoption?.busy)} onClick={onAdopt}>
-            Use this draft for the entry now here
+          {/* The view stage has its own Reload; here the list may be stale. */}
+          <Button variant="quiet" onClick={onReload}>
+            Reload
           </Button>
+          {onAdopt ? (
+            <Button
+              variant="quiet"
+              disabled={Boolean(adoption?.busy)}
+              aria-describedby={nowHere ? hereId : undefined}
+              onClick={onAdopt}
+            >
+              Use this draft for the entry now here
+            </Button>
+          ) : null}
         </div>
       ) : null}
     </div>
@@ -161,6 +225,34 @@ export function DocumentEditor({
           Read {new Date(document.readAt).toLocaleString()} from {document.source}.
           Version <code>{document.version.slice(0, 12)}</code>.
         </p>
+        {otherKept !== undefined && !locked ? (
+          <div className={styles.section}>
+            <p className={styles.note} role="status">
+              An unsaved draft for this is kept on this device:
+            </p>
+            <pre className={styles.doc}>{otherKept}</pre>
+            <div className={styles.actions}>
+              <Button
+                variant="quiet"
+                onClick={() => {
+                  keptDrafts.delete(draftKey)
+                  setKeptSeen((value) => value + 1)
+                }}
+              >
+                Discard the draft
+              </Button>
+              {canWrite ? (
+                <Button
+                  onClick={() =>
+                    setStage({ kind: 'edit', draft: otherKept, keptAs: draftKey })
+                  }
+                >
+                  Continue the draft
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
         {backup && !locked && backup.version === document.version ? (
           <p className={styles.note}>
             The previous version is kept on this screen until you leave it.{' '}
@@ -210,22 +302,31 @@ export function DocumentEditor({
             saving.
           </p>
         ) : null}
+        {otherKept !== undefined && !locked ? (
+          <p className={styles.note}>
+            Another unsaved draft for this is kept on this device. Saving or discarding
+            this one leaves it.
+          </p>
+        ) : null}
         <label className="visually-hidden" htmlFor="doc-editor">
           Edit {document.key}
         </label>
         <textarea
           id="doc-editor"
+          ref={box}
           className={styles.editor}
           value={stage.draft}
           readOnly={Boolean(locked)}
           spellCheck
-          onChange={(event) => setStage({ kind: 'edit', draft: event.target.value })}
+          onChange={(event) =>
+            setStage({ kind: 'edit', draft: event.target.value, keptAs: stage.keptAs })
+          }
         />
         <div className={styles.actions}>
           <Button
             variant="quiet"
             onClick={() => {
-              keptDrafts.delete(draftKey)
+              if (stage.keptAs !== undefined) keptDrafts.delete(stage.keptAs)
               setStage({ kind: 'view' })
               onDiscard?.()
             }}
@@ -236,7 +337,12 @@ export function DocumentEditor({
             variant="primary"
             disabled={Boolean(locked) || stage.draft === document.content}
             onClick={() =>
-              setStage({ kind: 'review', draft: stage.draft, base: document.version })
+              setStage({
+                kind: 'review',
+                draft: stage.draft,
+                base: document.version,
+                keptAs: stage.keptAs,
+              })
             }
           >
             Review changes
@@ -255,12 +361,14 @@ export function DocumentEditor({
     try {
       const previous = document.content
       const saved = await onSave(draft, base)
-      keptDrafts.delete(draftKey)
+      if (stage.keptAs !== undefined) keptDrafts.delete(stage.keptAs)
       setBackup({ content: previous, version: saved.version })
       setStage({ kind: 'view' })
     } catch (err) {
       if (isCindlError(err) && err.code === 'conflict') {
-        keptDrafts.set(draftKey, draft)
+        const key = keepKey(draftKey, stage.keptAs, draft)
+        keptDrafts.set(key, draft)
+        setStage({ kind: 'review', draft, base, keptAs: key })
         setError({ message: `${err.message} Your draft is kept.`, conflict: true })
       } else if (
         isCindlError(err) &&
@@ -302,7 +410,7 @@ export function DocumentEditor({
               // Fetch the current version, keep the draft, and review it again against the new text.
               onReload()
               setError(undefined)
-              setStage({ kind: 'edit', draft })
+              setStage({ kind: 'edit', draft, keptAs: stage.keptAs })
             }}
           >
             Reload and keep my draft
@@ -311,7 +419,7 @@ export function DocumentEditor({
         <Button
           variant="quiet"
           disabled={saving}
-          onClick={() => setStage({ kind: 'edit', draft })}
+          onClick={() => setStage({ kind: 'edit', draft, keptAs: stage.keptAs })}
         >
           Back to editing
         </Button>

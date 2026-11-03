@@ -41,7 +41,11 @@ const MEMORY_DRAFT_PREFIX = 'memory-draft:'
  * cut as Hermes cuts its card titles (`agent/learning_graph.py`).
  */
 const titleOf = (content: string) => {
-  const first = (content.trim().split('\n')[0] ?? '').replace(/^[#\s]+/, '').trim()
+  const first =
+    content
+      .split('\n')
+      .map((line) => line.replace(/^[#\s]+/, '').trim())
+      .find((line) => line.length > 0) ?? 'this entry'
   return first.length > 80 ? `${first.slice(0, 80)}…` : first
 }
 
@@ -85,7 +89,9 @@ export function MemoryEntries() {
   const orphans =
     open || !list.data
       ? []
-      : keptDocumentDrafts(MEMORY_DRAFT_PREFIX).filter(
+      : // A draft filed beside another (`…#2`) never matches a listed entry, so it
+        // is always listed here.
+        keptDocumentDrafts(MEMORY_DRAFT_PREFIX).filter(
           ({ key }) => !listed.has(key.slice(MEMORY_DRAFT_PREFIX.length)),
         )
   // Where the entry with this identity is listed now (1-based in its store),
@@ -319,11 +325,14 @@ function MemoryEntryEditor({
   // (if any) is never replaced.
   const draftKey = adoptedFrom ?? ownKey
   const movedTo = identity === undefined ? undefined : placeNow(identity)
+  // Each adoption has a number; a discard (or a newer adoption) retires it.
+  const adoptions = useRef(0)
   const adopt = (target: MemoryEntrySummary, from: string) => {
+    const run = (adoptions.current += 1)
     setAdoption({ busy: true })
     api.call('memory.read', { id: target.id }).then(
       (read) => {
-        if (!mounted.current) return
+        if (!mounted.current || run !== adoptions.current) return
         const wanted = fingerprintOf(target.id)
         const here = row.current
         if (
@@ -345,13 +354,17 @@ function MemoryEntryEditor({
         setAdoption(undefined)
       },
       (err: unknown) => {
-        if (!mounted.current) return
+        if (!mounted.current || run !== adoptions.current) return
         setAdoption({
           busy: false,
           error: isCindlError(err)
             ? err.message
             : 'Cindl could not read the entry now here.',
         })
+        // Changed or gone since the list was read: fetch the list, so the next
+        // try names the entry that is here now.
+        if (isCindlError(err) && (err.code === 'conflict' || err.code === 'not-found'))
+          onChanged()
       },
     )
   }
@@ -384,12 +397,15 @@ function MemoryEntryEditor({
             locked={
               locked
                 ? `The entry this editor showed was changed, removed or moved in Hermes, and Cindl cannot tell which, so nothing here can be saved or deleted. Your text is kept below to copy.${
-                    movedTo !== undefined && movedTo !== place
-                      ? ` The same text is now ${label} ${movedTo}; close this and open it there to keep editing it.`
-                      : ''
-                  }${summary ? ` Now at this place: “${summary.title}”.` : ''}`
+                    movedTo === undefined || movedTo === place
+                      ? ''
+                      : adoptedFrom === undefined
+                        ? ` The same text is now ${label} ${movedTo}; close this and open it there to keep editing it.`
+                        : ` The same text is now ${label} ${movedTo}. This draft was written for another entry, so when you close this it stays under Unsaved drafts.`
+                  }`
                 : undefined
             }
+            nowHere={locked ? summary?.title : undefined}
             onAdopt={summary && locked ? () => adopt(summary, draftKey) : undefined}
             adoption={adoption}
             draftNote={
@@ -402,7 +418,11 @@ function MemoryEntryEditor({
                 : undefined
             }
             keepDraft={adoptedFrom !== undefined}
-            onDiscard={() => setAdoptedFrom(undefined)}
+            onDiscard={() => {
+              adoptions.current += 1
+              setAdoption(undefined)
+              setAdoptedFrom(undefined)
+            }}
             // The list names the entry's current id; the read follows it.
             onReload={onChanged}
             onSave={async (content, reviewed) => {

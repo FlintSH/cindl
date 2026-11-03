@@ -506,7 +506,11 @@ describe('adoption keeps every draft until the owner saves or discards it', () =
     expect(alerts()).toContain(
       'The entry at this place changed again while Cindl read it.',
     )
-    expect(alerts().join(' ')).toMatch(
+    // The adopt button is described by the entry it would use the draft for.
+    const adoptButton = button('Use this draft for the entry now here')!
+    const describedBy = adoptButton.getAttribute('aria-describedby')
+    expect(describedBy).toBeTruthy()
+    expect(document.getElementById(describedBy!)?.textContent).toMatch(
       /Now at this place: “Zed note about the glaze order/,
     )
     expect(keptMemoryDrafts()).toContain(D_K)
