@@ -24,7 +24,8 @@ process instead of Hermes directly:
 - With no Hermes session, the renderer shows a sign-in screen that asks only
   for the Hermes address (https, or plain http on 127.0.0.1 or [::1]). Hermes's
   own sign-in page opens in the system browser, so Cindl never handles a
-  password or a verification code.
+  password or a verification code. If the browser never comes back, "Stop
+  waiting" frees the screen; it does not cancel the sign-in in the browser.
 - Notices from the desktop app (for example, that tokens are kept in memory
   only on this machine) appear above the current view until dismissed. They sit
   in the page flow, so they never cover a control.

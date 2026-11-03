@@ -30,9 +30,7 @@ export function SignIn() {
     try {
       await api.call('auth.signIn', { origin: parsed.data })
     } catch (err) {
-      setError(
-        isCindlError(err) ? err.message : 'Sign-in did not complete. Nothing was saved.',
-      )
+      setError(isCindlError(err) ? err.message : 'Sign-in did not complete.')
     } finally {
       setBusy(false)
     }
@@ -74,11 +72,24 @@ export function SignIn() {
             {error}
           </p>
         ) : null}
-        <div>
+        <div className={styles.actions}>
           <Button type="submit" variant="primary" disabled={busy || !origin.trim()}>
             {busy ? 'Waiting for the browser…' : 'Sign in'}
           </Button>
+          {busy ? (
+            // The browser leg may never come back (a closed tab); this frees the
+            // screen. It cannot abort the sign-in in the system browser.
+            <Button variant="quiet" onClick={() => setBusy(false)}>
+              Stop waiting
+            </Button>
+          ) : null}
         </div>
+        {busy ? (
+          <p className={styles.small} role="status">
+            Finish signing in in your browser. Stop waiting frees this screen; it does not
+            cancel the sign-in in your browser.
+          </p>
+        ) : null}
         <p className={styles.small}>
           Only https addresses are accepted (plain http only for 127.0.0.1 or [::1]).
           Signing out later is local to this device: Hermes v0.22.5 cannot revoke issued

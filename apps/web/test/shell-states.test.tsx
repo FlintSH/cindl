@@ -105,6 +105,42 @@ describe('sign-in screen', () => {
 })
 
 describe('notices', () => {
+  it('can stop waiting for a sign-in that never comes back', async () => {
+    const api: CindlClientApi = {
+      call: () => new Promise(() => undefined),
+      subscribe(listener) {
+        queueMicrotask(() =>
+          listener({
+            type: 'link.changed',
+            link: {
+              phase: 'unconfigured',
+              since: '2026-01-01T00:00:00.000Z',
+              connectionEpoch: 0,
+            },
+          }),
+        )
+        return () => undefined
+      },
+    }
+    render(
+      <CindlProvider api={api}>
+        <SignIn />
+      </CindlProvider>,
+    )
+    await settle()
+    fireEvent.change(screen.getByLabelText('Hermes address'), {
+      target: { value: 'https://hermes.example.test' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await settle()
+    expect(screen.getByText(/does not cancel the sign-in in your browser/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop waiting' }))
+    expect(screen.getByRole('button', { name: 'Sign in' })).toHaveProperty(
+      'disabled',
+      false,
+    )
+  })
+
   it('shows client notices until dismissed', async () => {
     const { api } = testApi({ phase: 'online' }, [
       {
