@@ -14,6 +14,7 @@ import { afterEach, vi } from 'vitest'
 import { MemoryEntries } from '../src/library/MemoryEntries.tsx'
 import { MEMORY_DRAFT_PREFIX } from '../src/library/memory.ts'
 import { NavProvider } from '../src/nav/NavProvider.tsx'
+import { forgetPresses } from '../src/overlay/opener.ts'
 import { BehindOverlays, PortalHost } from '../src/overlay/Portal.tsx'
 import { SCRIM_ID } from '../src/overlay/scrim.ts'
 import { useSessionDrafts } from '../src/shell/sessionDrafts.ts'
@@ -105,6 +106,8 @@ function watchReact() {
 afterEach(() => {
   cleanup()
   resetNative()
+  // A press noted in one test is never the next one's opener.
+  forgetPresses()
   vi.useRealTimers()
   const seen = watch
   watch = undefined

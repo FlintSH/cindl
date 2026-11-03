@@ -1,4 +1,4 @@
-import { createElement, type ReactNode, type Ref } from 'react'
+import { createElement, useImperativeHandle, type ReactNode, type Ref } from 'react'
 
 /*
  * React Native's host layer for rendering the app's own components with
@@ -32,6 +32,7 @@ interface PressState {
 const ROLES: Record<string, string> = {
   alert: 'alert',
   button: 'button',
+  checkbox: 'checkbox',
   header: 'heading',
   image: 'img',
   link: 'link',
@@ -172,6 +173,41 @@ export function Pressable({
 }
 
 /**
+ * A scrolling view: its children in a div. jsdom does no layout, so nothing
+ * scrolls; the calls a screen makes on it do nothing.
+ */
+export function ScrollView({
+  ref,
+  children,
+  ...props
+}: Props & { ref?: Ref<{ scrollTo: () => void; scrollToEnd: () => void }> }) {
+  useImperativeHandle(
+    ref,
+    () => ({ scrollTo: () => undefined, scrollToEnd: () => undefined }),
+    [],
+  )
+  return (
+    <div data-rn="ScrollView" {...a11y(props)}>
+      {children}
+    </div>
+  )
+}
+
+export function StatusBar() {
+  return null
+}
+
+/** Links Cindl opens outside the app, in order (cleared by `resetNative`). */
+export const openedLinks: string[] = []
+
+export const Linking = {
+  openURL: (url: string) => {
+    openedLinks.push(url)
+    return Promise.resolve(true)
+  },
+}
+
+/**
  * What the screen asked of TalkBack, and of a hardware keyboard's focus
  * (modules/cindl-focus, through test/render/expo.ts), in order (cleared by
  * `resetNative`).
@@ -188,6 +224,7 @@ export const findNodeHandle = (node: unknown) => node as number | null
 
 export function resetNative() {
   nativeLog.length = 0
+  openedLinks.length = 0
 }
 
 export const AccessibilityInfo = {

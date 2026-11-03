@@ -5,10 +5,11 @@ import { useRef, useState } from 'react'
 import { Text, type HostInstance } from 'react-native'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useBackHandler } from '../src/nav/NavProvider.tsx'
-import { claimFocus, FocusFallback } from '../src/overlay/opener.ts'
+import { claimFocus, FocusFallback, forgetPresses } from '../src/overlay/opener.ts'
 import { BehindOverlays } from '../src/overlay/Portal.tsx'
 import { Dialog, Sheet } from '../src/overlay/Sheet.tsx'
 import { Button, Txt } from '../src/ui/primitives.tsx'
+import { Page } from '../src/views/Page.tsx'
 import { harness, openEntry, Providers } from './memoryScreen.tsx'
 import { hardwareBack, nativeLog, resetNative } from './render/react-native.tsx'
 
@@ -25,9 +26,13 @@ const client = {
 
 let errors: unknown[] = []
 beforeEach(() => {
+  // Date too: what opened an overlay is a press in the second before it opened
+  // (opener.ts), so the clock moves only with the timers here.
   vi.useFakeTimers({
-    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
+    toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'],
   })
+  vi.setSystemTime(new Date('2026-06-01T09:00:00.000Z'))
+  forgetPresses()
   errors = []
   vi.spyOn(console, 'error').mockImplementation(
     (...args: unknown[]) => void errors.push(args),
@@ -85,6 +90,7 @@ function Screen({ kind, opener = true }: { kind: 'dialog' | 'sheet'; opener?: bo
       {nearerShown ? (
         <Button ref={nearer} label="Nearer" onPress={() => undefined} />
       ) : null}
+      <Button label="Other" onPress={() => undefined} />
       {shown && opener ? <Button label="Open it" onPress={() => setOpen(true)} /> : null}
       {kind === 'dialog' ? (
         <Dialog
@@ -204,6 +210,28 @@ describe('a dialog or sheet takes focus as it opens and gives it back as it clos
     expect(s.keyboard().slice(2)).toEqual(['unblock background', 'button: Nearer'])
   })
 
+  it('takes a press in the second before it opened for its opener, and none older (the window)', async () => {
+    // System back opens it, after a press on "Other" that opened nothing.
+    const recent = mount('dialog', false)
+    await recent.press('Other')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(700)
+    })
+    await recent.back()
+    await recent.back()
+    expect(recent.talkback()).toEqual(['title: Change it?', 'button: Other'])
+    cleanup()
+    resetNative()
+    const older = mount('dialog', false)
+    await older.press('Other')
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(1000)
+    })
+    await older.back()
+    await older.back()
+    expect(older.talkback()).toEqual(['title: Change it?', 'button: Nearer'])
+  })
+
   it('gives none back when the action that closed it moved focus itself', async () => {
     const s = mount('sheet')
     await s.press('Open it')
@@ -285,5 +313,56 @@ describe('the memory screen behind its dialogs', () => {
     await h.settle()
     expect(h.focusLog().at(-1)).toBe('button: Edit')
     expect(h.keyboardLog().at(-1)).toBe('button: Edit')
+  })
+})
+
+describe("a page's heading is the fallback of what opens on it", () => {
+  /** An overlay opened on a page, outside any section, by a control that goes as it closes. */
+  function OnPage() {
+    const [open, setOpen] = useState(false)
+    const [shown, setShown] = useState(true)
+    return (
+      <Page title="Work" lead="What runs, what waits on you.">
+        {shown ? <Button label="Open it" onPress={() => setOpen(true)} /> : null}
+        <Dialog
+          open={open}
+          title="Change it?"
+          onCancel={() => setOpen(false)}
+          actions={
+            <Button
+              label="Done, and the opener goes"
+              onPress={() => {
+                setOpen(false)
+                setShown(false)
+              }}
+            />
+          }
+        />
+      </Page>
+    )
+  }
+
+  it('gives focus to the page heading once the control that opened it is gone', async () => {
+    const view = render(
+      <Providers api={client}>
+        <BehindOverlays>
+          <OnPage />
+        </BehindOverlays>
+      </Providers>,
+    )
+    const press = async (label: string) => {
+      const target = [
+        ...view.container.querySelectorAll<HTMLElement>('[role="button"]'),
+      ].find((element) => element.getAttribute('aria-label') === label)
+      if (!target) throw new Error(`no button ${label}`)
+      fireEvent.click(target)
+      await settle()
+    }
+    await press('Open it')
+    await press('Done, and the opener goes')
+    const last = nativeLog.filter((entry) => entry.kind === 'focus').at(-1)
+    expect(last?.node).toBeInstanceOf(HTMLElement)
+    const node = last?.node as HTMLElement
+    expect([node.getAttribute('role'), node.textContent]).toEqual(['heading', 'Work'])
   })
 })

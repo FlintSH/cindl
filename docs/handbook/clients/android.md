@@ -246,12 +246,16 @@ preset does: views become DOM elements, accessibility props become ARIA (the
 label is the accessible name, the role and state what TalkBack reads), and a
 request to move TalkBack focus is recorded. That stand-in also simplifies what
 the screens use: a press is a click (none when `disabled` is set, as
-Pressable does), Animated values jump to their end, and Easing, StyleSheet and
-Platform are minimal. Three modules are replaced as well
+Pressable does), a Pressable is a stop for a keyboard's focus unless both
+`accessible` and `focusable` are false (as React Native 0.88 makes the view),
+a ScrollView scrolls nothing, Linking records the links it is asked to open,
+Animated values jump to their end, and Easing, StyleSheet and Platform are
+minimal. Four modules are replaced as well
 (`apps/android/vitest.config.ts`): `react-native-safe-area-context` (zero
-insets), the lucide icons (an empty element) and `expo`
+insets), the lucide icons (an empty element), `expo`
 (`apps/android/test/render/expo.ts`: the keyboard focus module records its
-calls; no other native module is linked). The tests read the screen by role,
+calls; no other native module is linked) and `expo-crypto` (Node's random
+ids for the composer). The tests read the screen by role,
 name and text and see where focus is sent. They do not cover native drawing
 or layout, or what TalkBack itself announces; no emulator test covers those
 flows yet.
@@ -565,7 +569,13 @@ Hermes server, Chrome's Custom Tab, and a phone.
   the keyboard's focus is in the dialog,
   then close it with back and check that focus is on "Delete entry…". The
   rendered component tests check every step of this on the shipped Dialog and
-  Sheet; what TalkBack itself announces is not tested. The emulator tests audit touch targets the same way: only what the
+  Sheet, and on the shipped screens: a tool row and the conversation switcher
+  get focus back from what they open (the switcher even when another press
+  came less than a second before), the working margin's Show leaves focus on
+  the card it shows, a link in agent Markdown gets it back from its
+  confirmation, a page's heading is the fallback for what opens on the page,
+  and a press counts as an overlay's opener only in the second before it
+  opened. What TalkBack itself announces is not tested. The emulator tests audit touch targets the same way: only what the
   owner can reach, so while an overlay is open only what is drawn above its
   scrim, which they tell apart by its testID (Android reports it as the
   node's resource-id; the scrim itself is no target). uiautomator's full dump

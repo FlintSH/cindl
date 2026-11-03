@@ -33,6 +33,12 @@ export function claimFocus(): void {
   claimed = Date.now()
 }
 
+/** No press noted and no claim: where tests start (the module keeps both across renders). */
+export function forgetPresses(): void {
+  last = undefined
+  claimed = undefined
+}
+
 export function takeFocusClaim(): boolean {
   const fresh = claimed !== undefined && Date.now() - claimed < 1000
   claimed = undefined
