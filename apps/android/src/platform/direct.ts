@@ -47,11 +47,15 @@ export async function createAndroidClient(
 ): Promise<AndroidClient> {
   const earlier = await migrateEarlierSignIn(platform)
   const interrupted = (await platform.recoverInterruptedSignIn()) || earlier.interrupted
+  // The origin the direct client is configured for: the screen socket goes only there.
+  let configured = earlier.origin
   const direct = createDirectClient({
     ...(earlier.origin === undefined ? {} : { origin: earlier.origin }),
     auth: 'native-pkce',
     fetch: platform.fetch,
     socketFactory: platform.webSocket,
+    // The live picture (ADR 0012); computer.view is negotiated by the client.
+    displaySocketFactory: platform.screenSocket(() => configured),
     clock: platform.clock,
     kv: platform.keyValue,
     secrets: platform.secrets,
@@ -105,6 +109,8 @@ export async function createAndroidClient(
     signingIn = true
     try {
       const previous = await readStoredOrigin(platform.keyValue)
+      // The direct client switches to this origin as the sign-in starts.
+      configured = origin
       const link = await direct.call('auth.signIn', { origin })
       await platform.keyValue.set(ORIGIN_KEY, origin)
       if (previous !== undefined && previous !== origin) await forget(previous)

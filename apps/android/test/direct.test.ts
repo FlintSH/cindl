@@ -29,6 +29,10 @@ import {
 import type { AndroidPlatform } from '../src/platform/android.ts'
 import { createAndroidClient, type AndroidClient } from '../src/platform/direct.ts'
 import { guardFetch } from '../src/platform/origin.ts'
+import {
+  createBinaryWebSocketFactory,
+  type RnWebSocketConstructor,
+} from '../src/platform/screenSocket.ts'
 import { secureStoreKey } from '../src/platform/secretStore.ts'
 import {
   createWebSocketFactory,
@@ -74,6 +78,12 @@ function device() {
     keyValue: stores.keyValue,
     secrets: stores.secrets,
     webSocket: createWebSocketFactory(NodeWebSocket),
+    // Node's own WebSocket stands in for React Native's: same binaryType and events.
+    screenSocket: (hermesOrigin) =>
+      createBinaryWebSocketFactory({
+        Socket: WebSocket as unknown as RnWebSocketConstructor,
+        hermesOrigin,
+      }),
     fetch: guardFetch((url, init) => fetch(url, init)),
     crypto: nodeCrypto,
     clock: systemClock,
@@ -117,10 +127,13 @@ async function launch(
   return { client, store }
 }
 
-async function until<T>(check: () => T | undefined | false, ms = 5_000): Promise<T> {
+async function until<T>(
+  check: () => T | undefined | false | Promise<T | undefined | false>,
+  ms = 5_000,
+): Promise<T> {
   const started = Date.now()
   for (;;) {
-    const value = check()
+    const value = await check()
     if (value !== undefined && value !== false) return value
     if (Date.now() - started > ms) throw new Error('condition not met in time')
     await new Promise((resolve) => setTimeout(resolve, 10))
@@ -154,10 +167,9 @@ describe('the real Android client against a fake Hermes', () => {
     expect([...stores.async.values()].join('\n')).not.toMatch(
       /access_token|refresh_token/,
     )
-    // Without a screen socket (the app shows no picture), computer.view stays limited.
+    // With the screen socket, the client negotiates the live picture itself.
     const view = await until(() => store.getState().capabilities['computer.view'])
-    expect(view.state).toBe('limited')
-    expect(view.reason).toMatch(/cannot open the screen socket/)
+    expect(view.state).toBe('available')
   })
 
   it('is still signed in after a restart, without another sign-in', async () => {
@@ -304,5 +316,77 @@ describe('requests leave the app only for Hermes', () => {
     await expect(
       guarded('http://hermes.example.test/api/status', {}),
     ).rejects.toMatchObject({ code: 'invalid' })
+  })
+})
+
+describe('the agent screen through the real Android client', () => {
+  const pixel = (
+    regions: Array<{
+      x: number
+      y: number
+      width: number
+      height: number
+      rgba: Uint8Array
+    }>,
+    x: number,
+    y: number,
+  ) => {
+    for (const region of regions)
+      if (
+        x >= region.x &&
+        y >= region.y &&
+        x < region.x + region.width &&
+        y < region.y + region.height
+      ) {
+        const at = ((y - region.y) * region.width + (x - region.x)) * 4
+        return [...region.rgba.subarray(at, at + 3)]
+      }
+    return undefined
+  }
+
+  it('shows the picture, refuses input while watching and takes it in control', async () => {
+    const fake = await fakeHermes()
+    const { platform } = device()
+    const { client, store } = await launch(platform)
+    await client.api.call('auth.signIn', { origin: fake.origin })
+    await until(
+      () => store.getState().capabilities['computer.view']?.state === 'available',
+    )
+
+    const view = await client.api.call('display.watch', {})
+    expect(view).toMatchObject({ width: 640, height: 400 })
+    const first = await client.api.call('display.frame', { viewId: view.viewId })
+    // The synthetic screen's desktop colour, painted through the app's own socket.
+    expect(pixel(first.regions, 10, 40)).toEqual([47, 93, 98])
+
+    // Watching: Hermes is never sent input.
+    await expect(
+      client.api.call('display.input', {
+        viewId: view.viewId,
+        events: [{ type: 'pointer', x: 100, y: 300, buttons: 1 }],
+      }),
+    ).rejects.toMatchObject({ code: 'forbidden' })
+
+    await client.api.call('display.acquireControl', { confirm: true })
+    const sent = await client.api.call('display.input', {
+      viewId: view.viewId,
+      events: [
+        { type: 'pointer', x: 100, y: 300, buttons: 1 },
+        { type: 'pointer', x: 100, y: 300, buttons: 0 },
+      ],
+    })
+    expect(sent.sent).toBe(2)
+    // The synthetic screen draws its orange pointer marker where the tap landed.
+    const marked = await until(async () => {
+      const frame = await client.api.call('display.frame', { viewId: view.viewId })
+      const colour = pixel(frame.regions, 100, 300)
+      return colour && colour[0] === 230 ? colour : undefined
+    })
+    expect(marked).toEqual([230, 120, 40])
+    await expect(
+      client.api.call('display.unwatch', { viewId: view.viewId }),
+    ).resolves.toEqual({
+      stopped: true,
+    })
   })
 })

@@ -1,5 +1,6 @@
 import {
   systemClock,
+  type BinaryWebSocketFactory,
   type Clock,
   type KeyValueStore,
   type SecretStore,
@@ -21,6 +22,10 @@ import {
 } from '../auth/loopback.ts'
 import { createCryptoProvider } from './crypto.ts'
 import { guardFetch } from './origin.ts'
+import {
+  createBinaryWebSocketFactory,
+  type RnWebSocketConstructor,
+} from './screenSocket.ts'
 import { createSecretStore } from './secretStore.ts'
 import { deviceKeyValueStore } from './storage.ts'
 import { createWebSocketFactory, type WebSocketConstructor } from './webSocket.ts'
@@ -36,6 +41,8 @@ export interface AndroidPlatform {
   /** Keystore-backed; `available` false means tokens stay in memory only. */
   secrets: SecretStore
   webSocket: WebSocketFactory
+  /** The agent screen's binary socket, only to `/api/display/ws` on the origin given. */
+  screenSocket: (hermesOrigin: () => string | undefined) => BinaryWebSocketFactory
   fetch: FetchLike
   crypto: CryptoProvider
   clock: Clock
@@ -78,6 +85,11 @@ export async function createAndroidPlatform(): Promise<AndroidPlatform> {
     secrets: createSecretStore(SecureStore, await SecureStore.isAvailableAsync()),
     // React Native's WebSocket (OkHttp) has the WebSocketLike shape; DOM typings differ only in `this`.
     webSocket: createWebSocketFactory(WebSocket as unknown as WebSocketConstructor),
+    screenSocket: (hermesOrigin) =>
+      createBinaryWebSocketFactory({
+        Socket: WebSocket as unknown as RnWebSocketConstructor,
+        hermesOrigin,
+      }),
     fetch: guardFetch((url, init) => fetch(url, init)),
     crypto: createCryptoProvider({
       getRandomBytes,

@@ -233,6 +233,12 @@ phone.
   app-private, signature-level permission for its own receivers.)
 - **Cleartext:** refused except to `127.0.0.1` and `::1`. Debug builds (never
   distributed) also allow `localhost` and `10.0.2.2` for the Metro dev server.
+- **Screen socket:** the agent screen's picture uses Hermes's
+  `/api/display/ws`, whose single-use ticket travels in the URL (ADR 0012), so
+  that URL is a secret: Cindl opens it only to the signed-in origin (`wss`, or
+  `ws` only for `127.0.0.1` and `[::1]`), only on that path and with the ticket
+  as its only query, and never logs it or puts it in an error. React Native
+  carries its binary frames between Kotlin and JavaScript as base64.
 - **Certificates:** system authorities only. A Hermes server behind a private
   CA or a self-signed certificate is not reachable.
 - **Backups:** off. `allowBackup=false`, and data extraction rules exclude
