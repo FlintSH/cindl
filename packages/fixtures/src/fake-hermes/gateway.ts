@@ -383,8 +383,9 @@ export class FakeGateway {
   }
 
   /**
-   * Send one server request to every answering client of the session; the
-   * first response settles it (server_requests.py:281-317). Resolves with the
+   * Send one server request to every client attached to the session, whether
+   * or not it advertised (transport.py:284-325); the first response settles
+   * it (server_requests.py:281-317). Resolves with the
    * result, or null when nobody could be asked, an error reply arrived, or it
    * was withdrawn.
    */
@@ -417,7 +418,7 @@ export class FakeGateway {
         ...(method === 'clarify' ? { locked: {} } : {}),
       }
       this.open.set(id, request)
-      for (const client of clients)
+      for (const client of attached)
         client.send({
           jsonrpc: '2.0',
           id,

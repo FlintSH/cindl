@@ -117,10 +117,12 @@ bearer to public endpoints.
 - The first frame is `{method: "event", params: {type: "gateway.ready",
 payload: {skin, change_events, heartbeat, replay_epoch,
 session_authority?}}}` (`tui_gateway/ws.py:548-554`).
-- Cindl immediately sends `client.capabilities {server_requests: true}`.
-  Without it Hermes never sends server requests to that client and withdraws
-  approvals at once (`tui_gateway/server_requests.py:30-34, 156-161`;
-  `server.py:849-859`). The result lists every server-request method of the
+- Cindl immediately sends `client.capabilities {server_requests: true}`. A
+  session's server request reaches every client attached to the session,
+  advertised or not (`tui_gateway/transport.py:284-325`). The advertisement
+  matters when no attached client made it: Hermes then sends nothing and an
+  approval is withdrawn at once (`server_requests.py:30-34, 156-161`;
+  `session_transports.py:58-67`; `server.py:849-859`). The result lists every server-request method of the
   build and `declines_not_shown: true` (`methods_voice.py:521-538`).
 - `session_authority: true` appears only when a session authority is attached.
   The gateway attaches one when it hosts the dashboard listener or redeems a
@@ -137,8 +139,11 @@ session_authority?}}}` (`tui_gateway/ws.py:548-554`).
 - One JSON-RPC 2.0 object per text frame both ways. Client ids are integers;
   Hermes's server-request ids are `srq-<12 hex>` strings, so they never
   collide (`server_requests.py:9-13`).
-- Requests run serially per connection in arrival order; answers to server
-  requests skip the queue (`ws.py:94-117`).
+- Requests run one at a time per connection in arrival order
+  (`ws.py:94-98, 501-509`); long handlers run on a worker pool, so the queue
+  keeps moving (`rpc_dispatch.py:62-88`). Only response frames to server
+  requests and `clarify.lock` skip it (`ws.py:107-115, 502-504`):
+  `request.answer`, which Cindl answers with, waits its turn.
 - Unknown params keys answer JSON-RPC error **4000** ("out of sync");
   unknown methods **-32601** (`tui_gateway/contracts/registry.py:89-118`,
   `ws.py:368-385`). Cindl treats either for a method on its allowlist as a
@@ -206,9 +211,9 @@ transcript when the epoch changed or the window was truncated.
 
 ## Server-to-client requests
 
-Hermes sends a request to every client attached to the session that
-advertised `server_requests`; the **first answer wins** and settles it for
-all. A reply for an id that is no longer open is dropped
+Hermes sends a session's request to every client attached to the session,
+whether or not it advertised `server_requests` (`transport.py:284-325`); the
+**first answer wins** and settles it for all. A reply for an id that is no longer open is dropped
 (`server_requests.py:1-35, 191-227, 281-317`). Unanswered requests are listed
 again, with the same `srq-<12 hex>` id, in the `open_requests` of
 `session.resume` and `session.events.since` (`server_requests.py:71,

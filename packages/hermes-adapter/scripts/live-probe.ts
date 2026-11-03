@@ -8,8 +8,9 @@
 // client.capabilities, gateway.capabilities or runtime.describe) and one
 // session.list whose rows are counted, never printed. It never prints tokens,
 // tickets, cookies, titles or ids, never submits a prompt and never changes
-// anything. client.capabilities is sent without `server_requests`, so Hermes
-// never routes approvals or questions to the probe.
+// anything. It attaches to no session, so no approval or question reaches it
+// (Hermes sends those to a session's attached clients), and it does not
+// advertise `server_requests` either.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { HermesOrigin } from '@cindl/contracts'

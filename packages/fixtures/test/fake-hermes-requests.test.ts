@@ -67,6 +67,21 @@ const questions = [
   { qid: 'q1', question: 'Days? (fixture)', choices: ['Mon', 'Tue'], multi_select: true },
 ]
 
+describe('fake Hermes: who receives a server request', () => {
+  it('reaches every client attached to the session, advertised or not', async () => {
+    const { fake, client, storedId, sid } = await setup()
+    const silent = await connectRawClient(fake, fake.signIn(), { answersRequests: false })
+    await silent.request('session.resume', { session_id: storedId })
+    const toAdvertised = client.nextServerRequest()
+    const toSilent = silent.nextServerRequest()
+    void fake.gateway.serverRequest(sid, 'sudo', { command: 'apt list (fixture)' })
+    // FanoutTransport.write sends to every attached peer (transport.py:284-325).
+    expect((await toAdvertised).method).toBe('sudo')
+    expect((await toSilent).method).toBe('sudo')
+    silent.close()
+  })
+})
+
 describe('fake Hermes: server requests', () => {
   it('keeps a request raised while no client is attached for the next one (session_transports.py:58-67)', async () => {
     const { fake, client, sid, storedId } = await setup()

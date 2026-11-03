@@ -62,11 +62,14 @@ describe('live probe', () => {
     await until(() => fake.gateway.connections.size === 0)
   })
 
-  it('does not advertise server requests, so Hermes routes none to it', async () => {
+  it('advertises no server requests and attaches to no session', async () => {
     const { fake } = await probe()
     const capabilities = fake.calls.filter((c) => c.name === 'client.capabilities')
     expect(capabilities).toHaveLength(1)
     expect(fake.gateway.advertisements).toEqual([{}])
+    expect(
+      fake.calls.some((c) => /^session\.(create|resume|activate)$/.test(c.name)),
+    ).toBe(false)
   })
 
   it('refuses an origin sign-in would refuse before sending anything', async () => {
