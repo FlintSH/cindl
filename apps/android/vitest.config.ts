@@ -21,6 +21,7 @@ export default defineProject({
         find: /^lucide-react-native\/icons\/.+$/,
         replacement: here('./test/render/icon.tsx'),
       },
+      { find: /^expo$/, replacement: here('./test/render/expo.ts') },
     ],
   },
   test: { name: 'android', environment: 'node', include: ['test/**/*.test.{ts,tsx}'] },

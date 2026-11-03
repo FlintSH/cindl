@@ -1,7 +1,8 @@
 import { useTool } from '@cindl/client-react'
 import type { ToolStatus } from '@cindl/contracts'
-import { useState } from 'react'
-import { Pressable, Text, View } from 'react-native'
+import { useRef, useState } from 'react'
+import { Pressable, Text, View, type HostInstance } from 'react-native'
+import { notePress } from '../overlay/opener.ts'
 import { useTheme } from '../theme/theme.tsx'
 import { Ban, Check, ChevronRight, CircleAlert, Hand } from '../ui/icons.ts'
 import { focusRing, Spinner } from '../ui/primitives.tsx'
@@ -52,6 +53,7 @@ export function ToolRow({
   const theme = useTheme()
   const tool = useTool(toolId)
   const [focused, setFocused] = useState(false)
+  const self = useRef<HostInstance | null>(null)
   if (!tool) return null
   const state = blocked ? 'Waiting for you' : toolStatusLabel[tool.status]
   const meta = blocked
@@ -61,12 +63,17 @@ export function ToolRow({
       : (tool.progress ?? toolStatusLabel[tool.status])
   return (
     <Pressable
+      ref={self}
       accessibilityRole="button"
       accessibilityLabel={`${tool.title}. ${state}${
         meta && meta !== state ? `, ${meta}` : ''
       }. Show details.`}
       accessibilityState={{ selected }}
-      onPress={() => onSelect(tool.id)}
+      onPress={() => {
+        // The working margin this opens gives focus back to this row.
+        notePress(self)
+        onSelect(tool.id)
+      }}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       android_ripple={{ color: theme.colors.selection }}

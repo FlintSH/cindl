@@ -247,6 +247,20 @@ export function hiddenBeneath(
   }
 }
 
+/** The node a hardware keyboard's focus is on (`focused="true"`), if any. */
+export const focusedNode = (root: UiNode) => flatten(root).find((node) => node.focused)
+
+/**
+ * Where a hardware keyboard's focus is while a dialog or sheet is open: on a
+ * node drawn above its scrim (`reachable`), on the screen beneath it, or on
+ * nothing.
+ */
+export function keyboardFocusIn(root: UiNode): 'overlay' | 'beneath' | 'none' {
+  const node = focusedNode(root)
+  if (node === undefined) return 'none'
+  return reachable(root).includes(node) ? 'overlay' : 'beneath'
+}
+
 export type Match = string | RegExp | ((label: string, node: UiNode) => boolean)
 
 export function matches(node: UiNode, match: Match): boolean {

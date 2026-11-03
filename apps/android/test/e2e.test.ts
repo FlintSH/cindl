@@ -13,8 +13,10 @@ import {
   find,
   findAll,
   findTappable,
+  focusedNode,
   hiddenBeneath,
   imeWindow,
+  keyboardFocusIn,
   interactiveWithin,
   label,
   linkTapPoints,
@@ -334,6 +336,25 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
     expect(
       hiddenBeneath(unordered, parseUi(dump(`${WINDOW}${TITLE}${CANCEL}${OPEN}</node>`))),
     ).toMatchObject({ ok: false, beneath: 0 })
+  })
+
+  it("says whether a hardware keyboard's focus is in the dialog, on the screen beneath it, or on nothing", () => {
+    const at = (focused: 'cancel' | 'span' | 'none') =>
+      parseUi(
+        dump(
+          `${WINDOW}${CONTAINER}${EMPTY}${SCRIM_BRANCH}${SCRIM}</node>${CONTENT}${PARAGRAPH}${
+            focused === 'span' ? SPAN.replace('focused="false"', 'focused="true"') : SPAN
+          }</node></node>${CARD}${TITLE}${
+            focused === 'cancel'
+              ? CANCEL.replace('focused="false"', 'focused="true"')
+              : CANCEL
+          }${OPEN}</node></node></node>`,
+        ),
+      )
+    expect(keyboardFocusIn(at('cancel'))).toBe('overlay')
+    expect(focusedNode(at('cancel'))).toMatchObject({ desc: 'Cancel' })
+    expect(keyboardFocusIn(at('span'))).toBe('beneath')
+    expect(keyboardFocusIn(at('none'))).toBe('none')
   })
 
   // 22dp at density 420 (2.625px per dp).

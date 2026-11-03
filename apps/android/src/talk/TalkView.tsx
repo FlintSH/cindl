@@ -13,8 +13,16 @@ import {
 } from '@cindl/client-react'
 import { isCindlError } from '@cindl/contracts'
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { Pressable, ScrollView, Text, View, type ScrollViewInstance } from 'react-native'
+import {
+  Pressable,
+  ScrollView,
+  Text,
+  View,
+  type HostInstance,
+  type ScrollViewInstance,
+} from 'react-native'
 import { useNav, useNavigate } from '../nav/NavProvider.tsx'
+import { claimFocus, FocusFallback, notePress } from '../overlay/opener.ts'
 import { useTheme } from '../theme/theme.tsx'
 import { ArrowDown, ChevronDown, PanelBottom, Plus } from '../ui/icons.ts'
 import { Button, Dot, ErrorText, focusRing, Txt } from '../ui/primitives.tsx'
@@ -72,6 +80,8 @@ export function TalkView() {
   const offsets = useRef(new Map<string, { y: number; stick: boolean }>())
   const cardOffsets = useRef(new Map<string, number>())
   const restoredFor = useRef<string | undefined>(undefined)
+  const switcher = useRef<HostInstance | null>(null)
+  const focusSwitcher = useCallback(() => switcher.current, [])
   // In-flight history loads. After `history.reset` the transcript is missing
   // again and, with nothing in flight, it is fetched again.
   const inflight = useRef(new Set<string>())
@@ -179,6 +189,8 @@ export function TalkView() {
   const selectedToolId =
     selection?.conversationId === conversationId ? selection.toolId : undefined
   const showRequest = (requestId: string) => {
+    // The request card takes focus itself (RequestCard's focusRequested).
+    claimFocus()
     setMarginOpen(false)
     const y = cardOffsets.current.get(requestId)
     if (y !== undefined) {
@@ -194,275 +206,288 @@ export function TalkView() {
   }
 
   return (
-    <View style={{ flex: 1 }}>
-      <View
-        style={{
-          gap: theme.space[1],
-          padding: theme.space[2],
-          borderBottomWidth: 1,
-          borderColor: theme.colors.border,
-        }}
-      >
-        <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}>
-          <Pressable
-            accessibilityRole="button"
-            accessibilityLabel={`${conversation.title}${
-              conversation.kind === 'main' ? ', Main' : ''
-            }. Switch conversation`}
-            onPress={() => setHistoryOpen(true)}
-            onFocus={() => setSwitcherFocused(true)}
-            onBlur={() => setSwitcherFocused(false)}
-            android_ripple={{ color: theme.colors.selection }}
-            style={[
-              {
-                flexShrink: 1,
-                minHeight: theme.layout.touchTarget,
-                flexDirection: 'row',
-                alignItems: 'center',
-                gap: theme.space[2],
-                paddingHorizontal: theme.space[2],
-                borderRadius: theme.radius.md,
-              },
-              switcherFocused ? focusRing(theme) : null,
-            ]}
+    // An overlay closed after what opened it went (a link's message, a tool row) gives
+    // focus to the conversation switcher, which is always here.
+    <FocusFallback value={focusSwitcher}>
+      <View style={{ flex: 1 }}>
+        <View
+          style={{
+            gap: theme.space[1],
+            padding: theme.space[2],
+            borderBottomWidth: 1,
+            borderColor: theme.colors.border,
+          }}
+        >
+          <View
+            style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}
           >
-            <Text
-              numberOfLines={1}
-              style={[theme.text.title, { flexShrink: 1, color: theme.colors.text }]}
+            <Pressable
+              ref={switcher}
+              accessibilityRole="button"
+              accessibilityLabel={`${conversation.title}${
+                conversation.kind === 'main' ? ', Main' : ''
+              }. Switch conversation`}
+              onPress={() => {
+                notePress(switcher)
+                setHistoryOpen(true)
+              }}
+              onFocus={() => setSwitcherFocused(true)}
+              onBlur={() => setSwitcherFocused(false)}
+              android_ripple={{ color: theme.colors.selection }}
+              style={[
+                {
+                  flexShrink: 1,
+                  minHeight: theme.layout.touchTarget,
+                  flexDirection: 'row',
+                  alignItems: 'center',
+                  gap: theme.space[2],
+                  paddingHorizontal: theme.space[2],
+                  borderRadius: theme.radius.md,
+                },
+                switcherFocused ? focusRing(theme) : null,
+              ]}
             >
-              {conversation.title}
-            </Text>
-            {conversation.kind === 'main' ? (
-              <View
-                style={{
-                  paddingHorizontal: theme.space[1.5],
-                  borderRadius: theme.radius.pill,
-                  backgroundColor: theme.colors.accentSubtle,
-                }}
+              <Text
+                numberOfLines={1}
+                style={[theme.text.title, { flexShrink: 1, color: theme.colors.text }]}
               >
-                <Text
-                  style={[
-                    theme.text.caption,
-                    { fontFamily: theme.fonts.semibold, color: theme.colors.accentText },
-                  ]}
+                {conversation.title}
+              </Text>
+              {conversation.kind === 'main' ? (
+                <View
+                  style={{
+                    paddingHorizontal: theme.space[1.5],
+                    borderRadius: theme.radius.pill,
+                    backgroundColor: theme.colors.accentSubtle,
+                  }}
                 >
-                  Main
-                </Text>
-              </View>
+                  <Text
+                    style={[
+                      theme.text.caption,
+                      {
+                        fontFamily: theme.fonts.semibold,
+                        color: theme.colors.accentText,
+                      },
+                    ]}
+                  >
+                    Main
+                  </Text>
+                </View>
+              ) : null}
+              <ChevronDown
+                size={16}
+                color={theme.colors.textSecondary}
+                strokeWidth={1.75}
+              />
+            </Pressable>
+            <View style={{ flex: 1 }} />
+            {canCreate ? (
+              <Button
+                label="New side conversation"
+                icon={Plus}
+                iconOnly
+                variant="quiet"
+                onPress={startSide}
+              />
             ) : null}
-            <ChevronDown
-              size={16}
-              color={theme.colors.textSecondary}
-              strokeWidth={1.75}
-            />
-          </Pressable>
-          <View style={{ flex: 1 }} />
-          {canCreate ? (
             <Button
-              label="New side conversation"
-              icon={Plus}
+              label="Show the working margin"
+              icon={PanelBottom}
               iconOnly
               variant="quiet"
-              onPress={startSide}
-            />
-          ) : null}
-          <Button
-            label="Show the working margin"
-            icon={PanelBottom}
-            iconOnly
-            variant="quiet"
-            onPress={() => setMarginOpen(true)}
-          />
-        </View>
-        <View
-          accessibilityLiveRegion="polite"
-          style={{
-            flexDirection: 'row',
-            alignItems: 'center',
-            flexWrap: 'wrap',
-            columnGap: theme.space[2],
-            paddingHorizontal: theme.space[2],
-          }}
-        >
-          <Dot tone={presence.tone} />
-          <Text
-            style={[
-              theme.text.label,
-              { flexShrink: 1, color: theme.colors.textSecondary },
-            ]}
-          >
-            {presence.text}
-          </Text>
-          {presence.aside ? (
-            <Text style={[theme.text.label, { color: theme.colors.textTertiary }]}>
-              {presence.aside}
-            </Text>
-          ) : null}
-        </View>
-      </View>
-      <View style={{ flex: 1 }}>
-        <ScrollView
-          key={conversationId}
-          ref={scroller}
-          style={{ flex: 1 }}
-          contentContainerStyle={{
-            gap: theme.space[6],
-            paddingHorizontal: theme.space[4],
-            paddingTop: theme.space[5],
-            paddingBottom: theme.space[4],
-          }}
-          keyboardShouldPersistTaps="handled"
-          keyboardDismissMode="on-drag"
-          scrollEventThrottle={100}
-          onScroll={(event) => {
-            const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
-            const end =
-              contentSize.height - contentOffset.y - layoutMeasurement.height <
-              STICK_THRESHOLD
-            stick.current = end
-            if (end !== atEnd) setAtEnd(end)
-            offsets.current.set(conversationId, { y: contentOffset.y, stick: end })
-          }}
-          onContentSizeChange={() => {
-            const view = scroller.current
-            if (!view) return
-            // A different conversation remounts the timeline; restore where the owner left it.
-            if (restoredFor.current !== conversationId) {
-              restoredFor.current = conversationId
-              const saved = offsets.current.get(conversationId)
-              if (saved && !saved.stick) {
-                stick.current = false
-                setAtEnd(false)
-                view.scrollTo({ y: saved.y, animated: false })
-                return
-              }
-              stick.current = true
-            }
-            // Follow new output unless the owner scrolled up to read.
-            if (stick.current) view.scrollToEnd({ animated: false })
-          }}
-        >
-          {problem ? <ErrorText>{problem}</ErrorText> : null}
-          {!loaded && !canHistory ? (
-            <Txt tone="tertiary">History is not available on this connection.</Txt>
-          ) : !loaded && historyFailed && historyError ? (
-            <View style={{ gap: theme.space[2], alignItems: 'flex-start' }}>
-              <ErrorText>{historyError.message}</ErrorText>
-              <Button
-                label="Retry"
-                variant="quiet"
-                onPress={() => setHistoryError(undefined)}
-              />
-            </View>
-          ) : !loaded ? (
-            <Txt tone="tertiary">Loading conversation…</Txt>
-          ) : null}
-          {messages.map((message) => (
-            <MessageView
-              key={message.id}
-              message={message}
-              agentName={AGENT_NAME}
-              selectedToolId={selectedToolId}
-              blockedToolIds={activity.blockedToolIds}
-              onSelectTool={(toolId) => {
-                setSelection({ conversationId, toolId })
-                setMarginOpen(true)
-              }}
-            />
-          ))}
-          {activity.openRequests.map((request) => (
-            <View
-              key={requestKeyOf(request)}
-              onLayout={(event) =>
-                cardOffsets.current.set(request.requestId, event.nativeEvent.layout.y)
-              }
-            >
-              <RequestCard
-                request={request}
-                focusRequested={focusRequestId === request.requestId}
-                onFocused={clearFocusRequest}
-              />
-            </View>
-          ))}
-        </ScrollView>
-        {!atEnd ? (
-          <View
-            style={{
-              position: 'absolute',
-              right: theme.space[3],
-              bottom: theme.space[3],
-            }}
-          >
-            <Button
-              label="Latest"
-              accessibilityLabel="Jump to latest messages"
-              icon={ArrowDown}
-              onPress={jumpToLatest}
-              style={{ boxShadow: theme.shadow.overlay }}
+              onPress={() => setMarginOpen(true)}
             />
           </View>
-        ) : null}
-      </View>
-      <View
-        style={{
-          gap: theme.space[2],
-          paddingHorizontal: theme.space[3],
-          paddingTop: theme.space[2],
-          paddingBottom: theme.space[3],
-        }}
-      >
-        {uncertain.map((prompt) => (
           <View
-            key={prompt.clientId}
             accessibilityLiveRegion="polite"
             style={{
-              gap: theme.space[1],
-              padding: theme.space[3],
-              borderRadius: theme.radius.md,
-              backgroundColor: theme.colors.warningSubtle,
+              flexDirection: 'row',
+              alignItems: 'center',
+              flexWrap: 'wrap',
+              columnGap: theme.space[2],
+              paddingHorizontal: theme.space[2],
             }}
           >
-            <Txt variant="label" tone="warning">
-              {`Not confirmed: “${
-                prompt.text.length > 60 ? `${prompt.text.slice(0, 60)}…` : prompt.text
-              }”. Hermes may or may not have received it. Check the conversation before sending again.`}
-            </Txt>
-            <Button
-              label="Dismiss"
-              variant="quiet"
-              style={{ alignSelf: 'flex-end' }}
-              onPress={() =>
-                void api
-                  .call('prompt.discard', { clientId: prompt.clientId })
-                  .catch(() => {
-                    // Dismissing only drops local state; on failure the notice simply stays.
-                  })
-              }
-            />
+            <Dot tone={presence.tone} />
+            <Text
+              style={[
+                theme.text.label,
+                { flexShrink: 1, color: theme.colors.textSecondary },
+              ]}
+            >
+              {presence.text}
+            </Text>
+            {presence.aside ? (
+              <Text style={[theme.text.label, { color: theme.colors.textTertiary }]}>
+                {presence.aside}
+              </Text>
+            ) : null}
           </View>
-        ))}
-        <Composer
+        </View>
+        <View style={{ flex: 1 }}>
+          <ScrollView
+            key={conversationId}
+            ref={scroller}
+            style={{ flex: 1 }}
+            contentContainerStyle={{
+              gap: theme.space[6],
+              paddingHorizontal: theme.space[4],
+              paddingTop: theme.space[5],
+              paddingBottom: theme.space[4],
+            }}
+            keyboardShouldPersistTaps="handled"
+            keyboardDismissMode="on-drag"
+            scrollEventThrottle={100}
+            onScroll={(event) => {
+              const { contentOffset, contentSize, layoutMeasurement } = event.nativeEvent
+              const end =
+                contentSize.height - contentOffset.y - layoutMeasurement.height <
+                STICK_THRESHOLD
+              stick.current = end
+              if (end !== atEnd) setAtEnd(end)
+              offsets.current.set(conversationId, { y: contentOffset.y, stick: end })
+            }}
+            onContentSizeChange={() => {
+              const view = scroller.current
+              if (!view) return
+              // A different conversation remounts the timeline; restore where the owner left it.
+              if (restoredFor.current !== conversationId) {
+                restoredFor.current = conversationId
+                const saved = offsets.current.get(conversationId)
+                if (saved && !saved.stick) {
+                  stick.current = false
+                  setAtEnd(false)
+                  view.scrollTo({ y: saved.y, animated: false })
+                  return
+                }
+                stick.current = true
+              }
+              // Follow new output unless the owner scrolled up to read.
+              if (stick.current) view.scrollToEnd({ animated: false })
+            }}
+          >
+            {problem ? <ErrorText>{problem}</ErrorText> : null}
+            {!loaded && !canHistory ? (
+              <Txt tone="tertiary">History is not available on this connection.</Txt>
+            ) : !loaded && historyFailed && historyError ? (
+              <View style={{ gap: theme.space[2], alignItems: 'flex-start' }}>
+                <ErrorText>{historyError.message}</ErrorText>
+                <Button
+                  label="Retry"
+                  variant="quiet"
+                  onPress={() => setHistoryError(undefined)}
+                />
+              </View>
+            ) : !loaded ? (
+              <Txt tone="tertiary">Loading conversation…</Txt>
+            ) : null}
+            {messages.map((message) => (
+              <MessageView
+                key={message.id}
+                message={message}
+                agentName={AGENT_NAME}
+                selectedToolId={selectedToolId}
+                blockedToolIds={activity.blockedToolIds}
+                onSelectTool={(toolId) => {
+                  setSelection({ conversationId, toolId })
+                  setMarginOpen(true)
+                }}
+              />
+            ))}
+            {activity.openRequests.map((request) => (
+              <View
+                key={requestKeyOf(request)}
+                onLayout={(event) =>
+                  cardOffsets.current.set(request.requestId, event.nativeEvent.layout.y)
+                }
+              >
+                <RequestCard
+                  request={request}
+                  focusRequested={focusRequestId === request.requestId}
+                  onFocused={clearFocusRequest}
+                />
+              </View>
+            ))}
+          </ScrollView>
+          {!atEnd ? (
+            <View
+              style={{
+                position: 'absolute',
+                right: theme.space[3],
+                bottom: theme.space[3],
+              }}
+            >
+              <Button
+                label="Latest"
+                accessibilityLabel="Jump to latest messages"
+                icon={ArrowDown}
+                onPress={jumpToLatest}
+                style={{ boxShadow: theme.shadow.overlay }}
+              />
+            </View>
+          ) : null}
+        </View>
+        <View
+          style={{
+            gap: theme.space[2],
+            paddingHorizontal: theme.space[3],
+            paddingTop: theme.space[2],
+            paddingBottom: theme.space[3],
+          }}
+        >
+          {uncertain.map((prompt) => (
+            <View
+              key={prompt.clientId}
+              accessibilityLiveRegion="polite"
+              style={{
+                gap: theme.space[1],
+                padding: theme.space[3],
+                borderRadius: theme.radius.md,
+                backgroundColor: theme.colors.warningSubtle,
+              }}
+            >
+              <Txt variant="label" tone="warning">
+                {`Not confirmed: “${
+                  prompt.text.length > 60 ? `${prompt.text.slice(0, 60)}…` : prompt.text
+                }”. Hermes may or may not have received it. Check the conversation before sending again.`}
+              </Txt>
+              <Button
+                label="Dismiss"
+                variant="quiet"
+                style={{ alignSelf: 'flex-end' }}
+                onPress={() =>
+                  void api
+                    .call('prompt.discard', { clientId: prompt.clientId })
+                    .catch(() => {
+                      // Dismissing only drops local state; on failure the notice simply stays.
+                    })
+                }
+              />
+            </View>
+          ))}
+          <Composer
+            conversationId={conversationId}
+            canStop={activity.turnOpen || activity.phase === 'executing'}
+            hint={composerHint(activity)}
+            agentName={AGENT_NAME}
+          />
+        </View>
+        <WorkingMargin
+          open={marginOpen}
+          onClose={() => setMarginOpen(false)}
           conversationId={conversationId}
-          canStop={activity.turnOpen || activity.phase === 'executing'}
-          hint={composerHint(activity)}
-          agentName={AGENT_NAME}
+          selectedToolId={selectedToolId}
+          blockedToolIds={activity.blockedToolIds}
+          onClearSelection={() => setSelection(undefined)}
+          onShowRequest={showRequest}
+        />
+        <HistorySheet
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          currentId={conversationId}
+          onOpenConversation={openConversation}
         />
       </View>
-      <WorkingMargin
-        open={marginOpen}
-        onClose={() => setMarginOpen(false)}
-        conversationId={conversationId}
-        selectedToolId={selectedToolId}
-        blockedToolIds={activity.blockedToolIds}
-        onClearSelection={() => setSelection(undefined)}
-        onShowRequest={showRequest}
-      />
-      <HistorySheet
-        open={historyOpen}
-        onClose={() => setHistoryOpen(false)}
-        currentId={conversationId}
-        onOpenConversation={openConversation}
-      />
-    </View>
+    </FocusFallback>
   )
 }

@@ -505,10 +505,42 @@ Hermes server, Chrome's Custom Tab, and a phone.
   shared tokens' 44px is the floor for every client), TalkBack labels match the
   web labels, and the system font size, dark theme and "Remove animations"
   setting are followed. A destination keeps its scroll position when you come
-  back to it. While a dialog or sheet is open, everything beneath it is hidden
-  from TalkBack (the app's content is marked "no-hide-descendants") and its
-  scrim takes every touch there; focus moves to the overlay's title when it
-  opens. The emulator tests audit touch targets the same way: only what the
+  back to it. Every overlay is the app's Dialog or Sheet (no native Modal).
+  While one is open, everything beneath it is hidden from TalkBack (the app's
+  content is marked "no-hide-descendants"), closed to a hardware keyboard's
+  focus, and its scrim takes every touch there. As it opens, TalkBack focus
+  moves to its title and a keyboard's focus to its first control. As it
+  closes, both go back to the control that opened it; if that control is
+  gone, to the overlay's nearer one (the discard dialog: the draft, else
+  Edit), else to the section's heading (a deleted memory entry: Entries), the
+  page's heading or Talk's conversation switcher, never to nothing. An action
+  that moves focus itself (the working margin's Show) keeps it there. Android
+  does not tell the app where TalkBack focus is, so the opener is the control
+  pressed in the second before the overlay opened (a TalkBack double tap
+  presses it too); an overlay system back opened has none. A keyboard's
+  focus never moves in touch mode.
+
+  React Native 0.88 cannot hold a keyboard's focus in an overlay on its own,
+  so a small local Expo module does (`apps/android/modules/cindl-focus`: one
+  call blocks the focus of everything in a view, one gives focus to a view):
+  - `importantForAccessibility` and `accessibilityElementsHidden` (iOS only)
+    hide from TalkBack, not from Android's focus search, which goes by
+    focusability alone;
+  - `focusable={false}` on the screen behind would have to reach every
+    control, and TextInput (its manager maps no `focusable`), ScrollViews and
+    text links cannot be made unfocusable that way;
+  - `nextFocus*` on an overlay's edges covers Tab from its last control only:
+    the arrow keys and a middle control still search the whole window;
+  - no React Native call gives focus back to a button: `View.focus()` is
+    behind the experimental `enableImperativeFocus` flag (off by default),
+    and `hasTVPreferredFocus` makes the view focusable in touch mode for good,
+    so it would then take two taps.
+
+  The emulator tests send Tab and the four arrow keys with the memory delete
+  warning open, check after each that the keyboard's focus is in the dialog,
+  then close it with back and check that focus is on "Delete entry…". The
+  rendered component tests check every step of this on the shipped Dialog and
+  Sheet; what TalkBack itself announces is not tested. The emulator tests audit touch targets the same way: only what the
   owner can reach, so while an overlay is open only what is drawn above its
   scrim (uiautomator's full dump still lists the hidden nodes beneath it;
   its compressed dump, what TalkBack is given, does not). When

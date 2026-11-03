@@ -2,12 +2,16 @@ import {
   createContext,
   Fragment,
   useContext,
+  useEffect,
   useId,
   useLayoutEffect,
   useMemo,
+  useRef,
   useState,
   type ReactNode,
 } from 'react'
+import { View, type HostInstance, type StyleProp, type ViewStyle } from 'react-native'
+import { blockKeyboardFocus } from './keyboardFocus.ts'
 
 interface PortalApi {
   mount(key: string, node: ReactNode): void
@@ -64,4 +68,37 @@ export function Portal({ children }: { children: ReactNode }) {
 /** Number of open overlays; the app hides its content from TalkBack while one is open. */
 export function useOverlayCount(): number {
   return useContext(OverlayCountContext)
+}
+
+/**
+ * What overlays cover: while any dialog or sheet is open, hidden from TalkBack
+ * with everything in it, and closed to a hardware keyboard's focus, so only the
+ * overlay can be reached (its scrim takes every touch). The overlays
+ * themselves render beside it, in the PortalHost.
+ */
+export function BehindOverlays({
+  children,
+  style,
+}: {
+  children: ReactNode
+  style?: StyleProp<ViewStyle>
+}) {
+  const open = useOverlayCount() > 0
+  const self = useRef<HostInstance | null>(null)
+  const blocked = useRef(false)
+  useEffect(() => {
+    if (blocked.current === open) return
+    blocked.current = open
+    blockKeyboardFocus(self.current, open)
+  }, [open])
+  return (
+    <View
+      ref={self}
+      collapsable={false}
+      style={style}
+      importantForAccessibility={open ? 'no-hide-descendants' : 'auto'}
+    >
+      {children}
+    </View>
+  )
 }

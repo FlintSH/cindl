@@ -84,6 +84,13 @@ Working here:
   placeholder; tested in `test/e2e-secrets.test.ts`), and the browser is
   never captured (`device.screenshot` keeps a capture only when Cindl alone is
   in front, and none when unsure).
+- Overlays are `src/overlay` Dialog or Sheet only (never React Native's Modal):
+  they take TalkBack and keyboard focus in and give it back
+  (`src/overlay/opener.ts`), and AppShell's `BehindOverlays` hides and blocks
+  what they cover. A control that opens one records the press (`notePress`;
+  Button does). Keyboard focus is moved only by `modules/cindl-focus`
+  (`src/overlay/keyboardFocus.ts`), which React Native cannot do alone
+  (docs/handbook/clients/android.md, Accessibility).
 - Parse device output from a real run's lines, and judge what is on screen by
   its geometry, never a flag: logcat's UID column and a "shown" keyboard
   both differed on the device from what the code assumed (run 41681122382).

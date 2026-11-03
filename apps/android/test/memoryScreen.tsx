@@ -14,13 +14,14 @@ import { afterEach, vi } from 'vitest'
 import { MemoryEntries } from '../src/library/MemoryEntries.tsx'
 import { MEMORY_DRAFT_PREFIX } from '../src/library/memory.ts'
 import { NavProvider } from '../src/nav/NavProvider.tsx'
-import { PortalHost } from '../src/overlay/Portal.tsx'
+import { BehindOverlays, PortalHost } from '../src/overlay/Portal.tsx'
 import { useSessionDrafts } from '../src/shell/sessionDrafts.ts'
 import { KeyboardProvider } from '../src/shell/keyboard.tsx'
 import { MotionProvider } from '../src/theme/motion.tsx'
 import { ThemeProvider } from '../src/theme/theme.tsx'
 import { keptDocumentDrafts } from '../src/views/drafts.ts'
-import { nativeLog, resetNative } from './render/react-native.tsx'
+import { Section } from '../src/views/Page.tsx'
+import { hardwareBack, nativeLog, resetNative } from './render/react-native.tsx'
 
 /*
  * The Library's Memory screen for Node tests: the shipped MemoryEntries,
@@ -113,7 +114,13 @@ afterEach(() => {
 /** Every pending promise callback runs (a real macrotask turn). */
 const drain = () => new Promise<void>((resolve) => setImmediate(resolve))
 
-function Providers({ api, children }: { api: CindlClientApi; children: ReactNode }) {
+export function Providers({
+  api,
+  children,
+}: {
+  api: CindlClientApi
+  children: ReactNode
+}) {
   return (
     <ThemeProvider preference="system">
       <MotionProvider>
@@ -129,8 +136,12 @@ function Providers({ api, children }: { api: CindlClientApi; children: ReactNode
   )
 }
 
-/** The screen, on `api.call`. */
-export function memoryScreen(api: { call: Call }) {
+/**
+ * The screen, on `api.call`, as the app shows it: behind the overlays' hiding
+ * (AppShell's BehindOverlays) and, with `inSection`, under Library's "Entries"
+ * heading.
+ */
+export function memoryScreen(api: { call: Call }, options: { inSection?: boolean } = {}) {
   vi.useFakeTimers({
     toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval'],
   })
@@ -154,7 +165,15 @@ export function memoryScreen(api: { call: Call }) {
   const ui = () => (
     <Providers api={client}>
       <div data-screen="">
-        <MemoryEntries />
+        <BehindOverlays>
+          {options.inSection ? (
+            <Section title="Entries">
+              <MemoryEntries />
+            </Section>
+          ) : (
+            <MemoryEntries />
+          )}
+        </BehindOverlays>
       </div>
     </Providers>
   )
@@ -172,7 +191,16 @@ export function memoryScreen(api: { call: Call }) {
       frame = frame.parentElement
     return frame?.querySelector('[role="heading"]')?.textContent ?? ''
   }
-  const hidden = (element: Element) => Boolean(element.closest('[aria-hidden="true"]'))
+  /** What overlays cover (BehindOverlays), hidden from TalkBack while one is open. */
+  const behind = () => root()?.firstElementChild ?? undefined
+  /**
+   * Hidden from TalkBack within the screen. The overlays' hiding of all of it
+   * is read apart (`behindHidden`), so the screen can still be read behind one.
+   */
+  const hidden = (element: Element) => {
+    const at = element.closest('[aria-hidden="true"]')
+    return at !== null && at !== behind()
+  }
   const textOf = (element: Element) => element.textContent ?? ''
 
   /** Every node on screen, in order. */
@@ -278,6 +306,28 @@ export function memoryScreen(api: { call: Call }) {
       JSON.stringify(keptDocumentDrafts(MEMORY_DRAFT_PREFIX)),
     ].join('\u0000')
 
+  /**
+   * A node focus was sent to: the editor's box ("draft"), its lock notice
+   * ("notice"), a dialog's title or frame ("dialog: <title>", "frame:
+   * <title>"), a heading on screen ("heading: <text>"), a button ("button:
+   * <name>"), else its text.
+   */
+  const describe = (node: unknown): string => {
+    if (node instanceof HTMLTextAreaElement || node instanceof HTMLInputElement)
+      return 'draft'
+    if (!(node instanceof HTMLElement)) return String(node)
+    const role = node.getAttribute('role')
+    if (role === 'alert') return 'notice'
+    const dialog = dialogOf(node)
+    if (role === 'heading')
+      return dialog === undefined ? `heading: ${textOf(node)}` : `dialog: ${textOf(node)}`
+    if (role === 'button')
+      return `button: ${node.getAttribute('aria-label') ?? textOf(node)}`
+    if (dialog !== undefined && node.querySelector('[role="heading"]'))
+      return `frame: ${dialog}`
+    return textOf(node)
+  }
+
   return {
     nodes,
     /** Lets every answer that is not held arrive, and timers run, rendering after each. */
@@ -345,17 +395,29 @@ export function memoryScreen(api: { call: Call }) {
      * lock notice ("notice"), or a dialog's title.
      */
     focusLog: () =>
-      nativeLog.flatMap((entry) => {
-        if (entry.kind !== 'focus') return []
-        const node = entry.node
-        if (node instanceof HTMLTextAreaElement || node instanceof HTMLInputElement)
-          return ['draft']
-        if (node instanceof HTMLElement && node.getAttribute('role') === 'alert')
-          return ['notice']
-        if (node instanceof HTMLElement && node.getAttribute('role') === 'heading')
-          return [`dialog: ${textOf(node)}`]
-        return [node instanceof HTMLElement ? textOf(node) : String(node)]
-      }),
+      nativeLog.flatMap((entry) =>
+        entry.kind === 'focus' ? [describe(entry.node)] : [],
+      ),
+    /**
+     * A hardware keyboard's focus and the background's blocking, in order
+     * (modules/cindl-focus): "block background", "unblock background", then
+     * where focus was given, named as in `focusLog` (a dialog's or sheet's
+     * frame as "frame: <title>").
+     */
+    keyboardLog: () =>
+      nativeLog.flatMap((entry) =>
+        entry.kind === 'keyboard-block'
+          ? [
+              `${entry.blocked ? 'block' : 'unblock'} ${entry.node === behind() ? 'background' : describe(entry.node)}`,
+            ]
+          : entry.kind === 'keyboard-focus'
+            ? [describe(entry.node)]
+            : [],
+      ),
+    /** Everything behind the overlays is hidden from TalkBack. */
+    behindHidden: () => behind()?.getAttribute('aria-hidden') === 'true',
+    /** System back, as Android sends it to the app. */
+    back: () => act(() => void hardwareBack()),
     /** The text of an open dialog, title first. */
     dialog: (title: string) => {
       const inside = texts().filter((node) => node.dialog === title)
@@ -487,7 +549,7 @@ export type Gate = 'memory.entries' | 'memory.read' | 'memory.write'
 /** The Memory screen on the fixture, with calls that can be held or failed. */
 export function harness(
   initial: Entry[] = fixtureEntries,
-  options: { adapterWrites?: boolean } = {},
+  options: { adapterWrites?: boolean; inSection?: boolean } = {},
 ) {
   const mem = memoryBackend(initial, options)
   const calls: Array<{ name: string; args: unknown }> = []
@@ -533,7 +595,7 @@ export function harness(
     if (!op) throw new Error(`unexpected call ${name}`)
     return op(args as never)
   }) as Call
-  const screen = memoryScreen({ call })
+  const screen = memoryScreen({ call }, { inSection: options.inSection === true })
   return {
     ...screen,
     mem,

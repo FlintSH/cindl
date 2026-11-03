@@ -33,10 +33,12 @@ import {
   find,
   findAll,
   flatten,
+  focusedNode,
   focusedPackage,
   height,
   hiddenBeneath,
   interactiveWithin,
+  keyboardFocusIn,
   label,
   linkTapPoints,
   matches,
@@ -221,6 +223,18 @@ function ensureApp() {
   const focus = device.shell('dumpsys window | grep -E "mCurrentFocus" || true')
   if (!focus.includes(`${PACKAGE}/`)) device.launch()
 }
+
+/** Keys a hardware keyboard moves focus with, sent while a dialog is open. */
+const KEYBOARD_WALK = [
+  'KEYCODE_TAB',
+  'KEYCODE_TAB',
+  'KEYCODE_TAB',
+  'KEYCODE_DPAD_DOWN',
+  'KEYCODE_DPAD_RIGHT',
+  'KEYCODE_DPAD_UP',
+  'KEYCODE_DPAD_LEFT',
+  'KEYCODE_TAB',
+]
 
 /** The keyboard step reads the device through this (e2e/keyboard.ts). */
 const keyboardReader = {
@@ -695,12 +709,34 @@ async function demoSuite() {
       )
       shot('memory-delete-warning')
       await audit('Memory delete warning', warning.root)
-      await device.tap('Keep it', 'Keep it')
+      // A hardware keyboard (the emulator reports one) stays in the dialog: Tab and
+      // the arrows move its focus only among the dialog's controls, since the screen
+      // behind is closed to it (modules/cindl-focus; ui.ts keyboardFocusIn).
+      for (const code of KEYBOARD_WALK) {
+        await device.key(code)
+        const where = keyboardFocusIn(await device.dump())
+        if (where !== 'overlay')
+          throw new Error(
+            `After ${code} with the delete warning open, keyboard focus is ${where === 'none' ? 'on nothing' : 'on the screen behind it'}`,
+          )
+      }
+      note(
+        `${KEYBOARD_WALK.length} key presses (Tab and the four arrows) kept keyboard focus in the delete warning`,
+      )
+      // Closed with the keyboard, the dialog gives its focus back to what opened it.
+      await device.key('KEYCODE_BACK')
       await device.waitUntilGone(
         (text) => text.includes('Hermes keeps no backup'),
         'The delete warning',
       )
-      note('delete asked first, said it cannot be undone, and Keep it kept the entry')
+      const returned = focusedNode(await device.dump())
+      if (!returned || label(returned) !== 'Delete entry…')
+        throw new Error(
+          `Closing the delete warning gave keyboard focus to ${returned ? `"${label(returned)}"` : 'nothing'}, not "Delete entry…"`,
+        )
+      note(
+        'delete asked first and said it cannot be undone; back kept the entry and gave keyboard focus back to "Delete entry…"',
+      )
 
       // An edit is reviewed as a diff against the text that was read, then confirmed.
       await tapRevealed('Edit', 'Edit')

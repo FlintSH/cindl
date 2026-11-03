@@ -163,10 +163,20 @@ export function Pressable({
   )
 }
 
-/** What the screen asked of TalkBack, in order (cleared by `resetNative`). */
+/**
+ * What the screen asked of TalkBack, and of a hardware keyboard's focus
+ * (modules/cindl-focus, through test/render/expo.ts), in order (cleared by
+ * `resetNative`).
+ */
 export const nativeLog: Array<
-  { kind: 'focus'; node: unknown } | { kind: 'announce'; text: string }
+  | { kind: 'focus'; node: unknown }
+  | { kind: 'announce'; text: string }
+  | { kind: 'keyboard-block'; node: unknown; blocked: boolean }
+  | { kind: 'keyboard-focus'; node: unknown }
 > = []
+
+/** A view's tag, as the native side resolves it: here the element itself. */
+export const findNodeHandle = (node: unknown) => node as number | null
 
 export function resetNative() {
   nativeLog.length = 0
@@ -259,8 +269,25 @@ export const StyleSheet = {
   absoluteFillObject: fill,
 }
 
+type BackListener = () => boolean | null | undefined
+const backListeners: BackListener[] = []
+
 export const BackHandler = {
-  addEventListener: () => ({ remove() {} }),
+  addEventListener: (_event: string, listener: BackListener) => {
+    backListeners.push(listener)
+    return {
+      remove() {
+        const at = backListeners.lastIndexOf(listener)
+        if (at >= 0) backListeners.splice(at, 1)
+      },
+    }
+  },
+}
+
+/** System back as Android sends it: the newest listener first, until one handles it. */
+export function hardwareBack(): boolean {
+  for (const listener of [...backListeners].reverse()) if (listener()) return true
+  return false
 }
 
 export const Keyboard = {

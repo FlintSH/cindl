@@ -6,7 +6,7 @@ import { AgentView } from '../agent/AgentView.tsx'
 import { LibraryView } from '../library/LibraryView.tsx'
 import { destinations, type Destination } from '../nav/navigation.ts'
 import { DestinationActiveProvider, useNav, useNavigate } from '../nav/NavProvider.tsx'
-import { useOverlayCount } from '../overlay/Portal.tsx'
+import { BehindOverlays } from '../overlay/Portal.tsx'
 import { TalkView } from '../talk/TalkView.tsx'
 import { useTheme } from '../theme/theme.tsx'
 import { Layer } from '../views/Layer.tsx'
@@ -46,7 +46,6 @@ export function AppShell() {
   const nav = useNav()
   const navigate = useNavigate()
   const keyboard = useKeyboardHeight()
-  const overlays = useOverlayCount()
   const [visited, setVisited] = useState<ReadonlySet<Destination>>(
     () => new Set(['talk']),
   )
@@ -63,10 +62,7 @@ export function AppShell() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.canvas }}>
       <StatusBar barStyle={theme.name === 'dark' ? 'light-content' : 'dark-content'} />
-      <View
-        style={{ flex: 1 }}
-        importantForAccessibility={overlays > 0 ? 'no-hide-descendants' : 'auto'}
-      >
+      <BehindOverlays style={{ flex: 1 }}>
         <View
           style={{
             paddingTop: insets.top,
@@ -107,7 +103,7 @@ export function AppShell() {
             onSelect={(destination) => navigate({ type: 'go', destination })}
           />
         )}
-      </View>
+      </BehindOverlays>
     </View>
   )
 }

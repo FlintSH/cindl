@@ -1,6 +1,14 @@
 import type { List, PhrasingContent, RootContent, Table } from 'mdast'
-import { memo, useMemo, useState, type ReactNode } from 'react'
-import { Linking, ScrollView, Text, View, type TextStyle } from 'react-native'
+import { memo, useMemo, useRef, useState, type ReactNode } from 'react'
+import {
+  Linking,
+  ScrollView,
+  Text,
+  View,
+  type HostInstance,
+  type TextStyle,
+} from 'react-native'
+import { notePress } from '../overlay/opener.ts'
 import { Dialog } from '../overlay/Sheet.tsx'
 import { useTheme, type CindlTheme } from '../theme/theme.tsx'
 import { Button, Txt } from '../ui/primitives.tsx'
@@ -25,6 +33,12 @@ interface Context {
   /** Nesting level; at MAX_MARKDOWN_DEPTH the rest renders as plain text. */
   depth: number
   openLink: (target: ExternalLink) => void
+  /**
+   * The paragraph's text view the inlines render in. A link is a span of it,
+   * with no view of its own TalkBack focus can be sent to, so the paragraph is
+   * what a link's confirmation gives focus back to.
+   */
+  host?: { current: HostInstance | null }
 }
 
 const deeper = (context: Context, muted = context.muted): Context => ({
@@ -196,9 +210,10 @@ function Paragraph({
   nodes: readonly PhrasingContent[]
   context: Context
 }) {
+  const self = useRef<HostInstance | null>(null)
   return (
-    <Text selectable style={bodyStyle(context)}>
-      {renderInlines(nodes, context)}
+    <Text ref={self} selectable style={bodyStyle(context)}>
+      {renderInlines(nodes, { ...context, host: self })}
     </Text>
   )
 }
@@ -308,7 +323,10 @@ function LinkSpan({
     <Text>
       <Text
         accessibilityRole="link"
-        onPress={() => context.openLink(target)}
+        onPress={() => {
+          if (context.host) notePress(context.host)
+          context.openLink(target)
+        }}
         style={{ color: theme.colors.accentText, textDecorationLine: 'underline' }}
       >
         {content}

@@ -1,0 +1,17 @@
+// Local Expo module (autolinked from apps/android/modules). Moves hardware
+// keyboard focus for dialogs and sheets; no permissions, no network.
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'dev.fl1nt.cindl.focus'
+version = '0.1.0'
+
+android {
+  namespace "dev.fl1nt.cindl.focus"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+}
