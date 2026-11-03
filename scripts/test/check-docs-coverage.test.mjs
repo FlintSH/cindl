@@ -211,6 +211,20 @@ describe('check-docs-coverage', () => {
     )
   })
 
+  it('resolves root links in handbook pages to the public folder, as VitePress serves it', (t) => {
+    const ok = fixture(t, {
+      'docs/handbook/public/screenshots/web/demo.png': 'png',
+      'docs/handbook/guide.md': '# Guide\n\n![Demo](/screenshots/web/demo.png)\n',
+    })
+    assert.equal(coverage(ok).code, 0, coverage(ok).output)
+    assertFails(
+      fixture(t, {
+        'docs/handbook/guide.md': '# Guide\n\n![Demo](/screenshots/web/missing.png)\n',
+      }),
+      /guide\.md:3: links to \/screenshots\/web\/missing\.png, which does not exist/,
+    )
+  })
+
   it('finds links and file references that point nowhere', (t) => {
     assertFails(
       fixture(t, {

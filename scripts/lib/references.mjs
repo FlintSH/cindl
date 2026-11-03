@@ -104,6 +104,14 @@ export function checkReferences(root) {
         path = bare.startsWith('/')
           ? posix.join(file.startsWith('docs/handbook/') ? 'docs/handbook' : '', bare)
           : posix.normalize(posix.join(dir, bare))
+        // VitePress serves docs/handbook/public at the site root, so a root link
+        // from a handbook page may name a public asset (screenshots, media).
+        if (
+          bare.startsWith('/') &&
+          file.startsWith('docs/handbook/') &&
+          !resolvesTo(path)
+        )
+          path = posix.join('docs/handbook/public', bare)
       }
       checked++
       if (path.startsWith('..') || !resolvesTo(path))

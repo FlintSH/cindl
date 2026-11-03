@@ -148,7 +148,9 @@ loads the TypeScript source directly, so run `pnpm install` first. It requires:
   any handbook page;
 - every Markdown link in the repository, every repository path named in a
   tracked file (code comments included), every `docs: <page>` mention and every
-  link to this repository's files on GitHub to point at something that exists.
+  link to this repository's files on GitHub to point at something that exists. A root
+  link in a handbook page (`/screenshots/...`) may also name a file under
+  `docs/handbook/public/`, which VitePress serves at the site root.
   Paths that Git ignores, such as build output, may be named. Tests and the
   synthetic fixtures are not checked for paths: they name files in the
   throwaway repositories they build and in the fictional demo workspace.
