@@ -697,8 +697,9 @@ test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
   test.afterAll(async () => {
     await close(launched)
     if (fake) {
-      expect(fake.violations).toEqual([])
+      // Close first: a failed assertion must not leave the fake listening.
       await fake.close()
+      expect(fake.violations).toEqual([])
     }
   })
 
@@ -789,6 +790,16 @@ test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
       }
       const bridge = (globalThis as unknown as BridgeWindow).cindlDesktop
       const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+      // Every raw reply, pixels as bytes, for the ticket check after the run.
+      // Kept outside the timed spans.
+      const replies: string[] = []
+      Object.assign(globalThis, { smokeReplies: replies })
+      const keep = (reply: unknown) =>
+        replies.push(
+          JSON.stringify(reply, (_key, value: unknown) =>
+            value instanceof Uint8Array ? new TextDecoder('latin1').decode(value) : value,
+          ),
+        )
       const frameOf = (viewId: string) =>
         bridge.call('display.frame', { viewId }) as Promise<Frame>
       const describe = (frame: Frame) =>
@@ -805,8 +816,9 @@ test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
       const trivial: number[] = []
       for (let call = 0; call < 20; call++) {
         const started = performance.now()
-        await bridge.call('display.unwatch', { viewId: 'view-00000000' })
+        const reply = await bridge.call('display.unwatch', { viewId: 'view-00000000' })
         trivial.push(performance.now() - started)
+        keep(reply)
       }
       const full: number[] = []
       const small: number[] = []
@@ -815,12 +827,14 @@ test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
       const corners: number[][] = []
       for (let round = 0; round < 5; round++) {
         const view = (await bridge.call('display.watch', {})) as { viewId: string }
+        keep(view)
         // Main holds the decoded screen before the timed call, so this times
         // main's copy, IPC and contextBridge rather than Hermes.
         await settle(300)
         let started = performance.now()
         const first = await frameOf(view.viewId)
         full.push(performance.now() - started)
+        keep(first)
         fullRegions.push(describe(first))
         corners.push([...(first.regions[0]?.rgba.subarray(0, 4) ?? [])])
         for (let step = 0; step < 4; step++) {
@@ -828,9 +842,10 @@ test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
           started = performance.now()
           const next = await frameOf(view.viewId)
           small.push(performance.now() - started)
+          keep(next)
           smallRegions.push(describe(next))
         }
-        await bridge.call('display.unwatch', { viewId: view.viewId })
+        keep(await bridge.call('display.unwatch', { viewId: view.viewId }))
       }
       return { trivial, full, small, fullRegions, smallRegions, corners }
     })
@@ -892,7 +907,8 @@ test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
     expect(await bridgeCall(page, 'auth.signOut', {})).toEqual({ localOnly: true })
 
     // A ticket for each watch (five timed, one for the viewer); none reached
-    // the renderer: not in an event main sent, a reply or the page.
+    // the renderer: not in an event main sent, in any raw reply the timed
+    // calls received (pixels included) or in the page.
     expect(tickets.length).toBeGreaterThanOrEqual(6)
     const sent = await app.evaluate(() =>
       (globalThis as unknown as { smokeSent: string[] }).smokeSent.join('\n'),
@@ -902,8 +918,17 @@ test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
       () => `${document.documentElement.outerHTML}\n${location.href}`,
     )
     for (const ticket of tickets)
-      for (const text of [sent, shown, JSON.stringify(measured)])
-        expect(text).not.toContain(ticket)
+      for (const text of [sent, shown]) expect(text).not.toContain(ticket)
+    const replies = await page.evaluate((secrets) => {
+      const kept = (globalThis as unknown as { smokeReplies: string[] }).smokeReplies
+      return {
+        count: kept.length,
+        leaked: kept.filter((reply) => secrets.some((ticket) => reply.includes(ticket)))
+          .length,
+      }
+    }, tickets)
+    // 20 empty calls, then 5 rounds of watch, 5 frames and unwatch.
+    expect(replies).toEqual({ count: 55, leaked: 0 })
   })
 })
 

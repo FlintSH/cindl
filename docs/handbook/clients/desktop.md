@@ -151,6 +151,10 @@ installs that screen; when it is stopped, Work says so.
   refuses input otherwise, and Hermes filters it as well. Leaving Work closes
   the socket, which hands control back. Input and frames are never logged or
   stored.
+- **An open view keeps the screen running.** After 15 seconds without a byte
+  from the screen, Cindl asks for one pixel to check that the stream is alive,
+  and Hermes counts a connected viewer as use. The screen's idle stop therefore
+  does not apply while Work shows it; leave Work to let it stop.
 
 ## Token storage
 

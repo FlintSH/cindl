@@ -1,5 +1,5 @@
 import type { BinaryWebSocketLike, WebSocketLike } from '@cindl/client-core'
-import type { IncomingHttpHeaders } from 'node:http'
+import { createServer, type IncomingHttpHeaders } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocketServer } from 'ws'
@@ -355,5 +355,74 @@ describe('ws-based BinaryWebSocketFactory', () => {
     expect(() =>
       createBinaryWebSocketFactory({ hermesOrigin: () => undefined })(SCREEN),
     ).toThrow(/not-signed-in/)
+  })
+})
+
+describe('redirects', () => {
+  const closers: Array<() => Promise<void>> = []
+  afterEach(async () => {
+    for (const close of closers.splice(0)) await close()
+  })
+
+  /**
+   * A Hermes stand-in on loopback that answers every WebSocket upgrade with a
+   * redirect to a second loopback server, which counts who reaches it.
+   */
+  async function redirecting() {
+    const target = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+    const reached = { count: 0 }
+    target.on('connection', () => (reached.count += 1))
+    await new Promise<void>((resolve) => target.once('listening', resolve))
+    const targetPort = (target.address() as AddressInfo).port
+    const server = createServer()
+    server.on('upgrade', (request, socket) => {
+      socket.end(
+        `HTTP/1.1 302 Found\r\nLocation: ws://127.0.0.1:${targetPort}${request.url ?? '/'}\r\nContent-Length: 0\r\nConnection: close\r\n\r\n`,
+      )
+    })
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+    closers.push(
+      () =>
+        new Promise<void>((resolve) => {
+          for (const client of target.clients) client.terminate()
+          target.close(() => resolve())
+        }),
+      () =>
+        new Promise<void>((resolve) => {
+          server.closeAllConnections()
+          server.close(() => resolve())
+        }),
+    )
+    const port = (server.address() as AddressInfo).port
+    return { origin: `http://127.0.0.1:${port}`, ws: `ws://127.0.0.1:${port}`, reached }
+  }
+
+  /** How the socket ended up: never opened (closed) or opened after following. */
+  const outcome = (socket: WebSocketLike | BinaryWebSocketLike) =>
+    new Promise<'opened' | 'closed'>((resolve) => {
+      socket.onopen = () => {
+        socket.close(1000)
+        resolve('opened')
+      }
+      socket.onclose = () => resolve('closed')
+    })
+
+  it('the gateway socket does not follow a redirect', async () => {
+    const hermes = await redirecting()
+    const socket = createWebSocketFactory({ hermesOrigin: () => hermes.origin })(
+      `${hermes.ws}/api/ws`,
+      ['hermes-gateway-v1', TICKET],
+    )
+    expect(await outcome(socket)).toBe('closed')
+    expect(hermes.reached.count).toBe(0)
+  })
+
+  it('the screen socket does not follow a redirect', async () => {
+    const hermes = await redirecting()
+    const socket = createBinaryWebSocketFactory({ hermesOrigin: () => hermes.origin })(
+      `${hermes.ws}/api/display/ws?display_ticket=${DISPLAY}`,
+    )
+    expect(await outcome(socket)).toBe('closed')
+    expect(hermes.reached.count).toBe(0)
   })
 })
