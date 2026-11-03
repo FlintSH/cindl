@@ -62,6 +62,23 @@ describe('server requests Cindl does not answer (S7)', () => {
     other.close()
   })
 
+  it('never declines an app-level window request, which no vote settles, and leaves it open', async () => {
+    const { fake, unhandled, conn } = await setup()
+    const [cindl] = [...fake.gateway.connections]
+    void fake.gateway.appRequest('window.read', {}, cindl)
+    await until(() => unhandled.length === 1)
+    expect(unhandled[0]).toMatchObject({
+      method: 'window.read',
+      action: 'leave-open',
+      sessionId: '',
+    })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    const [open] = [...fake.gateway.open.values()]
+    expect(open?.declined.size).toBe(0)
+    expect(fake.gateway.settled).toEqual([])
+    conn.stop()
+  })
+
   it('sends nothing at all for credential prompts and unknown kinds, so they stay open', async () => {
     const { fake, sid, unhandled, other, conn } = await setup({ otherClient: true })
     if (!other) throw new Error('no second client')
@@ -263,8 +280,10 @@ describe('answering through request.answer (S4)', () => {
 describe('unhandled request policy table', () => {
   it('declines only window-owned bridges and only when Hermes counts declines', () => {
     for (const method of windowOwnedRequests) {
-      expect(unhandledRequestAction(method, true)).toBe('decline')
-      expect(unhandledRequestAction(method, false)).toBe('leave-open')
+      expect(unhandledRequestAction(method, true, 'sid-1')).toBe('decline')
+      expect(unhandledRequestAction(method, false, 'sid-1')).toBe('leave-open')
+      // App-level: no vote can settle it, so nothing is sent.
+      expect(unhandledRequestAction(method, true, '')).toBe('leave-open')
     }
     for (const method of [
       'secret',
@@ -277,7 +296,7 @@ describe('unhandled request policy table', () => {
       'setup_beat',
       'something.new',
     ])
-      expect(unhandledRequestAction(method, true)).toBe('leave-open')
+      expect(unhandledRequestAction(method, true, 'sid-1')).toBe('leave-open')
   })
 
   it('names what a credential prompt asks for', () => {

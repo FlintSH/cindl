@@ -58,18 +58,25 @@ export function unsupportedKind(method: string): UnsupportedRequestKind {
 /**
  * What Cindl does with a server request it does not answer. Nothing is ever
  * sent for a credential prompt or an unknown kind: not a decline, not an
- * error, not an empty value. A unanimous 4404 settles any request with a
- * non-empty "not shown" string that `_ask` returns as the value
- * (server_requests.py:254-278), which `secret_cb` would store as the secret
- * (agent_callbacks.py:251-254); an error or empty reply settles it as skipped
- * for every client (server_requests.py:301-303; gateway/session_server_requests.py:84-90).
+ * error, not an empty value. Once every client attached to a session declined
+ * with 4404, Hermes settles that session's request with a non-empty "not
+ * shown" string that `_ask` returns as the value (server_requests.py:254-278),
+ * which `secret_cb` would store as the secret (agent_callbacks.py:251-254); an
+ * error or empty reply settles any request as skipped for every client
+ * (server_requests.py:301-303; gateway/session_server_requests.py:84-90).
  * Those requests stay open for the client that can answer them, or time out.
+ * An app-level request (empty `session_id`) has no attached clients, so no
+ * vote ever settles it (server_requests.py:264-271): Cindl declines nothing
+ * there and leaves it open, shown read-only.
  */
 export function unhandledRequestAction(
   method: string,
   declinesCounted: boolean,
+  sessionId: string,
 ): 'decline' | 'leave-open' {
-  return declinesCounted && (windowOwnedRequests as readonly string[]).includes(method)
+  return declinesCounted &&
+    sessionId !== '' &&
+    (windowOwnedRequests as readonly string[]).includes(method)
     ? 'decline'
     : 'leave-open'
 }
@@ -354,7 +361,8 @@ export class RpcChannel {
     replayed: boolean,
   ): void {
     if (!(answeredServerRequests as readonly string[]).includes(method)) {
-      const action = unhandledRequestAction(method, this.#declinesCounted)
+      const sessionId = typeof params.session_id === 'string' ? params.session_id : ''
+      const action = unhandledRequestAction(method, this.#declinesCounted, sessionId)
       // The only frame Cindl ever writes in reply to a server request, once per id.
       if (action === 'decline' && !this.#declined.has(id)) {
         this.#declined.add(id)
@@ -373,8 +381,7 @@ export class RpcChannel {
           id,
           method,
           unsupportedKind: unsupportedKind(method),
-          sessionId:
-            typeof params.session_id === 'string' ? params.session_id : undefined,
+          sessionId: typeof params.session_id === 'string' ? sessionId : undefined,
           replayed,
           action,
         })
