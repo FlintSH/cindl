@@ -43,19 +43,6 @@ Passwords and second factors are entered only on Hermes's own pages.
 **Blocks:** the live-transport and session-authority rows of the acceptance
 matrix.
 
-## Android device validation
-
-**Decide:** which real device or emulator runs the Android sign-in checks, and
-who accepts the Android SDK licence for the CI runners that build the app.
-
-**Why it matters.** Native sign-in must survive the app being backgrounded and
-the process being killed while the system browser is open
-([ADR 0003](../architecture/decisions/0003-authentication.md)). No Android SDK
-licence is accepted on the development VM on the owner's behalf
-([ADR 0008](../architecture/decisions/0008-android.md)).
-
-**Blocks:** calling Android sign-in working; any downloadable APK.
-
 ## Release and signing policy
 
 **Decide:** how releases are versioned and published, and how each client is
@@ -90,3 +77,21 @@ is a repository setting.
 unconfigured setting. Until the owner decides, follow
 [`SECURITY.md`](https://github.com/FlintSH/cindl/blob/main/SECURITY.md); no
 repository or account setting is changed on the owner's behalf.
+
+## Decided
+
+### Android SDK licence and device validation
+
+**Decided:** Google's Android SDK licence approved for Cindl APK builds and
+emulator tests on existing GitHub build runners only; no APK built yet
+([ADR 0008](../architecture/decisions/0008-android.md)).
+
+The approval covers only the SDK packages those builds need, each checked
+before acceptance. It does not cover development machines, the Hermes host or
+anyone's phone, other terms, paid services, Play Store enrollment, or
+production signing or release; builds stay debug-signed. Android sign-in,
+including surviving backgrounding and process death while the system browser
+is open ([ADR 0003](../architecture/decisions/0003-authentication.md)), is
+therefore checked on an emulator in CI, not on a device. The Android stream
+owns the APK build, and an APK or emulator run counts only with its CI run and
+artifact as evidence.
