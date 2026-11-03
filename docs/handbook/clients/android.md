@@ -143,8 +143,8 @@ until the owner decides about those terms.
   sheet and a side conversation before leaving the app; the approval card
   (Allow once and Deny only) and the question set; the sudo prompt's card
   offering nothing to send; agent output with a link (its host shown, a
-  confirmation with the full address before anything opens) and a withheld
-  remote image; a memory entry's delete warning and a reviewed
+  confirmation with the full address before anything opens, from a tap on the
+  link's text on either of its two lines) and a withheld remote image; a memory entry's delete warning and a reviewed
   edit; the demo's synthetic screen drawn live in Work, Computer (a pixel
   of its desktop read back from the screen) and, after taking control, a tap
   drawing its orange pointer marker where it landed; sending a message with the

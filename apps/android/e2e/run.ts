@@ -27,7 +27,6 @@ import { runExitCode, type StepStatus } from './outcome.ts'
 import { heldControl, inControl } from './screenControl.ts'
 import { DeviceLogs, RunSecrets, watchFakeHermes } from './secrets.ts'
 import {
-  center,
   commonAncestor,
   find,
   findAll,
@@ -35,6 +34,7 @@ import {
   height,
   interactiveWithin,
   label,
+  linkTapPoints,
   matches,
   near,
   screenToDevice,
@@ -493,14 +493,16 @@ async function demoSuite() {
         'the reply with a link',
       )
       // A link is a span of the paragraph; React Native gives it an accessibility node
-      // of its own (what TalkBack activates), which is where a finger must land.
+      // of its own (what TalkBack activates). Its box runs to the end of the line, so
+      // a finger lands on its text, at the start of the box (ui.ts linkTapPoints).
       const link = findAll(reply.root, 'the venue page').find(
         (node) =>
           node !== reply.node && width(node.bounds) > 0 && height(node.bounds) > 0,
       )
       if (!link)
         throw new Error('The link "the venue page" has no node of its own to tap')
-      await device.tapAt(center(link.bounds))
+      const { first, wrapped } = linkTapPoints(link.bounds, reply.node.bounds)
+      await device.tapAt(first)
       const dialog = await device.waitFor('Open this link?', 'the link confirmation')
       for (const expected of [
         'This opens harbor-loft.example.test in your browser:',
@@ -518,6 +520,17 @@ async function demoSuite() {
       note(
         'the link showed its host; tapping it asked first with the full address; Cancel opened nothing',
       )
+      // The link wraps: its second line is the same link.
+      if (wrapped) {
+        await device.tapAt(wrapped)
+        await device.waitFor(
+          'Open this link?',
+          'the link confirmation, from a tap on the link’s second line',
+        )
+        await device.tap('Cancel', 'Cancel')
+        await device.waitUntilGone('Open this link?', 'The link confirmation')
+        note('a tap on the second line of the wrapped link asked first too')
+      }
 
       await device.reveal(
         'Image from harbor-loft.example.test not shown. (Harbor Loft floor plan)',

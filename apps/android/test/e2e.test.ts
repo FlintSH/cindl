@@ -14,6 +14,7 @@ import {
   findTappable,
   interactiveWithin,
   label,
+  linkTapPoints,
   near,
   rawPixel,
   screenToDevice,
@@ -184,6 +185,38 @@ describe('UI Automator dumps', () => {
     for (const text of ['Accept & continue', 'Google Terms of Service', 'I agree'])
       expect(TERMS_PROMPT.test(text)).toBe(true)
     expect(TERMS_PROMPT.test('Signed in')).toBe(false)
+  })
+})
+
+describe('tapping an inline link (CI run 41656607631)', () => {
+  // The demo reply's "the venue page" link and its paragraph, as that run dumped
+  // them: the link's box runs from "the" to the paragraph's right edge.
+  const link = { left: 854, top: 784, right: 1038, bottom: 853 }
+  const paragraph = { left: 42, top: 784, right: 1038, bottom: 991 }
+
+  it('lands on the first glyphs, not the middle of the box (blank past "the")', () => {
+    const { first } = linkTapPoints(link, paragraph)
+    expect(first).toEqual({ x: 870, y: 819 })
+    // "the" ends near x=919; the box's centre, where the run tapped, does not.
+    expect(first.x).toBeLessThan(919)
+    expect(center(link).x).toBeGreaterThan(919)
+  })
+
+  it('also lands on the second line of a link that wraps, and only then', () => {
+    expect(linkTapPoints(link, paragraph).wrapped).toEqual({ x: 58, y: 888 })
+    // Ends before the paragraph's edge: the link does not wrap.
+    expect(
+      linkTapPoints({ left: 300, top: 784, right: 600, bottom: 853 }, paragraph).wrapped,
+    ).toBeUndefined()
+    // On the paragraph's last line: nothing below to wrap onto.
+    expect(
+      linkTapPoints({ left: 854, top: 922, right: 1038, bottom: 991 }, paragraph).wrapped,
+    ).toBeUndefined()
+    // A box narrower than the inset: still inside it.
+    expect(
+      linkTapPoints({ left: 1010, top: 784, right: 1038, bottom: 853 }, paragraph).first
+        .x,
+    ).toBe(1024)
   })
 })
 

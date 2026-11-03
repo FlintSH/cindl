@@ -159,6 +159,32 @@ export const center = (rect: Rect) => ({
 export const width = (rect: Rect) => rect.right - rect.left
 export const height = (rect: Rect) => rect.bottom - rect.top
 
+/**
+ * Where a finger lands on an inline link. React Native gives a link span an
+ * accessibility node whose box runs from the span's first glyph to the end of
+ * its line (CI run 41656607631: "the venue page" is [854,784][1038,853] while
+ * "the" ends near x=919), so only the box's left end is on the text: `first`
+ * is just inside it. When the box reaches the paragraph's right edge and the
+ * paragraph goes on below it, the span wraps, and `wrapped` is just inside the
+ * start of the next line, where the span continues.
+ */
+export function linkTapPoints(
+  link: Rect,
+  paragraph: Rect,
+  inset = 16,
+): { first: { x: number; y: number }; wrapped?: { x: number; y: number } } {
+  const line = height(link)
+  const into = Math.min(inset, Math.floor(width(link) / 2))
+  const first = { x: link.left + into, y: Math.round(link.top + line / 2) }
+  const wraps =
+    link.right >= paragraph.right - 1 && link.bottom + line <= paragraph.bottom + 1
+  if (!wraps) return { first }
+  return {
+    first,
+    wrapped: { x: paragraph.left + inset, y: Math.round(link.bottom + line / 2) },
+  }
+}
+
 const contains = (rect: Rect, x: number, y: number) =>
   x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
 
