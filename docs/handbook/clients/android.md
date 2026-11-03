@@ -54,7 +54,9 @@ The workflow keeps to that scope:
   their size and SHA-1 from Google's manifest.
 - Nothing runs `sdkmanager --licenses`, writes licence files or accepts any
   other terms. A screen that asks to accept terms (for example a browser's
-  first run) makes the test report **blocked**; it is never accepted.
+  first run) makes the test report **blocked**; it is never accepted, and a
+  blocked step fails the job like a failed one (`apps/android/e2e/outcome.ts`),
+  so a job never goes green without doing what it tests.
 
 | Package                                   | Revision      | Why                                                                      | On the runner      |
 | ----------------------------------------- | ------------- | ------------------------------------------------------------------------ | ------------------ |
@@ -136,8 +138,11 @@ until the owner decides about those terms.
   every touch target at least 48dp; 200% font size and dark theme; a draft
   surviving background, rotation, activity recreation; a cold start after the
   process is killed.
-- **Real APK:** the sign-in screen (no demo data); sign-in through a Custom
-  Tab against the fixtures' fake `hermes serve` on the runner (reached through
+- **Real APK:** the sign-in screen (no demo data); sign-in through the
+  emulator's browser (the AOSP image has no Chrome: run 41593367518 logged
+  `org.chromium.webview_shell/.WebViewBrowserActivity`, which opens the page as
+  a plain browser, not a Custom Tab) against the fixtures' fake `hermes serve`
+  on the runner (reached through
   `adb reverse`, so the app sees `http://127.0.0.1`), which refuses an
   authorize request without S256 PKCE or a loopback redirect and a code
   exchange whose verifier does not match; the direct client connecting

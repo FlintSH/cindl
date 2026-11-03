@@ -3,6 +3,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { base64Url } from '@cindl/hermes-adapter'
 import { afterEach, describe, expect, it } from 'vitest'
 import { startFakeHermesAuth, type FakeHermesAuth } from '../e2e/fakeHermesAuth.ts'
+import { runExitCode } from '../e2e/outcome.ts'
 import {
   auditTargets,
   center,
@@ -465,5 +466,17 @@ describe('reading the screen back', () => {
     expect(near([50, 90, 100], [47, 93, 98])).toBe(true)
     expect(near([230, 120, 40], [47, 93, 98])).toBe(false)
     expect(near(undefined, [47, 93, 98])).toBe(false)
+  })
+})
+
+describe('how a run ends (review of 636a2dd, S2)', () => {
+  it('fails the run when a step is blocked, as when one fails: green means every step passed', () => {
+    expect(runExitCode([{ status: 'passed' }, { status: 'passed' }])).toBe(0)
+    expect(runExitCode([{ status: 'passed' }, { status: 'failed' }])).toBe(1)
+    // A browser's terms screen blocks the PKCE step and every sign-in step after it:
+    // the tests never accept terms, and the job must not go green without a sign-in.
+    expect(
+      runExitCode([{ status: 'passed' }, { status: 'blocked' }, { status: 'blocked' }]),
+    ).toBe(1)
   })
 })

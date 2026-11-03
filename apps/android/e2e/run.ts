@@ -10,7 +10,8 @@
  *
  * Writes screenshots, UI dumps, report.json and summary.md to <out-dir>.
  * A step that would have to accept terms (for example a browser's first-run
- * screen) is reported as blocked, never accepted.
+ * screen) is reported as blocked, never accepted, and a blocked step fails the
+ * run (e2e/outcome.ts).
  */
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
@@ -19,6 +20,7 @@ import { SYNTHETIC_DEMO_LABEL } from '@cindl/contracts'
 import { createDevice, PACKAGE } from './device.ts'
 import { startFakeHermes, type FakeHermes } from '@cindl/fixtures/fake-hermes'
 import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
+import { runExitCode, type StepStatus } from './outcome.ts'
 import {
   center,
   commonAncestor,
@@ -38,11 +40,9 @@ import {
   width,
 } from './ui.ts'
 
-type Status = 'passed' | 'failed' | 'blocked'
-
 interface Step {
   name: string
-  status: Status
+  status: StepStatus
   seconds: number
   detail: string[]
   evidence: string[]
@@ -1076,6 +1076,8 @@ writeFileSync(join(outDir, 'summary.md'), summary)
 console.log(`\n${summary}`)
 const stepSummary = env('GITHUB_STEP_SUMMARY')
 if (stepSummary) writeFileSync(stepSummary, summary, { flag: 'a' })
+// A blocked step fails the run too (outcome.ts): the tests never accept terms, and a
+// job that could not do what it tests is not green.
 for (const blocked of steps.filter((s) => s.status === 'blocked'))
-  console.log(`::warning::Blocked: ${blocked.name}: ${blocked.detail.at(-1) ?? ''}`)
-process.exit(steps.some((s) => s.status === 'failed') ? 1 : 0)
+  console.log(`::error::Blocked: ${blocked.name}: ${blocked.detail.at(-1) ?? ''}`)
+process.exit(runExitCode(steps))

@@ -62,6 +62,7 @@ Working here:
   root's list for those files); Android checks are rules in `lint/rules.mjs`,
   tested in `test/lint-rules.test.ts`.
 - Emulator tests live in `e2e/` and run only in CI (`e2e/run.ts`); their pure
-  parts (UI dump parsing, 48dp audit, fake Hermes auth server) are unit-tested
-  in `test/e2e.test.ts`. Use accessibility labels as selectors, so a renamed
-  label breaks a test rather than TalkBack silently.
+  parts (UI dump parsing, 48dp audit, fake Hermes auth server, the run's
+  outcome in `e2e/outcome.ts`, where a blocked step fails the job) are
+  unit-tested in `test/e2e.test.ts`. Use accessibility labels as selectors, so
+  a renamed label breaks a test rather than TalkBack silently.
