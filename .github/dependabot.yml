@@ -10,6 +10,15 @@ updates:
       interval: weekly
     cooldown:
       default-days: 7
+    # Majors that need a deliberate migration, not a weekly bump:
+    # @types/node follows the pinned Node 24 toolchain (.node-version), and
+    # TypeScript 7 is not supported by typescript-eslint yet (the lint step
+    # fails with "typescript-eslint does not support TS 7.0").
+    ignore:
+      - dependency-name: '@types/node'
+        update-types: ['version-update:semver-major']
+      - dependency-name: typescript
+        update-types: ['version-update:semver-major']
     groups:
       runtime-workspace:
         patterns: ['*']

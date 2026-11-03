@@ -120,6 +120,14 @@ Run these before you push. CI runs all of them (see
 | `node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo` | Real builds hold no synthetic fixture records; demo builds carry the demo notice and label                                                                                                                 |
 | `pnpm test:e2e`                                                              | The web client's end-to-end flows pass on the synthetic demo                                                                                                                                               |
 
+## Dependency updates
+
+Dependabot proposes weekly grouped updates, held back until they are older
+than pnpm's minimum release age. Majors of TypeScript and `@types/node` are
+not proposed (`.github/dependabot.yml`): `@types/node` follows the pinned Node
+toolchain in `.node-version`, and typescript-eslint does not support
+TypeScript 7 yet. Upgrade those in a deliberate, reviewed change.
+
 ## Commits and pull requests
 
 - Imperative subject line ("Add the events reference"), a body that says why.
