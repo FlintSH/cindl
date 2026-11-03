@@ -50,7 +50,26 @@ export interface FakeHermesOptions {
   version?: string
   /** Serve the per-entry memory routes (/api/learning/*). Default true; false answers 404. */
   learningRoutes?: boolean
+  /**
+   * Registered dashboard auth providers. Default: one interactive password
+   * provider. `session: false` is a token-only credential (drain), which is
+   * no sign-in option (dashboard_auth/registry.py:93-96).
+   */
+  providers?: FakeProvider[]
 }
+
+/** A dashboard auth provider the fake registers. */
+export interface FakeProvider {
+  name: string
+  displayName?: string
+  supportsPassword?: boolean
+  /** Interactive sign-in (`supports_session`); default true. */
+  session?: boolean
+}
+
+const DEFAULT_PROVIDERS: FakeProvider[] = [
+  { name: 'basic', displayName: 'Password (fixture)', supportsPassword: true },
+]
 
 /** A REST request the fake holds (holdNextRest). */
 export interface RestHold {
@@ -168,6 +187,9 @@ export async function startFakeHermes(
   let offset = 0
   const clock = { now: () => Date.now() + offset }
   const mode = options.mode ?? 'gated'
+  const providers = options.providers ?? DEFAULT_PROVIDERS
+  /** The providers that can sign in (supports_session), as /auth/native/authorize accepts. */
+  const sessionProviders = providers.filter((provider) => provider.session !== false)
   const store = new FixtureStore()
   const auth = new FakeAuth(clock)
   const contract = new HermesContract()
@@ -382,9 +404,15 @@ export async function startFakeHermes(
         latest_config_version: 1,
         gateway_running: false,
         active_sessions: gateway.live.size,
+        // status.py:383-405: every registered provider by name; native_pkce
+        // only while an interactive session provider is registered.
         auth_required: mode === 'gated',
-        auth_providers: mode === 'gated' ? ['basic'] : [],
-        auth_flows: mode === 'gated' ? ['cookie', 'native_pkce'] : [],
+        auth_providers:
+          mode === 'gated' ? providers.map((provider) => provider.name) : [],
+        auth_flows:
+          mode === 'gated'
+            ? ['cookie', ...(sessionProviders.length ? ['native_pkce'] : [])]
+            : [],
         nous_session_valid: 'unknown',
         overall: 'ok',
         profiles: [...store.profiles.keys()],
@@ -398,12 +426,17 @@ export async function startFakeHermes(
             }
           : {}),
       }
-    if (method === 'GET' && path === '/api/auth/providers')
+    if (method === 'GET' && path === '/api/auth/providers') {
+      // routes.py:203-212: interactive providers only; fail closed on none.
+      if (!sessionProviders.length) throw detail(503, 'no auth providers registered')
       return {
-        providers: [
-          { name: 'basic', display_name: 'Password (fixture)', supports_password: true },
-        ],
+        providers: sessionProviders.map((provider) => ({
+          name: provider.name,
+          display_name: provider.displayName ?? provider.name,
+          supports_password: provider.supportsPassword === true,
+        })),
       }
+    }
     if (method === 'GET' && path === '/auth/native/authorize') {
       const query = url.searchParams
       if ((query.get('code_challenge_method') ?? '').toUpperCase() !== 'S256')

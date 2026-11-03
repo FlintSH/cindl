@@ -625,7 +625,38 @@ Cindl stays pinned and reports other versions as untested.
 
 ## Live probe
 
-An operator can check their own instance without changing anything:
+An operator can check their own instance without changing anything. The
+first live check needs no credentials:
+
+```sh
+node packages/hermes-adapter/scripts/live-probe.ts --origin https://hermes.example.test --discover
+```
+
+`--discover` reads only the two public routes, `GET /api/status` and
+`GET /api/auth/providers` (public at v0.22.5,
+`dashboard_auth/middleware.py:39-43`), and answers one question: can this
+Hermes sign Cindl in at all? It prints the version and whether it is the
+verified baseline, whether auth is required, the auth flows Cindl knows
+(others are only counted), and how many providers are registered and how
+many can sign in with native PKCE. Those are the interactive session
+providers (`dashboard_auth/registry.py:93-96`): the ones
+`GET /api/auth/providers` lists, that put `native_pkce` in `auth_flows`
+(`web_routers/status.py:383-405`) and that `/auth/native/authorize` accepts
+(`dashboard_auth/routes.py:203-212, 279-320`). It prints no provider name,
+id, host or token: the origin shows as `https://[redacted]`. It never reads
+a file or sends a credential, even when `--token-file` or `--cookie-file` is
+given, never opens a socket and never calls `/auth/native/authorize`, which
+creates sign-in state. The origin must pass the rule sign-in uses (below).
+
+- **0:** a provider supports native PKCE, so Cindl can sign in.
+- **5:** incompatible. Hermes runs in loopback-token mode, or no provider can
+  sign in with native PKCE, so no Cindl client can sign in until that
+  changes.
+- **4:** unreachable, or a public read failed without Hermes's own answer (a
+  proxy's 503 is not "no providers").
+- **2:** usage.
+
+The signed-in mode then checks what needs the owner's own sign-in:
 
 ```sh
 node packages/hermes-adapter/scripts/live-probe.ts --origin https://hermes.example.test --token-file ./access-token
@@ -636,13 +667,14 @@ node packages/hermes-adapter/scripts/live-probe.ts --origin https://hermes.examp
 `access_token`); `--cookie-file` holds a `Cookie` header value. The origin
 must pass the rule sign-in uses (https, or plain http only on 127.0.0.1 or
 [::1]); anything else exits 2 before a request is sent, so the token or
-cookie never travels in clear text. The probe calls only `GET /api/status`, `GET /api/auth/me`, `POST /api/auth/ws-ticket`
-(one ticket), the `/api/ws` handshake (`client.capabilities` without
-`server_requests`, then `gateway.capabilities` or `runtime.describe`) and one
-`session.list` whose rows it counts. It prints versions, auth flows, the
-authority, offered request kinds and the negotiated capability map. It never
-prints tokens, tickets, cookies, session titles or ids, never submits prompts
-and never mutates. Exit codes: 0 compatible, 2 usage, 3 not signed in, 4
+cookie never travels in clear text. Beyond `GET /api/status` it calls only
+`GET /api/auth/me`, `POST /api/auth/ws-ticket` (one ticket), the `/api/ws`
+handshake (`client.capabilities` without `server_requests`, then
+`gateway.capabilities` or `runtime.describe`) and one `session.list` whose
+rows it counts. So it adds the signed-in identity, the authority, the
+offered request kinds and the negotiated capability map. It never prints
+tokens, tickets, cookies, session titles or ids, never submits prompts and
+never mutates. Exit codes: 0 compatible, 2 usage, 3 not signed in, 4
 unreachable, 5 incompatible. Keep the token file out of the repository.
 
 ## Not yet verified live

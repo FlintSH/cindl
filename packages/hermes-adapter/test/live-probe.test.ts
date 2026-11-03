@@ -1,6 +1,6 @@
-import { nodeSocketFactory } from '@cindl/fixtures/fake-hermes'
+import { FIXTURE_HOME, nodeSocketFactory } from '@cindl/fixtures/fake-hermes'
 import { describe, expect, it } from 'vitest'
-import { runProbe } from '../scripts/live-probe.ts'
+import { main, runDiscovery, runProbe } from '../scripts/live-probe.ts'
 import { fakeHermes, until } from './harness.ts'
 
 const ALLOWED = [
@@ -115,5 +115,153 @@ describe('live probe', () => {
     const { code, output } = await probe({ mode: 'loopback' })
     expect(code).toBe(5)
     expect(output).toMatch(/loopback-token mode/)
+  })
+})
+
+describe('live probe --discover: the first live check, with no credentials', () => {
+  const PUBLIC_READS = ['GET /api/status', 'GET /api/auth/providers']
+
+  /** Every request the discovery sends, with the headers that could carry a credential. */
+  async function discover(origin: string) {
+    const lines: string[] = []
+    const sent: Array<{
+      url: string
+      authorization?: string
+      cookie?: string
+      credentials?: string
+    }> = []
+    const code = await runDiscovery(
+      { origin },
+      {
+        out: (line) => lines.push(line),
+        fetch: (url, init) => {
+          const headers = new Headers(init.headers)
+          sent.push({
+            url,
+            ...(headers.get('authorization') ? { authorization: 'present' } : {}),
+            ...(headers.get('cookie') ? { cookie: 'present' } : {}),
+            ...(init.credentials ? { credentials: init.credentials } : {}),
+          })
+          return fetch(url, init)
+        },
+      },
+    )
+    return { code, output: lines.join('\n'), sent }
+  }
+
+  /** What the fake saw, beyond its own bookkeeping. */
+  const requests = (fake: { calls: Array<{ name: string }> }) =>
+    fake.calls.map((c) => c.name)
+
+  it('answers 0 when a provider supports native PKCE, reading only the public routes', async () => {
+    const fake = await fakeHermes()
+    const { code, output, sent } = await discover(fake.origin)
+    expect(code).toBe(0)
+    expect(output).toMatch(/version: 0\.22\.5 \(verified baseline v0\.22\.5: yes\)/)
+    expect(output).toMatch(/auth: required=true flows=cookie,native_pkce/)
+    expect(output).toMatch(/providers: 1 registered, 1 can sign in with native PKCE/)
+    expect(output).toMatch(/result: compatible/)
+    expect(requests(fake)).toEqual(PUBLIC_READS)
+    // No credential of any kind, even an ambient cookie.
+    expect(
+      sent.every((r) => !r.authorization && !r.cookie && r.credentials === 'omit'),
+    ).toBe(true)
+  })
+
+  it('answers 5 for loopback-token mode, after one public read', async () => {
+    const fake = await fakeHermes({ mode: 'loopback' })
+    const { code, output } = await discover(fake.origin)
+    expect(code).toBe(5)
+    expect(output).toMatch(/auth: required=false/)
+    expect(output).toMatch(/loopback-token mode/)
+    expect(requests(fake)).toEqual(['GET /api/status'])
+    // Loopback mode's recon fields (home path, config path, pid) never reach the output.
+    expect(output).not.toContain(FIXTURE_HOME)
+    expect(output).not.toMatch(/hermes-fixture|config\.yaml|4242/)
+  })
+
+  it('answers 5 when no provider can sign in with native PKCE', async () => {
+    // A token-only credential (drain) registers a provider but no sign-in option.
+    const fake = await fakeHermes({
+      providers: [{ name: 'fixture-drain', session: false }],
+    })
+    const { code, output } = await discover(fake.origin)
+    expect(code).toBe(5)
+    expect(output).toMatch(/flows=cookie(?!,native_pkce)/)
+    expect(output).toMatch(/providers: 1 registered, 0 can sign in with native PKCE/)
+    expect(output).toMatch(
+      /result: incompatible\. No sign-in provider supports native PKCE/,
+    )
+    expect(requests(fake)).toEqual(PUBLIC_READS)
+  })
+
+  it('answers 4, not 5, when a 503 on the providers read is not Hermes saying none', async () => {
+    // A proxy in front of Hermes can answer 503 too; only Hermes's own
+    // "no auth providers registered" means there are none.
+    const fake = await fakeHermes()
+    fake.failNextRest('GET /api/auth/providers', 503)
+    const { code, output } = await discover(fake.origin)
+    expect(code).toBe(4)
+    expect(output).toMatch(/GET \/api\/auth\/providers failed/)
+  })
+
+  it('answers 4 when Hermes cannot be reached', async () => {
+    // Nothing listens on 127.0.0.1:1.
+    const { code, output, sent } = await discover('http://127.0.0.1:1')
+    expect(code).toBe(4)
+    expect(output).toMatch(/GET \/api\/status failed: offline/)
+    expect(sent).toHaveLength(1)
+  })
+
+  it('answers 2 for an origin sign-in would refuse, sending nothing', async () => {
+    // Plain http off 127.0.0.1 and [::1] is refused; a loopback-range address
+    // keeps even a broken check from sending anything off this machine.
+    const { code, sent } = await discover('http://127.0.0.2:1')
+    expect(code).toBe(2)
+    expect(sent).toEqual([])
+  })
+
+  it('prints no provider name, host or token-like string', async () => {
+    const fake = await fakeHermes({
+      providers: [
+        { name: 'acme-sso-fixture', displayName: 'Acme Single Sign-On (fixture)' },
+        { name: 'acme-drain-fixture', session: false },
+      ],
+    })
+    const { code, output } = await discover(fake.origin)
+    expect(code).toBe(0)
+    expect(output).toMatch(/providers: 2 registered, 1 can sign in/)
+    expect(output).not.toMatch(/acme|single sign-on|basic/i)
+    expect(output).not.toContain(new URL(fake.origin).hostname)
+    expect(output).not.toContain(String(fake.port))
+    expect(output).toContain('origin: http://[redacted]')
+    // Nothing long and opaque: no token, ticket or id.
+    expect(output).not.toMatch(/[A-Za-z0-9_-]{24,}/)
+  })
+
+  it('reads no file and sends no credential when the command line names one', async () => {
+    const fake = await fakeHermes()
+    const errors: string[] = []
+    const lines: string[] = []
+    const code = await main(
+      [
+        '--origin',
+        fake.origin,
+        '--discover',
+        '--token-file',
+        '/nonexistent/cindl-fixture/access-token',
+        '--cookie-file',
+        '/nonexistent/cindl-fixture/cookie-header',
+      ],
+      { out: (line) => lines.push(line), err: (line) => errors.push(line) },
+    )
+    expect(code).toBe(0)
+    expect(errors).toEqual([
+      'note: --discover reads no file and sends no credential; ignoring it',
+    ])
+    expect(requests(fake)).toEqual(PUBLIC_READS)
+    expect(
+      await main(['--discover'], { out: () => undefined, err: () => undefined }),
+    ).toBe(2)
   })
 })

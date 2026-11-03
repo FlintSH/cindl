@@ -43,6 +43,8 @@ Planned, not built: canonical sessions, steer and process operations.
   `appRequest` for app-level prompts; `stopScreen`, `startScreen`,
   `otherProfileDisplay` and `displayViewers` for the screen and its socket,
   whose client bytes pass a full port of Hermes's `RfbClientFilter`; and
-  `store.serveAs` and `store.otherProfileScopes` for the served profile.
+  `store.serveAs` and `store.otherProfileScopes` for the served profile; the
+  `providers` option for registered auth providers (`session: false` is a
+  token-only one, no sign-in option).
   Close fakes with `closeFakes`, which closes them all before it reports a
   contract violation, so a failing check never leaves one listening.

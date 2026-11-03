@@ -1,9 +1,16 @@
 // Read-only compatibility probe for an operator's own `hermes serve`.
 //
+//   node packages/hermes-adapter/scripts/live-probe.ts --origin https://hermes.example.test --discover
 //   node packages/hermes-adapter/scripts/live-probe.ts --origin https://hermes.example.test --token-file ./access-token
 //   node packages/hermes-adapter/scripts/live-probe.ts --origin https://hermes.example.test --cookie-file ./cookie-header
 //
-// It performs only: GET /api/status, GET /api/auth/me, POST /api/auth/ws-ticket
+// `--discover` needs no credentials and does nothing else: it reads only the
+// two public routes, GET /api/status and GET /api/auth/providers, and answers
+// whether any Cindl client can sign in. It never reads a file, sends a
+// credential, opens a socket or calls /auth/native/authorize (which creates
+// sign-in state), and prints no provider name, host or token.
+//
+// Signed in, it performs only: GET /api/status, GET /api/auth/me, POST /api/auth/ws-ticket
 // (one single-use ticket), the /api/ws handshake (gateway.ready,
 // client.capabilities, gateway.capabilities or runtime.describe) and one
 // session.list whose rows are counted, never printed. It never prints tokens,
@@ -13,9 +20,10 @@
 // advertise `server_requests` either.
 import { readFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
-import { HermesOrigin } from '@cindl/contracts'
+import { CindlError, HermesOrigin } from '@cindl/contracts'
 import { HermesConnection, type ConnectionState } from '../src/connection.ts'
 import { safeText } from '../src/diagnostics.ts'
+import { hermesReasonOf } from '../src/errors.ts'
 import { isBaselineVersion } from '../src/compat.ts'
 import { negotiateCapabilities } from '../src/negotiate.ts'
 import type { FetchLike, SocketFactory, SocketLike, Timers } from '../src/platform.ts'
@@ -65,20 +73,111 @@ const nodeWebSocket: SocketFactory = (url, protocols) => {
   return like
 }
 
+/**
+ * The rule sign-in uses (https, or plain http only on 127.0.0.1 or [::1]),
+ * checked before any request so a token or cookie never travels in clear
+ * text. The refused value is not echoed: it may carry credentials.
+ */
+function originOrUsage(raw: string, say: (line: string) => void): string | undefined {
+  const parsed = HermesOrigin.safeParse(raw)
+  if (parsed.success) return parsed.data
+  say(
+    `error: --origin ${parsed.error.issues[0]?.message ?? 'is not usable.'} For example https://hermes.example.test`,
+  )
+  return undefined
+}
+
+/** Auth flows Cindl knows; anything else Hermes reports is only counted. */
+const KNOWN_FLOWS = new Set(['cookie', 'native_pkce'])
+/** A version string worth printing; anything else is reported as unrecognised. */
+const VERSION = /^v?\d+(\.\d+){0,3}([-+.][0-9a-z.]{1,20})?$/i
+
+/**
+ * `--discover`: the first live check, with no credentials. Reads only the
+ * public GET /api/status and GET /api/auth/providers and says whether a
+ * Cindl client can sign in. Exit codes: 0 a provider supports native PKCE,
+ * 2 usage, 4 unreachable, 5 incompatible (loopback-token mode, or no
+ * provider that supports native PKCE).
+ */
+export async function runDiscovery(
+  options: { origin: string },
+  io: { out(line: string): void; fetch?: FetchLike },
+): Promise<number> {
+  const say = (line: string) => io.out(redactText(line))
+  const origin = originOrUsage(options.origin, say)
+  if (!origin) return 2
+  // No credential of any kind: no bearer token, no cookie (credentials: omit).
+  const rest = new RestClient({
+    origin,
+    fetch: io.fetch ?? ((url, init) => fetch(url, init)),
+    timers,
+    auth: { kind: 'none' },
+  })
+
+  say('Hermes discovery (public reads only, no credentials)')
+  // The scheme only: the host can name the owner, and this output is shared.
+  say(`origin: ${new URL(origin).protocol}//[redacted]`)
+  let status
+  try {
+    status = await rest.status()
+  } catch (error) {
+    say(`GET /api/status failed: ${describe(error)}`)
+    return 4
+  }
+  const version =
+    status.version && VERSION.test(status.version) ? status.version : 'unrecognised'
+  say(
+    `version: ${version} (verified baseline v0.22.5: ${isBaselineVersion(status.version) ? 'yes' : 'no, untested'})`,
+  )
+  const flows = status.auth_flows ?? []
+  const known = flows.filter((flow) => KNOWN_FLOWS.has(flow))
+  const others = flows.length - known.length
+  say(
+    `auth: required=${String(status.auth_required === true)} flows=${known.join(',') || 'none'}${others ? ` (+${others} other)` : ''}`,
+  )
+  if (status.auth_required !== true) {
+    say(
+      'result: incompatible. Hermes runs in loopback-token mode, so no Cindl client can sign in; Cindl never reads the per-process token.',
+    )
+    return 5
+  }
+  // Interactive providers only, the ones /auth/native/authorize accepts
+  // (routes.py:203-212, 279-320); 503 when there are none.
+  let signIn: number
+  try {
+    signIn = (await rest.providers()).providers.length
+  } catch (error) {
+    // Hermes's own refusal for "none registered"; a proxy's 503 is no answer.
+    const none =
+      error instanceof CindlError &&
+      /HTTP 503/.test(error.detail ?? '') &&
+      hermesReasonOf(error) === 'no auth providers registered'
+    if (!none) {
+      say(`GET /api/auth/providers failed: ${describe(error)}`)
+      return 4
+    }
+    signIn = 0
+  }
+  say(
+    `providers: ${status.auth_providers?.length ?? 0} registered, ${signIn} can sign in with native PKCE (/auth/native/*)`,
+  )
+  if (signIn === 0 || !flows.includes('native_pkce')) {
+    say(
+      'result: incompatible. No sign-in provider supports native PKCE, so no Cindl client can sign in until one is configured.',
+    )
+    return 5
+  }
+  say(
+    'result: compatible. Cindl can sign in. The signed-in probe (--token-file or --cookie-file) checks the rest.',
+  )
+  return 0
+}
+
 /** Exit codes: 0 compatible, 2 usage, 3 not signed in, 4 unreachable, 5 incompatible. */
 export async function runProbe(options: ProbeOptions, io: ProbeIo): Promise<number> {
   const say = (line: string) => io.out(redactText(line))
-  // The rule sign-in uses (https, or plain http only on 127.0.0.1 or [::1]),
-  // checked before any request so a token or cookie never travels in clear
-  // text. The refused value is not echoed: it may carry credentials.
-  const parsed = HermesOrigin.safeParse(options.origin)
-  if (!parsed.success) {
-    say(
-      `error: --origin ${parsed.error.issues[0]?.message ?? 'is not usable.'} For example https://hermes.example.test`,
-    )
-    return 2
-  }
-  const origin = parsed.data
+  const origin = originOrUsage(options.origin, say)
+  if (!origin) return 2
   const baseFetch = io.fetch ?? ((url, init) => fetch(url, init))
   const cookieHeader = options.cookieHeader
   const probeFetch: FetchLike = cookieHeader
@@ -223,7 +322,16 @@ function describe(error: unknown): string {
   return 'unexpected error'
 }
 
-async function main(argv: string[]): Promise<number> {
+export interface CliIo {
+  out(line: string): void
+  err(line: string): void
+  fetch?: FetchLike
+}
+
+export async function main(
+  argv: string[],
+  io: CliIo = { out: (line) => console.log(line), err: (line) => console.error(line) },
+): Promise<number> {
   const arg = (name: string) => {
     const index = argv.indexOf(name)
     return index >= 0 ? argv[index + 1] : undefined
@@ -231,10 +339,23 @@ async function main(argv: string[]): Promise<number> {
   const origin = arg('--origin')
   const tokenFile = arg('--token-file')
   const cookieFile = arg('--cookie-file')
-  if (!origin || (!tokenFile && !cookieFile) || (tokenFile && cookieFile)) {
-    console.error(
-      'usage: live-probe.ts --origin <url> (--token-file <path> | --cookie-file <path>)',
+  const usage =
+    'usage: live-probe.ts --origin <url> (--discover | --token-file <path> | --cookie-file <path>)'
+  if (argv.includes('--discover')) {
+    if (!origin) {
+      io.err(usage)
+      return 2
+    }
+    // Discovery never reads a file or sends a credential, even when given one.
+    if (tokenFile || cookieFile)
+      io.err('note: --discover reads no file and sends no credential; ignoring it')
+    return runDiscovery(
+      { origin },
+      { out: (line) => io.out(line), ...(io.fetch ? { fetch: io.fetch } : {}) },
     )
+  }
+  if (!origin || (!tokenFile && !cookieFile) || (tokenFile && cookieFile)) {
+    io.err(usage)
     return 2
   }
   const raw = (await readFile((tokenFile ?? cookieFile) as string, 'utf8')).trim()
@@ -248,19 +369,19 @@ async function main(argv: string[]): Promise<number> {
         parsed = JSON.parse(raw) as { access_token?: unknown }
       } catch {
         // Never echo the parser's message: it quotes the file's contents.
-        console.error('error: the token file is not valid JSON')
+        io.err('error: the token file is not valid JSON')
         return 2
       }
       token = typeof parsed.access_token === 'string' ? parsed.access_token : undefined
     }
     if (!token) {
-      console.error('error: the token file holds no access token')
+      io.err('error: the token file holds no access token')
       return 2
     }
   }
   return runProbe(
     { origin, ...(token ? { token } : {}), ...(cookieFile ? { cookieHeader: raw } : {}) },
-    { out: (line) => console.log(line) },
+    { out: (line) => io.out(line), ...(io.fetch ? { fetch: io.fetch } : {}) },
   )
 }
 
