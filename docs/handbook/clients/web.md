@@ -98,12 +98,17 @@ from the desktop app's custom protocol.
   to the app that started the operation, the only place Hermes asks.
 - **Memory edits are explicit:** each entry changes only after you review a
   diff and confirm, and only if it has not changed in Hermes since you read it.
-  A review belongs to the text it was made against: if the entry changes in
-  Hermes while you review, saving waits until you review again. If the entry
-  is removed or moved and another takes its place, the editor locks instead:
-  your text stays on screen to copy, and nothing can be saved over the other
-  entry. After a save, the previous text stays on screen, ready to restore,
-  while the entry is still the one you saved.
+  An editor stays bound to the entry it read. It follows the entry when
+  Hermes only renumbers it (an earlier entry was removed). Other text at its
+  place may be the same entry changed elsewhere, or another entry removed,
+  merged or added there, and Hermes's list cannot tell which. So the editor
+  locks, keeps your text read-only, and saves or deletes nothing until you
+  choose "Use this draft for the entry now here" and review against that
+  entry's text. Drafts for entries Hermes no longer lists stay under "Unsaved
+  drafts", to copy or discard, and never attach to another entry. A delete
+  names the entry it removes. After a save, the text it replaced stays on
+  screen: ready to restore while the entry is still the one you saved, and
+  otherwise only to copy.
   Deleting an entry warns first, because Hermes keeps no backup.
 - **Drafts stay on this device, briefly:** answers being written and document
   edits kept after a save conflict live in memory only. An answer's draft is

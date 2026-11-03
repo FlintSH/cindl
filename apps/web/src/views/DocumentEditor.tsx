@@ -1,6 +1,6 @@
 import { diffLines, diffStats } from '@cindl/client-core'
 import { isCindlError, type VersionedDocument } from '@cindl/contracts'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './views.module.css'
 
@@ -11,14 +11,30 @@ type Stage =
   | { kind: 'review'; draft: string; base: string }
 
 /**
- * Drafts kept after a save conflict, by document key, so a reload (which can
- * remount or fail) never loses what the owner wrote. Cleared on save or discard.
+ * Drafts kept after a save conflict or when an editor locks, by draft key, so
+ * a reload (which can remount or fail) never loses what the owner wrote. A
+ * draft key names the document a draft was written for, so a kept draft only
+ * ever returns to that document. Cleared on save or discard.
  */
 const keptDrafts = new Map<string, string>()
 
 /** Forget every kept draft (on sign-out, so nothing outlives the session). */
 export function forgetDocumentDrafts() {
   keptDrafts.clear()
+}
+
+/** Kept drafts whose key starts with `prefix`, oldest first. */
+export function keptDocumentDrafts(
+  prefix: string,
+): Array<{ key: string; draft: string }> {
+  return [...keptDrafts]
+    .filter(([key]) => key.startsWith(prefix))
+    .map(([key, draft]) => ({ key, draft }))
+}
+
+/** Forget one kept draft. */
+export function forgetDocumentDraft(key: string) {
+  keptDrafts.delete(key)
 }
 
 function Review({ before, draft }: { before: string; draft: string }) {
@@ -51,37 +67,60 @@ function Review({ before, draft }: { before: string; draft: string }) {
  */
 export function DocumentEditor({
   document,
+  draftKey = document.key,
   canWrite,
   writeNote,
   locked,
+  onAdopt,
   onSave,
   onReload,
 }: {
   document: VersionedDocument
+  /** Where a kept draft lives: the identity of the document it was written for. */
+  draftKey?: string
   canWrite: boolean
   writeNote?: string | undefined
   /**
-   * Why this editor may no longer save (its document is gone or another took
-   * its place). The draft stays visible, read-only, to copy.
+   * Why this editor may no longer save (its document is gone, or the one shown
+   * may not be it). The draft stays visible, read-only, and is kept.
    */
   locked?: string | undefined
+  /**
+   * The owner's explicit choice to use a locked draft for the document now
+   * shown. Without it, nothing written for one document reaches another.
+   */
+  onAdopt?: (() => void) | undefined
   onSave: (content: string, expectedVersion: string) => Promise<VersionedDocument>
   onReload: () => void
 }) {
   const [stage, setStage] = useState<Stage>(() => {
-    const kept = keptDrafts.get(document.key)
+    const kept = keptDrafts.get(draftKey)
     return kept === undefined ? { kind: 'view' } : { kind: 'edit', draft: kept }
   })
-  const restored = keptDrafts.has(document.key) && stage.kind !== 'view'
+  const restored = keptDrafts.has(draftKey) && stage.kind !== 'view'
+  // A locked editor keeps its draft under the key it was written for, so
+  // closing it loses nothing (the owner can copy it from the list of kept
+  // drafts) and it never returns to a different document.
+  const lockedDraft = locked && stage.kind !== 'view' ? stage.draft : undefined
+  useEffect(() => {
+    if (lockedDraft !== undefined) keptDrafts.set(draftKey, lockedDraft)
+  }, [draftKey, lockedDraft])
   const [error, setError] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
   // The text a save replaced, offered back only while the document is still
   // the version that save produced (not another entry, nor a later change).
   const [backup, setBackup] = useState<{ content: string; version: string }>()
   const lockNotice = locked ? (
-    <p className={styles.error} role="alert">
-      {locked}
-    </p>
+    <div className={styles.actions}>
+      <p className={styles.error} role="alert">
+        {locked}
+      </p>
+      {onAdopt && stage.kind !== 'view' ? (
+        <Button variant="quiet" onClick={onAdopt}>
+          Use this draft for the entry now here
+        </Button>
+      ) : null}
+    </div>
   ) : null
 
   if (stage.kind === 'view')
@@ -93,7 +132,7 @@ export function DocumentEditor({
           Read {new Date(document.readAt).toLocaleString()} from {document.source}.
           Version <code>{document.version.slice(0, 12)}</code>.
         </p>
-        {!locked && backup?.version === document.version ? (
+        {backup && !locked && backup.version === document.version ? (
           <p className={styles.note}>
             The previous version is kept on this screen until you leave it.{' '}
             <Button
@@ -103,6 +142,16 @@ export function DocumentEditor({
               Restore previous version
             </Button>
           </p>
+        ) : backup ? (
+          // Hermes keeps no backup. Once the text shown is not the version that
+          // save produced, restoring would write over something else, so the
+          // replaced text is only shown, to copy.
+          <div className={styles.section}>
+            <p className={styles.note}>
+              The text your last save replaced, kept on this screen to copy:
+            </p>
+            <pre className={styles.doc}>{backup.content}</pre>
+          </div>
         ) : null}
         <div className={styles.actions}>
           <Button variant="quiet" onClick={onReload}>
@@ -143,7 +192,7 @@ export function DocumentEditor({
           <Button
             variant="quiet"
             onClick={() => {
-              keptDrafts.delete(document.key)
+              keptDrafts.delete(draftKey)
               setStage({ kind: 'view' })
             }}
           >
@@ -172,12 +221,12 @@ export function DocumentEditor({
     try {
       const previous = document.content
       const saved = await onSave(draft, base)
-      keptDrafts.delete(document.key)
+      keptDrafts.delete(draftKey)
       setBackup({ content: previous, version: saved.version })
       setStage({ kind: 'view' })
     } catch (err) {
       if (isCindlError(err) && err.code === 'conflict') {
-        keptDrafts.set(document.key, draft)
+        keptDrafts.set(draftKey, draft)
         setError({ message: `${err.message} Your draft is kept.`, conflict: true })
       } else if (
         isCindlError(err) &&

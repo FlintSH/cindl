@@ -8,9 +8,13 @@ import {
   type MemoryStore,
   type VersionedDocument,
 } from '@cindl/contracts'
-import { useEffect, useEffectEvent, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import { Button, SectionTitle } from '../ui/primitives.tsx'
-import { DocumentEditor } from '../views/DocumentEditor.tsx'
+import {
+  DocumentEditor,
+  forgetDocumentDraft,
+  keptDocumentDrafts,
+} from '../views/DocumentEditor.tsx'
 import { useResource } from '../views/useResource.ts'
 import styles from '../views/views.module.css'
 
@@ -28,6 +32,9 @@ const fingerprintOf = (id: string) => {
   const [, store, , fingerprint] = id.split(':')
   return `${store}:${fingerprint}`
 }
+
+/** Kept memory drafts are filed under the entry they were written for. */
+const MEMORY_DRAFT_PREFIX = 'memory-draft:'
 
 /** Where an entry sits in the list. The UI follows it across edits; writes never use it. */
 interface Position {
@@ -58,22 +65,24 @@ export function MemoryEntries() {
     'Memory entries could not be loaded.',
   )
   const [open, setOpen] = useState<Position>()
+  const [, setDraftsSeen] = useState(0)
   const entries = list.data ?? []
   const selected = open ? atPosition(entries, open) : undefined
-  // Ids of the list before the current one. An open editor reads it (in its
-  // effects, which run before this one) to tell an entry changed in place from
-  // another entry that moved into the place.
-  const listedBefore = useRef<ReadonlySet<string>>(new Set())
-  useEffect(() => {
-    listedBefore.current = new Set(
-      (list.data ?? []).map((entry) => fingerprintOf(entry.id)),
-    )
-  }, [list.data])
+  // Drafts kept for entries Hermes no longer lists (removed, or rewritten
+  // elsewhere). They never attach to another entry; the owner copies or
+  // discards them. Shown while no entry is open, which also keeps a locked
+  // editor's draft from appearing twice.
+  const listed = new Set(entries.map((entry) => fingerprintOf(entry.id)))
+  const orphans =
+    open || !list.data
+      ? []
+      : keptDocumentDrafts(MEMORY_DRAFT_PREFIX).filter(
+          ({ key }) => !listed.has(key.slice(MEMORY_DRAFT_PREFIX.length)),
+        )
   const editor = (summary: MemoryEntrySummary | undefined, place: number) => (
     <MemoryEntryEditor
       summary={summary}
       place={place}
-      wasListed={(id) => listedBefore.current.has(fingerprintOf(id))}
       onChanged={list.reload}
       onDeleted={() => {
         setOpen(undefined)
@@ -88,9 +97,38 @@ export function MemoryEntries() {
       {list.data && !entries.length ? (
         <p className={styles.note}>Hermes has no memory entries yet.</p>
       ) : null}
+      {orphans.length ? (
+        <div className={styles.memoryStore}>
+          <h3 className={styles.memoryStoreTitle}>Unsaved drafts</h3>
+          <p className={styles.note}>
+            Text you wrote for entries Hermes no longer lists (removed, or changed
+            elsewhere). Copy what you need; nothing here is saved.
+          </p>
+          <ul className={styles.rows}>
+            {orphans.map(({ key, draft }) => (
+              <li key={key} className={styles.memoryItem}>
+                <pre className={styles.doc}>{draft}</pre>
+                <div className={styles.actions}>
+                  <Button
+                    variant="quiet"
+                    onClick={() => {
+                      forgetDocumentDraft(key)
+                      setDraftsSeen((value) => value + 1)
+                    }}
+                  >
+                    Discard draft
+                  </Button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       {stores.map(({ store, title, hint }) => {
         const inStore = entries.filter((entry) => entry.store === store)
-        if (!inStore.length) return null
+        // A store emptied under an open editor still shows that editor's row.
+        const vanished = open?.store === store && !selected && Boolean(list.data)
+        if (!inStore.length && !vanished) return null
         return (
           <div key={store} className={styles.memoryStore}>
             <h3 className={styles.memoryStoreTitle}>{title}</h3>
@@ -132,7 +170,7 @@ export function MemoryEntries() {
                     </li>
                   )
                 }),
-                ...(open?.store === store && !selected && list.data
+                ...(vanished && open
                   ? [
                       // The open entry vanished with nothing after it: keep its row,
                       // and the draft in it, until the owner closes it.
@@ -164,7 +202,6 @@ export function MemoryEntries() {
 function MemoryEntryEditor({
   summary,
   place,
-  wasListed,
   onChanged,
   onDeleted,
 }: {
@@ -172,8 +209,6 @@ function MemoryEntryEditor({
   summary: MemoryEntrySummary | undefined
   /** 1-based position in its store, as the row shows it. */
   place: number
-  /** Whether the list before the current one held this entry (by fingerprint). */
-  wasListed: (id: string) => boolean
   onChanged: () => void
   onDeleted: () => void
 }) {
@@ -191,40 +226,38 @@ function MemoryEntryEditor({
     `memory:${place}`,
     'This entry could not be loaded. It may have changed; reload the list.',
   )
-  // When the list shows another id at this place: the same text renumbered
-  // (an earlier entry was removed) or text Hermes never listed before (the
-  // entry was changed elsewhere) is followed, keeping the editor and any draft
-  // while it loads; text that was already listed (another entry moved into
-  // the place, so the one this editor shows was removed or moved) locks the
-  // editor rather than follow a different entry. A failed read is retried the
-  // same way. After a save here the list catches up to the saved id: no
-  // re-read.
-  const [replaced, setReplaced] = useState(false)
+  // The editor stays bound to the entry it read. When the list shows another
+  // id at this place, only the same text under a new number (an earlier entry
+  // was removed) is the same entry for certain, and is followed. Other text
+  // may be this entry changed elsewhere, or another entry removed, merged or
+  // added in its place; Hermes's list cannot tell them apart, so the editor
+  // locks: its draft is kept, read-only, and nothing is saved or deleted until
+  // the owner explicitly uses the draft for the entry now here. After a save
+  // here the list catches up to the saved id: no re-read.
+  const [binding, setBinding] = useState<'following' | 'locked' | { adopting: string }>(
+    'following',
+  )
+  const adopting = typeof binding === 'object' ? binding.adopting : undefined
+  const locked =
+    binding === 'locked' || (adopting !== undefined && entry.data?.id !== adopting)
   const followList = useEffectEvent((listed: string | undefined) => {
-    if (replaced) return
+    if (locked) return
     const shown = entry.data?.id
-    // Same text under a new number: an earlier entry was removed. Follow it.
-    const renumbered =
-      shown !== undefined &&
-      listed !== undefined &&
-      fingerprintOf(shown) === fingerprintOf(listed)
-    if (
-      listed === undefined ||
-      (shown !== undefined && shown !== listed && !renumbered && wasListed(listed))
-    )
-      setReplaced(true)
-    else if (entry.error || (shown !== undefined && shown !== listed)) entry.reload()
+    if (listed === undefined) setBinding('locked')
+    else if (shown === undefined || shown === listed) {
+      if (entry.error) entry.reload()
+    } else if (fingerprintOf(shown) === fingerprintOf(listed)) entry.reload()
+    else setBinding('locked')
   })
-  // The latch is set at most once, only when the list changes under an open
-  // editor; deriving it at render time would let a later reload unlock it onto
-  // a different entry.
-  // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time latch, cannot cascade
+  // Locking happens at most once per change under an open editor, and only
+  // when the list changes; deriving it at render time would let a later
+  // reload unlock it onto a different entry.
+  // eslint-disable-next-line react-hooks/set-state-in-effect -- set once per list change, cannot cascade
   useEffect(() => followList(summary?.id), [summary?.id])
-  // The editor's draft key names the entry's place in its store ("agent note 2"),
-  // so a draft kept after a conflict comes back once the entry is reloaded under
-  // its new id. Not the id's index: Hermes numbers entries across both stores.
-  // Writes and deletes name the id of the entry that was read and reviewed,
-  // never the list's, so Hermes refuses them if it changed since.
+  // The label names the place ("agent note 2"); a kept draft is filed under the
+  // text it was written for, so it only ever returns to that entry. Writes and
+  // deletes name the id of the entry that was read and reviewed, never the
+  // list's, so Hermes refuses them if it changed since.
   const toDocument = (data: MemoryEntry): VersionedDocument => ({
     key: `${data.store === 'memory' ? 'agent note' : 'note about you'} ${place}`,
     content: data.content,
@@ -233,9 +266,10 @@ function MemoryEntryEditor({
     source: data.source,
   })
   const data = entry.data
+  const draftKey = data ? `${MEMORY_DRAFT_PREFIX}${fingerprintOf(data.id)}` : undefined
   return (
     <div className={styles.memoryEditor}>
-      {entry.error && !replaced ? (
+      {entry.error && !locked ? (
         <div className={styles.actions}>
           <p className={styles.error}>{entry.error}</p>
           <Button
@@ -249,20 +283,32 @@ function MemoryEntryEditor({
           </Button>
         </div>
       ) : null}
-      {data ? (
+      {data && draftKey ? (
         <>
           <DocumentEditor
             document={toDocument(data)}
+            draftKey={draftKey}
             canWrite={canWrite}
             locked={
-              replaced
-                ? 'The entry this editor showed was removed or moved in Hermes, so nothing here can be saved. Any text you wrote is kept below to copy; close this and open the entry again.'
+              locked
+                ? 'The entry this editor showed was changed, removed or moved in Hermes, and Cindl cannot tell which, so nothing here can be saved or deleted. Your text is kept below to copy.'
+                : undefined
+            }
+            onAdopt={
+              summary && !adopting
+                ? () => {
+                    // The owner chose the entry now here: the draft moves to it,
+                    // and the editor stays locked until that entry is read.
+                    forgetDocumentDraft(draftKey)
+                    setBinding({ adopting: summary.id })
+                    entry.reload()
+                  }
                 : undefined
             }
             // The list names the entry's current id; the read follows it.
             onReload={onChanged}
             onSave={async (content, reviewed) => {
-              if (toDocument(data).version !== reviewed)
+              if (locked || toDocument(data).version !== reviewed)
                 throw new CindlError(
                   'conflict',
                   'This entry changed since you reviewed it. Review it again.',
@@ -277,10 +323,15 @@ function MemoryEntryEditor({
               return toDocument(saved)
             }}
           />
-          {canWrite && !replaced ? (
-            // Keyed by id: if another entry takes this place, an open
-            // confirmation closes instead of deleting the newcomer.
-            <DeleteEntry key={data.id} id={data.id} onDeleted={onDeleted} />
+          {canWrite && !locked ? (
+            // Keyed by id: if the entry here changes, an open confirmation
+            // closes instead of deleting another entry.
+            <DeleteEntry
+              key={data.id}
+              id={data.id}
+              title={summary?.title ?? data.content.split('\n')[0] ?? ''}
+              onDeleted={onDeleted}
+            />
           ) : null}
         </>
       ) : null}
@@ -288,7 +339,15 @@ function MemoryEntryEditor({
   )
 }
 
-function DeleteEntry({ id, onDeleted }: { id: string; onDeleted: () => void }) {
+function DeleteEntry({
+  id,
+  title,
+  onDeleted,
+}: {
+  id: string
+  title: string
+  onDeleted: () => void
+}) {
   const api = useCindlApi()
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -304,7 +363,7 @@ function DeleteEntry({ id, onDeleted }: { id: string; onDeleted: () => void }) {
   return (
     <div className={styles.confirm} role="group" aria-label="Delete this memory entry">
       <p>
-        Delete this entry from Hermes's memory? Hermes keeps no backup, so this cannot be
+        Delete “{title}” from Hermes's memory? Hermes keeps no backup, so this cannot be
         undone.
       </p>
       {error ? (

@@ -46,6 +46,11 @@ export function useResource<T>(
     error: current?.error,
     loading: !current || current.token !== token,
     reload: () => setToken((value) => value + 1),
-    replace: (data: T) => setState({ key, token, data }),
+    // Only for the key it was given: a late save for another key (the owner
+    // moved on) must not replace what is loaded now.
+    replace: (data: T) =>
+      setState((previous) =>
+        previous === undefined || previous.key === key ? { key, token, data } : previous,
+      ),
   }
 }

@@ -187,8 +187,8 @@ describe('memory entries changed elsewhere', () => {
       ),
     ).toBe(true)
 
-  it('A: brings the editor back with the draft after "Reload and keep my draft"', async () => {
-    const { scenario } = harness()
+  it('A: keeps the draft after "Reload and keep my draft", and uses it only when the owner says so', async () => {
+    const { scenario, calls } = harness()
     await openKiln()
     editTo(draft)
     const kiln = await findEntry(scenario, /kiln firing log/)
@@ -204,12 +204,26 @@ describe('memory entries changed elsewhere', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Reload and keep my draft' }))
     await settle()
     await settle()
-    expect(screen.getByLabelText<HTMLTextAreaElement>('Edit agent note 2').value).toBe(
-      draft,
+    // Other text at this place could be this entry changed or another entry
+    // (Hermes's list cannot tell), so the draft is kept but not reused silently.
+    expect(screen.getByRole('alert').textContent).toMatch(/cannot tell which/)
+    const kept = screen.getByLabelText<HTMLTextAreaElement>('Edit agent note 2')
+    expect(kept.value).toBe(draft)
+    expect(kept.readOnly).toBe(true)
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Use this draft for the entry now here' }),
     )
-    // The review is now against the text changed elsewhere.
+    await settle()
+    await settle()
+    // The review is now against the text changed elsewhere, and the save names it.
     fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
     expect(screen.getByLabelText('Changes').textContent).toContain('changed elsewhere')
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm and save' }))
+    await settle()
+    const changed = await findEntry(scenario, /kiln firing log moved/)
+    const writes = calls.filter((c) => c.name === 'memory.write')
+    expect(writes.at(-1)?.args).toMatchObject({ content: draft })
+    expect(changed.preview).toBe(draft)
   })
 
   it('B: drops the restore offer when another entry takes the place after a save', async () => {
@@ -405,8 +419,8 @@ describe('memory entries changed elsewhere', () => {
     expect(await screen.findByRole('button', { name: 'Edit' })).toBeTruthy()
   })
 
-  it('P2: keeps the editor and the draft when a re-read fails', async () => {
-    const { scenario, holdNextList, release, failNextRead } = harness()
+  it('P2: keeps the draft, without following, when the entry changes under the editor', async () => {
+    const { scenario, calls, holdNextList, release } = harness()
     await openKiln()
     holdNextList()
     fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
@@ -419,14 +433,16 @@ describe('memory entries changed elsewhere', () => {
       content: 'The kiln log changed elsewhere (fictional).',
       confirm: true,
     })
-    failNextRead()
+    const reads = calls.filter((c) => c.name === 'memory.read').length
     release()
     await settle()
     await settle()
-    expect(screen.getByText('Hermes is not answering.')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toMatch(/cannot tell which/)
     expect(screen.getByLabelText<HTMLTextAreaElement>('Edit agent note 2').value).toBe(
       draft,
     )
+    // Nothing was read for the other text: the editor did not follow it.
+    expect(calls.filter((c) => c.name === 'memory.read')).toHaveLength(reads)
   })
 
   it('closes an open delete confirmation when another entry takes the place', async () => {

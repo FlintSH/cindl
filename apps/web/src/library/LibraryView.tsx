@@ -34,6 +34,9 @@ function SkillDetail({ name }: { name: string }) {
       {skill.error ? <p className={styles.error}>{skill.error}</p> : null}
       {skill.data ? (
         <DocumentEditor
+          // One editor per skill: a save that finishes after the owner opened
+          // another skill must not reset that skill's editor.
+          key={name}
           document={skill.data}
           canWrite={canWrite}
           writeNote={writeCapability?.reason}
