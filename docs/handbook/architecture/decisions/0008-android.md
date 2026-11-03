@@ -18,7 +18,9 @@ licence for Cindl APK builds and emulator tests on GitHub-hosted build runners
 - Never on development machines, the Hermes host or anyone's phone; the SDK is
   installed only on GitHub-hosted runners.
 - No other terms, no paid services, no Play Store enrollment, and no
-  production signing or release. Builds are signed with a debug key only.
+  production signing or release. Test builds are signed with a throwaway key
+  made for each CI run, never the public debug key or a store or production
+  key.
 
 Approval is not a build result: an APK or emulator run counts only with its CI
 run and artifact as evidence. Test APKs have been built in CI on PR #4; none

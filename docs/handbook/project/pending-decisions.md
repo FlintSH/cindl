@@ -49,9 +49,10 @@ matrix.
 signed: Android release keys and store distribution, desktop code signing and
 notarisation, where release artifacts live, and who may publish them.
 
-**Why it matters.** Until this is decided, Android builds are signed with a
-debug key only ([ADR 0008](../architecture/decisions/0008-android.md)) and CI
-artifacts are for review, not for installation by others.
+**Why it matters.** Until this is decided, Android test builds are signed with
+a throwaway key made for each CI run
+([ADR 0008](../architecture/decisions/0008-android.md)) and CI artifacts are
+for review, not for installation by others.
 
 **Blocks:** releases of every client; release notes and an upgrade path on
 [Running Cindl](../operations/index.md).

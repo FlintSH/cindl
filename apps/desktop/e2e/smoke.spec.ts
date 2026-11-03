@@ -395,14 +395,13 @@ test.describe('Cindl (real flavour)', () => {
     expect(policy).toBe('disable_non_proxied_udp')
   })
 
-  // Review 4ad97d1 and f7f5925: a child frame keeps WebRTC (known gap), and
-  // three settings contain it: the dead proxy (TCP to other machines), its
-  // `<-loopback>` bypass rule (TCP straight to loopback) and the IP-handling
-  // policy (UDP). The child frame aims TURN and ICE at loopback listeners and at
-  // 192.0.2.1, a documentation address where a dial shows up as a socket. Other
-  // local processes probe new loopback ports (on a dev VM, T3 Code's server
-  // sends HTTP and TLS hellos), so only connections that carry STUN (magic
-  // cookie 0x2112A442, at offset 4 for TURN over TCP, 6 after ICE-TCP's length
+  // A child frame keeps WebRTC (a known gap), and three settings contain it:
+  // the dead proxy (TCP to other machines), its `<-loopback>` bypass rule (TCP
+  // straight to loopback) and the IP-handling policy (UDP). The child frame
+  // aims TURN and ICE at loopback listeners and at 192.0.2.1, a documentation
+  // address where a dial shows up as a socket. Other local processes may probe
+  // new loopback ports, so only connections that carry STUN (magic cookie
+  // 0x2112A442, at offset 4 for TURN over TCP, 6 after ICE-TCP's length
   // prefix) count as WebRTC.
   test('keeps WebRTC in a child frame off the network', async () => {
     const { page } = launched as Launched
