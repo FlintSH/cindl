@@ -141,6 +141,9 @@ type ReattachOutcome = 'ok' | 'gone' | 'abort'
 const LOOPBACK_MODE =
   'Hermes is running in loopback-token mode. Cindl needs a sign-in provider (password or OAuth) and never reads the per-process dashboard token.'
 
+/** The gate's `error` when a browser session is over (middleware.py:72-87). */
+const SESSION_OVER = new Set(['unauthenticated', 'session_expired'])
+
 /** `session.events.since` watermark that returns no events, only `open_requests`. */
 const NO_EVENTS = Number.MAX_SAFE_INTEGER
 
@@ -292,7 +295,57 @@ class DirectHermesClient implements DirectClient {
     try {
       return (await handler(parsed)) as OpResult<K>
     } catch (error) {
-      throw asCindlError(error, name)
+      const cause = asCindlError(error, name)
+      if (this.#sessionEndedByHermes(cause)) this.#sessionEnded(cause)
+      throw cause
+    }
+  }
+
+  /**
+   * Cookie mode: the gate's 401 saying the browser's session is over, because
+   * no cookies came or the refresh cookie failed too (middleware.py:150-157,
+   * 186-211). Hermes's own web app goes to the login page on exactly these two
+   * (web/src/lib/api.ts:209-240); any other 401 is an error of its own. Native
+   * mode refreshes its tokens itself.
+   */
+  #sessionEndedByHermes(cause: CindlError): boolean {
+    return (
+      !this.#native &&
+      this.#signedIn &&
+      cause.code === 'unauthenticated' &&
+      SESSION_OVER.has(hermesReasonOf(cause))
+    )
+  }
+
+  #sessionEnded(cause: CindlError): void {
+    this.stop()
+    this.#signedIn = false
+    this.#memoryProbe = undefined
+    this.#setLink('signed-out', cause)
+    this.#refreshCapabilities()
+  }
+
+  /**
+   * Cookie mode: POST /auth/logout, so Hermes clears the HttpOnly cookies,
+   * which nothing else can. It revokes nothing at v0.22.5, so the session
+   * itself lasts until it expires. A failure never blocks the local sign-out;
+   * it is shown.
+   */
+  async #endCookieSession(): Promise<void> {
+    const rest = this.#rest
+    if (!rest) return
+    try {
+      await rest.logout()
+    } catch (error) {
+      this.#log.log('warn', 'direct.logout-failed', {
+        code: asCindlError(error, 'auth.logout').code,
+      })
+      this.#emit({
+        type: 'notice',
+        level: 'warning',
+        message:
+          'Hermes did not confirm the sign-out, so its session cookie may still sign this browser in. Sign out again.',
+      })
     }
   }
 
@@ -1511,7 +1564,9 @@ class DirectHermesClient implements DirectClient {
       await this.#restOrThrow().learningGraph(this.#configuredProfile)
       this.#memoryProbe = 'responds'
     } catch (error) {
-      if (asCindlError(error, 'learning graph').code !== 'not-found') return
+      const cause = asCindlError(error, 'learning graph')
+      if (this.#sessionEndedByHermes(cause)) this.#sessionEnded(cause)
+      if (cause.code !== 'not-found') return
       this.#memoryProbe = 'missing'
     }
     this.#refreshCapabilities()
@@ -1612,7 +1667,8 @@ class DirectHermesClient implements DirectClient {
     },
     'auth.signOut': async () => {
       this.stop()
-      await this.#native?.signOut()
+      if (this.#native) await this.#native.signOut()
+      else await this.#endCookieSession()
       this.#signedIn = false
       this.#memoryProbe = undefined
       for (const requestId of [...this.#requests.keys()])

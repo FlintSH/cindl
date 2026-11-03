@@ -151,6 +151,26 @@ same-origin requests, and it keeps nothing in browser storage.
   (`middleware.py:135-147, 192-211`). Requests of one burst that carried the
   same stale refresh cookie share that rotation for 30 s
   (`middleware.py:222-238`, `refresh_singleflight.py:1-28`).
+- A 401 whose `error` is `unauthenticated` or `session_expired` is the gate
+  saying the browser's session is over: the refresh failed and it cleared the
+  dead cookies (`middleware.py:150-157`), or no cookies came at all, as after a
+  sign-out in another tab. The direct client then stops, closes the socket and
+  goes `signed-out` with that error, whether an operation or the background
+  memory probe met it. Hermes's own web app goes to the login page on exactly
+  these two (`web/src/lib/api.ts:209-240`). Any other 401, and any other
+  refusal, fails only its call. Native mode is unchanged: it refreshes its
+  tokens itself.
+- `auth.signOut` posts `POST /auth/logout` (`routes.py:496-512`). Hermes clears
+  the cookies, which only it can do since they are HttpOnly, and answers a 302
+  to `/login`, an opaque redirect to a browser under `redirect: 'manual'`.
+  Cindl takes only that as confirmation. A failure never blocks the local
+  sign-out: the link still goes `signed-out`, with a warning notice to sign
+  out again. The result stays `{localOnly: true}`, since Hermes v0.22.5 cannot
+  end the session on its side. Every bundled provider's revoke is a no-op
+  (`plugins/dashboard_auth/basic/__init__.py:165-167`,
+  `nous/__init__.py:67-70`, `drain/__init__.py:106-107`), so a copy of the
+  cookies keeps working until it expires (basic defaults: 12 h access, 30 d
+  refresh).
 
 ## WebSocket `/api/ws`
 

@@ -1,0 +1,353 @@
+import { CindlError } from '@cindl/contracts'
+import {
+  FIXTURE_LOGIN,
+  nodeBinarySocketFactory,
+  type FakeHermes,
+} from '@cindl/fixtures/fake-hermes'
+import { loginPagePath, type FetchLike } from '@cindl/hermes-adapter'
+import { describe, expect, it } from 'vitest'
+import { entry } from '../src/index.ts'
+import { fakeHermes, harness, type Harness } from './direct-harness.ts'
+
+const failure = (promise: Promise<unknown>) =>
+  promise.then(
+    () => undefined,
+    (error: unknown) => (error instanceof CindlError ? error : undefined),
+  )
+
+/**
+ * A browser's cookie jar for one origin: it sends what Hermes set, unless the
+ * request says `credentials: 'omit'`, and applies `Max-Age=0` deletions. Cindl
+ * never sees these cookies; in a browser they are HttpOnly.
+ */
+function cookieJar(origin: string) {
+  const jar = new Map<string, string>()
+  /** `METHOD /path` of every request that carried the session cookies. */
+  const sentWithCookie: string[] = []
+  const jarFetch: FetchLike = async (url, init) => {
+    const target = new URL(url)
+    const headers = new Headers(init.headers)
+    if (target.origin === origin && init.credentials !== 'omit' && jar.size) {
+      headers.set(
+        'Cookie',
+        [...jar].map(([name, value]) => `${name}=${value}`).join('; '),
+      )
+      sentWithCookie.push(`${init.method ?? 'GET'} ${target.pathname}`)
+    }
+    const response = await fetch(url, { ...init, headers })
+    for (const line of response.headers.getSetCookie()) {
+      const [pair = '', ...attributes] = line.split(';')
+      const at = pair.indexOf('=')
+      const name = pair.slice(0, at).trim()
+      const value = pair.slice(at + 1).trim()
+      const deleted = attributes.some((a) => /^\s*max-age\s*=\s*0\s*$/i.test(a))
+      if (deleted || !value) jar.delete(name)
+      else jar.set(name, value)
+    }
+    return response
+  }
+  return { jar, fetch: jarFetch, sentWithCookie }
+}
+
+type Jar = ReturnType<typeof cookieJar>
+
+/** What Hermes's login page does with the owner's password (login_page.py:401-430). */
+async function passwordLogin(fake: FakeHermes, jar: Jar, next = '') {
+  const response = await jar.fetch(`${fake.origin}/auth/password-login`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ provider: 'basic', ...FIXTURE_LOGIN, next }),
+    credentials: 'same-origin',
+    redirect: 'manual',
+  })
+  return (await response.json()) as { ok: boolean; next: string }
+}
+
+/** The `next` the login page threads into its form, as the page's script reads it. */
+async function formNext(fake: FakeHermes, path: string): Promise<string> {
+  const page = await (await fetch(`${fake.origin}${path}`)).text()
+  const value = /name="next" value="([^"]*)"/.exec(page)?.[1] ?? ''
+  return value.replace(/&#(\d+);/g, (_, code: string) =>
+    String.fromCharCode(Number(code)),
+  )
+}
+
+/** A direct client in the web's mode: Hermes's same-origin cookie, nothing in storage. */
+async function cookieClient(options: { screen?: boolean } = {}) {
+  const fake = await fakeHermes()
+  const jar = cookieJar(fake.origin)
+  const h = await harness({
+    fake,
+    signIn: false,
+    deps: {
+      auth: 'same-origin-cookie',
+      fetch: jar.fetch,
+      ...(options.screen ? { displaySocketFactory: nodeBinarySocketFactory() } : {}),
+    },
+  })
+  return { fake, jar, h }
+}
+
+async function signedIn(options: { screen?: boolean } = {}) {
+  const { fake, jar, h } = await cookieClient(options)
+  await passwordLogin(fake, jar)
+  await h.client.call('auth.signIn', { origin: fake.origin })
+  await h.waitFor(() => h.store.getState().link.phase === 'online')
+  return { fake, jar, h }
+}
+
+function assistantText(h: Harness, conversationId: string): string {
+  return (entry(h.store.getState().messages, conversationId) ?? [])
+    .filter((m) => m.role === 'assistant')
+    .flatMap((m) => m.parts)
+    .map((p) => (p.type === 'text' ? p.text : ''))
+    .join('')
+}
+
+/** Requests the fake saw: REST as `METHOD /path`, sockets by path. */
+const requests = (fake: FakeHermes, name: string) =>
+  fake.calls.filter((c) => c.name === name).length
+
+/** The gate's answer once a browser session is over (middleware.py:72-87). */
+const SESSION_EXPIRED = {
+  error: 'session_expired',
+  detail: 'Unauthorized',
+  reason: 'invalid_or_expired_session',
+  login_url: '/login',
+}
+
+describe('direct client in same-origin-cookie mode (the web)', () => {
+  it('stays signed out, pointing at the Hermes login page, until the browser signs in', async () => {
+    const { fake, h } = await cookieClient()
+    await h.waitFor(() => h.store.getState().link.phase === 'signed-out')
+    const refused = await failure(h.client.call('auth.signIn', { origin: fake.origin }))
+    expect(refused?.code).toBe('unauthenticated')
+    expect(refused?.message).toMatch(/Sign in on the Hermes login page/)
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      lastError: { code: 'unauthenticated' },
+    })
+    expect(requests(fake, '/api/ws')).toBe(0)
+  })
+
+  it('signs in after the login page and talks over a ticket fetched with the cookie', async () => {
+    const { fake, jar, h } = await cookieClient()
+    expect(await passwordLogin(fake, jar)).toEqual({ ok: true, next: '/' })
+    expect([...jar.jar.keys()].sort()).toEqual([
+      'hermes_session_at',
+      'hermes_session_provider',
+      'hermes_session_rt',
+    ])
+    await h.client.call('auth.signIn', { origin: fake.origin })
+    await h.waitFor(() => h.store.getState().link.phase === 'online')
+    expect(jar.sentWithCookie).toContain('POST /api/auth/ws-ticket')
+    expect(requests(fake, '/api/ws')).toBe(1)
+    const c = await h.client.call('conversations.create', { title: 'Cookie (fixture)' })
+    await h.client.call('prompt.submit', {
+      conversationId: c.id,
+      clientId: 'cookie-1',
+      text: 'Plan the week',
+    })
+    await h.waitFor(
+      () => assistantText(h, c.id) === 'Synthetic reply (fixture) to: Plan the week',
+    )
+  })
+
+  it('returns the browser to the page it left, escapes and query included', async () => {
+    const fake = await fakeHermes()
+    const jar = cookieJar(fake.origin)
+    // Hermes decodes `next` at the page and again at the login (routes.py:93-97, 171).
+    for (const next of ['/cindl/', '/cindl/c/a%2Fb%20c?q=1%262', '/cindl/%25']) {
+      const carried = await formNext(fake, loginPagePath(next))
+      expect(await passwordLogin(fake, jar, carried)).toEqual({ ok: true, next })
+    }
+    // An unsafe path never reaches the page; Hermes lands on its root.
+    expect(loginPagePath('//elsewhere.invalid/')).toBe('/login')
+    expect(await formNext(fake, loginPagePath('//elsewhere.invalid/'))).toBe('')
+  })
+
+  it('reconnects with a fresh ticket, fetched with the cookie again', async () => {
+    const { fake, jar, h } = await signedIn()
+    const tickets = () =>
+      jar.sentWithCookie.filter((c) => c === 'POST /api/auth/ws-ticket')
+    const before = tickets().length
+    fake.gateway.dropConnections()
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.connectionEpoch >= 2,
+    )
+    expect(tickets()).toHaveLength(before + 1)
+    expect(requests(fake, '/api/ws')).toBe(2)
+  })
+
+  it('rotates an expired access cookie through the refresh cookie for a burst of calls', async () => {
+    const { fake, jar, h } = await signedIn()
+    const before = Object.fromEntries(jar.jar)
+    fake.auth.expireAccessTokens()
+    // The burst leaves with the same stale cookies; the gate rotates once and
+    // serves every call (middleware.py:192-211, refresh_singleflight.py:1-11).
+    await Promise.all([
+      h.client.call('memory.overview', {}),
+      h.client.call('skills.list', {}),
+      h.client.call('memory.overview', {}),
+    ])
+    expect(jar.jar.get('hermes_session_at')).not.toBe(before.hermes_session_at)
+    expect(jar.jar.get('hermes_session_rt')).not.toBe(before.hermes_session_rt)
+    expect(h.store.getState().link.phase).toBe('online')
+  })
+
+  it('signs out through /auth/logout, after which Hermes answers 401', async () => {
+    const { fake, jar, h } = await signedIn()
+    expect(await h.client.call('auth.signOut', {})).toEqual({ localOnly: true })
+    expect(requests(fake, 'POST /auth/logout')).toBe(1)
+    expect(jar.sentWithCookie).toContain('POST /auth/logout')
+    expect(h.store.getState().link.phase).toBe('signed-out')
+    expect(h.events.some((e) => e.type === 'notice')).toBe(false)
+    expect(jar.jar.size).toBe(0)
+    expect((await jar.fetch(`${fake.origin}/api/auth/me`, {})).status).toBe(401)
+  })
+
+  it('signs out locally when Hermes does not confirm, and says so', async () => {
+    const { fake, h } = await signedIn()
+    fake.failNextRest('POST /auth/logout', 500)
+    expect(await h.client.call('auth.signOut', {})).toEqual({ localOnly: true })
+    expect(h.store.getState().link.phase).toBe('signed-out')
+    expect(
+      h.events.some(
+        (e) =>
+          e.type === 'notice' &&
+          e.level === 'warning' &&
+          /did not confirm the sign-out/.test(e.message),
+      ),
+    ).toBe(true)
+  })
+
+  it('goes signed out, and closes the socket, when Hermes ends the session', async () => {
+    const { fake, jar, h } = await signedIn()
+    // No token verifies any more, as when Hermes's signing secret changes.
+    fake.auth.revokeAll()
+    const refused = await failure(h.client.call('memory.overview', {}))
+    expect(refused?.code).toBe('unauthenticated')
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      lastError: { code: 'unauthenticated' },
+    })
+    await h.waitFor(() => fake.gateway.connections.size === 0)
+    // The gate cleared the dead cookies with its 401 (middleware.py:150-157).
+    expect(jar.jar.size).toBe(0)
+  })
+
+  it('goes signed out when another tab signed this browser out', async () => {
+    const { fake, jar, h } = await signedIn()
+    // Tabs share the cookies, so the gate now sees none: 401 unauthenticated.
+    await jar.fetch(`${fake.origin}/auth/logout`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      redirect: 'manual',
+    })
+    expect((await failure(h.client.call('memory.overview', {})))?.code).toBe(
+      'unauthenticated',
+    )
+    expect(h.store.getState().link.phase).toBe('signed-out')
+  })
+
+  it('signs back in after the login page once Hermes ended the session', async () => {
+    const { fake, jar, h } = await signedIn()
+    const probes = () => requests(fake, 'GET /api/learning/graph')
+    await h.waitFor(() => probes() === 1)
+    fake.auth.revokeAll()
+    await failure(h.client.call('memory.overview', {}))
+    // Until the login page, signing in again says where to go, on the link too.
+    const early = await failure(h.client.call('auth.signIn', { origin: fake.origin }))
+    expect(early?.message).toMatch(/Sign in on the Hermes login page/)
+    expect(h.store.getState().link.lastError?.message).toMatch(
+      /Sign in on the Hermes login page/,
+    )
+    await passwordLogin(fake, jar)
+    await h.client.call('auth.signIn', { origin: fake.origin })
+    await h.waitFor(() => h.store.getState().link.phase === 'online')
+    // The new session's routes are probed afresh.
+    await h.waitFor(() => probes() === 2)
+  })
+
+  it('goes signed out when the background memory probe finds the session over', async () => {
+    const { fake, jar, h } = await cookieClient()
+    const probe = fake.holdNextRest('GET /api/learning/graph')
+    await passwordLogin(fake, jar)
+    await h.client.call('auth.signIn', { origin: fake.origin })
+    await probe.arrived
+    fake.auth.revokeAll()
+    probe.release()
+    await h.waitFor(() => h.store.getState().link.phase === 'signed-out')
+    expect(h.store.getState().link.lastError?.code).toBe('unauthenticated')
+  })
+
+  it('keeps the session through a 401 that is not the gate ending it', async () => {
+    const { fake, h } = await signedIn()
+    // A 401 without the gate's `unauthenticated`/`session_expired` (a proxy, say).
+    fake.failNextRest('GET /api/memory', 401)
+    expect((await failure(h.client.call('memory.overview', {})))?.code).toBe(
+      'unauthenticated',
+    )
+    expect(h.store.getState().link.phase).toBe('online')
+    await h.client.call('memory.overview', {})
+  })
+
+  it('keeps the session through a refusal that is not a 401, whatever it says', async () => {
+    const { fake, h } = await signedIn()
+    const held = fake.holdNextRest('GET /api/memory')
+    const call = failure(h.client.call('memory.overview', {}))
+    await held.arrived
+    held.release({ status: 403, body: SESSION_EXPIRED })
+    expect((await call)?.code).toBe('forbidden')
+    expect(h.store.getState().link.phase).toBe('online')
+  })
+
+  it('keeps a sign-out clean when a call made before it then meets the gate', async () => {
+    const { fake, h } = await signedIn()
+    const held = fake.holdNextRest('GET /api/memory')
+    const call = failure(h.client.call('memory.overview', {}))
+    await held.arrived
+    await h.client.call('auth.signOut', {})
+    held.release({ status: 401, body: SESSION_EXPIRED })
+    expect((await call)?.code).toBe('unauthenticated')
+    expect(h.store.getState().link.phase).toBe('signed-out')
+    expect(h.store.getState().link.lastError).toBeUndefined()
+  })
+
+  it('shows the agent screen: display.observe over the socket, frames over the display socket', async () => {
+    const { fake, h } = await signedIn({ screen: true })
+    await h.waitFor(
+      () => h.store.getState().capabilities['computer.view']?.state === 'available',
+    )
+    const { viewId } = await h.client.call('display.watch', {})
+    const frame = await h.client.call('display.frame', { viewId })
+    expect(frame.regions.length).toBeGreaterThan(0)
+    expect(h.rpcCalls('display.observe')).toBe(1)
+    expect(requests(fake, '/api/display/ws')).toBe(1)
+    await h.client.call('display.unwatch', { viewId })
+  })
+})
+
+describe('direct client in native mode, unchanged', () => {
+  it('signs out without calling /auth/logout', async () => {
+    const h = await harness()
+    expect(await h.client.call('auth.signOut', {})).toEqual({ localOnly: true })
+    expect(requests(h.fake, 'POST /auth/logout')).toBe(0)
+  })
+
+  it('stays signed in through a gate 401 that follows a refresh', async () => {
+    const h = await harness()
+    const first = h.fake.holdNextRest('GET /api/memory')
+    const call = failure(h.client.call('memory.overview', {}))
+    await first.arrived
+    const retry = h.fake.holdNextRest('GET /api/memory')
+    first.release({ status: 401, body: SESSION_EXPIRED })
+    await retry.arrived
+    retry.release({ status: 401, body: SESSION_EXPIRED })
+    expect((await call)?.code).toBe('unauthenticated')
+    expect(requests(h.fake, 'POST /auth/native/refresh')).toBe(1)
+    expect(h.store.getState().link.phase).toBe('online')
+  })
+})
