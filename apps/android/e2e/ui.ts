@@ -207,7 +207,10 @@ export function reachable(root: UiNode): UiNode[] {
  * important for accessibility) against the full dump of the same moment. The
  * overlay's labels (what `reachable` gives) must all be in it, and none of
  * the labels beneath it (a label in both counts as the overlay's). `ok` when
- * there is an overlay with labels, all of them shown and none from beneath.
+ * there is an overlay with labels, all of them shown, something beneath it to
+ * hide, and none of that given. With nothing told apart beneath it (a dump
+ * without drawing orders: `reachable` then gives every node), nothing is
+ * proven, and `ok` is false.
  */
 export function hiddenBeneath(
   full: UiNode,
@@ -234,6 +237,7 @@ export function hiddenBeneath(
     ok:
       overlayOpen(full) &&
       shown.length > 0 &&
+      beneath.length > 0 &&
       missing.length === 0 &&
       leaked.length === 0,
     shown,

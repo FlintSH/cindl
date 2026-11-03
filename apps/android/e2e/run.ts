@@ -589,6 +589,10 @@ async function demoSuite() {
       const talkback = await device.accessibilityDump()
       keep('link-confirmation-talkback', talkback)
       const hiding = hiddenBeneath(dialog.root, talkback.root)
+      if (hiding.beneath === 0)
+        throw new Error(
+          'Nothing beneath the link confirmation could be told apart in the full dump (no drawing orders?), so whether TalkBack is given the dialog alone is not shown',
+        )
       if (!hiding.ok)
         throw new Error(
           `TalkBack is not given the link confirmation alone: ${hiding.leaked.length} labels from beneath it (${hiding.leaked

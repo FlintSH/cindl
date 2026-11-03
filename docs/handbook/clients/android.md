@@ -147,7 +147,8 @@ until the owner decides about those terms.
   link's text on either of its two lines, and while it is open, all TalkBack
   is given: a compressed uiautomator dump, which lists only the views
   important for accessibility, holds every label of the dialog and none of
-  the screen beneath it) and a withheld remote image; a memory entry's delete warning and a reviewed
+  the screen beneath it, and the check fails when nothing beneath it can be
+  told apart) and a withheld remote image; a memory entry's delete warning and a reviewed
   edit; the demo's synthetic screen drawn live in Work, Computer (a pixel
   of its desktop read back from the screen) and, after taking control, a tap
   drawing its orange pointer marker where it landed; sending a message with the

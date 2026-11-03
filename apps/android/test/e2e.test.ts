@@ -345,6 +345,19 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
     expect(hiddenBeneath(reply, reply).ok).toBe(false)
   })
 
+  it('proves nothing when nothing beneath the dialog can be told apart (delta check of 1eef0c9, SF1)', () => {
+    // The same dump without drawing orders: `reachable` gives every node, so a
+    // compressed dump holding everything (hiding broken) would pass. The real
+    // 16-link-confirmation.xml of run 41681122382 gave ok, 27 shown, 0 beneath.
+    const xml = `${WINDOW}${CONTAINER}${EMPTY}${SCRIM_BRANCH}${SCRIM}</node>${CONTENT}${PARAGRAPH}${SPAN}</node></node>${CARD}${TITLE}${CANCEL}${OPEN}</node></node></node>`
+    const unordered = parseUi(dump(xml.replaceAll(/ drawing-order="\d+"/g, '')))
+    expect(hiddenBeneath(unordered, unordered)).toMatchObject({ ok: false, beneath: 0 })
+    // Even with only the dialog given, nothing beneath it was checked.
+    expect(
+      hiddenBeneath(unordered, parseUi(dump(`${WINDOW}${TITLE}${CANCEL}${OPEN}</node>`))),
+    ).toMatchObject({ ok: false, beneath: 0 })
+  })
+
   // 22dp at density 420 (2.625px per dp).
   const TINY = `<node index="0" text="" class="android.widget.Button" content-desc="Tiny" clickable="true" focusable="true" ${attrs('bounds="[100,100][158,158]" drawing-order="1"')} />`
 
