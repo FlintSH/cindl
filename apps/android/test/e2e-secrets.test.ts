@@ -132,6 +132,14 @@ describe('where the values come from', () => {
     const fake = await fakeHermes()
     const secrets = new RunSecrets()
     watchFakeHermes(fake.auth, secrets)
+    // Where the fake sends the browser back: the code and the app's own state.
+    const redirects: string[] = []
+    const completePending = fake.auth.completePending.bind(fake.auth)
+    fake.auth.completePending = (brokerState) => {
+      const location = completePending(brokerState)
+      if (location !== undefined) redirects.push(location)
+      return location
+    }
     const h = await harness({ fake })
     await h.waitFor(() => h.store.getState().link.phase === 'online')
     expect(kindsOf(secrets)).toEqual([
@@ -142,6 +150,8 @@ describe('where the values come from', () => {
       'state',
       'verifier',
     ])
+    expect(redirects).toHaveLength(1)
+    expect(secrets.found(redirects[0] ?? '')).toEqual(['code', 'state'])
     const tokens = secrets.values('access token').length
     const [refresh] = secrets.values('refresh token')
     expect(fake.auth.refresh(refresh ?? '')).toBeDefined()
