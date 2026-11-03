@@ -39,7 +39,7 @@ export const conversations: Conversation[] = [
     profile: 'default',
     createdAt: at(-60 * 5),
     updatedAt: at(-30),
-    status: 'idle',
+    status: 'waiting-on-you',
     preview: 'Sheet updated with 42 glaze batches.',
   },
   {
@@ -205,6 +205,18 @@ export const requests: ServerRequest[] = [
     ],
     choices: [],
     receivedAt: at(14),
+    status: 'open',
+  },
+  {
+    // A prompt Cindl never answers: it is shown so the owner knows Hermes waits.
+    requestId: 'srq-00000000dea3',
+    lastSeenEpoch: 1,
+    kind: 'unsupported',
+    unsupportedKind: 'sudo',
+    conversationId: 'demo-inventory',
+    title: 'sudo password to restart the label printer (fictional)',
+    choices: [],
+    receivedAt: at(-31),
     status: 'open',
   },
 ]

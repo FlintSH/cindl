@@ -44,6 +44,8 @@ its evidence.
 
 - [Client operations](reference/client-operations.md): the full
   `CindlClientApi`, generated from the contract.
+- [Server requests](reference/server-requests.md): approvals, clarify sets and
+  prompts Cindl does not answer, from open to closed.
 - [Events and errors](reference/events.md): every `CindlEvent` and error code.
 - [Capabilities](reference/capabilities.md): what each capability means and how
   it is established.

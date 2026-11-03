@@ -244,22 +244,22 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
     case 'request.opened': {
       const incoming = event.request
       const existing = entry(state.requests, incoming.requestId)
-      if (existing) {
-        // Never resurrect a request Hermes closed, cancelled or expired.
-        if (!OPEN_STATES.has(existing.status) && existing.status !== 'answered')
-          return state
-        // A re-sent frame while this client's answer is in flight keeps it in flight.
-        if (existing.status === 'answering' && existing.answer)
+      // Hermes re-sends only requests it still holds open, so a re-send on a newer
+      // connection reopens it whatever this client knew: an answer still marked as
+      // sending never landed, and a close inferred from a sync was wrong.
+      if (existing && incoming.lastSeenEpoch <= existing.lastSeenEpoch) {
+        // On the same connection a closed request stays closed...
+        if (!OPEN_STATES.has(existing.status)) return state
+        // ...and an answer in flight stays in flight.
+        if (existing.status === 'answering')
           return {
             ...state,
             requests: withEntry(state.requests, incoming.requestId, {
               ...incoming,
               status: 'answering',
-              answer: existing.answer,
+              ...(existing.answer ? { answer: existing.answer } : {}),
             }),
           }
-        // Hermes re-sending a request this client answered means that answer did not
-        // land (Hermes keeps the first reply): it is answerable again.
       }
       return {
         ...state,
@@ -268,13 +268,22 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
     }
     case 'request.closed': {
       const existing = entry(state.requests, event.requestId)
-      if (!existing || !OPEN_STATES.has(existing.status)) return state
-      // Hermes tells every client, the answering one included, that a request
-      // resolved; if this client sent an answer, record that, nothing more.
-      const status = existing.answer ? 'answered' : event.status
+      if (!existing) return state
+      // Implementations say `answered` only when Hermes acknowledged this client's
+      // answer. That acknowledgement can arrive after Hermes's own "resolved"
+      // broadcast closed the request as resolved elsewhere.
+      const acknowledged =
+        event.status === 'answered' &&
+        existing.status === 'resolved-elsewhere' &&
+        Boolean(existing.answer)
+      if (!OPEN_STATES.has(existing.status) && !acknowledged) return state
+      // Any answer this client sent is kept for display, whatever the outcome.
       return {
         ...state,
-        requests: withEntry(state.requests, event.requestId, { ...existing, status }),
+        requests: withEntry(state.requests, event.requestId, {
+          ...existing,
+          status: event.status,
+        }),
       }
     }
     case 'request.answer-failed': {
@@ -292,10 +301,8 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
       for (const [id, request] of Object.entries(state.requests)) {
         if (request.conversationId !== event.conversationId) continue
         if (!OPEN_STATES.has(request.status) || open.has(id)) continue
-        requests = withEntry(requests, id, {
-          ...request,
-          status: request.answer ? 'answered' : 'resolved-elsewhere',
-        })
+        // Hermes no longer holds it; it cannot say whose answer, if any, it used.
+        requests = withEntry(requests, id, { ...request, status: 'resolved-elsewhere' })
       }
       return requests === state.requests ? state : { ...state, requests }
     }

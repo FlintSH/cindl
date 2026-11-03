@@ -67,10 +67,11 @@ Hermes `hermes serve` backend. There is no Cindl server.
 5. Converse: `prompt.submit` returns `streaming | queued | steered | redirected`;
    output arrives as `message.*`, `tool.*`, `status.update` and related events.
 6. Decide: approvals and clarifications are server-to-client JSON-RPC requests;
-   Cindl answers each once, by id, with an offered choice. Hermes keeps the
-   first reply from any client, so requests Cindl does not handle are declined
-   in a way that leaves them answerable elsewhere (ADR 0005); the exact reply per
-   request kind is being verified.
+   Cindl answers each once, by id, with an offered choice, through a path
+   Hermes acknowledges. Hermes keeps the first reply from any client. Cindl
+   never replies to sudo, secret, vault or unknown prompts, because even a
+   decline can become the value Hermes uses; it shows them read-only so another
+   Hermes surface can answer (ADR 0005, [server requests](../reference/server-requests.md)).
 7. Reconnect: `session.events.since` replays a bounded in-memory window and
    reports `epoch`, `truncated` and `open_requests`. On an epoch change or
    truncation the client reloads history instead of trusting partial replay.

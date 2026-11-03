@@ -16,6 +16,7 @@ import {
   ToolActivity,
   VersionedDocument,
 } from './domain.ts'
+import { CindlError } from './errors.ts'
 import type { CindlEvent } from './events.ts'
 import { LinkState } from './link.ts'
 
@@ -207,7 +208,7 @@ export const clientOps = {
     result: ServerRequest,
     mutates: true,
     summary:
-      'Answer one open server request once; clarify sets are answered in one submission.',
+      'Answer one open approval or clarify request once (never an unsupported one); clarify sets are answered in one submission.',
   }),
   'routines.list': op({
     args: z.object({}),
@@ -326,14 +327,35 @@ export interface CindlClientApi {
   subscribe(listener: (event: CindlEvent) => void): () => void
 }
 
-/** Validate untrusted op input (IPC boundary). Throws a ZodError on mismatch. */
+/**
+ * Validate untrusted op input (IPC boundary). Throws `CindlError('invalid')`:
+ * nothing was sent, so callers can say so rather than report an uncertain
+ * outcome. `detail` names the failing field and rule, never its value.
+ */
 export function parseOpArgs<K extends OpName>(
   name: K,
   args: unknown,
 ): z.output<ClientOps[K]['args']> {
-  if (!isOpName(name)) throw new Error(`Unknown Cindl operation: ${String(name)}`)
-  const definition = clientOps[name]
-  return definition.args.parse(args) as z.output<ClientOps[K]['args']>
+  if (!isOpName(name))
+    throw new CindlError('invalid', 'Not sent: unknown operation.', 'unknown op name')
+  const result = clientOps[name].args.safeParse(args)
+  if (!result.success) {
+    const issue = result.error.issues[0]
+    throw new CindlError(
+      'invalid',
+      `Not sent: ${describeIssue(issue)}`,
+      `${name}: ${issue ? `${issue.path.join('.') || '(args)'} ${issue.code}` : 'invalid'}`,
+    )
+  }
+  return result.data as z.output<ClientOps[K]['args']>
+}
+
+function describeIssue(issue: z.core.$ZodIssue | undefined): string {
+  if (issue?.code === 'too_big' && issue.origin === 'string')
+    return `the text is longer than ${Number(issue.maximum).toLocaleString('en-US')} characters.`
+  if (issue?.code === 'too_big' && issue.origin === 'array')
+    return `there are more than ${Number(issue.maximum).toLocaleString('en-US')} items.`
+  return 'Cindl rejected this request before sending it.'
 }
 
 export function isOpName(value: unknown): value is OpName {

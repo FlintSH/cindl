@@ -179,31 +179,69 @@ describe('server requests', () => {
     expect(selectOpenRequests(state)).toHaveLength(1)
   })
 
-  it('keeps an in-flight answer when the request is re-sent', () => {
+  it('keeps an in-flight answer when the request is re-sent on the same connection', () => {
     const state = run([
       { type: 'request.opened', request: approval() },
       {
         type: 'request.opened',
         request: approval({ status: 'answering', answer: deny }),
       },
-      { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
+      { type: 'request.opened', request: approval() },
     ])
-    expect(state.requests[id]).toMatchObject({
-      status: 'answering',
-      answer: deny,
-      lastSeenEpoch: 2,
-    })
+    expect(state.requests[id]).toMatchObject({ status: 'answering', answer: deny })
   })
 
-  it('records only that this client answered when Hermes broadcasts the resolution', () => {
+  it('reopens an in-flight answer when a newer connection re-sends it (the answer never landed)', () => {
     const state = run([
       {
         type: 'request.opened',
         request: approval({ status: 'answering', answer: deny }),
       },
-      { type: 'request.closed', requestId: id, status: 'resolved-elsewhere' },
+      { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
     ])
-    expect(state.requests[id]?.status).toBe('answered')
+    expect(state.requests[id]).toMatchObject({ status: 'open', lastSeenEpoch: 2 })
+    expect(state.requests[id]?.answer).toBeUndefined()
+    expect(selectOpenRequests(state)).toHaveLength(1)
+  })
+
+  it("keeps Hermes's own close status and the answer this client sent", () => {
+    for (const status of ['resolved-elsewhere', 'cancelled', 'expired'] as const) {
+      const state = run([
+        {
+          type: 'request.opened',
+          request: approval({ status: 'answering', answer: deny }),
+        },
+        { type: 'request.closed', requestId: id, status },
+      ])
+      expect(state.requests[id]).toMatchObject({ status, answer: deny })
+    }
+  })
+
+  it('records answered only from an acknowledgement, even one that follows a resolved broadcast', () => {
+    const acknowledged = run([
+      {
+        type: 'request.opened',
+        request: approval({ status: 'answering', answer: deny }),
+      },
+      { type: 'request.closed', requestId: id, status: 'answered' },
+    ])
+    expect(acknowledged.requests[id]?.status).toBe('answered')
+    const late = run([
+      {
+        type: 'request.opened',
+        request: approval({ status: 'answering', answer: deny }),
+      },
+      { type: 'request.closed', requestId: id, status: 'resolved-elsewhere' },
+      { type: 'request.closed', requestId: id, status: 'answered' },
+    ])
+    expect(late.requests[id]?.status).toBe('answered')
+    // Without an answer from this client there is nothing to acknowledge.
+    const foreign = run([
+      { type: 'request.opened', request: approval() },
+      { type: 'request.closed', requestId: id, status: 'resolved-elsewhere' },
+      { type: 'request.closed', requestId: id, status: 'answered' },
+    ])
+    expect(foreign.requests[id]?.status).toBe('resolved-elsewhere')
   })
 
   it('makes a request answerable again when the answer could not be sent', () => {
@@ -218,30 +256,42 @@ describe('server requests', () => {
     expect(state.requests[id]?.answer).toBeUndefined()
   })
 
-  it('reopens an answered request that Hermes re-sends (that answer did not land)', () => {
-    const state = run([
-      {
-        type: 'request.opened',
-        request: approval({ status: 'answering', answer: deny }),
-      },
-      { type: 'request.closed', requestId: id, status: 'answered' },
-      { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
-    ])
-    expect(state.requests[id]?.status).toBe('open')
-  })
-
-  it('never reopens a request Hermes cancelled or expired', () => {
-    for (const status of ['cancelled', 'expired'] as const) {
+  it('keeps closed requests closed on the same connection', () => {
+    for (const status of [
+      'answered',
+      'resolved-elsewhere',
+      'cancelled',
+      'expired',
+    ] as const) {
       const state = run([
-        { type: 'request.opened', request: approval() },
+        {
+          type: 'request.opened',
+          request: approval({ status: 'answering', answer: deny }),
+        },
         { type: 'request.closed', requestId: id, status },
-        { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
+        { type: 'request.opened', request: approval() },
       ])
       expect(state.requests[id]?.status).toBe(status)
     }
   })
 
-  it('syncs one conversation at a time and never relabels an answer as resolved elsewhere', () => {
+  it('reopens any closed request that a newer connection re-sends (Hermes re-sends only open ones)', () => {
+    for (const status of [
+      'answered',
+      'resolved-elsewhere',
+      'cancelled',
+      'expired',
+    ] as const) {
+      const state = run([
+        { type: 'request.opened', request: approval() },
+        { type: 'request.closed', requestId: id, status },
+        { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
+      ])
+      expect(state.requests[id]?.status).toBe('open')
+    }
+  })
+
+  it('syncs one conversation at a time, closing what Hermes no longer holds as resolved elsewhere', () => {
     const state = run([
       { type: 'request.opened', request: approval() },
       {
@@ -259,9 +309,22 @@ describe('server requests', () => {
       { type: 'requests.synced', conversationId: 'c1', openRequestIds: [] },
     ])
     expect(state.requests[id]?.status).toBe('resolved-elsewhere')
-    expect(state.requests['srq-00000000000c']?.status).toBe('answered')
+    // Hermes cannot say whose answer it used; the sent answer stays visible.
+    expect(state.requests['srq-00000000000c']).toMatchObject({
+      status: 'resolved-elsewhere',
+      answer: deny,
+    })
     // Another conversation's open request is untouched by c1's sync.
     expect(state.requests[other]?.status).toBe('open')
+  })
+
+  it('lets a re-send after reconnect reopen a request a sync closed', () => {
+    const state = run([
+      { type: 'request.opened', request: approval() },
+      { type: 'requests.synced', conversationId: 'c1', openRequestIds: [] },
+      { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
+    ])
+    expect(state.requests[id]?.status).toBe('open')
   })
 
   it('ignores ids it has never seen, including inherited object keys', () => {

@@ -375,6 +375,11 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
       if (!request) throw new CindlError('not-found', 'This request is no longer open.')
       if (request.status !== 'open')
         throw new CindlError('conflict', 'This request was already answered or closed.')
+      if (request.kind === 'unsupported')
+        throw new CindlError(
+          'unsupported',
+          'Cindl does not answer this kind of prompt. Answer it in another Hermes surface.',
+        )
       if (
         answer.kind === 'approval' &&
         (request.kind !== 'approval' || !request.choices.includes(answer.choice))
@@ -392,7 +397,7 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
       later(200, () => {
         requests.set(requestId, { ...answering, status: 'answered' })
         emit({ type: 'request.closed', requestId, status: 'answered' })
-        const conversationId = request.conversationId ?? 'demo-main'
+        const { conversationId } = request
         if (request.kind === 'approval') {
           // The turn that asked for approval ends once it has its answer.
           emit({

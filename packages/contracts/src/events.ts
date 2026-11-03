@@ -53,23 +53,43 @@ export const CindlEvent = z.discriminatedUnion('type', [
   }),
   z.object({ type: z.literal('tool.updated'), activity: ToolActivity }),
   z.object({ type: z.literal('prompt.updated'), prompt: PendingPrompt }),
+  /**
+   * Hermes holds this request open: a live request frame, or Hermes's list of
+   * open requests after (re)connect. Never emitted from history replay.
+   * Hermes re-sends only open requests, so a re-send with a higher
+   * `lastSeenEpoch` reopens the request whatever this client last knew.
+   */
   z.object({ type: z.literal('request.opened'), request: ServerRequest }),
-  /** Hermes closed a request. If this client had sent an answer, the reducer records `answered`. */
+  /**
+   * The request is no longer open. After `request.answer`, an implementation
+   * ends `answering` with exactly one of: this event with `answered` when
+   * Hermes acknowledged the answer (it accepted it; the resulting action may
+   * still fail), this event with `resolved-elsewhere` when Hermes says the
+   * request was no longer pending, or `request.answer-failed`. Hermes's own
+   * closes (cancelled, expired, resolved) carry their status as is. An
+   * `answered` acknowledgement that arrives after a `resolved-elsewhere` close
+   * still records `answered`.
+   */
   z.object({
     type: z.literal('request.closed'),
     requestId: z.string(),
     status: z.enum(['answered', 'resolved-elsewhere', 'cancelled', 'expired']),
   }),
   /**
-   * After (re)connect or replay, per conversation: the requests Hermes still
-   * holds open there. That conversation's other open requests are closed.
+   * After (re)connect: one event for every conversation that has open
+   * requests on either side, listing what Hermes still holds open there. That
+   * conversation's other open or answering requests close as
+   * `resolved-elsewhere`; Hermes cannot say whose answer it used.
    */
   z.object({
     type: z.literal('requests.synced'),
     conversationId: z.string(),
     openRequestIds: z.array(z.string()),
   }),
-  /** This client's answer could not be sent; the request is answerable again. */
+  /**
+   * This client's answer did not reach Hermes, or Hermes rejected it and still
+   * holds the request open: it is answerable again.
+   */
   z.object({ type: z.literal('request.answer-failed'), requestId: z.string() }),
   /** A local prompt record (queued or uncertain) was dismissed or delivered. */
   z.object({ type: z.literal('prompt.removed'), clientId: z.string() }),

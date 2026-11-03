@@ -9,6 +9,7 @@ import {
   parseOpArgs,
   ServerRequest,
   clarifyAnswersComplete,
+  CindlError,
   openQuestionIds,
 } from '../src/index.ts'
 
@@ -56,7 +57,9 @@ describe('client operation registry', () => {
   it('rejects unknown operations and does not offer a passthrough', () => {
     expect(isOpName('shell.exec')).toBe(false)
     expect(isOpName('toString')).toBe(false)
-    expect(() => parseOpArgs('rpc.call' as never, {})).toThrow(/Unknown Cindl operation/)
+    expect(() => parseOpArgs('rpc.call' as never, {})).toThrow(
+      'Not sent: unknown operation.',
+    )
     expect(opNames.some((name) => /exec|vault|passthrough|raw/i.test(name))).toBe(false)
   })
 
@@ -226,13 +229,109 @@ describe('identifiers', () => {
 
   it('treats inherited object keys as unknown operations', () => {
     for (const name of ['toString', '__proto__', 'constructor', 'hasOwnProperty'])
-      expect(() => parseOpArgs(name as never, {})).toThrow(/Unknown Cindl operation/)
+      expect(() => parseOpArgs(name as never, {})).toThrow('Not sent: unknown operation.')
+  })
+})
+
+describe('validation failures', () => {
+  const failure = (run: () => unknown) => {
+    try {
+      run()
+    } catch (err) {
+      return err
+    }
+    throw new Error('expected a validation failure')
+  }
+
+  it('are CindlError invalid, say nothing was sent, and never echo the value', () => {
+    const secretish = 'x'.repeat(100_001)
+    const err = failure(() =>
+      parseOpArgs('prompt.submit', {
+        conversationId: 'c1',
+        clientId: 'p1',
+        text: secretish,
+      }),
+    )
+    expect(err).toBeInstanceOf(CindlError)
+    expect(err).toMatchObject({
+      code: 'invalid',
+      message: 'Not sent: the text is longer than 100,000 characters.',
+      detail: 'prompt.submit: text too_big',
+    })
+    expect(JSON.stringify(err)).not.toContain('xxxx')
+    expect(
+      failure(() => parseOpArgs('request.answer', { requestId: 'nope' })),
+    ).toMatchObject({
+      code: 'invalid',
+      message: 'Not sent: Cindl rejected this request before sending it.',
+    })
+  })
+
+  it('accept every clarify choice Hermes can offer (8,000 characters plus a suffix)', () => {
+    const offered = `${'c'.repeat(8_000)} (Recommended)`
+    const answer = (choice: string) => ({
+      requestId: 'srq-00000000000a',
+      answer: { kind: 'clarify', answers: { q0: { choices: [choice] } } },
+    })
+    expect(parseOpArgs('request.answer', answer(offered))).toBeTruthy()
+    expect(() => parseOpArgs('request.answer', answer('c'.repeat(8_193)))).toThrow(
+      'Not sent: the text is longer than 8,192 characters.',
+    )
+  })
+})
+
+describe('server request shape (v4)', () => {
+  const base = {
+    requestId: 'srq-00000000000a',
+    lastSeenEpoch: 1,
+    kind: 'approval',
+    conversationId: 'c1',
+    title: 'Run a command',
+    choices: ['once', 'deny'],
+    receivedAt: '2026-01-01T00:00:00.000Z',
+    status: 'open',
+  }
+
+  it('belongs to a conversation', () => {
+    const { conversationId: _omit, ...withoutConversation } = base
+    expect(ServerRequest.safeParse(withoutConversation).success).toBe(false)
+    expect(ServerRequest.safeParse({ ...base, conversationId: '' }).success).toBe(false)
+  })
+
+  it('represents prompts Cindl does not answer', () => {
+    for (const unsupportedKind of ['sudo', 'secret', 'vault', 'other'])
+      expect(
+        ServerRequest.safeParse({
+          ...base,
+          kind: 'unsupported',
+          unsupportedKind,
+          choices: [],
+        }).success,
+      ).toBe(true)
+    expect(
+      ServerRequest.safeParse({
+        ...base,
+        kind: 'unsupported',
+        unsupportedKind: 'password',
+      }).success,
+    ).toBe(false)
+  })
+
+  it('accepts any locked answer Hermes reports, however long', () => {
+    const request = ServerRequest.parse({
+      ...base,
+      kind: 'clarify',
+      choices: [],
+      questions: [{ qid: 'q0', question: 'Notes?', multiSelect: false }],
+      lockedAnswers: { q0: { text: 'n'.repeat(30_000) } },
+    })
+    expect(openQuestionIds(request)).toEqual([])
   })
 })
 
 describe('contract surface', () => {
   it('is versioned and enumerable for docs coverage', () => {
-    expect(CONTRACTS_VERSION).toBe(3)
+    expect(CONTRACTS_VERSION).toBe(4)
     expect(new Set(cindlEventTypes).size).toBe(cindlEventTypes.length)
     expect(new Set(capabilityIds).size).toBe(capabilityIds.length)
   })

@@ -68,6 +68,11 @@ from the desktop app's custom protocol.
 - **No tokens in the browser:** the web client relies on Hermes's HttpOnly
   session cookie. Only non-secret preferences (theme and whether the working
   margin is open) are stored locally.
+- **Prompts Cindl never answers:** when Hermes asks for a sudo password, a
+  secret value or a vault code, Cindl shows a read-only "Answer outside Cindl"
+  card and sends nothing back, not even a decline, because any reply could
+  become the password Hermes uses. Answer it in another Hermes surface, such as
+  the Hermes terminal; it stays open until Hermes closes it.
 
 ## Keyboard
 

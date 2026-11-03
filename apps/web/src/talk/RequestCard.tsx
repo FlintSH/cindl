@@ -6,8 +6,9 @@ import {
   type ClarifyResponse,
   type RequestAnswer,
   type ServerRequest,
+  type UnsupportedRequestKind,
 } from '@cindl/contracts'
-import { HelpCircle, ShieldAlert } from 'lucide-react'
+import { HelpCircle, KeyRound, ShieldAlert } from 'lucide-react'
 import { useId, useRef, useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './talk.module.css'
@@ -141,13 +142,67 @@ function QuestionFields({
   )
 }
 
+/** One card per open request; prompts Cindl does not answer are read-only. */
+export function RequestCard({ request }: { request: ServerRequest }) {
+  return request.kind === 'unsupported' ? (
+    <UnsupportedCard request={request} />
+  ) : (
+    <DecisionCard request={request} />
+  )
+}
+
+const asks: Record<UnsupportedRequestKind, string> = {
+  sudo: 'a sudo password',
+  secret: 'a secret value',
+  vault: 'a vault password or code',
+  other: 'an answer Cindl cannot send',
+}
+
+/**
+ * Hermes is blocked on a prompt that Cindl must never answer: any reply,
+ * even a decline, can become the password or secret Hermes uses. The card
+ * says what Hermes is waiting for and offers nothing to send, so the prompt
+ * stays open for another Hermes surface.
+ */
+function UnsupportedCard({ request }: { request: ServerRequest }) {
+  const titleId = useId()
+  const kind = request.unsupportedKind ?? 'other'
+  return (
+    <section
+      id={requestDomId(request)}
+      className={styles.request}
+      data-kind="unsupported"
+      aria-labelledby={titleId}
+    >
+      <header className={styles.requestHeader}>
+        <span className={styles.requestKind}>
+          <KeyRound size={14} aria-hidden="true" />
+          Answer outside Cindl
+        </span>
+        <h3 id={titleId} className={styles.requestTitle} tabIndex={-1}>
+          <span className="visually-hidden">Answer outside Cindl: </span>
+          {request.title}
+        </h3>
+      </header>
+      <p className={styles.requestBody}>
+        Hermes is waiting for {asks[kind]}.{' '}
+        {kind === 'other'
+          ? 'Cindl does not support this kind of prompt and sends nothing for it.'
+          : 'Cindl never collects passwords, secrets or codes and sends nothing for this prompt.'}{' '}
+        Answer it in another Hermes surface, such as the Hermes terminal. It stays open
+        here until Hermes closes it.
+      </p>
+    </section>
+  )
+}
+
 /**
  * Structured decision card. Shows exactly what will run (as Hermes redacted
  * it) and only the choices Hermes offered that Cindl may send. A clarify set
  * is answered in one submission. Buttons lock on the first click so a quick
  * second click cannot send a second answer.
  */
-export function RequestCard({ request }: { request: ServerRequest }) {
+function DecisionCard({ request }: { request: ServerRequest }) {
   const api = useCindlApi()
   const titleId = useId()
   const [error, setError] = useState<string>()
@@ -173,10 +228,15 @@ export function RequestCard({ request }: { request: ServerRequest }) {
       await api.call('request.answer', { requestId: request.requestId, answer })
     } catch (err) {
       setError(
-        isCindlError(err) && ['conflict', 'invalid', 'not-found'].includes(err.code)
+        isCindlError(err) &&
+          ['conflict', 'invalid', 'not-found', 'unsupported'].includes(err.code)
           ? err.message
           : uncertain,
       )
+    } finally {
+      // This lock covers only the call. While Hermes acknowledges, the store
+      // says `answering`; if the answer then fails, the store reopens the
+      // request and the card must be usable again.
       sending.current = false
       setSubmitting(false)
     }

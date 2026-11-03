@@ -58,9 +58,10 @@ pnpm test:e2e                      # web flow tests on the demo build (Playwrigh
 ```
 
 Gates that are **not built yet** (owned by the docs/quality stream; do not claim
-them): privacy/secret scan, per-commit docs-impact check, docs site build and
-link check, contract/docs coverage check, CI workflows, desktop and Android
-builds. Until they exist, run the commands above and review privacy by hand.
+them): privacy/secret scan, the dist gate for fixture markers and the demo
+label, per-commit docs-impact check, docs site build and link check,
+contract/docs coverage check, CI workflows, desktop and Android builds. Until
+they exist, run the commands above and review privacy by hand.
 
 pnpm refuses dependency install scripts unless listed in `allowBuilds`
 (`pnpm-workspace.yaml`) and refuses releases younger than its minimum release
@@ -83,15 +84,17 @@ age. Keep both protections: pick an older version instead of adding exclusions.
    Web: Hermes's same-origin HttpOnly cookie only, nothing in browser storage.
    WS tickets and ticket subprotocols are secrets in diagnostics; redact with
    `@cindl/hermes-adapter` `redactText`/`redactValue`.
-4. **Approvals are Hermes's, answered once.** Answer a server request by its
-   JSON-RPC id, on the connection that received it, only with a choice Hermes
-   offered and Cindl permits (`once` or `deny`). Never send standing grants or
-   the upstream `all` flag. Never present command approvals as a universal
-   spending/sending policy engine.
+4. **Approvals are Hermes's, answered once.** Answer a server request once, by
+   its Hermes request id, through a path Hermes acknowledges, only with a
+   choice Hermes offered and Cindl permits (`once` or `deny`). Never send
+   standing grants or the upstream `all` flag. Never reply to sudo, secret,
+   vault or unknown prompts, not even with a decline or an error: the reply can
+   become the stored secret or the password. Never present command approvals as
+   a universal spending/sending policy engine.
 5. **Fixtures are synthetic and labelled.** Synthetic records exist only in
    demo flavours (web `build:demo`, desktop and Android demo builds); real
-   builds contain no fixture records (`SYNTHETIC_FIXTURE_MARKERS`, dist gate).
-   The demo label (`SYNTHETIC_DEMO_LABEL`/`SYNTHETIC_DEMO_NOTICE`) stays in
+   builds contain no fixture records (`SYNTHETIC_FIXTURE_MARKERS`; the dist
+   gate is not built yet). The demo label (`SYNTHETIC_DEMO_LABEL`/`SYNTHETIC_DEMO_NOTICE`) stays in
    every renderer and shows whenever `link.demo` is true; never compile it out.
    A test double is never a silent production fallback (ADR 0011).
 6. **Owner edits are explicit and versioned.** SOUL/skill writes go through

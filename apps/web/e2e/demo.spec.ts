@@ -12,9 +12,27 @@ test('opens on the main conversation with honest presence', async ({ page }) => 
   await expect(
     page.getByRole('status').filter({ hasText: 'Waiting on you' }),
   ).toContainText('1 approval, 1 question')
+  // Two requests here, plus a sudo prompt in a side conversation that only
+  // another Hermes surface can answer.
   await expect(
-    page.getByRole('link', { name: /^Work\b.*2 waiting on you/ }).first(),
+    page.getByRole('link', { name: /^Work\b.*3 waiting on you/ }).first(),
   ).toBeVisible()
+})
+
+test('shows a prompt Cindl never answers, with nothing to send', async ({ page }) => {
+  await page.goto('/#/work')
+  const card = page.getByRole('region', {
+    name: /Answer outside Cindl: sudo password to restart the label printer/,
+  })
+  await expect(card).toContainText('Hermes is waiting for a sudo password.')
+  await expect(card).toContainText('sends nothing for this prompt')
+  await expect(card.getByRole('button')).toHaveCount(0)
+  await expect(card.getByRole('textbox')).toHaveCount(0)
+  await page.goto('/#/talk/demo-inventory')
+  await expect(
+    page.getByRole('status').filter({ hasText: 'Waiting on you' }),
+  ).toContainText('1 prompt outside Cindl')
+  await expect(page.locator('#composer-hint')).toHaveText(/outside Cindl/)
 })
 
 test('answers an approval once and shows the result', async ({ page }) => {
@@ -30,7 +48,7 @@ test('answers an approval once and shows the result', async ({ page }) => {
   await expect(page.getByText('Done. The inventory sheet is current')).toBeVisible()
   await expect(card).toHaveCount(0)
   await expect(
-    page.getByRole('link', { name: /^Work\b.*1 waiting on you/ }).first(),
+    page.getByRole('link', { name: /^Work\b.*2 waiting on you/ }).first(),
   ).toBeVisible()
 })
 

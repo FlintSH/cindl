@@ -1,6 +1,6 @@
 import { useOpenRequests, useTool } from '@cindl/client-react'
 import type { ServerRequest } from '@cindl/contracts'
-import { HelpCircle, ShieldAlert, X } from 'lucide-react'
+import { HelpCircle, KeyRound, ShieldAlert, X } from 'lucide-react'
 import { Button, SectionTitle } from '../ui/primitives.tsx'
 import { duration } from './format.ts'
 import { ToolIcon } from './ToolRow.tsx'
@@ -101,8 +101,18 @@ export function WorkingMargin({
           // so one request never shows two sets of decision buttons.
           <ul className={styles.waitingList}>
             {requests.map((request) => {
-              const Icon = request.kind === 'approval' ? ShieldAlert : HelpCircle
-              const label = request.kind === 'approval' ? 'approval' : 'question'
+              const Icon =
+                request.kind === 'approval'
+                  ? ShieldAlert
+                  : request.kind === 'clarify'
+                    ? HelpCircle
+                    : KeyRound
+              const label =
+                request.kind === 'approval'
+                  ? 'approval'
+                  : request.kind === 'clarify'
+                    ? 'question'
+                    : 'prompt to answer outside Cindl'
               return (
                 <li key={request.requestId} className={styles.waitingRow}>
                   <Icon size={15} aria-hidden="true" />

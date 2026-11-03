@@ -129,10 +129,19 @@ export type ClarifyQuestion = z.infer<typeof ClarifyQuestion>
  */
 export const ClarifyResponse = z.union([
   z.object({ text: z.string().trim().min(1).max(20_000) }),
-  z.object({ choices: z.array(z.string().max(2_000)).min(1).max(50) }),
+  // Hermes allows choices up to 8,000 characters plus a " (Recommended)" suffix
+  // (tools/clarify_tool.py at v0.22.5); every offered choice must be sendable.
+  z.object({ choices: z.array(z.string().max(8_192)).min(1).max(50) }),
   z.object({ skipped: z.literal(true) }),
 ])
 export type ClarifyResponse = z.infer<typeof ClarifyResponse>
+
+/** An answer another client locked. It comes from Hermes, so only its shape is checked. */
+export const LockedClarifyResponse = z.union([
+  z.object({ text: z.string() }),
+  z.object({ choices: z.array(z.string()) }),
+  z.object({ skipped: z.literal(true) }),
+])
 
 /**
  * Hermes expects ONE reply for a whole clarify set: every question in the
@@ -159,9 +168,22 @@ export const RequestId = z.string().regex(/^srq-[0-9a-f]{12}$/, 'Not a Hermes re
 export type RequestId = z.infer<typeof RequestId>
 
 /**
- * A server-to-client request: a command approval or a clarifying question.
- * Keyed by Hermes's request id, never by connection. It is not a universal
- * spending/sending policy engine.
+ * What an `unsupported` request asks for. Cindl never replies to these: any
+ * reply, including a decline, an error or an empty skip, can become the value
+ * Hermes uses. A unanimous 4404 settles a sidecar request with a JSON error
+ * string that the secret callback may store and sudo or vault prompts may use
+ * as the password or code (tui_gateway/server_requests.py, agent_callbacks.py
+ * at v0.22.5). They stay open for another Hermes surface to answer. Unknown
+ * request kinds are `other` and are treated the same way.
+ */
+export const UnsupportedRequestKind = z.enum(['sudo', 'secret', 'vault', 'other'])
+export type UnsupportedRequestKind = z.infer<typeof UnsupportedRequestKind>
+
+/**
+ * A server-to-client request: a command approval, a clarifying question, or a
+ * prompt Cindl does not answer (`unsupported`, shown so the owner knows Hermes
+ * is waiting). Keyed by Hermes's request id, never by connection. It is not a
+ * universal spending/sending policy engine.
  */
 export const ServerRequest = z.object({
   requestId: RequestId,
@@ -169,8 +191,11 @@ export const ServerRequest = z.object({
   hermesApprovalId: z.string().optional(),
   /** Connection epoch on which this client last saw the request. Not identity. */
   lastSeenEpoch: z.number().int().nonnegative(),
-  kind: z.enum(['approval', 'clarify']),
-  conversationId: z.string().optional(),
+  kind: z.enum(['approval', 'clarify', 'unsupported']),
+  /** unsupported: what Hermes is asking for (missing means `other`). */
+  unsupportedKind: UnsupportedRequestKind.optional(),
+  /** Hermes `session_id` of the frame; every request belongs to one conversation. */
+  conversationId: z.string().min(1),
   title: z.string(),
   /** Approval: the command as Hermes redacted it server-side. */
   command: z.string().optional(),
@@ -185,15 +210,18 @@ export const ServerRequest = z.object({
    * Clarify: answers other clients already locked per question (`clarify.lock`,
    * replayed on reconnect). Cindl shows them and never overrides them.
    */
-  lockedAnswers: z.record(z.string(), ClarifyResponse).optional(),
+  lockedAnswers: z.record(z.string(), LockedClarifyResponse).optional(),
   receivedAt: isoTime,
   /**
-   * open: answerable. answering: this client is sending its answer.
-   * answered: this client sent an answer; Hermes keeps the first reply and does
-   * not acknowledge, so it may not be the one used. resolved-elsewhere: it
-   * closed without an answer from this client (another client answered, or it
-   * was withdrawn). cancelled/expired: Hermes cancelled it or it timed out. A
-   * failed send returns the request to open; there is no terminal failure.
+   * open: waiting (answerable here unless `unsupported`). answering: this
+   * client's answer is on its way. answered: Hermes acknowledged that it
+   * accepted this client's answer; that is registry acceptance, not proof the
+   * resulting action succeeded. resolved-elsewhere: it closed without an
+   * acknowledged answer from this client (another surface answered, or it was
+   * withdrawn). cancelled/expired: Hermes cancelled it or it timed out. A
+   * closed request keeps `answer` if this client sent one. A failed send
+   * returns it to open; there is no terminal failure. See the handbook's
+   * server-requests reference for how each status is reached.
    */
   status: z.enum([
     'open',
