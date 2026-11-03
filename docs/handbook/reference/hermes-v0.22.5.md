@@ -56,8 +56,11 @@ Canonical methods (only after `session_authority`): `runtime.describe`,
 `prompt.receipt`, `prompt.resolve_unknown`, `approval.respond`,
 `clarify.respond`, `profiles.list`, `cron.status`.
 
-Server requests Cindl answers: `approval`, `clarify`. All others receive
-JSON-RPC error `-32601`.
+Server requests Cindl answers: `approval`, `clarify`. Hermes broadcasts each
+request to every attached client and keeps the first reply, so Cindl declines
+the others in a way that leaves them answerable by the owner's other clients
+(the not-shown reply, code 4404, where Hermes defines it). Per-kind behaviour is
+being verified against the pinned source; no blanket error reply is used.
 
 Notifications handled: `gateway.ready`, `message.start`, `message.delta`,
 `message.interim`, `message.complete`, `reasoning.delta`,

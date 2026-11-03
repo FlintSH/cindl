@@ -9,6 +9,7 @@ import {
   Message,
   PendingPrompt,
   RequestAnswer,
+  RequestId,
   Routine,
   ServerRequest,
   Skill,
@@ -18,7 +19,57 @@ import {
 import type { CindlEvent } from './events.ts'
 import { LinkState } from './link.ts'
 
-const id = z.string().min(1).max(512)
+/**
+ * Identifier charsets are deliberately narrow: values cross the Electron IPC
+ * boundary and end up in Hermes URLs and RPC params. The adapter URL-encodes
+ * them as well; these schemas stop hostile values (`../x`, `?a#b`, `%2e`) early.
+ */
+/** Hermes session ids look like `20260102_080000_ab12cd`; other opaque ids use the same charset. */
+const entityId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,255}$/, 'Not a valid id')
+/** Client-generated ids (e.g. UUIDs). */
+const clientId = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/, 'Not a valid client id')
+/** Hermes profile names (hermes_cli/main.py at v0.22.5). */
+export const ProfileName = z
+  .string()
+  .regex(/^[a-z0-9][a-z0-9_-]{0,63}$/, 'Not a Hermes profile name')
+/** Skill names: no separators, query or encoding characters. */
+export const SkillName = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/, 'Not a skill name')
+
+const LOOPBACK_HOSTS = new Set(['127.0.0.1', '[::1]'])
+
+/**
+ * A `hermes serve` origin Cindl may sign in to: https, or http only on the
+ * loopback IP literals; no credentials, path, query or fragment. Normalised
+ * to the bare origin, which is all a client stores.
+ */
+export const HermesOrigin = z
+  .string()
+  .max(2048)
+  .transform((raw, ctx) => {
+    const reject = (message: string) => {
+      ctx.addIssue({ code: 'custom', message })
+      return z.NEVER
+    }
+    if (/[?#\\\s]/.test(raw)) return reject('Use only the scheme, host and port.')
+    let url: URL
+    try {
+      url = new URL(raw)
+    } catch {
+      return reject('Not a valid URL.')
+    }
+    if (url.username || url.password || raw.includes('@'))
+      return reject('Remove credentials from the address.')
+    if (url.pathname !== '/' && url.pathname !== '')
+      return reject('Use only the scheme, host and port.')
+    if (url.protocol === 'https:') return url.origin
+    if (url.protocol === 'http:' && LOOPBACK_HOSTS.has(url.hostname)) return url.origin
+    return reject('Use https:// (plain http is allowed only for 127.0.0.1 or [::1]).')
+  })
+
 const version = VersionedDocument.shape.version
 /** Owner edits must carry an explicit confirmation produced by a review step. */
 const confirmed = z.literal(true)
@@ -59,7 +110,7 @@ export const clientOps = {
     summary: 'Negotiated capabilities for this connection.',
   }),
   'auth.signIn': op({
-    args: z.object({ origin: z.url({ protocol: /^https?$/ }) }),
+    args: z.object({ origin: HermesOrigin }),
     result: LinkState,
     mutates: true,
     summary:
@@ -87,20 +138,23 @@ export const clientOps = {
     summary: 'Start a side conversation.',
   }),
   'conversations.setMain': op({
-    args: z.object({ conversationId: id }),
+    args: z.object({ conversationId: entityId }),
     result: Conversation,
     mutates: false,
     summary: 'Pin the device’s main conversation (stored on this device).',
   }),
   'conversations.rename': op({
-    args: z.object({ conversationId: id, title: z.string().min(1).max(200) }),
+    args: z.object({
+      conversationId: entityId,
+      title: z.string().trim().min(1).max(200),
+    }),
     result: Conversation,
     capability: 'sessions.rename',
     mutates: true,
     summary: 'Rename a conversation in Hermes.',
   }),
   'conversations.history': op({
-    args: z.object({ conversationId: id }),
+    args: z.object({ conversationId: entityId }),
     result: z.object({ messages: z.array(Message), tools: z.array(ToolActivity) }),
     capability: 'sessions.history',
     mutates: false,
@@ -108,8 +162,8 @@ export const clientOps = {
   }),
   'prompt.submit': op({
     args: z.object({
-      conversationId: id,
-      clientId: id,
+      conversationId: entityId,
+      clientId,
       text: z.string().min(1).max(100_000),
     }),
     result: PendingPrompt,
@@ -118,13 +172,13 @@ export const clientOps = {
     summary: 'Send a message. Never retried automatically once its outcome is uncertain.',
   }),
   'prompt.discard': op({
-    args: z.object({ clientId: id }),
+    args: z.object({ clientId }),
     result: z.object({ discarded: z.boolean() }),
     mutates: false,
     summary: 'Drop a queued or uncertain local prompt without sending it.',
   }),
   'conversation.interrupt': op({
-    args: z.object({ conversationId: id }),
+    args: z.object({ conversationId: entityId }),
     result: z.object({ requested: z.literal(true) }),
     capability: 'chat.interrupt',
     mutates: true,
@@ -132,13 +186,13 @@ export const clientOps = {
   }),
   'request.answer': op({
     args: z.object({
-      rpcId: z.union([z.string().min(1), z.number()]),
-      connectionEpoch: z.number().int().nonnegative(),
+      requestId: RequestId,
       answer: RequestAnswer,
     }),
     result: ServerRequest,
     mutates: true,
-    summary: 'Answer one open server request, once, with an offered choice.',
+    summary:
+      'Answer one open server request once; clarify sets are answered in one submission.',
   }),
   'routines.list': op({
     args: z.object({}),
@@ -148,7 +202,7 @@ export const clientOps = {
     summary: 'Scheduled Hermes cron jobs.',
   }),
   'routines.setEnabled': op({
-    args: z.object({ id, enabled: z.boolean(), confirm: confirmed }),
+    args: z.object({ id: entityId, enabled: z.boolean(), confirm: confirmed }),
     result: Routine,
     capability: 'routines.write',
     mutates: true,
@@ -162,7 +216,7 @@ export const clientOps = {
     summary: 'Installed skills.',
   }),
   'skills.read': op({
-    args: z.object({ name: id }),
+    args: z.object({ name: SkillName }),
     result: VersionedDocument,
     capability: 'skills.read',
     mutates: false,
@@ -170,7 +224,7 @@ export const clientOps = {
   }),
   'skills.write': op({
     args: z.object({
-      name: id,
+      name: SkillName,
       content: z.string().max(500_000),
       expectedVersion: version,
       confirm: confirmed,
@@ -182,7 +236,7 @@ export const clientOps = {
       'Replace a skill’s content after a reviewed diff; rejected if it changed since read.',
   }),
   'soul.read': op({
-    args: z.object({ profile: id.optional() }),
+    args: z.object({ profile: ProfileName.optional() }),
     result: VersionedDocument,
     capability: 'soul.read',
     mutates: false,
@@ -190,7 +244,7 @@ export const clientOps = {
   }),
   'soul.write': op({
     args: z.object({
-      profile: id.optional(),
+      profile: ProfileName.optional(),
       content: z.string().max(200_000),
       expectedVersion: version,
       confirm: confirmed,
@@ -262,8 +316,8 @@ export function parseOpArgs<K extends OpName>(
   name: K,
   args: unknown,
 ): z.output<ClientOps[K]['args']> {
-  const definition = clientOps[name] as ClientOps[OpName] | undefined
-  if (!definition) throw new Error(`Unknown Cindl operation: ${String(name)}`)
+  if (!isOpName(name)) throw new Error(`Unknown Cindl operation: ${String(name)}`)
+  const definition = clientOps[name]
   return definition.args.parse(args) as z.output<ClientOps[K]['args']>
 }
 

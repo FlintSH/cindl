@@ -25,10 +25,17 @@ const agentSections: AgentSection[] = [
 ]
 
 export function parseRoute(hash: string): Route {
-  const [view, a, b] = hash
-    .replace(/^#\/?/, '')
-    .split('/')
-    .map((part) => decodeURIComponent(part))
+  const decode = (part: string) => {
+    try {
+      return decodeURIComponent(part)
+    } catch {
+      return undefined
+    }
+  }
+  const parts = hash.replace(/^#\/?/, '').split('/').map(decode)
+  // A malformed escape (e.g. `%E0%A4%A`) is treated as an unknown route.
+  if (parts.some((part) => part === undefined)) return { view: 'talk' }
+  const [view, a, b] = parts as string[]
   switch (view) {
     case 'work':
       return { view: 'work' }

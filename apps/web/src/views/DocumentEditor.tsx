@@ -1,16 +1,39 @@
 import { diffLines, diffStats } from '@cindl/client-core'
 import { isCindlError, type VersionedDocument } from '@cindl/contracts'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './views.module.css'
 
 type Stage =
   { kind: 'view' } | { kind: 'edit'; draft: string } | { kind: 'review'; draft: string }
 
+function Review({ before, draft }: { before: string; draft: string }) {
+  const { lines, exact } = useMemo(() => diffLines(before, draft), [before, draft])
+  const stats = diffStats(lines)
+  return (
+    <>
+      <p>
+        Review before saving: <strong>{stats.added}</strong> line
+        {stats.added === 1 ? '' : 's'} added, <strong>{stats.removed}</strong> removed.
+        {exact ? '' : ' (Large document: shown as a full replacement.)'}
+      </p>
+      <pre className={styles.diff} aria-label="Changes">
+        {lines.map((line, index) => (
+          <span key={index} className={styles.diffLine} data-kind={line.kind}>
+            {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
+            {line.text}
+          </span>
+        ))}
+      </pre>
+    </>
+  )
+}
+
 /**
  * Owner edits go through three explicit steps: edit, review the exact diff
  * against the version that was read, confirm. The write carries that version,
  * so a document changed elsewhere in the meantime is rejected, not clobbered.
+ * After a conflict the draft is kept and re-reviewed against the new version.
  */
 export function DocumentEditor({
   document,
@@ -26,7 +49,7 @@ export function DocumentEditor({
   onReload: () => void
 }) {
   const [stage, setStage] = useState<Stage>({ kind: 'view' })
-  const [error, setError] = useState<string>()
+  const [error, setError] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
   const [backup, setBackup] = useState<string>()
 
@@ -78,7 +101,7 @@ export function DocumentEditor({
         />
         <div className={styles.actions}>
           <Button variant="quiet" onClick={() => setStage({ kind: 'view' })}>
-            Cancel
+            Discard changes
           </Button>
           <Button
             variant="primary"
@@ -91,8 +114,6 @@ export function DocumentEditor({
       </div>
     )
 
-  const { lines, exact } = diffLines(document.content, stage.draft)
-  const stats = diffStats(lines)
   const draft = stage.draft
   const save = async () => {
     setSaving(true)
@@ -103,38 +124,46 @@ export function DocumentEditor({
       setBackup(previous)
       setStage({ kind: 'view' })
     } catch (err) {
-      setError(
-        isCindlError(err) && err.code === 'conflict'
-          ? `${err.message} Your draft is kept; reload to see the current version.`
-          : isCindlError(err)
-            ? err.message
-            : 'Saving failed. Nothing was changed.',
+      if (isCindlError(err) && err.code === 'conflict')
+        setError({ message: `${err.message} Your draft is kept.`, conflict: true })
+      else if (
+        isCindlError(err) &&
+        ['invalid', 'unsupported', 'unavailable', 'unauthenticated', 'offline'].includes(
+          err.code,
+        )
       )
+        setError({ message: `${err.message} Nothing was saved.`, conflict: false })
+      else
+        setError({
+          message:
+            'Cindl could not confirm the save. Reload to check the current version before editing again.',
+          conflict: false,
+        })
     } finally {
       setSaving(false)
     }
   }
   return (
     <div className={styles.section}>
-      <p>
-        Review before saving: <strong>{stats.added}</strong> line
-        {stats.added === 1 ? '' : 's'} added, <strong>{stats.removed}</strong> removed.
-        {exact ? '' : ' (Large document: shown as a full replacement.)'}
-      </p>
-      <pre className={styles.diff} aria-label="Changes">
-        {lines.map((line, index) => (
-          <span key={index} className={styles.diffLine} data-kind={line.kind}>
-            {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
-            {line.text}
-          </span>
-        ))}
-      </pre>
+      <Review before={document.content} draft={draft} />
       {error ? (
         <p className={styles.error} role="alert">
-          {error}
+          {error.message}
         </p>
       ) : null}
       <div className={styles.actions}>
+        {error?.conflict ? (
+          <Button
+            onClick={() => {
+              // Fetch the current version, keep the draft, and review it again against the new text.
+              onReload()
+              setError(undefined)
+              setStage({ kind: 'edit', draft })
+            }}
+          >
+            Reload and keep my draft
+          </Button>
+        ) : null}
         <Button
           variant="quiet"
           disabled={saving}
@@ -142,7 +171,11 @@ export function DocumentEditor({
         >
           Back to editing
         </Button>
-        <Button variant="primary" disabled={saving} onClick={() => void save()}>
+        <Button
+          variant="primary"
+          disabled={saving || Boolean(error?.conflict)}
+          onClick={() => void save()}
+        >
           {saving ? 'Saving…' : 'Confirm and save'}
         </Button>
       </div>

@@ -19,7 +19,7 @@ reaches Hermes. There is no generic RPC or REST passthrough.
 | `prompt.submit`          | `chat.stream`          | yes           | Send a message. Never retried automatically once its outcome is uncertain.                  |
 | `prompt.discard`         | none                   | no            | Drop a queued or uncertain local prompt without sending it.                                 |
 | `conversation.interrupt` | `chat.interrupt`       | yes           | Ask Hermes to stop the current turn.                                                        |
-| `request.answer`         | none                   | yes           | Answer one open server request, once, with an offered choice.                               |
+| `request.answer`         | none                   | yes           | Answer one open server request once; clarify sets are answered in one submission.           |
 | `routines.list`          | `routines.read`        | no            | Scheduled Hermes cron jobs.                                                                 |
 | `routines.setEnabled`    | `routines.write`       | yes           | Pause or resume a cron job.                                                                 |
 | `skills.list`            | `skills.read`          | no            | Installed skills.                                                                           |
@@ -39,8 +39,12 @@ Rules every implementation follows:
 - Owner edits (`skills.write`, `soul.write`, `routines.setEnabled`,
   `display.acquireControl`) require `confirm: true`; document writes also
   require the `expectedVersion` that was read.
-- `request.answer` takes the JSON-RPC id and connection epoch of the request
-  and one of the choices Hermes offered (`once` or `deny` for approvals).
+- `request.answer` takes the Hermes request id (`srq-…`) and either one offered
+  approval choice (`once` or `deny`), one submission covering every question of
+  a clarify set (each answered or skipped), or a decline of the whole set.
+- Sign-in origins must be https (plain http only on 127.0.0.1 or [::1]) with no
+  credentials, path, query or fragment; profile names, skill names and ids use
+  narrow character sets.
 - Operations that change what a client knows also emit the corresponding
   events (for example `conversations.history` emits `history.loaded`).
 - Errors are `CindlError` with a stable code: `unauthenticated`, `forbidden`, `unsupported`, `unavailable`, `conflict`, `invalid`, `not-found`, `timeout`, `offline`, `uncertain`, `protocol`, `internal`.

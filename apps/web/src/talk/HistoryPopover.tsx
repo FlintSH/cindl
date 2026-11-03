@@ -1,4 +1,4 @@
-import { useCindlApi, useConversations } from '@cindl/client-react'
+import { useCan, useCindlApi, useConversations } from '@cindl/client-react'
 import { Pin, Plus } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { navigate } from '../router.ts'
@@ -19,6 +19,7 @@ export function HistoryPopover({
 }) {
   const api = useCindlApi()
   const conversations = useConversations()
+  const canCreate = useCan('sessions.create')
   const [query, setQuery] = useState('')
   const filtered = useMemo(
     () =>
@@ -80,19 +81,21 @@ export function HistoryPopover({
             <li className={styles.historyEmpty}>No conversations match.</li>
           ) : null}
         </ul>
-        <div className={styles.historyFooter}>
-          <button
-            type="button"
-            className={styles.historyNew}
-            onClick={() =>
-              void api
-                .call('conversations.create', {})
-                .then((created) => open_(created.id))
-            }
-          >
-            <Plus size={15} aria-hidden="true" /> New side conversation
-          </button>
-        </div>
+        {canCreate ? (
+          <div className={styles.historyFooter}>
+            <button
+              type="button"
+              className={styles.historyNew}
+              onClick={() =>
+                void api
+                  .call('conversations.create', {})
+                  .then((created) => open_(created.id))
+              }
+            >
+              <Plus size={15} aria-hidden="true" /> New side conversation
+            </button>
+          </div>
+        ) : null}
       </div>
     </Overlay>
   )

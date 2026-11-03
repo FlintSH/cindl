@@ -10,7 +10,6 @@ export type ThemePreference = 'system' | 'light' | 'dark'
 interface Preferences {
   theme: ThemePreference
   marginOpen: boolean
-  mainConversationId?: string
 }
 
 const KEY = 'cindl.preferences.v1'
@@ -28,9 +27,6 @@ function read(): Preferences {
       theme:
         parsed.theme === 'light' || parsed.theme === 'dark' ? parsed.theme : 'system',
       marginOpen: typeof parsed.marginOpen === 'boolean' ? parsed.marginOpen : true,
-      ...(typeof parsed.mainConversationId === 'string'
-        ? { mainConversationId: parsed.mainConversationId }
-        : {}),
     }
   } catch {
     cache = { ...defaults }

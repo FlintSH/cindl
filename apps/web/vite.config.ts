@@ -6,7 +6,7 @@ import { defineConfig, type Plugin } from 'vite'
  * images: img-src excludes remote hosts so agent-written Markdown cannot
  * beacon data out through image URLs. connect-src 'self' covers a same-origin
  * hermes serve mount. Dev mode omits it because Vite injects inline scripts.
- * Electron applies its own, stricter header in apps/desktop.
+ * The desktop app (apps/desktop, in progress) sets its own header.
  */
 export const CONTENT_SECURITY_POLICY = [
   "default-src 'self'",

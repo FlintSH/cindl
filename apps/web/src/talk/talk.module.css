@@ -403,6 +403,44 @@
   background: var(--color-surface);
 }
 
+/* Clarify sets: one fieldset per question, sent together. */
+.questionForm {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+.questionSet {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+.questionSet legend {
+  padding: 0;
+  margin-bottom: var(--space-1);
+}
+.option {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: var(--pointer-target);
+  cursor: pointer;
+}
+.option input {
+  width: 1rem;
+  height: 1rem;
+  margin: 0;
+  accent-color: var(--color-accent);
+  flex: none;
+}
+.otherLabel {
+  display: flex;
+  margin-top: var(--space-1);
+}
+
 /* Composer ---------------------------------------------------------------- */
 .composerDock {
   padding: 0 var(--space-5) var(--space-4);
@@ -452,8 +490,32 @@
   color: var(--color-text-tertiary);
 }
 .composerError {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
   margin: 0 var(--space-1) var(--space-2);
   color: var(--color-danger);
+}
+.composerError p {
+  margin: 0;
+}
+.uncertain {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  margin: 0 0 var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background: var(--color-warning-subtle);
+  color: var(--color-warning);
+  font-size: var(--text-label-size);
+}
+.uncertain p {
+  margin: 0;
+  flex: 1 1 12rem;
 }
 
 /* Working margin ---------------------------------------------------------- */
@@ -680,7 +742,8 @@ dialog .margin {
   .historyItem,
   .historyNew,
   .composerInput,
-  .requestDetails summary {
+  .requestDetails summary,
+  .option {
     min-height: var(--touch-target);
   }
 }

@@ -1,6 +1,6 @@
-# One workspace, one lockfile for runtime code. The handbook in docs/handbook
-# is a separate pnpm project with its own lockfile so docs tooling never ships
-# in a runtime package (see docs/handbook/AGENTS.md).
+# One workspace, one lockfile for runtime code. The handbook site in
+# docs/handbook is planned as a separate pnpm project with its own lockfile, so
+# docs tooling never ships in a runtime package.
 packages:
   - packages/*
   - apps/*

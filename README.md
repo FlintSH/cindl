@@ -5,12 +5,14 @@ Cindl (pronounced _sin-dəl_) is a calm, cross-device home for a self-hosted
 to your always-on chief-of-staff agent, see what it is doing, answer what it
 needs from you, and inspect who it is and what it can reach.
 
-- **Web**: responsive client, also the renderer of the desktop app.
-- **Desktop**: Electron shell with a hardened main/preload boundary.
-- **Android**: native React Native app (not a WebView wrapper).
+- **Web**: responsive client, also the renderer of the desktop app (runs against
+  a synthetic demo today).
+- **Desktop**: Electron shell with a hardened main/preload boundary (in progress).
+- **Android**: native React Native app, not a WebView wrapper (in progress).
 
-Hermes stays the brain. Cindl connects to an existing `hermes serve` backend over
-its authenticated REST and JSON-RPC WebSocket transport. It adds no model, no
+Hermes stays the brain. Cindl is built to connect to an existing `hermes serve`
+backend over its authenticated REST and JSON-RPC WebSocket transport (in
+progress; not yet validated against a live instance). It adds no model, no
 API keys and no hosted service.
 
 ## Status

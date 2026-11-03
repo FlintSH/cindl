@@ -5,9 +5,16 @@ import {
   selectConversations,
   selectMainConversation,
   selectOpenRequests,
+  selectUncertainPrompts,
   type ClientState,
 } from '@cindl/client-core'
-import type { CapabilityId, Conversation, Message, ServerRequest } from '@cindl/contracts'
+import type {
+  CapabilityId,
+  Conversation,
+  Message,
+  PendingPrompt,
+  ServerRequest,
+} from '@cindl/contracts'
 import { useCallback, useRef } from 'react'
 import { useCindlState } from './provider.tsx'
 
@@ -47,6 +54,17 @@ export const useMessages = (conversationId: string | undefined) =>
     conversationId ? (state.messages[conversationId] ?? empty) : empty,
   )
 export const useTool = (id: string) => useCindlState((state) => state.tools[id])
+
+export function useUncertainPrompts(conversationId: string | undefined): PendingPrompt[] {
+  const selector = useCallback(
+    (state: ClientState) =>
+      selectUncertainPrompts(state).filter(
+        (prompt) => prompt.conversationId === conversationId,
+      ),
+    [conversationId],
+  )
+  return useStableArray(selector)
+}
 
 export function useOpenRequests(conversationId?: string): ServerRequest[] {
   const selector = useCallback(

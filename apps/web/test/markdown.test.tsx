@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Markdown } from '../src/talk/Markdown.tsx'
 
@@ -18,16 +18,25 @@ describe('Markdown renders untrusted agent output safely', () => {
     expect(container.innerHTML).not.toContain('onerror')
   })
 
-  it('does not fetch remote images until the owner asks', () => {
+  it('never loads images from agent output: remote, relative or inline', () => {
     const { container } = render(
-      <Markdown text={'![chart](https://images.example.test/q?secret=1)'} />,
+      <Markdown
+        text={
+          '![chart](https://images.example.test/q?secret=1) ![local](/api/fs/read-text?path=x) ![dot](data:image/png;base64,iVBORw0KGgo=)'
+        }
+      />,
     )
     expect(container.querySelector('img')).toBeNull()
-    expect(screen.getByText(/Image from images\.example\.test not loaded/)).toBeTruthy()
-    fireEvent.click(screen.getByRole('button', { name: 'Load image' }))
-    expect(container.querySelector('img')?.getAttribute('src')).toBe(
-      'https://images.example.test/q?secret=1',
+    expect(screen.getByText(/Image from images\.example\.test not shown/)).toBeTruthy()
+    expect(screen.getAllByText(/does not load images from messages/)).toHaveLength(2)
+    expect(screen.queryByRole('button', { name: /Load image/ })).toBeNull()
+  })
+
+  it('shows the real destination of every link as visible text', () => {
+    render(
+      <Markdown text={'[https://bank.example.test](https://evil.example.test/login)'} />,
     )
+    expect(screen.getByText('(evil.example.test)')).toBeTruthy()
   })
 
   it('keeps unsafe link schemes inert and isolates safe links', () => {

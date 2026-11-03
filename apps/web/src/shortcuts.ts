@@ -1,6 +1,7 @@
 /**
  * Every keyboard shortcut, in one registry used by the handlers, the
- * shortcuts dialog and the handbook coverage check. Add a shortcut here, not
+ * shortcuts dialog and the keyboard table in
+ * docs/handbook/clients/web.md (a coverage check is planned). Add a shortcut here, not
  * inline in a component.
  */
 export interface Shortcut {

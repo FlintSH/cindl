@@ -27,8 +27,8 @@ const tool = (
   activity: { id, conversationId, name: 'terminal', title: 'Run export', status },
 })
 const request: ServerRequest = {
-  rpcId: 'r1',
-  connectionEpoch: 1,
+  requestId: 'srq-000000000001',
+  lastSeenEpoch: 1,
   kind: 'approval',
   conversationId: 'c1',
   title: 'Run export',
@@ -78,7 +78,7 @@ describe('conversation activity', () => {
       conversation('c1', 'working'),
       tool('running'),
       { type: 'request.opened', request },
-      { type: 'request.closed', rpcId: 'r1', status: 'answered' },
+      { type: 'request.closed', requestId: 'srq-000000000001', status: 'answered' },
     ])
     expect(selectConversationActivity(state, 'c1').phase).toBe('executing')
   })

@@ -51,7 +51,7 @@ export function renderTokensCss(): string {
   ]
   return [
     header,
-    `/* Breakpoints (use literally in media queries): medium ${layout.breakpoints.medium}px, expanded ${layout.breakpoints.expanded}px, wide ${layout.breakpoints.wide}px. */`,
+    `/* Breakpoints (use literally in media queries): medium ${layout.breakpoints.medium}px, wide ${layout.breakpoints.wide}px. */`,
     ':root {',
     ...scale,
     '}',

@@ -22,18 +22,18 @@ the area you touch. Those are listed in the map below.
 
 ## Repository map
 
-| Path                      | What it is                                                                      | Scoped rules                        |
-| ------------------------- | ------------------------------------------------------------------------------- | ----------------------------------- |
-| `packages/contracts`      | Versioned client contract: domain model, capabilities, events, client ops       | `packages/contracts/AGENTS.md`      |
-| `packages/hermes-adapter` | Hermes v0.22.5 `hermes serve` adapter: REST, JSON-RPC WS, PKCE, redaction       | `packages/hermes-adapter/AGENTS.md` |
-| `packages/client-core`    | Platform-agnostic store, reducer, selectors, diff, SHA-256, platform interfaces | `packages/client-core/AGENTS.md`    |
-| `packages/client-react`   | React bindings shared by web and Android                                        | `packages/client-core/AGENTS.md`    |
-| `packages/tokens`         | Semantic design tokens, CSS generator, OFL fonts                                | `DESIGN.md`                         |
-| `packages/fixtures`       | SYNTHETIC scenario for tests and the labelled demo only                         | `packages/fixtures/AGENTS.md`       |
-| `apps/web`                | Responsive web client; also the Electron renderer                               | `apps/web/AGENTS.md`                |
-| `apps/desktop`            | Electron shell (main, preload, packaging)                                       | `apps/desktop/AGENTS.md`            |
-| `apps/android`            | Native React Native / Expo Android app                                          | `apps/android/AGENTS.md`            |
-| `docs/handbook`           | Canonical handbook: architecture, decisions, security, reference                | `docs/handbook/index.md`            |
+| Path                      | What it is                                                                              | Scoped rules                        |
+| ------------------------- | --------------------------------------------------------------------------------------- | ----------------------------------- |
+| `packages/contracts`      | Versioned client contract: domain model, capabilities, events, client ops               | `packages/contracts/AGENTS.md`      |
+| `packages/hermes-adapter` | Hermes v0.22.5 adapter: pinned upstream surface, PKCE, redaction; transport in progress | `packages/hermes-adapter/AGENTS.md` |
+| `packages/client-core`    | Platform-agnostic store, reducer, selectors, diff, SHA-256, platform interfaces         | `packages/client-core/AGENTS.md`    |
+| `packages/client-react`   | React bindings shared by web and Android                                                | `packages/client-core/AGENTS.md`    |
+| `packages/tokens`         | Semantic design tokens, CSS generator, OFL fonts                                        | `DESIGN.md`                         |
+| `packages/fixtures`       | SYNTHETIC scenario for tests and the labelled demo only                                 | `packages/fixtures/AGENTS.md`       |
+| `apps/web`                | Responsive web client; also the Electron renderer                                       | `apps/web/AGENTS.md`                |
+| `apps/desktop`            | Electron shell (main, preload, packaging)                                               | `apps/desktop/AGENTS.md`            |
+| `apps/android`            | Native React Native / Expo Android app                                                  | `apps/android/AGENTS.md`            |
+| `docs/handbook`           | Canonical handbook: architecture, decisions, security, reference                        | `docs/handbook/index.md`            |
 
 Source-of-truth documents: `docs/handbook/architecture/overview.md`,
 `docs/handbook/architecture/decisions/`, `docs/handbook/security/threat-model.md`,

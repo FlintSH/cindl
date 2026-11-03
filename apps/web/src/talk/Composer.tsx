@@ -1,4 +1,4 @@
-import { useCindlApi, useLink } from '@cindl/client-react'
+import { useCan, useCindlApi, useLink } from '@cindl/client-react'
 import { isCindlError } from '@cindl/contracts'
 import { ArrowUp, Square } from 'lucide-react'
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
@@ -14,10 +14,21 @@ const newClientId = () =>
     ? crypto.randomUUID()
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
+/** Failures that certainly happened before anything reached Hermes. */
+const NOT_SENT = new Set([
+  'invalid',
+  'offline',
+  'unsupported',
+  'unavailable',
+  'unauthenticated',
+])
+
 /**
  * Non-blocking: you can send while Hermes works or waits (Hermes queues,
- * steers or redirects). Enter sends, Shift+Enter adds a line. The hint says
- * what sending now will do, derived from observed state.
+ * steers or redirects). Enter sends, Shift+Enter adds a line. Sending and
+ * stopping are offered only when their capabilities are usable. When the
+ * outcome of a send is unknown, the text is not silently restored (that would
+ * invite a duplicate); the owner can put it back explicitly.
  */
 export const Composer = forwardRef<
   ComposerHandle,
@@ -30,15 +41,20 @@ export const Composer = forwardRef<
 >(function Composer({ conversationId, canStop, hint, agentName }, ref) {
   const api = useCindlApi()
   const link = useLink()
+  const canSend = useCan('chat.stream')
+  const canInterrupt = useCan('chat.interrupt')
   const [text, setText] = useState('')
   const [error, setError] = useState<string>()
+  const [unconfirmed, setUnconfirmed] = useState<string>()
   const input = useRef<HTMLTextAreaElement>(null)
   useImperativeHandle(ref, () => ({ focus: () => input.current?.focus() }), [])
-  const online = link.phase === 'online'
+  const connected = link.phase === 'online'
+  const ready = connected && canSend
   const submit = async () => {
     const value = text.trim()
-    if (!value || !online) return
+    if (!value || !ready) return
     setError(undefined)
+    setUnconfirmed(undefined)
     setText('')
     try {
       await api.call('prompt.submit', {
@@ -47,8 +63,15 @@ export const Composer = forwardRef<
         text: value,
       })
     } catch (err) {
-      setText(value)
-      setError(isCindlError(err) ? err.message : 'Your message was not sent.')
+      if (isCindlError(err) && NOT_SENT.has(err.code)) {
+        setText(value)
+        setError(err.message)
+      } else {
+        setUnconfirmed(value)
+        setError(
+          'Cindl could not confirm whether this message was sent. Check the conversation before sending it again.',
+        )
+      }
     }
   }
   return (
@@ -60,9 +83,21 @@ export const Composer = forwardRef<
       }}
     >
       {error ? (
-        <p className={styles.composerError} role="alert">
-          {error}
-        </p>
+        <div className={styles.composerError} role="alert">
+          <p>{error}</p>
+          {unconfirmed !== undefined ? (
+            <Button
+              variant="quiet"
+              onClick={() => {
+                setText(unconfirmed)
+                setUnconfirmed(undefined)
+                setError(undefined)
+              }}
+            >
+              Put the text back
+            </Button>
+          ) : null}
+        </div>
       ) : null}
       <div className={styles.composerBox}>
         <label htmlFor="composer-input" className="visually-hidden">
@@ -74,10 +109,14 @@ export const Composer = forwardRef<
           className={styles.composerInput}
           rows={1}
           placeholder={
-            online ? `Message ${agentName}` : 'Not connected. Messages cannot be sent.'
+            ready
+              ? `Message ${agentName}`
+              : connected
+                ? 'Sending is not available on this connection.'
+                : 'Not connected. Messages cannot be sent.'
           }
           value={text}
-          disabled={!online}
+          disabled={!ready}
           aria-describedby={hint ? 'composer-hint' : undefined}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
@@ -92,7 +131,7 @@ export const Composer = forwardRef<
           }}
         />
         <div className={styles.composerActions}>
-          {canStop ? (
+          {canStop && canInterrupt ? (
             <Button
               variant="quiet"
               icon
@@ -108,7 +147,7 @@ export const Composer = forwardRef<
             variant="primary"
             icon
             aria-label="Send"
-            disabled={!online || !text.trim()}
+            disabled={!ready || !text.trim()}
           >
             <ArrowUp size={16} aria-hidden="true" />
           </Button>

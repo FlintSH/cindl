@@ -169,9 +169,9 @@ export const messages: Message[] = [
 
 export const requests: ServerRequest[] = [
   {
-    rpcId: 'demo-approval-1',
-    hermesRequestId: 'apr-demo-1',
-    connectionEpoch: 1,
+    requestId: 'srq-demo00000001',
+    hermesApprovalId: 'apr-demo-1',
+    lastSeenEpoch: 1,
     kind: 'approval',
     conversationId: 'demo-main',
     title: 'Run the inventory export script',
@@ -184,17 +184,23 @@ export const requests: ServerRequest[] = [
     status: 'open',
   },
   {
-    rpcId: 'demo-clarify-1',
-    connectionEpoch: 1,
+    requestId: 'srq-demo00000002',
+    lastSeenEpoch: 1,
     kind: 'clarify',
     conversationId: 'demo-main',
-    title: 'Which venue should I hold?',
+    title: 'Offsite venue and prep',
     questions: [
       {
         qid: 'venue',
         question: 'Both venues release their hold on Friday. Which one should I keep?',
         choices: ['Harbor Loft (fictional)', 'Orchard Barn (fictional)', 'Neither'],
         multiSelect: false,
+      },
+      {
+        qid: 'prep',
+        question: 'What should I prepare for the planning call?',
+        choices: ['Floor plan', 'Catering quotes', 'Travel times'],
+        multiSelect: true,
       },
     ],
     choices: [],

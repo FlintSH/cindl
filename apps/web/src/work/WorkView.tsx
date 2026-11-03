@@ -1,4 +1,5 @@
 import {
+  useCan,
   useCindlApi,
   useCindlState,
   useConversations,
@@ -59,6 +60,7 @@ function Running() {
 
 function Routines() {
   const api = useCindlApi()
+  const canWrite = useCan('routines.write')
   const list = useResource(
     () => api.call('routines.list', {}),
     'routines',
@@ -89,9 +91,11 @@ function Routines() {
               <Badge tone={routine.enabled ? 'success' : 'neutral'}>
                 {routine.enabled ? 'Active' : 'Paused'}
               </Badge>
-              <Button onClick={() => setPending(routine)}>
-                {routine.enabled ? 'Pause' : 'Resume'}
-              </Button>
+              {canWrite ? (
+                <Button onClick={() => setPending(routine)}>
+                  {routine.enabled ? 'Pause' : 'Resume'}
+                </Button>
+              ) : null}
             </span>
           </li>
         ))}
@@ -142,6 +146,7 @@ function Routines() {
 
 function Computer() {
   const api = useCindlApi()
+  const canControl = useCan('computer.control')
   const display = useCindlState((state) => state.display)
   const [confirming, setConfirming] = useState(false)
   if (!display) return <p className={styles.note}>Screen status not checked yet.</p>
@@ -176,7 +181,7 @@ function Computer() {
           <Button onClick={() => void api.call('display.releaseControl', {})}>
             Give control back
           </Button>
-        ) : display.status === 'running' ? (
+        ) : display.status === 'running' && canControl ? (
           confirming ? (
             <>
               <Button variant="quiet" onClick={() => setConfirming(false)}>
@@ -223,9 +228,7 @@ export function WorkView() {
             <SectionTitle id="needs-you">Needs you</SectionTitle>
           </div>
           {requests.length ? (
-            requests.map((r) => (
-              <RequestCard key={`${r.connectionEpoch}:${r.rpcId}`} request={r} />
-            ))
+            requests.map((r) => <RequestCard key={r.requestId} request={r} />)
           ) : (
             <p className={styles.empty}>Nothing is waiting on you.</p>
           )}

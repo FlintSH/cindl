@@ -65,10 +65,6 @@
   border-bottom: 1px solid var(--color-border);
   text-align: left;
 }
-.image {
-  max-width: 100%;
-  border-radius: var(--radius-md);
-}
 .blockedImage {
   display: inline-flex;
   flex-wrap: wrap;
@@ -80,18 +76,13 @@
   color: var(--color-text-secondary);
   font-size: var(--text-ui-size);
 }
-.inlineButton {
-  border: 0;
-  background: none;
-  padding: 0;
-  color: var(--color-accent-text);
-  text-decoration: underline;
-  text-underline-offset: 0.18em;
+.altText {
+  color: var(--color-text-tertiary);
 }
-@media (max-width: 767px), (pointer: coarse) {
-  .inlineButton {
-    min-height: var(--touch-target);
-  }
+.linkHost {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-label-size);
+  overflow-wrap: anywhere;
 }
 .inertLink {
   text-decoration: underline dotted;

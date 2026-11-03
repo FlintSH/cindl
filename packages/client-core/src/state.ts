@@ -24,7 +24,7 @@ export interface ClientState {
   messages: Readonly<Record<string, readonly Message[]>>
   tools: Readonly<Record<string, ToolActivity>>
   prompts: Readonly<Record<string, PendingPrompt>>
-  /** Keyed by `requestKey(rpcId, connectionEpoch)`. */
+  /** Keyed by Hermes request id (`srq-…`), stable across reconnects. */
   requests: Readonly<Record<string, ServerRequest>>
   usage: Readonly<Record<string, Usage>>
   display: DisplayState | undefined
@@ -46,8 +46,21 @@ export function initialState(link: LinkState): ClientState {
   }
 }
 
-export const requestKey = (rpcId: string | number, connectionEpoch: number) =>
-  `${connectionEpoch}:${typeof rpcId}:${rpcId}`
+const OPEN_STATES: ReadonlySet<ServerRequest['status']> = new Set(['open', 'answering'])
+
+/** Final text replaces streamed text in place, so tool rows keep their order. */
+function withFinalText(parts: Message['parts'], text: string): Message['parts'] {
+  const streamed = parts
+    .filter((part) => part.type === 'text')
+    .map((part) => part.text)
+    .join('')
+  if (streamed === text) return parts
+  const first = parts.findIndex((part) => part.type === 'text')
+  if (first < 0) return [...parts, { type: 'text', text }]
+  return parts.flatMap((part, index): Message['parts'] =>
+    part.type !== 'text' ? [part] : index === first ? [{ type: 'text', text }] : [],
+  )
+}
 
 const MAX_NOTICES = 20
 
@@ -145,22 +158,32 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
     case 'message.completed':
       return patchMessages(state, event.conversationId, (messages) => {
         const index = messages.findIndex((m) => m.id === event.messageId)
-        if (index < 0) return messages
+        if (index < 0) {
+          // Completion for a message this client never saw start (e.g. joined mid-turn).
+          if (event.text === undefined) return messages
+          return [
+            ...messages,
+            {
+              id: event.messageId,
+              conversationId: event.conversationId,
+              role: 'assistant',
+              parts: [{ type: 'text', text: event.text }],
+              status: event.status,
+            },
+          ]
+        }
         const message = messages[index] as Message
         const parts =
           event.text === undefined
             ? message.parts
-            : [
-                ...message.parts.filter((part) => part.type !== 'text'),
-                { type: 'text' as const, text: event.text },
-              ]
+            : withFinalText(message.parts, event.text)
         const next = [...messages]
         next[index] = { ...message, parts, status: event.status }
         return next
       })
     case 'tool.updated': {
       const { activity } = event
-      const known = activity.id in state.tools
+      const known = Object.hasOwn(state.tools, activity.id)
       const withTool = { ...state, tools: { ...state.tools, [activity.id]: activity } }
       if (known) return withTool
       // Anchor a new tool in the conversation's streaming assistant message so it renders in
@@ -189,22 +212,37 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
         prompts: { ...state.prompts, [event.prompt.clientId]: event.prompt },
       }
     case 'request.opened': {
-      const key = requestKey(event.request.rpcId, event.request.connectionEpoch)
-      const existing = state.requests[key]
-      // A replayed frame never resurrects a request this client already answered or closed.
-      if (existing && existing.status !== 'open') return state
-      return { ...state, requests: { ...state.requests, [key]: event.request } }
+      const incoming = event.request
+      const existing = state.requests[incoming.requestId]
+      // A re-sent frame (same Hermes id after reconnect) updates the request; it never
+      // resurrects one this client answered or saw closed, and never duplicates it.
+      if (existing && !OPEN_STATES.has(existing.status)) return state
+      const request =
+        existing?.status === 'answering' && existing.answer
+          ? { ...incoming, status: 'answering' as const, answer: existing.answer }
+          : incoming
+      return { ...state, requests: { ...state.requests, [incoming.requestId]: request } }
     }
     case 'request.closed': {
-      const matches = Object.entries(state.requests).filter(
-        ([, r]) => r.rpcId === event.rpcId,
-      )
-      if (!matches.length) return state
-      const requests = { ...state.requests }
-      for (const [key, request] of matches)
-        if (request.status === 'open' || request.status === 'answering')
-          requests[key] = { ...request, status: event.status }
-      return { ...state, requests }
+      const existing = state.requests[event.requestId]
+      if (!existing || !OPEN_STATES.has(existing.status)) return state
+      return {
+        ...state,
+        requests: {
+          ...state.requests,
+          [event.requestId]: { ...existing, status: event.status },
+        },
+      }
+    }
+    case 'requests.synced': {
+      const open = new Set(event.openRequestIds)
+      let requests: Record<string, ServerRequest> | undefined
+      for (const [id, request] of Object.entries(state.requests)) {
+        if (!OPEN_STATES.has(request.status) || open.has(id)) continue
+        requests ??= { ...state.requests }
+        requests[id] = { ...request, status: 'resolved-elsewhere' }
+      }
+      return requests ? { ...state, requests } : state
     }
     case 'session.status': {
       const conversation = state.conversations[event.conversationId]

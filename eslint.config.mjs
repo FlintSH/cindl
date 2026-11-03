@@ -22,54 +22,64 @@ export const ignores = {
   ],
 }
 
-/** Rules that encode Cindl invariants. Keep each one tied to an AGENTS.md rule. */
+const noRawHtml = {
+  selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
+  message: 'Render agent content through talk/Markdown.tsx; raw HTML is never rendered.',
+}
+const noFixtureDynamicImport = {
+  selector: 'ImportExpression[source.value=/(^@cindl\\/fixtures|packages\\/fixtures)/]',
+  message: 'Synthetic fixtures are for tests and the labelled demo switch only.',
+}
+const storageMessage =
+  'Use apps/web/src/platform/preferences.ts (non-secret preferences only).'
+
+/** Rules that encode Cindl invariants. Each ties to an AGENTS.md rule and has a test in apps/web/test/lint-rules.test.ts. */
 export const cindlRules = {
   rules: {
-    // Synthetic fixtures never reach production code paths (AGENTS.md: privacy invariant 5).
+    // Synthetic fixtures never reach production code paths (AGENTS.md: invariant 5).
     'no-restricted-imports': [
       'error',
       {
         patterns: [
           {
-            group: ['@cindl/fixtures', '@cindl/fixtures/*'],
+            group: [
+              '@cindl/fixtures',
+              '@cindl/fixtures/*',
+              '**/packages/fixtures',
+              '**/packages/fixtures/**',
+            ],
             message:
               'Synthetic fixtures are for tests and the labelled demo switch only.',
           },
         ],
       },
     ],
-    // Tokens and private data never go to browser storage (AGENTS.md: security invariant 3).
+    // Tokens and private data never go to browser storage (AGENTS.md: invariant 3).
     'no-restricted-globals': [
       'error',
-      {
-        name: 'localStorage',
-        message:
-          'Use apps/web/src/platform/preferences.ts (non-secret preferences only).',
-      },
+      { name: 'localStorage', message: storageMessage },
       { name: 'sessionStorage', message: 'Do not persist data in sessionStorage.' },
+      { name: 'indexedDB', message: 'Do not persist data in IndexedDB.' },
     ],
     'no-restricted-properties': [
       'error',
+      ...['window', 'globalThis', 'self'].flatMap((object) => [
+        { object, property: 'localStorage', message: storageMessage },
+        {
+          object,
+          property: 'sessionStorage',
+          message: 'Do not persist data in sessionStorage.',
+        },
+        { object, property: 'indexedDB', message: 'Do not persist data in IndexedDB.' },
+      ]),
       {
-        object: 'window',
-        property: 'localStorage',
-        message: 'Use apps/web/src/platform/preferences.ts.',
-      },
-      {
-        object: 'window',
-        property: 'sessionStorage',
-        message: 'Do not persist data in sessionStorage.',
+        object: 'document',
+        property: 'cookie',
+        message: 'Cindl never reads or writes cookies itself.',
       },
     ],
     // Agent output is untrusted: never inject raw HTML.
-    'no-restricted-syntax': [
-      'error',
-      {
-        selector: "JSXAttribute[name.name='dangerouslySetInnerHTML']",
-        message:
-          'Render agent content through talk/Markdown.tsx; raw HTML is never rendered.',
-      },
-    ],
+    'no-restricted-syntax': ['error', noRawHtml, noFixtureDynamicImport],
     'no-eval': 'error',
     'no-implied-eval': 'error',
     'no-new-func': 'error',
@@ -112,7 +122,10 @@ export default tseslint.config(
       '**/e2e/**',
       'apps/web/src/platform/client.ts',
     ],
-    rules: { 'no-restricted-imports': 'off' },
+    rules: {
+      'no-restricted-imports': 'off',
+      'no-restricted-syntax': ['error', noRawHtml],
+    },
   },
   {
     files: ['apps/web/src/platform/preferences.ts'],

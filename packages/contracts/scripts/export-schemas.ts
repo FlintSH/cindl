@@ -1,5 +1,5 @@
-// Prints the JSON Schema for every client operation and event. The handbook's
-// reference build writes this output to public/schemas (see docs/handbook).
+// Prints the JSON Schema for every client operation and event. A handbook
+// reference build that publishes this output is planned.
 import { z } from 'zod'
 import {
   CapabilityMap,

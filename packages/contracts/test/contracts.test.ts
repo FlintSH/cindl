@@ -8,6 +8,7 @@ import {
   opNames,
   parseOpArgs,
   ServerRequest,
+  clarifyAnswersComplete,
 } from '../src/index.ts'
 
 describe('client operation registry', () => {
@@ -61,18 +62,141 @@ describe('client operation registry', () => {
   it('only answers approvals with Hermes choices, never approve-all', () => {
     expect(() =>
       parseOpArgs('request.answer', {
-        rpcId: 7,
-        connectionEpoch: 1,
+        requestId: 'srq-0123456789ab',
         answer: { kind: 'approval', choice: 'always' },
       }),
     ).toThrow()
     expect(ServerRequest.shape.choices.element.options).toEqual(['once', 'deny'])
   })
+
+  it('keys server requests by the Hermes request id string only', () => {
+    expect(
+      parseOpArgs('request.answer', {
+        requestId: 'srq-0123456789ab',
+        answer: { kind: 'approval', choice: 'deny' },
+      }),
+    ).toMatchObject({ requestId: 'srq-0123456789ab' })
+    for (const requestId of [7, '', '../x', 'srq 1', 'a?b', '#x'])
+      expect(() =>
+        parseOpArgs('request.answer', {
+          requestId,
+          answer: { kind: 'approval', choice: 'deny' },
+        }),
+      ).toThrow()
+  })
+
+  it('answers a clarify set in one submission with per-question responses', () => {
+    const parsed = parseOpArgs('request.answer', {
+      requestId: 'srq-0123456789ab',
+      answer: {
+        kind: 'clarify',
+        answers: {
+          q1: { text: 'Friday' },
+          q2: { choices: ['A', 'B'] },
+          q3: { skipped: true },
+        },
+      },
+    })
+    expect(parsed.answer).toMatchObject({ kind: 'clarify' })
+    expect(() =>
+      parseOpArgs('request.answer', {
+        requestId: 'srq-0123456789ab',
+        answer: { kind: 'clarify', answers: { q1: { text: '   ' } } },
+      }),
+    ).toThrow()
+  })
+
+  it('checks that a clarify submission covers every question exactly once', () => {
+    const request = {
+      questions: [
+        { qid: 'q1', question: 'A?', multiSelect: false },
+        { qid: 'q2', question: 'B?', multiSelect: true },
+      ],
+    }
+    expect(
+      clarifyAnswersComplete(request, { q1: { text: 'x' }, q2: { skipped: true } }),
+    ).toBe(true)
+    expect(clarifyAnswersComplete(request, { q1: { text: 'x' } })).toBe(false)
+    expect(
+      clarifyAnswersComplete(request, {
+        q1: { text: 'x' },
+        q2: { skipped: true },
+        q3: { skipped: true },
+      }),
+    ).toBe(false)
+    expect(clarifyAnswersComplete({ questions: [] }, {})).toBe(false)
+  })
+})
+
+describe('sign-in origin', () => {
+  it.each([
+    ['https://hermes.example.test', 'https://hermes.example.test'],
+    ['https://hermes.example.test/', 'https://hermes.example.test'],
+    ['https://hermes.example.test:8443', 'https://hermes.example.test:8443'],
+    ['http://127.0.0.1:9119', 'http://127.0.0.1:9119'],
+    ['http://[::1]:9119/', 'http://[::1]:9119'],
+  ])('accepts %s', (origin, normalised) => {
+    expect(parseOpArgs('auth.signIn', { origin })).toEqual({ origin: normalised })
+  })
+
+  it.each([
+    'http://hermes.example.test',
+    'http://localhost:9119',
+    'http://10.0.2.2:9119',
+    'https://user:pw@hermes.example.test',
+    'https://hermes.example.test/path',
+    'https://hermes.example.test/?q=1',
+    'https://hermes.example.test/#f',
+    'https://hermes.example.test#',
+    'ftp://hermes.example.test',
+    'javascript:alert(1)',
+    'hermes.example.test',
+    'https://hermes.example.test\\@evil.example.test',
+    ' https://hermes.example.test',
+  ])('rejects %j', (origin) => {
+    expect(() => parseOpArgs('auth.signIn', { origin })).toThrow()
+  })
+})
+
+describe('identifiers', () => {
+  it('accepts Hermes-shaped ids and names', () => {
+    expect(
+      parseOpArgs('conversations.history', { conversationId: '20260102_080000_ab12cd' }),
+    ).toBeTruthy()
+    expect(parseOpArgs('soul.read', { profile: 'default' })).toBeTruthy()
+    expect(parseOpArgs('skills.read', { name: 'calendar-triage' })).toBeTruthy()
+  })
+
+  it.each(['../../etc', 'a/b', '%2e%2e', 'x?y=1#z', 'Default', '-lead', ''])(
+    'rejects hostile profile %j',
+    (profile) => {
+      expect(() => parseOpArgs('soul.read', { profile })).toThrow()
+    },
+  )
+
+  it.each(['../x?y=1#z', 'a/b', '.hidden', 'name with space', '%2e%2e'])(
+    'rejects hostile skill name %j',
+    (name) => {
+      expect(() => parseOpArgs('skills.read', { name })).toThrow()
+    },
+  )
+
+  it.each(['../x', 'a/b', 'a?b', '#x', ''])(
+    'rejects hostile conversation id %j',
+    (conversationId) => {
+      expect(() => parseOpArgs('conversations.history', { conversationId })).toThrow()
+    },
+  )
+
+  it('treats inherited object keys as unknown operations', () => {
+    for (const name of ['toString', '__proto__', 'constructor', 'hasOwnProperty'])
+      expect(() => parseOpArgs(name as never, {})).toThrow(/Unknown Cindl operation/)
+  })
 })
 
 describe('contract surface', () => {
   it('is versioned and enumerable for docs coverage', () => {
-    expect(CONTRACTS_VERSION).toBe(1)
+    expect(CONTRACTS_VERSION).toBe(2)
     expect(new Set(cindlEventTypes).size).toBe(cindlEventTypes.length)
     expect(new Set(capabilityIds).size).toBe(capabilityIds.length)
   })

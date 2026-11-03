@@ -40,8 +40,10 @@ content instead of adding panes.
 | `768–1279px` (medium) | 72px navigation spine; margin overlays from the right.                                  |
 | `>= 1280px` (wide)    | Spine, conversation at a 720px reading measure, margin as a 400px column.               |
 
-Breakpoints are literal in media queries: 768, 1024, 1280. Stacked mobile
-routes restore the exact scroll position when returning.
+Breakpoints are literal in media queries: 768 and 1280. The working margin
+opens as a sheet over the conversation below 1280px, so closing it returns to
+the same scroll position. Restoring scroll positions across destination
+switches is planned.
 
 ## Typography
 

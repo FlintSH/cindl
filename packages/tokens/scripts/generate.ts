@@ -1,5 +1,6 @@
 // Writes generated/tokens.css and generated/fonts.css from src/. With --check,
-// fails instead of writing when the committed files are stale (used in CI).
+// fails instead of writing when the committed files are stale (part of
+// `pnpm verify`).
 import { readFile, writeFile } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { renderFontsCss, renderTokensCss } from '../src/css.ts'

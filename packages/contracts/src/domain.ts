@@ -16,7 +16,8 @@ export type SessionRef = z.infer<typeof SessionRef>
 /**
  * A conversation is one Hermes session. `main` is the device's pinned ongoing
  * conversation; Hermes v0.22.5 has no server-side pin, so the designation is
- * stored per device (see docs: guide/conversations).
+ * stored per device (see conversations.setMain in
+ * docs/handbook/reference/client-operations.md).
  */
 export const Conversation = z.object({
   id: z.string().min(1),
@@ -122,32 +123,53 @@ export const ClarifyQuestion = z.object({
 })
 export type ClarifyQuestion = z.infer<typeof ClarifyQuestion>
 
+/**
+ * One question's answer: `choices` for picked options (exactly one for a
+ * single-select question), `text` for a typed answer, or `skipped`.
+ */
+export const ClarifyResponse = z.union([
+  z.object({ text: z.string().trim().min(1).max(20_000) }),
+  z.object({ choices: z.array(z.string().max(2_000)).min(1).max(50) }),
+  z.object({ skipped: z.literal(true) }),
+])
+export type ClarifyResponse = z.infer<typeof ClarifyResponse>
+
+/**
+ * Hermes expects ONE reply for a whole clarify set: every question in the
+ * request must appear in `answers` (answered or skipped). `clarify-cancel`
+ * declines the whole set.
+ */
 export const RequestAnswer = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('approval'), choice: ApprovalChoice }),
   z.object({
     kind: z.literal('clarify'),
-    answers: z.record(
-      z.string(),
-      z.union([z.string().max(20_000), z.array(z.string().max(2_000))]),
-    ),
+    answers: z.record(z.string().min(1).max(256), ClarifyResponse),
   }),
-  /** Clarify only: decline every question in the set. */
   z.object({ kind: z.literal('clarify-cancel') }),
 ])
 export type RequestAnswer = z.infer<typeof RequestAnswer>
 
 /**
- * A server-to-client request (a Hermes JSON-RPC request with an id). Cindl
- * answers it at most once, on the connection that received it, with a choice
- * Hermes actually offered. This covers command approvals and clarifying
- * questions; it is not a universal spending/sending policy engine.
+ * Hermes server-request id (`srq-…`): the JSON-RPC id of the request frame.
+ * Stable across reconnects (Hermes re-sends with the same id) and answerable
+ * from any attached client; the first reply wins.
+ */
+export const RequestId = z
+  .string()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/, 'Not a Hermes request id')
+export type RequestId = z.infer<typeof RequestId>
+
+/**
+ * A server-to-client request: a command approval or a clarifying question.
+ * Keyed by Hermes's request id, never by connection. It is not a universal
+ * spending/sending policy engine.
  */
 export const ServerRequest = z.object({
-  /** JSON-RPC id of the request frame; answers reuse it. */
-  rpcId: z.union([z.string(), z.number()]),
-  /** Hermes `request_id` when present (approvals). */
-  hermesRequestId: z.string().optional(),
-  connectionEpoch: z.number().int().nonnegative(),
+  requestId: RequestId,
+  /** Hermes `request_id` inside approval params, when present (diagnostics only). */
+  hermesApprovalId: z.string().optional(),
+  /** Connection epoch on which this client last saw the request. Not identity. */
+  lastSeenEpoch: z.number().int().nonnegative(),
   kind: z.enum(['approval', 'clarify']),
   conversationId: z.string().optional(),
   title: z.string(),
@@ -161,10 +183,37 @@ export const ServerRequest = z.object({
   withheldChoices: z.array(z.string()).optional(),
   questions: z.array(ClarifyQuestion).optional(),
   receivedAt: isoTime,
-  status: z.enum(['open', 'answering', 'answered', 'cancelled', 'expired', 'failed']),
+  /**
+   * answered: this client's answer was accepted. resolved-elsewhere: it closed
+   * without this client's answer (another client answered, or Hermes timed it
+   * out) as observed on reconnect.
+   */
+  status: z.enum([
+    'open',
+    'answering',
+    'answered',
+    'resolved-elsewhere',
+    'cancelled',
+    'expired',
+    'failed',
+  ]),
   answer: RequestAnswer.optional(),
 })
 export type ServerRequest = z.infer<typeof ServerRequest>
+
+/** True when `answers` covers every question of the request exactly once. */
+export function clarifyAnswersComplete(
+  request: Pick<ServerRequest, 'questions'>,
+  answers: Record<string, ClarifyResponse>,
+): boolean {
+  const qids = (request.questions ?? []).map((q) => q.qid)
+  const keys = Object.keys(answers)
+  return (
+    qids.length > 0 &&
+    keys.length === qids.length &&
+    qids.every((qid) => Object.hasOwn(answers, qid))
+  )
+}
 
 export const RoutineRun = z.object({
   at: isoTime,

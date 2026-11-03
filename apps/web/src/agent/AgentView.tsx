@@ -88,7 +88,8 @@ const mcpTone: Record<McpServerStatus['state'], Tone> = {
   unknown: 'neutral',
 }
 
-function Connections() {
+/** Fetched only after the connections.mcp capability check passes. */
+function McpServers() {
   const api = useCindlApi()
   const mcp = useResource(
     () => api.call('connections.mcp', {}),
@@ -99,6 +100,37 @@ function Connections() {
   const error = mcp.error
   return (
     <>
+      {error ? <p className={styles.error}>{error}</p> : null}
+      {servers?.length === 0 ? (
+        <p className={styles.empty}>No MCP servers are configured.</p>
+      ) : null}
+      {servers?.length ? (
+        <ul className={styles.rows}>
+          {servers.map((server) => (
+            <li key={server.name} className={styles.row}>
+              <span className={styles.rowTitle}>
+                <Dot tone={mcpTone[server.state]} /> {server.name}
+              </span>
+              <span className={styles.rowDetail}>
+                {server.error ??
+                  (server.toolCount !== undefined
+                    ? `${server.toolCount} tools`
+                    : 'No tool count reported')}
+              </span>
+              <span className={styles.rowAside}>
+                <Badge tone={mcpTone[server.state]}>{server.state}</Badge>
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+    </>
+  )
+}
+
+function Connections() {
+  return (
+    <>
       <section className={styles.section} aria-labelledby="mcp-title">
         <SectionTitle id="mcp-title">MCP servers</SectionTitle>
         <p className={styles.note}>
@@ -106,30 +138,7 @@ function Connections() {
           anything.
         </p>
         <RequireCapability id="connections.mcp" label="MCP status">
-          {error ? <p className={styles.error}>{error}</p> : null}
-          {servers?.length === 0 ? (
-            <p className={styles.empty}>No MCP servers are configured.</p>
-          ) : null}
-          {servers?.length ? (
-            <ul className={styles.rows}>
-              {servers.map((server) => (
-                <li key={server.name} className={styles.row}>
-                  <span className={styles.rowTitle}>
-                    <Dot tone={mcpTone[server.state]} /> {server.name}
-                  </span>
-                  <span className={styles.rowDetail}>
-                    {server.error ??
-                      (server.toolCount !== undefined
-                        ? `${server.toolCount} tools`
-                        : 'No tool count reported')}
-                  </span>
-                  <span className={styles.rowAside}>
-                    <Badge tone={mcpTone[server.state]}>{server.state}</Badge>
-                  </span>
-                </li>
-              ))}
-            </ul>
-          ) : null}
+          <McpServers />
         </RequireCapability>
       </section>
       <section className={styles.section} aria-labelledby="accounts-title">

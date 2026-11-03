@@ -9,7 +9,7 @@ The responsive web client and the Electron renderer. Read `DESIGN.md` first.
 - Routes are hash routes in `src/router.ts`; shortcuts only in
   `src/shortcuts.ts`.
 - Styles: CSS modules with semantic tokens; no raw colours; literal breakpoints
-  768/1024/1280; 44px targets on coarse pointers.
+  768/1280; 44px targets on coarse pointers.
 - Agent content renders only through `src/talk/Markdown.tsx`.
 - Use `useResource` for reads so state only changes in async callbacks and
   stale responses are ignored.

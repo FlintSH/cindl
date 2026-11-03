@@ -7,6 +7,7 @@ import {
   useState,
   useSyncExternalStore,
   type ReactNode,
+  useRef,
 } from 'react'
 
 interface CindlContextValue {
@@ -45,12 +46,27 @@ export function useCindlApi(): CindlClientApi {
   return useCindlContext().api
 }
 
-/** Subscribe to a slice of client state. Keep selectors cheap or memoise them. */
+/**
+ * Subscribe to a slice of client state. The snapshot is cached per store
+ * state and selector, so a selector that builds a new array or object still
+ * returns the same value until the state changes: React's
+ * useSyncExternalStore requires that, or it re-renders forever.
+ */
 export function useCindlState<T>(selector: (state: ClientState) => T): T {
   const { store } = useCindlContext()
-  return useSyncExternalStore(
-    store.subscribe,
-    () => selector(store.getState()),
-    () => selector(store.getState()),
-  )
+  const cache = useRef<{
+    state: ClientState
+    selector: (state: ClientState) => T
+    value: T
+  } | null>(null)
+  const getSnapshot = () => {
+    const state = store.getState()
+    const cached = cache.current
+    if (cached && cached.state === state && cached.selector === selector)
+      return cached.value
+    const value = selector(state)
+    cache.current = { state, selector, value }
+    return value
+  }
+  return useSyncExternalStore(store.subscribe, getSnapshot, getSnapshot)
 }

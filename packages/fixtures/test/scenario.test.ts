@@ -48,7 +48,8 @@ describe('synthetic scenario client', () => {
     const capabilities = await client.call('capabilities.get', {})
     expect(capabilities['memory.text']?.state).toBe('unsupported')
     expect(capabilities['connections.accounts']?.state).toBe('unsupported')
-    expect(capabilities['presence.unified']?.state).toBe('unsupported')
+    expect(capabilities['presence.unified']?.state).toBe('unavailable')
+    expect(capabilities['sessions.replay']?.state).toBe('limited')
     await expect(client.call('connections.accounts', {})).rejects.toMatchObject({
       code: 'unsupported',
     })
@@ -56,25 +57,50 @@ describe('synthetic scenario client', () => {
 
   it('answers a request once, with an offered choice only', async () => {
     const { client, flush } = harness()
-    const args = { rpcId: 'demo-approval-1', connectionEpoch: 1 }
+    const requestId = 'srq-demo00000001'
     await expect(
       client.call('request.answer', {
-        ...args,
-        connectionEpoch: 2,
+        requestId: 'srq-unknown00001',
         answer: { kind: 'approval', choice: 'once' },
       }),
     ).rejects.toMatchObject({ code: 'not-found' })
     const answered = await client.call('request.answer', {
-      ...args,
+      requestId,
       answer: { kind: 'approval', choice: 'deny' },
     })
     expect(answered.status).toBe('answering')
     await expect(
       client.call('request.answer', {
-        ...args,
+        requestId,
         answer: { kind: 'approval', choice: 'once' },
       }),
     ).rejects.toMatchObject({ code: 'conflict' })
+    flush()
+  })
+
+  it('requires one submission covering every clarify question', async () => {
+    const { client, flush } = harness()
+    const requestId = 'srq-demo00000002'
+    await expect(
+      client.call('request.answer', {
+        requestId,
+        answer: {
+          kind: 'clarify',
+          answers: { venue: { choices: ['Harbor Loft (fictional)'] } },
+        },
+      }),
+    ).rejects.toMatchObject({ code: 'invalid' })
+    const answered = await client.call('request.answer', {
+      requestId,
+      answer: {
+        kind: 'clarify',
+        answers: {
+          venue: { choices: ['Harbor Loft (fictional)'] },
+          prep: { skipped: true },
+        },
+      },
+    })
+    expect(answered.status).toBe('answering')
     flush()
   })
 

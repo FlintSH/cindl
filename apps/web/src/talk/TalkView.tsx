@@ -4,9 +4,11 @@ import {
   useConversation,
   useConversationActivity,
   useConversations,
+  useCan,
   useLink,
   useMainConversation,
   useMessages,
+  useUncertainPrompts,
 } from '@cindl/client-react'
 import { ArrowDown, ChevronDown, PanelRight, Plus } from 'lucide-react'
 import {
@@ -49,6 +51,8 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     const conversation = useConversation(conversationId)
     const messages = useMessages(conversationId)
     const activity = useConversationActivity(conversationId)
+    const canCreate = useCan('sessions.create')
+    const uncertain = useUncertainPrompts(conversationId)
     const [historyOpen, setHistoryOpen] = useState(false)
     const [marginPreference, setMarginPreference] = usePreference('marginOpen')
     // Wide screens keep the margin as a column (remembered); narrower screens show it
@@ -74,6 +78,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
       focusComposer: () => composer.current?.focus(),
       openHistory: () => setHistoryOpen(true),
       newSideConversation: async () => {
+        if (!canCreate) return
         const created = await api.call('conversations.create', {})
         navigate({ view: 'talk', conversationId: created.id })
       },
@@ -159,15 +164,17 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
               ) : null}
             </p>
             <div className={styles.headerActions}>
-              <Button
-                variant="quiet"
-                icon
-                aria-label="New side conversation"
-                title="New side conversation"
-                onClick={() => void startSide()}
-              >
-                <Plus size={18} aria-hidden="true" />
-              </Button>
+              {canCreate ? (
+                <Button
+                  variant="quiet"
+                  icon
+                  aria-label="New side conversation"
+                  title="New side conversation"
+                  onClick={() => void startSide()}
+                >
+                  <Plus size={18} aria-hidden="true" />
+                </Button>
+              ) : null}
               <Button
                 variant="quiet"
                 icon
@@ -211,10 +218,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                   />
                 ))}
                 {activity.openRequests.map((request) => (
-                  <RequestCard
-                    key={`${request.connectionEpoch}:${request.rpcId}`}
-                    request={request}
-                  />
+                  <RequestCard key={request.requestId} request={request} />
                 ))}
               </div>
             </div>
@@ -229,6 +233,24 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
             ) : null}
           </div>
           <div className={styles.composerDock}>
+            {uncertain.map((prompt) => (
+              <div key={prompt.clientId} className={styles.uncertain} role="status">
+                <p>
+                  Not confirmed: “
+                  {prompt.text.length > 60 ? `${prompt.text.slice(0, 60)}…` : prompt.text}
+                  ”. Hermes may or may not have received it. Check the conversation before
+                  sending again.
+                </p>
+                <Button
+                  variant="quiet"
+                  onClick={() =>
+                    void api.call('prompt.discard', { clientId: prompt.clientId })
+                  }
+                >
+                  Dismiss
+                </Button>
+              </div>
+            ))}
             <Composer
               ref={composer}
               conversationId={conversationId}

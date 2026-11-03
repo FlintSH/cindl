@@ -24,36 +24,36 @@ re-run or inspect.
 
 ## Integration
 
-| Requirement                                                         | Status      | Evidence / gap                                                      |
-| ------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------- |
-| Pinned v0.22.5 surface, vendored upstream contract, drift test      | done        | `packages/hermes-adapter/test/upstream.test.ts`                     |
-| PKCE helpers matching the server's redirect validator               | done        | `packages/hermes-adapter/test/pkce.test.ts`                         |
-| REST + JSON-RPC client, tickets, reconnect, replay, server requests | not started | Adapter stream                                                      |
-| Fake Hermes test server validated against vendored schemas          | not started | Adapter stream                                                      |
-| Live authenticated transport validation                             | blocked     | Needs an authorised run against the owner's instance (parent/owner) |
-| Cross-surface session authority clarified                           | blocked     | Needs live handshake evidence                                       |
-| Same-origin web hosting under `hermes serve`                        | blocked     | Owner deployment decision                                           |
+| Requirement                                                         | Status      | Evidence / gap                                         |
+| ------------------------------------------------------------------- | ----------- | ------------------------------------------------------ |
+| Pinned v0.22.5 surface, vendored upstream contract, drift test      | done        | `packages/hermes-adapter/test/upstream.test.ts`        |
+| PKCE helpers matching the server's redirect validator               | done        | `packages/hermes-adapter/test/pkce.test.ts`            |
+| REST + JSON-RPC client, tickets, reconnect, replay, server requests | not started | Adapter stream                                         |
+| Fake Hermes test server validated against vendored schemas          | not started | Adapter stream                                         |
+| Live authenticated transport validation                             | blocked     | Needs an authorised run against a real Hermes instance |
+| Cross-surface session authority clarified                           | blocked     | Needs live handshake evidence                          |
+| Same-origin web hosting under `hermes serve`                        | blocked     | Owner deployment decision                              |
 
 ## Security and privacy
 
-| Requirement                                                                           | Status      | Evidence / gap                                            |
-| ------------------------------------------------------------------------------------- | ----------- | --------------------------------------------------------- |
-| No tokens in renderer/browser storage                                                 | partial     | Lint rules; platform storage implementations pending      |
-| Redaction of tickets, tokens, keys in diagnostics                                     | done        | `packages/hermes-adapter/test/redact.test.ts`             |
-| Safe rendering of agent output                                                        | partial     | `apps/web/src/talk/Markdown.tsx`; component tests pending |
-| Auth denial, origin/CSRF, traversal, approval replay/expiry, reconnect, offline tests | not started | Adapter/desktop/android streams                           |
-| Automated privacy/secret scan                                                         | not started | Docs/quality stream                                       |
-| Threat model                                                                          | done        | `docs/handbook/security/threat-model.md`                  |
+| Requirement                                                                           | Status      | Evidence / gap                                                          |
+| ------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------- |
+| No tokens in renderer/browser storage                                                 | partial     | Lint rules; platform storage implementations pending                    |
+| Redaction of tickets, tokens, keys in diagnostics                                     | partial     | Review found gaps; fixes and regressions in progress (transport stream) |
+| Safe rendering of agent output                                                        | partial     | Web: `apps/web/test/markdown.test.tsx`; Android in progress             |
+| Auth denial, origin/CSRF, traversal, approval replay/expiry, reconnect, offline tests | not started | Adapter/desktop/android streams                                         |
+| Automated privacy/secret scan                                                         | not started | Docs/quality stream                                                     |
+| Threat model                                                                          | done        | `docs/handbook/security/threat-model.md`                                |
 
 ## Quality, docs and delivery
 
-| Requirement                                                   | Status      | Evidence / gap                                             |
-| ------------------------------------------------------------- | ----------- | ---------------------------------------------------------- |
-| Reproducible bootstrap and `pnpm verify`                      | done        | Root `package.json`, lockfile, `AGENTS.md`                 |
-| Contrast-tested design tokens                                 | done        | `packages/tokens/test/tokens.test.ts`                      |
-| AI-native guidance: root + scoped `AGENTS.md`, handbook, ADRs | partial     | Present; docs site, coverage and docs-impact gates pending |
-| CI that reflects tested support only                          | not started | Docs/quality, desktop, Android streams                     |
-| Downloadable APK and desktop artifact                         | not started | Android and desktop streams (CI)                           |
-| Browser QA with screenshots at phone/tablet/desktop           | not started | Coordinator, next                                          |
-| Electron launch smoke, Android emulator smoke                 | not started | Desktop and Android streams                                |
-| MIT licence (Zachary Lowery) with third-party notices         | done        | `LICENSE`, `THIRD_PARTY_NOTICES.md`                        |
+| Requirement                                                   | Status      | Evidence / gap                                                                                                  |
+| ------------------------------------------------------------- | ----------- | --------------------------------------------------------------------------------------------------------------- |
+| Reproducible bootstrap and `pnpm verify`                      | done        | Root `package.json`, lockfile, `AGENTS.md`                                                                      |
+| Contrast-tested design tokens                                 | done        | `packages/tokens/test/tokens.test.ts`                                                                           |
+| AI-native guidance: root + scoped `AGENTS.md`, handbook, ADRs | partial     | Present; docs site, coverage and docs-impact gates pending                                                      |
+| CI that reflects tested support only                          | not started | Docs/quality, desktop, Android streams                                                                          |
+| Downloadable APK and desktop artifact                         | not started | Android and desktop streams (CI)                                                                                |
+| Browser QA with screenshots at phone/tablet/desktop           | partial     | Web: `apps/web/e2e` (flows, 44px targets, contrast, axe, scroll) on the synthetic demo; desktop/Android pending |
+| Electron launch smoke, Android emulator smoke                 | not started | Desktop and Android streams                                                                                     |
+| MIT licence (Zachary Lowery) with third-party notices         | done        | `LICENSE`, `THIRD_PARTY_NOTICES.md`                                                                             |

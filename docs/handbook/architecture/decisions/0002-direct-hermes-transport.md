@@ -2,7 +2,7 @@
 
 **Status:** Accepted
 
-**Context.** The installed Hermes (stable v0.22.5, commit `bf0203a`) exposes an
+**Context.** Cindl's verified baseline, Hermes stable v0.22.5 (commit `bf0203a`), exposes an
 authenticated `hermes serve` backend: REST under `/api` and JSON-RPC 2.0 over
 the `/api/ws` WebSocket, the same surface the official desktop client uses. The
 dedicated API-server and webhook platforms are disabled and must stay disabled.

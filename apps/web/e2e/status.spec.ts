@@ -18,8 +18,13 @@ test('status follows observed state: waiting, then working, then idle', async ({
   await expect(step).toContainText('Waiting for you')
   await expect(step.locator('svg.lucide-loader-circle')).toHaveCount(0)
 
-  // Answering the question leaves the approval: still waiting, not working.
-  await page.getByRole('button', { name: 'Harbor Loft (fictional)' }).click()
+  // The question set is answered in one submission; the approval still waits.
+  const send = page.getByRole('button', { name: 'Send answers' })
+  await expect(send).toBeDisabled()
+  await page.getByRole('radio', { name: 'Harbor Loft (fictional)' }).check()
+  await expect(send).toBeDisabled()
+  await page.getByRole('checkbox', { name: 'Floor plan' }).check()
+  await send.click()
   await expect(presence).toContainText('Waiting on you: 1 approval')
 
   await page.getByRole('button', { name: 'Allow once' }).click()

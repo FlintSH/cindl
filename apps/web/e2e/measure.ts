@@ -59,7 +59,14 @@ export function interactiveTargets(page: Page): Promise<Target[]> {
       bottom = Math.min(bottom, innerHeight)
       return { x: left, y: top, width: right - left, height: bottom - top, full: r }
     }
+    // A checkbox or radio's target includes the label that activates it.
+    const hitElement = (el: HTMLElement): HTMLElement =>
+      el instanceof HTMLInputElement && (el.type === 'checkbox' || el.type === 'radio')
+        ? (el.closest('label') ?? el)
+        : el
     return [...scope.querySelectorAll<HTMLElement>(selector)]
+      .map(hitElement)
+      .filter((el, index, all) => all.indexOf(el) === index)
       .filter((el) => {
         if (el.closest('.visually-hidden, [aria-hidden="true"], [inert]')) return false
         if (el.tagName === 'A' && el.closest('p, [data-prose]')) return false

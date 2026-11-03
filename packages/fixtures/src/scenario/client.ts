@@ -8,6 +8,7 @@
 import { sha256Hex } from '@cindl/client-core'
 import {
   CindlError,
+  clarifyAnswersComplete,
   parseOpArgs,
   type Capability,
   type CapabilityId,
@@ -51,18 +52,23 @@ const unsupported: Partial<Record<CapabilityId, string>> = {
     'Not implemented in Cindl yet. Hermes v0.22.5 source exposes fingerprinted memory entries (GET/PUT/DELETE /api/learning/node); support is pending verification and has not been tested against a live instance.',
   'connections.accounts':
     'Hermes v0.22.5 has no safe account-coverage source for local browser or vault logins.',
-  'presence.unified':
-    'Not proven: a shared profile is not evidence that every surface talks to one live session authority.',
   'artifacts.list':
     'Hermes v0.22.5 has no artifact listing endpoint Cindl can use safely.',
   'attachments.upload': 'Not implemented in Cindl yet.',
 }
 const limited: Partial<Record<CapabilityId, string>> = {
+  'sessions.replay':
+    'Hermes replays a bounded, in-memory window after reconnect; it is not durable history.',
   'soul.write':
     'No server-side compare-and-swap at v0.22.5: Cindl re-reads before saving to detect conflicts.',
   'skills.write':
     'No server-side compare-and-swap at v0.22.5: Cindl re-reads before saving to detect conflicts.',
   'computer.view': 'Synthetic demo: no live screen is streamed.',
+}
+
+const unavailable: Partial<Record<CapabilityId, string>> = {
+  'presence.unified':
+    'Not proven: a shared profile is not evidence that every surface talks to one live session authority.',
 }
 
 export function scenarioCapabilities(checkedAt: string): CapabilityMap {
@@ -98,10 +104,16 @@ export function scenarioCapabilities(checkedAt: string): CapabilityMap {
   ]
   const map: CapabilityMap = {}
   for (const id of ids) {
-    const reason = unsupported[id] ?? limited[id]
+    const reason = unsupported[id] ?? unavailable[id] ?? limited[id]
     const capability: Capability = {
       id,
-      state: unsupported[id] ? 'unsupported' : limited[id] ? 'limited' : 'available',
+      state: unsupported[id]
+        ? 'unsupported'
+        : unavailable[id]
+          ? 'unavailable'
+          : limited[id]
+            ? 'limited'
+            : 'available',
       source: { transport: 'none', endpoint: 'synthetic scenario' },
       checkedAt,
       ...(reason ? { reason } : {}),
@@ -146,9 +158,7 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
   const capabilities = scenarioCapabilities(iso())
   const conversations = new Map(data.conversations.map((c) => [c.id, structuredClone(c)]))
   const tools = new Map(data.tools.map((t) => [t.id, structuredClone(t)]))
-  const requests = new Map(
-    data.requests.map((r) => [String(r.rpcId), structuredClone(r)]),
-  )
+  const requests = new Map(data.requests.map((r) => [r.requestId, structuredClone(r)]))
   const prompts = new Map<string, PendingPrompt>()
   const routines = new Map(data.routines.map((r) => [r.id, structuredClone(r)]))
   const skillDocs = new Map(Object.entries(data.skillContent))
@@ -250,7 +260,7 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
   }
 
   const updateRequest = (request: ServerRequest) => {
-    requests.set(String(request.rpcId), request)
+    requests.set(request.requestId, request)
     emit({ type: 'request.opened', request })
   }
 
@@ -356,13 +366,9 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
       }
       return { requested: true as const }
     },
-    'request.answer': ({ rpcId, connectionEpoch, answer }) => {
-      const request = requests.get(String(rpcId))
-      if (!request || request.connectionEpoch !== connectionEpoch)
-        throw new CindlError(
-          'not-found',
-          'This request is no longer open on this connection.',
-        )
+    'request.answer': ({ requestId, answer }) => {
+      const request = requests.get(requestId)
+      if (!request) throw new CindlError('not-found', 'This request is no longer open.')
       if (request.status !== 'open')
         throw new CindlError('conflict', 'This request was already answered or closed.')
       if (
@@ -372,11 +378,16 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
         throw new CindlError('invalid', 'That choice was not offered for this request.')
       if (answer.kind !== 'approval' && request.kind !== 'clarify')
         throw new CindlError('invalid', 'This request expects an approval decision.')
+      if (answer.kind === 'clarify' && !clarifyAnswersComplete(request, answer.answers))
+        throw new CindlError(
+          'invalid',
+          'Answer or skip every question, then send them together.',
+        )
       const answering: ServerRequest = { ...request, status: 'answering', answer }
       updateRequest(answering)
       later(200, () => {
-        requests.set(String(rpcId), { ...answering, status: 'answered' })
-        emit({ type: 'request.closed', rpcId, status: 'answered' })
+        requests.set(requestId, { ...answering, status: 'answered' })
+        emit({ type: 'request.closed', requestId, status: 'answered' })
         const conversationId = request.conversationId ?? 'demo-main'
         if (request.kind === 'approval') {
           // The turn that asked for approval ends once it has its answer.

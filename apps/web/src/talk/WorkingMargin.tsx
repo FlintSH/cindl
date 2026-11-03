@@ -97,10 +97,7 @@ export function WorkingMargin({
               const Icon = request.kind === 'approval' ? ShieldAlert : HelpCircle
               const label = request.kind === 'approval' ? 'approval' : 'question'
               return (
-                <li
-                  key={`${request.connectionEpoch}:${request.rpcId}`}
-                  className={styles.waitingRow}
-                >
+                <li key={request.requestId} className={styles.waitingRow}>
                   <Icon size={15} aria-hidden="true" />
                   <span className={styles.waitingTitle}>{request.title}</span>
                   <Button

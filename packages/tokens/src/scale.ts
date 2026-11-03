@@ -84,7 +84,7 @@ export const motion = {
 } as const
 
 export const layout = {
-  /** Narrow navigation spine on expanded layouts. */
+  /** Narrow navigation spine from the medium breakpoint up. */
   spineWidth: 72,
   /** Comfortable reading measure for conversation text. */
   readingMeasure: 720,
@@ -92,9 +92,9 @@ export const layout = {
   marginWidth: 400,
   /** Minimum touch target on touch layouts and Android. */
   touchTarget: 44,
-  /** Minimum pointer target on expanded pointer layouts. */
+  /** Minimum target for fine pointers on medium and wide layouts. */
   pointerTarget: 32,
-  breakpoints: { medium: 768, expanded: 1024, wide: 1280 },
+  breakpoints: { medium: 768, wide: 1280 },
 } as const
 
 export const elevation = {

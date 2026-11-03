@@ -1,4 +1,4 @@
-import { useLink, useOpenRequests } from '@cindl/client-react'
+import { useCan, useLink, useOpenRequests } from '@cindl/client-react'
 import { TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AgentView } from '../agent/AgentView.tsx'
@@ -19,6 +19,7 @@ export function AppShell() {
   const route = useRoute()
   const link = useLink()
   const open = useOpenRequests()
+  const canCreate = useCan('sessions.create')
   const [theme] = usePreference('theme')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
@@ -56,15 +57,19 @@ export function AppShell() {
         shortcut: 'go-agent',
         run: () => navigate({ view: 'agent', section: 'identity' }),
       },
-      {
-        id: 'new-side',
-        label: 'Start a side conversation',
-        shortcut: 'new-side',
-        run: () => {
-          navigate({ view: 'talk' })
-          queueMicrotask(() => talk.current?.newSideConversation())
-        },
-      },
+      ...(canCreate
+        ? [
+            {
+              id: 'new-side',
+              label: 'Start a side conversation',
+              shortcut: 'new-side' as const,
+              run: () => {
+                navigate({ view: 'talk' })
+                queueMicrotask(() => talk.current?.newSideConversation())
+              },
+            },
+          ]
+        : []),
       {
         id: 'identity',
         label: 'Open identity (SOUL.md)',
@@ -97,7 +102,7 @@ export function AppShell() {
         run: () => setHelpOpen(true),
       },
     ],
-    [],
+    [canCreate],
   )
 
   useEffect(() => {
@@ -119,6 +124,7 @@ export function AppShell() {
           queueMicrotask(() => talk.current?.openHistory())
           break
         case 'new-side':
+          if (!canCreate) break
           navigate({ view: 'talk' })
           queueMicrotask(() => talk.current?.newSideConversation())
           break
@@ -147,7 +153,7 @@ export function AppShell() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [route])
+  }, [route, canCreate])
 
   return (
     <div className={styles.shell}>

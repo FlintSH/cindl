@@ -56,9 +56,11 @@ export const CindlEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('request.opened'), request: ServerRequest }),
   z.object({
     type: z.literal('request.closed'),
-    rpcId: z.union([z.string(), z.number()]),
-    status: z.enum(['answered', 'cancelled', 'expired', 'failed']),
+    requestId: z.string(),
+    status: z.enum(['answered', 'resolved-elsewhere', 'cancelled', 'expired', 'failed']),
   }),
+  /** After (re)connect or replay: the requests Hermes still holds open. Others are closed. */
+  z.object({ type: z.literal('requests.synced'), openRequestIds: z.array(z.string()) }),
   z.object({
     type: z.literal('session.status'),
     conversationId: z.string(),

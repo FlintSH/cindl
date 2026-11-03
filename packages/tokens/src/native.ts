@@ -30,7 +30,7 @@ export function nativeColors(name: ThemeName) {
   return themes[name]
 }
 
-/** File base names that the Android app must bundle (see apps/android/app.config.ts). */
+/** Font files the Android app bundles (apps/android, in progress). */
 export const nativeFontFiles = [
   'instrument-sans/InstrumentSans-Regular.ttf',
   'instrument-sans/InstrumentSans-Medium.ttf',

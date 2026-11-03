@@ -7,5 +7,6 @@ ceramics studio) implementing `CindlClientApi`. It is used by tests, by the
 web build only when `VITE_CINDL_DEMO=1`, and for documentation screenshots, and
 it always reports `link.demo = true` so clients show a banner. Lint forbids
 importing it from production code paths. Integration tests of the real adapter
-use a fake Hermes server built from the vendored upstream contract, never this
+will use a fake Hermes server built from the vendored upstream contract (in
+progress), never this
 scenario.
