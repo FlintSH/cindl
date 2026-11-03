@@ -4,8 +4,11 @@ import { useMemo, useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './views.module.css'
 
+/** `base` is the version the owner reviewed the draft against. */
 type Stage =
-  { kind: 'view' } | { kind: 'edit'; draft: string } | { kind: 'review'; draft: string }
+  | { kind: 'view' }
+  | { kind: 'edit'; draft: string }
+  | { kind: 'review'; draft: string; base: string }
 
 /**
  * Drafts kept after a save conflict, by document key, so a reload (which can
@@ -66,7 +69,9 @@ export function DocumentEditor({
   const restored = keptDrafts.has(document.key) && stage.kind !== 'view'
   const [error, setError] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
-  const [backup, setBackup] = useState<string>()
+  // The text a save replaced, offered back only while the document is still
+  // the version that save produced (not another entry, nor a later change).
+  const [backup, setBackup] = useState<{ content: string; version: string }>()
 
   if (stage.kind === 'view')
     return (
@@ -76,12 +81,12 @@ export function DocumentEditor({
           Read {new Date(document.readAt).toLocaleString()} from {document.source}.
           Version <code>{document.version.slice(0, 12)}</code>.
         </p>
-        {backup !== undefined ? (
+        {backup?.version === document.version ? (
           <p className={styles.note}>
             The previous version is kept on this screen until you leave it.{' '}
             <Button
               variant="quiet"
-              onClick={() => setStage({ kind: 'edit', draft: backup })}
+              onClick={() => setStage({ kind: 'edit', draft: backup.content })}
             >
               Restore previous version
             </Button>
@@ -133,7 +138,9 @@ export function DocumentEditor({
           <Button
             variant="primary"
             disabled={stage.draft === document.content}
-            onClick={() => setStage({ kind: 'review', draft: stage.draft })}
+            onClick={() =>
+              setStage({ kind: 'review', draft: stage.draft, base: document.version })
+            }
           >
             Review changes
           </Button>
@@ -141,15 +148,18 @@ export function DocumentEditor({
       </div>
     )
 
-  const draft = stage.draft
+  const { draft, base } = stage
+  // What the owner reviewed is no longer what is shown: Hermes changed it, or
+  // another entry took its place. Saving needs a fresh review.
+  const moved = base !== document.version
   const save = async () => {
     setSaving(true)
     setError(undefined)
     try {
       const previous = document.content
-      await onSave(draft, document.version)
+      const saved = await onSave(draft, base)
       keptDrafts.delete(document.key)
-      setBackup(previous)
+      setBackup({ content: previous, version: saved.version })
       setStage({ kind: 'view' })
     } catch (err) {
       if (isCindlError(err) && err.code === 'conflict') {
@@ -175,6 +185,13 @@ export function DocumentEditor({
   return (
     <div className={styles.section}>
       <Review before={document.content} draft={draft} />
+      {moved ? (
+        <p className={styles.error} role="alert">
+          This text changed in Hermes while you were reviewing, so the changes above are
+          against the new version. Go back to editing and review your draft again before
+          saving.
+        </p>
+      ) : null}
       {error ? (
         <p className={styles.error} role="alert">
           {error.message}
@@ -202,7 +219,7 @@ export function DocumentEditor({
         </Button>
         <Button
           variant="primary"
-          disabled={saving || Boolean(error?.conflict)}
+          disabled={saving || moved || Boolean(error?.conflict)}
           onClick={() => void save()}
         >
           {saving ? 'Saving…' : 'Confirm and save'}

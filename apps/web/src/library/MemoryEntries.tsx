@@ -1,6 +1,7 @@
 import { sha256Hex } from '@cindl/client-core'
 import { useCan, useCindlApi } from '@cindl/client-react'
 import {
+  CindlError,
   isCindlError,
   type MemoryEntry,
   type MemoryEntrySummary,
@@ -139,9 +140,12 @@ function MemoryEntryEditor({
   )
   // When the list shows another id at this place (a change made elsewhere),
   // read what Hermes now has there, keeping the editor and any draft while it
-  // loads. After a save here the list catches up to the saved id: no re-read.
+  // loads; a failed read is retried the same way. After a save here the list
+  // catches up to the saved id: no re-read. The editor itself refuses to save
+  // a review made against other text (DocumentEditor), and the restore offer
+  // ends when the entry here is no longer the one saved.
   const followList = useEffectEvent((listed: string) => {
-    if (entry.data && entry.data.id !== listed) entry.reload()
+    if (entry.error || (entry.data && entry.data.id !== listed)) entry.reload()
   })
   useEffect(() => followList(summary.id), [summary.id])
   // The editor's draft key names the entry's place in its store ("agent note 2"),
@@ -159,17 +163,27 @@ function MemoryEntryEditor({
   const data = entry.data
   return (
     <div className={styles.memoryEditor}>
-      {entry.error ? <p className={styles.error}>{entry.error}</p> : null}
+      {entry.error ? (
+        <div className={styles.actions}>
+          <p className={styles.error}>{entry.error}</p>
+          <Button variant="quiet" onClick={onChanged}>
+            Reload
+          </Button>
+        </div>
+      ) : null}
       {data ? (
         <>
           <DocumentEditor
             document={toDocument(data)}
             canWrite={canWrite}
-            onReload={() => {
-              entry.reload()
-              onChanged()
-            }}
-            onSave={async (content) => {
+            // The list names the entry's current id; the read follows it.
+            onReload={onChanged}
+            onSave={async (content, reviewed) => {
+              if (toDocument(data).version !== reviewed)
+                throw new CindlError(
+                  'conflict',
+                  'This entry changed since you reviewed it. Review it again.',
+                )
               const saved = await api.call('memory.write', {
                 id: data.id,
                 content,
@@ -180,7 +194,11 @@ function MemoryEntryEditor({
               return toDocument(saved)
             }}
           />
-          {canWrite ? <DeleteEntry id={data.id} onDeleted={onDeleted} /> : null}
+          {canWrite ? (
+            // Keyed by id: if another entry takes this place, an open
+            // confirmation closes instead of deleting the newcomer.
+            <DeleteEntry key={data.id} id={data.id} onDeleted={onDeleted} />
+          ) : null}
         </>
       ) : null}
     </div>
