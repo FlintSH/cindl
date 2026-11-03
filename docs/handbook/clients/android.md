@@ -84,7 +84,9 @@ holds:
 - `cindl-<flavour>-test.apk` and `SHA256SUMS`;
 - `apk-report.json`: package, label, SDK levels, ABIs, permissions, network
   security config, signer, the bundle gate's result, the local Kotlin modules
-  found compiled into the dex (`kotlinModules`; the check fails without both)
+  found compiled into the dex (`kotlinModules`; the check fails without all
+  three: CindlFocus, CindlLoopback and CindlScreen, a list a unit test reads
+  against `apps/android/modules`)
   and whether any dex refers to WebView (`refersToWebView`, reported only);
 - `LICENSE.txt` (Cindl's MIT licence), `THIRD-PARTY-NOTICES.txt` (fonts,
   vendored material and every npm package in the build) and

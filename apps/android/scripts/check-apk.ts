@@ -18,6 +18,7 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { DEMO_PRODUCT_NAME } from '@cindl/contracts'
 import { BUILD_PACKAGES, TEST_APK_ABIS } from '../sdk/android-sdk.ts'
+import { KOTLIN_MODULES } from './kotlin-modules.ts'
 
 const PACKAGE = 'dev.fl1nt.cindl'
 /** Certificate of the debug.keystore that React Native's template ships to everyone. */
@@ -34,7 +35,6 @@ const ALLOWED_PERMISSIONS = [
  * register: R8 may rename their classes, but these names are what JavaScript
  * asks for, so they stay in the dex.
  */
-export const KOTLIN_MODULES = ['CindlLoopback', 'CindlScreen'] as const
 const NOTICES = [
   'assets/licenses/LICENSE.txt',
   'assets/licenses/THIRD-PARTY-NOTICES.txt',
