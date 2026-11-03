@@ -55,20 +55,35 @@ export class RunSecrets {
 }
 
 /**
- * The UID a `logcat -v threadtime -v uid` line was logged under (Android
- * prints it before the pid as a number, or a short user name such as
- * `root`), or undefined when the line has another shape.
+ * The UID a `logcat -v threadtime -v uid` line was logged under, as logcat
+ * prints it before the pid: a user name of up to five letters (`root`,
+ * `radio`, `shell`), else the number (`1000` for system_server, `10151` for an
+ * app; CI run 41681122382). That run printed no colon after it; older
+ * releases do. Undefined when the line has another shape.
  */
 export function logcatUid(line: string): string | undefined {
-  return /^\d\d-\d\d \d\d:\d\d:\d\d\.\d+\s+([\w-]+):\s*\d+\s+\d+\s+[VDIWEFAS]\s/.exec(
+  return /^\d\d-\d\d \d\d:\d\d:\d\d\.\d+\s+([\w-]+):?\s+\d+\s+\d+\s+[VDIWEFAS]\s/.exec(
     line,
   )?.[1]
+}
+
+/**
+ * Whether a UID as logcat printed it is `uid`, a number (from `pm list
+ * packages -U`): the number itself, or, for an app, its user name
+ * `u<user>_a<appId>` (uid 10151 is u0_a151), which a release that prints
+ * longer names would print instead.
+ */
+export function isUid(printed: string, uid: string): boolean {
+  if (printed === uid) return true
+  const number = Number(uid)
+  if (!Number.isInteger(number) || number % 100000 < 10000) return false
+  return printed === `u${Math.floor(number / 100000)}_a${(number % 100000) - 10000}`
 }
 
 /** A line logged under another UID than `uid` (none when `uid` or the line's is unknown). */
 const othersLine = (line: string, uid: string | undefined) => {
   const of = logcatUid(line)
-  return uid !== undefined && of !== undefined && of !== uid
+  return uid !== undefined && of !== undefined && !isUid(of, uid)
 }
 
 /**
@@ -140,7 +155,10 @@ export class DeviceLogs {
         sum +
         (uid === undefined
           ? 0
-          : raw.split('\n').filter((line) => logcatUid(line) === uid).length),
+          : raw.split('\n').filter((line) => {
+              const of = logcatUid(line)
+              return of !== undefined && isUid(of, uid)
+            }).length),
       0,
     )
   }

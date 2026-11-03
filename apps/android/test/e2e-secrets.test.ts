@@ -16,6 +16,7 @@ import { createDevice } from '../e2e/device.ts'
 import { startFakeHermesAuth, type FakeHermesAuth } from '../e2e/fakeHermesAuth.ts'
 import {
   DeviceLogs,
+  isUid,
   logcatUid,
   RunSecrets,
   watchFakeHermes,
@@ -116,23 +117,72 @@ describe('the values a run must not publish', () => {
   })
 })
 
-describe('the device log lines that count (CI run 41656607631, delta check of c6ce4d3)', () => {
-  // `logcat -v threadtime -v uid` lines. SystemUI (uid 10102) and system_server
-  // (uid 1000) log the browser task Cindl opened, with the link's state, as
-  // that run's signin/logcat-02 shows; Cindl's own lines carry its uid, 10151.
+describe('the device log lines that count (CI runs 41656607631 and 41681122382)', () => {
+  // `logcat -v threadtime -v uid` lines as run 41681122382's signin logs have
+  // them: the UID column holds a user name of up to five letters (root), else
+  // the number (system_server 1000, SystemUI 10124, Cindl 10151), with no
+  // colon after it. SystemUI and system_server log the browser task Cindl
+  // opened, with the link's state (`capturedLink=`).
   const LINK = `http://127.0.0.1:38457/auth/native/authorize?code_challenge=synthetic-challenge&code_challenge_method=S256&redirect_uri=http%3A%2F%2F127.0.0.1%3A39957%2Fcallback&state=${STATE}`
-  const SHELL = `11-03 15:03:23.182 10102:  1001  1092 V WindowManagerShell: Transition requested (#22): android.os.BinderProxy@801c905 TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=10 effectiveUid=10151 displayId=0 isRunning=true baseIntent=Intent { act=android.intent.action.VIEW cat=[android.intent.category.BROWSABLE] flg=0x10000000 capturedLink=${LINK} }`
-  const SERVER = `11-03 15:03:23.420  1000:   638   659 V WindowManager: Sent Transition (#22) createdAt=11-03 15:03:23.176 via request=TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=10 baseIntent=Intent { capturedLink=${LINK} }`
-  const APP =
-    '11-03 15:03:23.500 10151:  4321  4321 I ReactNativeJS: Waiting for the browser'
+  const SHELL = `11-03 17:26:38.172 10124  1008  1100 V WindowManagerShell: Transition requested (#21): android.os.BinderProxy@f15e604 TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=10 effectiveUid=10151 displayId=0 isRunning=true baseIntent=Intent { act=android.intent.action.VIEW cat=[android.intent.category.BROWSABLE] flg=0x10000000 capturedLink=${LINK} capturedLinkTimestamp=0 }`
+  const SERVER = `11-03 17:26:38.392  1000   635   672 V WindowManager: Sent Transition (#21) createdAt=11-03 17:26:38.167 via request=TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=10 baseIntent=Intent { capturedLink=${LINK} capturedLinkTimestamp=0 }`
+  const APP = '11-03 17:26:27.989 10151  6292  6312 I ReactNativeJS: Running "main"'
+  const ROOT =
+    "11-03 17:26:25.182  root     0     0 I init    : Service 'adbd' (pid 525) exited with status 0"
 
-  it('reads the uid of a line, and nothing from a line without one', () => {
-    expect(logcatUid(SHELL)).toBe('10102')
+  it('reads the uid of a line as logcat prints it, and nothing from a line without one', () => {
+    expect(logcatUid(SHELL)).toBe('10124')
     expect(logcatUid(SERVER)).toBe('1000')
     expect(logcatUid(APP)).toBe('10151')
+    expect(logcatUid(ROOT)).toBe('root')
+    // Older releases print a colon after it.
+    expect(logcatUid('11-03 15:03:23.500 10151:  4321  4321 I ReactNativeJS: x')).toBe(
+      '10151',
+    )
+    // Without -v uid: a pid and a tid only.
     expect(
       logcatUid('11-03 15:03:23.182  1001  1092 V WindowManagerShell: x'),
     ).toBeUndefined()
+  })
+
+  it("knows Cindl's uid by its number and by its user name, and no one else's", () => {
+    expect(isUid('10151', '10151')).toBe(true)
+    expect(isUid('u0_a151', '10151')).toBe(true)
+    expect(isUid('u10_a151', '1010151')).toBe(true)
+    expect(isUid('u0_a124', '10151')).toBe(false)
+    expect(isUid('10124', '10151')).toBe(false)
+    for (const name of ['root', 'system', 'shell', 'radio'])
+      expect(isUid(name, '10151')).toBe(false)
+    // A system uid has no app name.
+    expect(isUid('u0_a-9000', '1000')).toBe(false)
+  })
+
+  it("attributes lines to Cindl in either form, and fails closed when none is Cindl's", () => {
+    const secrets = new RunSecrets()
+    secrets.add('state', STATE)
+    secrets.add('access token', ACCESS)
+    const logs = new DeviceLogs(scratch(), secrets)
+    logs.keep('logcat-01.txt', [ROOT, SERVER, SHELL, APP].join('\n'), '10151')
+    expect(logs.attributed()).toBe(1)
+    expect(logs.holding()).toEqual([])
+    // A release that prints names: system_server as `system`, Cindl as `u0_a151`.
+    const named = new DeviceLogs(scratch(), secrets)
+    named.keep(
+      'logcat-02.txt',
+      [
+        SERVER.replace(/^(\S+ \S+)\s+1000 /, '$1 system '),
+        APP.replace(' 10151 ', ' u0_a151 '),
+        `11-03 17:26:40.000 u0_a151  6292  6312 D ReactNativeJS: capturedLink=${LINK}`,
+      ].join('\n'),
+      '10151',
+    )
+    expect(named.attributed()).toBe(2)
+    // The state in Cindl's own line counts; in the system's record of the link, it does not.
+    expect(named.holding()).toEqual([{ file: 'logcat-02.txt', kinds: ['state'] }])
+    // Only root's and the system's lines: nothing is Cindl's, and the run's step fails.
+    const none = new DeviceLogs(scratch(), secrets)
+    none.keep('logcat-03.txt', [ROOT, SERVER, SHELL].join('\n'), '10151')
+    expect(none.attributed()).toBe(0)
   })
 
   it("does not count the state in the system's record of the link Cindl opened; it is scrubbed", () => {
@@ -205,6 +255,10 @@ describe('the device log lines that count (CI run 41656607631, delta check of c6
     )
     expect(unplaced.holding()).toEqual([{ file: 'a.txt', kinds: ['state'] }])
     expect(unplaced.attributed()).toBe(0)
+    // Nor is a line whose uid cannot be read another process's record of the link.
+    const unread = new DeviceLogs(scratch(), secrets)
+    unread.keep('c.txt', `V WindowManager: capturedLink=${LINK}`, '10151')
+    expect(unread.holding()).toEqual([{ file: 'c.txt', kinds: ['state'] }])
     const unknown = new DeviceLogs(scratch(), secrets)
     unknown.keep('b.txt', [SHELL, APP].join('\n'))
     expect(unknown.holding()).toEqual([{ file: 'b.txt', kinds: ['state'] }])

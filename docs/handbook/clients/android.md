@@ -183,7 +183,9 @@ until the owner decides about those terms.
   - **Logs:** no token, ticket, code, state or PKCE verifier the run issued
     or received is in any line of the device log, Cindl's or another
     process's (logcat with each line's UID, read after every step and kept
-    raw in memory only). One exception: Android's window manager logs the
+    raw in memory only). Logcat prints a UID as a short user name (`root`)
+    or a number (`10151`); Cindl's lines are matched by its number or its
+    user name (`u0_a151`). One exception: Android's window manager logs the
     link Cindl opened in the browser (`capturedLink=`), with its state; on
     another process's line, the state inside that link is scrubbed in the
     artifact but not counted. If no line can be told to be Cindl's, the check
