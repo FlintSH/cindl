@@ -140,6 +140,70 @@ function hostOf(authority: string): string {
   return value.toLowerCase()
 }
 
+/** Python's `urllib.parse.unquote`, near enough: a malformed escape stays as it is. */
+function unquote(raw: string): string {
+  return raw.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
+    try {
+      return decodeURIComponent(run)
+    } catch {
+      return run
+    }
+  })
+}
+
+/**
+ * Hermes's `_validate_post_login_target` (dashboard_auth/routes.py:93-97) over
+ * `is_safe_next_path` (request_utils.py:16, 37-44): the decoded value when it
+ * is a same-origin path that is not the login or auth routes and not under
+ * /api, else ''. As upstream, a backslash or a tab passes; Cindl never builds
+ * such a `next` (`isSafeNextPath` in the adapter refuses both).
+ */
+function safeNext(raw: unknown): string {
+  if (typeof raw !== 'string' || !raw) return ''
+  const decoded = unquote(raw)
+  if (!decoded.startsWith('/') || decoded.startsWith('//')) return ''
+  if (
+    ['/login', '/auth/', '/api/auth/'].some((p) => decoded === p || decoded.startsWith(p))
+  )
+    return ''
+  return decoded === '/api' || decoded.startsWith('/api/') ? '' : decoded
+}
+
+const html = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+
+/**
+ * A minimal stand-in for Hermes's login page (routes.py:195-200): SYNTHETIC,
+ * prefilled with the fixture credentials. The form posts
+ * `/auth/password-login` as Hermes's page does, then goes to the `next` it
+ * answers with.
+ */
+function loginPage(next: string, provider: string): string {
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Sign in (fixture Hermes)</title></head>
+<body>
+<p>Fake Hermes sign-in (synthetic fixture)</p>
+<form id="login">
+<input type="hidden" name="provider" value="${html(provider)}">
+<input type="hidden" name="next" value="${html(next)}">
+<label>Username <input name="username" value="${html(FIXTURE_LOGIN.username)}"></label>
+<label>Password <input name="password" type="password" value="${html(FIXTURE_LOGIN.password)}"></label>
+<button type="submit">Sign in</button>
+</form>
+<script>
+document.getElementById('login').addEventListener('submit', async (event) => {
+  event.preventDefault()
+  const form = new FormData(event.target)
+  const response = await fetch('/auth/password-login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.fromEntries(form)),
+  })
+  if (response.ok) location.assign((await response.json()).next)
+})
+</script>
+</body></html>`
+}
+
 function cookies(req: IncomingMessage): Record<string, string> {
   const out: Record<string, string> = {}
   for (const part of (req.headers.cookie ?? '').split(';')) {
@@ -249,10 +313,23 @@ export async function startFakeHermes(
     const session = auth.verifyAccess(at)
     if (session) return session
     const rotated = rt ? auth.refresh(rt) : undefined
-    if (!rotated) throw unauthorized('invalid_or_expired_session')
+    if (!rotated) {
+      // middleware.py:150-157: the dead cookies are cleared with the 401.
+      clearSessionCookies(res)
+      throw unauthorized('invalid_or_expired_session')
+    }
     setSessionCookies(res, rotated)
     return rotated
   }
+
+  /** cookies.py:123-128 `clear_session_cookies`. */
+  const clearSessionCookies = (res: ServerResponse) =>
+    res.setHeader(
+      'Set-Cookie',
+      ['hermes_session_at', 'hermes_session_rt', 'hermes_session_provider'].map(
+        (name) => `${name}=; Max-Age=0; HttpOnly; SameSite=Lax; Path=/`,
+      ),
+    )
 
   const setSessionCookies = (res: ServerResponse, session: FakeSession) =>
     res.setHeader('Set-Cookie', [
@@ -488,15 +565,38 @@ export async function startFakeHermes(
         })
       return bearerPayload(session)
     }
+    if (method === 'GET' && path === '/login') {
+      const password = sessionProviders.find((provider) => provider.supportsPassword)
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      })
+      res.end(loginPage(safeNext(url.searchParams.get('next')), password?.name ?? ''))
+      return undefined
+    }
     if (method === 'POST' && path === '/auth/password-login') {
+      // routes.py:447-494: a password provider by name, generic failures.
       const body = await json()
+      const provider = providers.find(
+        (candidate) => candidate.name === body.provider && candidate.supportsPassword,
+      )
+      if (!provider) throw detail(404, 'Unknown provider')
       if (
         body.username !== FIXTURE_LOGIN.username ||
         body.password !== FIXTURE_LOGIN.password
       )
         throw detail(401, 'Invalid credentials')
       setSessionCookies(res, auth.mintSession())
-      return { ok: true, next: '/' }
+      return { ok: true, next: safeNext(body.next) || '/' }
+    }
+    if (method === 'POST' && path === '/auth/logout') {
+      // routes.py:496-512: clear the cookies and 302 to /login. Its revoke is
+      // a no-op for the password provider (basic/__init__.py:165-167, stateless
+      // tokens), so the tokens themselves last until they expire.
+      clearSessionCookies(res)
+      res.writeHead(302, { Location: '/login' })
+      res.end()
+      return undefined
     }
     if (!path.startsWith('/api/')) throw detail(404, 'Not Found')
 

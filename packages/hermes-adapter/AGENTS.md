@@ -45,6 +45,11 @@ Planned, not built: canonical sessions, steer and process operations.
   whose client bytes pass a full port of Hermes's `RfbClientFilter`; and
   `store.serveAs` and `store.otherProfileScopes` for the served profile; the
   `providers` option for registered auth providers (`session: false` is a
-  token-only one, no sign-in option).
+  token-only one, no sign-in option); `auth.expireAccessTokens` and
+  `auth.revokeAll` to age or end sessions. A rotation replays to the same
+  refresh token for 30 s, as Hermes coalesces a burst. For the web's cookie
+  flow the fake serves a SYNTHETIC `/login` page, `/auth/password-login` and
+  `/auth/logout`, which clears the cookies and, like Hermes's password
+  provider, revokes nothing.
   Close fakes with `closeFakes`, which closes them all before it reports a
   contract violation, so a failing check never leaves one listening.
