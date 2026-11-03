@@ -1,35 +1,26 @@
 import { useCindlApi } from '@cindl/client-react'
-import { isCindlError, type ApprovalChoice, type ServerRequest } from '@cindl/contracts'
+import { isCindlError, type RequestAnswer, type ServerRequest } from '@cindl/contracts'
 import { HelpCircle, ShieldAlert } from 'lucide-react'
 import { useId, useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './talk.module.css'
 
-const choiceLabel: Record<ApprovalChoice, string> = { once: 'Allow once', deny: 'Deny' }
+export const requestDomId = (request: Pick<ServerRequest, 'rpcId' | 'connectionEpoch'>) =>
+  `request-${request.connectionEpoch}-${String(request.rpcId).replace(/[^A-Za-z0-9_-]/g, '_')}`
 
 /**
  * Structured decision card. Shows exactly what will run (as Hermes redacted
  * it) and only the choices Hermes offered that Cindl may send. One decision
  * per request; the server is the authority on whether it still applies.
+ * Distinguished by its label, heading and border, not by a decorative rail.
  */
-export const requestDomId = (request: Pick<ServerRequest, 'rpcId' | 'connectionEpoch'>) =>
-  `request-${request.connectionEpoch}-${String(request.rpcId).replace(/[^A-Za-z0-9_-]/g, '_')}`
-
-export function RequestCard({
-  request,
-  compact = false,
-}: {
-  request: ServerRequest
-  compact?: boolean
-}) {
+export function RequestCard({ request }: { request: ServerRequest }) {
   const api = useCindlApi()
   const titleId = useId()
   const [error, setError] = useState<string>()
   const [clarifyText, setClarifyText] = useState('')
   const busy = request.status === 'answering'
-  const send = async (
-    answer: Parameters<typeof api.call<'request.answer'>>[1]['answer'],
-  ) => {
+  const send = async (answer: RequestAnswer) => {
     setError(undefined)
     try {
       await api.call('request.answer', {
@@ -45,23 +36,28 @@ export function RequestCard({
       )
     }
   }
-  const Icon = request.kind === 'approval' ? ShieldAlert : HelpCircle
+  const approval = request.kind === 'approval'
+  const Icon = approval ? ShieldAlert : HelpCircle
   return (
     <section
-      id={compact ? undefined : requestDomId(request)}
+      id={requestDomId(request)}
       className={styles.request}
       data-kind={request.kind}
       aria-labelledby={titleId}
-      data-compact={compact || undefined}
     >
       <header className={styles.requestHeader}>
-        <Icon size={16} aria-hidden="true" />
+        <span className={styles.requestKind}>
+          <Icon size={14} aria-hidden="true" />
+          {approval ? 'Approval needed' : 'Question'}
+        </span>
         <h3 id={titleId} className={styles.requestTitle} tabIndex={-1}>
-          {request.kind === 'approval' ? 'Approval needed: ' : 'Question: '}
+          <span className="visually-hidden">
+            {approval ? 'Approval needed: ' : 'Question: '}
+          </span>
           {request.title}
         </h3>
       </header>
-      {request.kind === 'approval' ? (
+      {approval ? (
         <>
           {request.command ? (
             <pre className={styles.command} aria-label="Command">
@@ -72,24 +68,27 @@ export function RequestCard({
             <p className={styles.requestBody}>{request.description}</p>
           ) : null}
           {request.choices.length ? (
-            <div className={styles.requestActions}>
-              {request.choices.includes('deny') ? (
-                <Button
-                  disabled={busy}
-                  onClick={() => void send({ kind: 'approval', choice: 'deny' })}
-                >
-                  {choiceLabel.deny}
-                </Button>
-              ) : null}
-              {request.choices.includes('once') ? (
-                <Button
-                  variant="primary"
-                  disabled={busy}
-                  onClick={() => void send({ kind: 'approval', choice: 'once' })}
-                >
-                  {choiceLabel.once}
-                </Button>
-              ) : null}
+            <div className={styles.requestFooter}>
+              <p className={styles.requestScope}>Applies to this action only.</p>
+              <div className={styles.requestActions}>
+                {request.choices.includes('deny') ? (
+                  <Button
+                    disabled={busy}
+                    onClick={() => void send({ kind: 'approval', choice: 'deny' })}
+                  >
+                    Deny
+                  </Button>
+                ) : null}
+                {request.choices.includes('once') ? (
+                  <Button
+                    variant="primary"
+                    disabled={busy}
+                    onClick={() => void send({ kind: 'approval', choice: 'once' })}
+                  >
+                    Allow once
+                  </Button>
+                ) : null}
+              </div>
             </div>
           ) : (
             <p className={styles.requestNote}>
@@ -98,10 +97,14 @@ export function RequestCard({
             </p>
           )}
           {request.withheldChoices?.length ? (
-            <p className={styles.requestNote}>
-              Standing grants ({request.withheldChoices.join(', ')}) are not offered from
-              Cindl.
-            </p>
+            <details className={styles.requestDetails}>
+              <summary>Why only once?</summary>
+              <p>
+                Hermes also offers approval for the rest of the session or permanently.
+                Cindl only sends one-time decisions; make broader grants on the Hermes
+                host if you want them.
+              </p>
+            </details>
           ) : null}
         </>
       ) : (
@@ -110,7 +113,7 @@ export function RequestCard({
             <div key={question.qid} className={styles.question}>
               <p className={styles.requestBody}>{question.question}</p>
               {question.choices?.length ? (
-                <div className={styles.requestActions} data-wrap="true">
+                <div className={styles.choiceList}>
                   {question.choices.map((choice) => (
                     <Button
                       key={choice}
@@ -149,16 +152,18 @@ export function RequestCard({
               disabled={busy}
               onChange={(event) => setClarifyText(event.target.value)}
             />
-            <Button type="submit" disabled={busy || !clarifyText.trim()}>
-              Send
-            </Button>
-            <Button
-              variant="quiet"
-              disabled={busy}
-              onClick={() => void send({ kind: 'clarify-cancel' })}
-            >
-              Skip
-            </Button>
+            <div className={styles.clarifyActions}>
+              <Button
+                variant="quiet"
+                disabled={busy}
+                onClick={() => void send({ kind: 'clarify-cancel' })}
+              >
+                Skip
+              </Button>
+              <Button type="submit" disabled={busy || !clarifyText.trim()}>
+                Send
+              </Button>
+            </div>
           </form>
         </>
       )}

@@ -13,7 +13,7 @@ test('opens on the main conversation with honest presence', async ({ page }) => 
     page.getByRole('status').filter({ hasText: 'Waiting on you' }),
   ).toContainText('1 approval, 1 question')
   await expect(
-    page.getByRole('link', { name: 'Work, 2 waiting on you' }).first(),
+    page.getByRole('link', { name: /^Work\b.*2 waiting on you/ }).first(),
   ).toBeVisible()
 })
 
@@ -23,14 +23,14 @@ test('answers an approval once and shows the result', async ({ page }) => {
   })
   await expect(card).toHaveCount(1)
   await expect(card.getByRole('code')).toHaveText(/export_inventory\.py/)
-  await expect(card).toContainText(
-    'Standing grants (session, always) are not offered from Cindl.',
-  )
+  await expect(card).toContainText('Applies to this action only.')
+  await card.getByText('Why only once?').click()
+  await expect(card).toContainText('Cindl only sends one-time decisions')
   await card.getByRole('button', { name: 'Allow once' }).click()
   await expect(page.getByText('Done. The inventory sheet is current')).toBeVisible()
   await expect(card).toHaveCount(0)
   await expect(
-    page.getByRole('link', { name: 'Work, 1 waiting on you' }).first(),
+    page.getByRole('link', { name: /^Work\b.*1 waiting on you/ }).first(),
   ).toBeVisible()
 })
 
@@ -104,9 +104,7 @@ test('unsupported Hermes v0.22.5 capabilities are explained, not faked', async (
   page,
 }) => {
   await page.goto('/#/library/memory')
-  await expect(
-    page.getByText('Reading and editing memory text: Not supported.'),
-  ).toBeVisible()
+  await expect(page.getByText('Memory entries: Not supported.')).toBeVisible()
   await page.goto('/#/agent/connections')
   await expect(page.getByText('Account coverage: Not supported.')).toBeVisible()
   await page.goto('/#/agent/runtime')

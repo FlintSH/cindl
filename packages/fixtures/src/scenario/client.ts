@@ -48,7 +48,7 @@ const realTimers: ScenarioTimers = {
 
 const unsupported: Partial<Record<CapabilityId, string>> = {
   'memory.text':
-    'Hermes v0.22.5 exposes memory metadata only; memory text is not readable or editable.',
+    'Not implemented in Cindl yet. Hermes v0.22.5 source exposes fingerprinted memory entries (GET/PUT/DELETE /api/learning/node); support is pending verification and has not been tested against a live instance.',
   'connections.accounts':
     'Hermes v0.22.5 has no safe account-coverage source for local browser or vault logins.',
   'presence.unified':
@@ -379,6 +379,13 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
         emit({ type: 'request.closed', rpcId, status: 'answered' })
         const conversationId = request.conversationId ?? 'demo-main'
         if (request.kind === 'approval') {
+          // The turn that asked for approval ends once it has its answer.
+          emit({
+            type: 'message.completed',
+            conversationId,
+            messageId: 'm-5',
+            status: 'complete',
+          })
           const sheet = tools.get('tool-sheet')
           if (sheet) {
             const { progress: _progress, ...rest } = sheet

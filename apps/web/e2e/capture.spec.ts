@@ -30,8 +30,6 @@ test.describe('screenshot capture', () => {
         await page.goto('/#/talk')
         await page.getByRole('button', { name: /Today/ }).waitFor()
         await page.evaluate(() => document.fonts.ready)
-        if (viewport.width < 1280)
-          await page.getByRole('button', { name: 'Close the working margin' }).click()
         await page.screenshot({ path: `${dir}/talk-${viewport.name}-${theme}.png` })
       })
 
@@ -69,7 +67,6 @@ test.describe('screenshot capture', () => {
     await page.setViewportSize(viewports[3]!)
     await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
     await page.goto('/#/talk')
-    await page.getByRole('button', { name: 'Close the working margin' }).click()
     await page.getByRole('button', { name: /Today/ }).click()
     await page.getByRole('dialog', { name: 'Conversations' }).waitFor()
     await page.screenshot({ path: `${dir}/history-phone-390x844-light.png` })

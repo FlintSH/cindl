@@ -1,5 +1,7 @@
 import {
   selectCan,
+  selectConversationActivity,
+  type ConversationActivity,
   selectConversations,
   selectMainConversation,
   selectOpenRequests,
@@ -52,4 +54,44 @@ export function useOpenRequests(conversationId?: string): ServerRequest[] {
     [conversationId],
   )
   return useStableArray(selector)
+}
+
+const sameItems = <T>(a: readonly T[], b: readonly T[]) =>
+  a.length === b.length && a.every((value, index) => value === b[index])
+
+function sameActivity(a: ConversationActivity, b: ConversationActivity) {
+  return (
+    a.phase === b.phase &&
+    a.queuedPrompts === b.queuedPrompts &&
+    a.turnOpen === b.turnOpen &&
+    a.otherExecuting === b.otherExecuting &&
+    sameItems(a.openRequests, b.openRequests) &&
+    sameItems(a.executingTools, b.executingTools) &&
+    sameItems([...a.blockedToolIds], [...b.blockedToolIds])
+  )
+}
+
+/** Derived activity for one conversation, stable across unrelated state changes. */
+export function useConversationActivity(
+  conversationId: string | undefined,
+): ConversationActivity {
+  const cache = useRef<{ id: string | undefined; value: ConversationActivity } | null>(
+    null,
+  )
+  const select = useCallback(
+    (state: ClientState) => {
+      const value = selectConversationActivity(state, conversationId)
+      const previous = cache.current
+      if (
+        previous &&
+        previous.id === conversationId &&
+        sameActivity(previous.value, value)
+      )
+        return previous.value
+      cache.current = { id: conversationId, value }
+      return value
+    },
+    [conversationId],
+  )
+  return useCindlState(select)
 }

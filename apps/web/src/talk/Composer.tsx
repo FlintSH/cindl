@@ -15,13 +15,19 @@ const newClientId = () =>
     : `${Date.now()}-${Math.random().toString(36).slice(2)}`
 
 /**
- * Non-blocking: you can send while Hermes is working (Hermes queues, steers
- * or redirects). Enter sends, Shift+Enter adds a line.
+ * Non-blocking: you can send while Hermes works or waits (Hermes queues,
+ * steers or redirects). Enter sends, Shift+Enter adds a line. The hint says
+ * what sending now will do, derived from observed state.
  */
 export const Composer = forwardRef<
   ComposerHandle,
-  { conversationId: string; working: boolean; agentName: string }
->(function Composer({ conversationId, working, agentName }, ref) {
+  {
+    conversationId: string
+    canStop: boolean
+    hint: string | undefined
+    agentName: string
+  }
+>(function Composer({ conversationId, canStop, hint, agentName }, ref) {
   const api = useCindlApi()
   const link = useLink()
   const [text, setText] = useState('')
@@ -72,6 +78,7 @@ export const Composer = forwardRef<
           }
           value={text}
           disabled={!online}
+          aria-describedby={hint ? 'composer-hint' : undefined}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
             if (
@@ -85,11 +92,11 @@ export const Composer = forwardRef<
           }}
         />
         <div className={styles.composerActions}>
-          {working ? (
+          {canStop ? (
             <Button
               variant="quiet"
               icon
-              aria-label="Stop the current reply"
+              aria-label="Stop the current turn"
               title="Stop"
               onClick={() => void api.call('conversation.interrupt', { conversationId })}
             >
@@ -100,17 +107,17 @@ export const Composer = forwardRef<
             type="submit"
             variant="primary"
             icon
-            aria-label={
-              working ? 'Send (Hermes is working; it will queue or steer)' : 'Send'
-            }
+            aria-label="Send"
             disabled={!online || !text.trim()}
           >
             <ArrowUp size={16} aria-hidden="true" />
           </Button>
         </div>
       </div>
-      {working ? (
-        <p className={styles.composerHint}>Hermes is working. You can keep sending.</p>
+      {hint ? (
+        <p className={styles.composerHint} id="composer-hint">
+          {hint}
+        </p>
       ) : null}
     </form>
   )

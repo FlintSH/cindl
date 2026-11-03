@@ -44,8 +44,9 @@ export function renderTokensCss(): string {
     `  --spine-width: ${layout.spineWidth}px;`,
     `  --reading-measure: ${rem(layout.readingMeasure)};`,
     `  --margin-width: ${layout.marginWidth}px;`,
-    `  --touch-target: ${layout.touchTarget}px;`,
-    `  --pointer-target: ${layout.pointerTarget}px;`,
+    // Never below the px floor; grows when the user enlarges text (rem).
+    `  --touch-target: max(${layout.touchTarget}px, ${rem(layout.touchTarget)});`,
+    `  --pointer-target: max(${layout.pointerTarget}px, ${rem(layout.pointerTarget)});`,
     ...Object.entries(zIndex).map(([k, v]) => `  --z-${k}: ${v};`),
   ]
   return [

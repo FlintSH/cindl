@@ -48,7 +48,7 @@
   padding: var(--space-4);
   color: var(--color-text-tertiary);
 }
-@media (pointer: coarse) {
+@media (max-width: 767px), (pointer: coarse) {
   .result {
     min-height: var(--touch-target);
   }

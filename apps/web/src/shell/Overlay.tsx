@@ -16,7 +16,7 @@ export function Overlay({
   onClose: () => void
   label: string
   children: ReactNode
-  placement?: 'center' | 'top' | 'side'
+  placement?: 'center' | 'top' | 'side' | 'sheet'
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {

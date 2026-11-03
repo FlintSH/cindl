@@ -46,18 +46,16 @@ export function NavList({
             href={formatRoute(route)}
             className={styles.navItem}
             aria-current={current === id ? 'page' : undefined}
-            aria-label={
-              id === 'work' && workCount > 0
-                ? `${label}, ${workCount} waiting on you`
-                : label
-            }
           >
             <Icon size={20} strokeWidth={1.75} aria-hidden="true" />
             <span>{label}</span>
             {id === 'work' && workCount > 0 ? (
-              <span className={styles.count} aria-hidden="true">
-                {workCount > 9 ? '9+' : workCount}
-              </span>
+              <>
+                <span className={styles.count} aria-hidden="true">
+                  {workCount > 9 ? '9+' : workCount}
+                </span>
+                <span className="visually-hidden">, {workCount} waiting on you</span>
+              </>
             ) : null}
           </a>
         </li>

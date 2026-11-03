@@ -88,6 +88,11 @@
   text-decoration: underline;
   text-underline-offset: 0.18em;
 }
+@media (max-width: 767px), (pointer: coarse) {
+  .inlineButton {
+    min-height: var(--touch-target);
+  }
+}
 .inertLink {
   text-decoration: underline dotted;
 }

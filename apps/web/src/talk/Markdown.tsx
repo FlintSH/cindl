@@ -58,7 +58,7 @@ const components: Components = {
 
 export const Markdown = memo(function Markdown({ text }: { text: string }) {
   return (
-    <div className={styles.markdown}>
+    <div className={styles.markdown} data-prose>
       <ReactMarkdown remarkPlugins={[remarkGfm]} components={components} skipHtml>
         {text}
       </ReactMarkdown>

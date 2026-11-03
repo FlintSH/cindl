@@ -1,3 +1,4 @@
+export * from './activity.ts'
 export * from './platform.ts'
 export { diffLines, diffStats, type DiffLine } from './diff.ts'
 export { sha256Hex } from './sha256.ts'

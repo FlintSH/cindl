@@ -120,4 +120,4 @@ using it.
 
 Specific, calm and brief. Say what happened and what the owner can do. No
 exclamation marks, no hype, no em dashes in UI copy. Name limitations plainly
-("Hermes v0.22.5 exposes memory metadata only").
+("Hermes v0.22.5 cannot revoke tokens it already issued").

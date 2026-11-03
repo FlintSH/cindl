@@ -14,11 +14,13 @@ export function MessageView({
   message,
   agentName,
   selectedToolId,
+  blockedToolIds,
   onSelectTool,
 }: {
   message: Message
   agentName: string
   selectedToolId: string | undefined
+  blockedToolIds: ReadonlySet<string>
   onSelectTool: (toolId: string) => void
 }) {
   const time = clockTime(message.createdAt)
@@ -66,6 +68,7 @@ export function MessageView({
                   key={part.toolId}
                   toolId={part.toolId}
                   selected={selectedToolId === part.toolId}
+                  blocked={blockedToolIds.has(part.toolId)}
                   onSelect={onSelectTool}
                 />
               )

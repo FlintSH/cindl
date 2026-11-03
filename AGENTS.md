@@ -93,9 +93,10 @@ age. Keep both protections: pick an older version instead of adding exclusions.
    synthetic banner. A test double is never a silent production fallback.
 6. **Owner edits are explicit and versioned.** SOUL/skill writes go through
    edit, diff review and confirmation, and carry the SHA-256 version that was
-   read. Hermes v0.22.5 has no server-side compare-and-swap: say so. Memory text
-   is unsupported at v0.22.5; never use generic filesystem routes as a
-   workaround. No arbitrary path reads or writes.
+   read. Hermes v0.22.5 has no server-side compare-and-swap: say so. Memory
+   entries are edited only through Hermes's fingerprinted learning-node ids
+   (refuse positional ids for writes); never generic filesystem routes or memory
+   reset as a workaround. No arbitrary path reads or writes.
 7. **Agent output is untrusted.** No raw HTML, no automatic remote image loads,
    links open externally with their destination visible.
 8. **Computer control is scoped and leased.** Only the agent-owned screen of a

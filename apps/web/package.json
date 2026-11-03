@@ -26,6 +26,7 @@
     "remark-gfm": "4.0.1"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.14.0",
     "@cindl/fixtures": "workspace:*",
     "@playwright/test": "1.64.1",
     "@testing-library/react": "16.3.3",

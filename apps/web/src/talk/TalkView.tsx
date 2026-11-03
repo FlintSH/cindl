@@ -1,14 +1,14 @@
 import {
   useCindlApi,
+  useCindlState,
   useConversation,
+  useConversationActivity,
   useConversations,
   useLink,
   useMainConversation,
   useMessages,
-  useOpenRequests,
-  useCindlState,
 } from '@cindl/client-react'
-import { ChevronDown, PanelRight, Plus } from 'lucide-react'
+import { ArrowDown, ChevronDown, PanelRight, Plus } from 'lucide-react'
 import {
   forwardRef,
   useEffect,
@@ -17,18 +17,21 @@ import {
   useRef,
   useState,
 } from 'react'
-import { navigate } from '../router.ts'
-import { linkCopy } from '../shell/LinkStatus.tsx'
 import { usePreference } from '../platform/preferences.ts'
+import { useMediaQuery } from '../platform/useMediaQuery.ts'
+import { Overlay } from '../shell/Overlay.tsx'
+import { navigate } from '../router.ts'
 import { Button, Dot } from '../ui/primitives.tsx'
 import { Composer, type ComposerHandle } from './Composer.tsx'
 import { HistoryPopover } from './HistoryPopover.tsx'
 import { MessageView } from './MessageView.tsx'
+import { composerHint, presenceCopy } from './presence.ts'
 import { RequestCard } from './RequestCard.tsx'
 import { WorkingMargin } from './WorkingMargin.tsx'
 import styles from './talk.module.css'
 
 export const AGENT_NAME = 'Hermes'
+const BOTTOM_SLACK_PX = 48
 
 export interface TalkHandle {
   focusComposer(): void
@@ -36,59 +39,32 @@ export interface TalkHandle {
   newSideConversation(): void
 }
 
-function usePresence(conversationId: string | undefined) {
-  const link = useLink()
-  const conversation = useConversation(conversationId)
-  const requests = useOpenRequests(conversationId)
-  const runningTitle = useCindlState((state) => {
-    const running = Object.values(state.tools).filter(
-      (t) =>
-        t.conversationId === conversationId &&
-        (t.status === 'running' || t.status === 'generating'),
-    )
-    return running.at(-1)?.title
-  })
-  if (link.phase !== 'online' && !link.demo)
-    return {
-      tone: linkCopy(link.phase, false).tone,
-      text: linkCopy(link.phase, false).label,
-    }
-  if (requests.length) {
-    const approvals = requests.filter((r) => r.kind === 'approval').length
-    const questions = requests.length - approvals
-    const parts = [
-      approvals ? `${approvals} approval${approvals > 1 ? 's' : ''}` : '',
-      questions ? `${questions} question${questions > 1 ? 's' : ''}` : '',
-    ].filter(Boolean)
-    return { tone: 'accent' as const, text: `Waiting on you: ${parts.join(', ')}` }
-  }
-  if (runningTitle) return { tone: 'info' as const, text: `Working: ${runningTitle}` }
-  if (conversation?.status === 'working')
-    return { tone: 'info' as const, text: 'Working' }
-  if (conversation?.status === 'unknown')
-    return { tone: 'neutral' as const, text: 'Status unknown' }
-  return { tone: 'neutral' as const, text: 'Idle' }
-}
-
 export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefined }>(
   function TalkView({ conversationId: requestedId }, ref) {
     const api = useCindlApi()
+    const link = useLink()
     const conversations = useConversations()
     const main = useMainConversation()
     const conversationId = requestedId ?? main?.id ?? conversations[0]?.id
     const conversation = useConversation(conversationId)
     const messages = useMessages(conversationId)
-    const requests = useOpenRequests(conversationId)
-    const presence = usePresence(conversationId)
+    const activity = useConversationActivity(conversationId)
     const [historyOpen, setHistoryOpen] = useState(false)
-    const [marginOpen, setMarginOpen] = usePreference('marginOpen')
+    const [marginPreference, setMarginPreference] = usePreference('marginOpen')
+    // Wide screens keep the margin as a column (remembered); narrower screens show it
+    // as a modal sheet that starts closed, so it never covers live controls.
+    const wide = useMediaQuery('(min-width: 1280px)')
+    const [sheetOpen, setSheetOpen] = useState(false)
+    const marginOpen = wide ? marginPreference : sheetOpen
+    const setMarginOpen = wide ? setMarginPreference : setSheetOpen
     const [selection, setSelection] = useState<{
       conversationId: string
       toolId: string
     }>()
+    // Pinned to the newest content until the owner scrolls up to read.
+    const [atBottom, setAtBottom] = useState(true)
     const composer = useRef<ComposerHandle>(null)
     const scroller = useRef<HTMLDivElement>(null)
-    const stick = useRef(true)
     const requested = useRef(new Set<string>())
     const loaded = useCindlState((state) =>
       conversationId ? conversationId in state.messages : true,
@@ -111,10 +87,9 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         .catch(() => requested.current.delete(conversationId))
     }, [api, conversationId, loaded])
 
-    // Stay pinned to the newest content unless the owner scrolled up to read.
     useLayoutEffect(() => {
       const el = scroller.current
-      if (el && stick.current) el.scrollTop = el.scrollHeight
+      if (el && atBottom) el.scrollTop = el.scrollHeight
     })
 
     if (!conversationId || !conversation) {
@@ -137,8 +112,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
       )
     }
 
-    const working =
-      conversation.status === 'working' || messages.some((m) => m.status === 'streaming')
+    const presence = presenceCopy(link, activity)
     // Selection belongs to one conversation; switching conversations clears it without an effect.
     const selectedToolId =
       selection?.conversationId === conversationId ? selection.toolId : undefined
@@ -150,9 +124,15 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
       const created = await api.call('conversations.create', {})
       navigate({ view: 'talk', conversationId: created.id })
     }
+    const jumpToLatest = () => {
+      const el = scroller.current
+      if (!el) return
+      el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+      setAtBottom(true)
+    }
 
     return (
-      <div className={styles.talk} data-margin={marginOpen ? 'open' : 'closed'}>
+      <div className={styles.talk} data-margin={wide && marginOpen ? 'open' : 'closed'}>
         <section
           className={styles.conversation}
           aria-label={`Conversation: ${conversation.title}`}
@@ -174,6 +154,9 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
             <p className={styles.presence} role="status">
               <Dot tone={presence.tone} />
               <span>{presence.text}</span>
+              {presence.aside ? (
+                <span className={styles.presenceAside}>{presence.aside}</span>
+              ) : null}
             </p>
             <div className={styles.headerActions}>
               <Button
@@ -199,54 +182,84 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
               </Button>
             </div>
           </header>
-          <div
-            ref={scroller}
-            className={styles.timeline}
-            onScroll={(event) => {
-              const el = event.currentTarget
-              stick.current = el.scrollHeight - el.scrollTop - el.clientHeight < 48
-            }}
-          >
+          <div className={styles.timelineWrap}>
             <div
-              className={styles.measure}
-              role="log"
-              aria-label="Messages"
-              aria-live="off"
+              ref={scroller}
+              className={styles.timeline}
+              onScroll={(event) => {
+                const el = event.currentTarget
+                const bottom =
+                  el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_SLACK_PX
+                if (bottom !== atBottom) setAtBottom(bottom)
+              }}
             >
-              {!loaded ? <p className={styles.loading}>Loading conversation…</p> : null}
-              {messages.map((message) => (
-                <MessageView
-                  key={message.id}
-                  message={message}
-                  agentName={AGENT_NAME}
-                  selectedToolId={selectedToolId}
-                  onSelectTool={selectTool}
-                />
-              ))}
-              {requests.map((request) => (
-                <RequestCard
-                  key={`${request.connectionEpoch}:${request.rpcId}`}
-                  request={request}
-                />
-              ))}
+              <div
+                className={styles.measure}
+                role="log"
+                aria-label="Messages"
+                aria-live="off"
+              >
+                {!loaded ? <p className={styles.loading}>Loading conversation…</p> : null}
+                {messages.map((message) => (
+                  <MessageView
+                    key={message.id}
+                    message={message}
+                    agentName={AGENT_NAME}
+                    selectedToolId={selectedToolId}
+                    blockedToolIds={activity.blockedToolIds}
+                    onSelectTool={selectTool}
+                  />
+                ))}
+                {activity.openRequests.map((request) => (
+                  <RequestCard
+                    key={`${request.connectionEpoch}:${request.rpcId}`}
+                    request={request}
+                  />
+                ))}
+              </div>
             </div>
+            {!atBottom ? (
+              <Button
+                className={styles.jump}
+                onClick={jumpToLatest}
+                aria-label="Jump to latest messages"
+              >
+                <ArrowDown size={15} aria-hidden="true" /> Latest
+              </Button>
+            ) : null}
           </div>
           <div className={styles.composerDock}>
             <Composer
               ref={composer}
               conversationId={conversationId}
-              working={working}
+              canStop={activity.turnOpen || activity.phase === 'executing'}
+              hint={composerHint(activity)}
               agentName={AGENT_NAME}
             />
           </div>
         </section>
-        {marginOpen ? (
+        {wide && marginOpen ? (
           <WorkingMargin
             conversationId={conversationId}
             selectedToolId={selectedToolId}
             onClearSelection={() => setSelection(undefined)}
             onClose={() => setMarginOpen(false)}
           />
+        ) : null}
+        {!wide ? (
+          <Overlay
+            open={sheetOpen}
+            onClose={() => setSheetOpen(false)}
+            label="Working margin"
+            placement="sheet"
+          >
+            <WorkingMargin
+              conversationId={conversationId}
+              selectedToolId={selectedToolId}
+              onClearSelection={() => setSelection(undefined)}
+              onClose={() => setSheetOpen(false)}
+            />
+          </Overlay>
         ) : null}
         <HistoryPopover
           open={historyOpen}

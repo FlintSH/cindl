@@ -126,13 +126,16 @@
     padding-bottom: env(safe-area-inset-bottom);
   }
   .bottomNav .navList {
-    flex-direction: row;
-    justify-content: space-around;
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
   .bottomNav .navItem {
-    width: auto;
-    min-width: 4.5rem;
-    min-height: 3.5rem;
+    width: 100%;
+    min-width: 0;
+    min-height: max(56px, 3.5rem);
+    padding: 0 var(--space-0_5);
+    overflow-wrap: anywhere;
+    text-align: center;
   }
   .bottomNav .navItem[aria-current='page']::before {
     left: 30%;
@@ -166,4 +169,12 @@
   width: 2.5rem;
   height: 2.5rem;
   border-radius: var(--radius-md);
+}
+
+@media (pointer: coarse) {
+  .brand,
+  .status {
+    width: var(--touch-target);
+    height: var(--touch-target);
+  }
 }

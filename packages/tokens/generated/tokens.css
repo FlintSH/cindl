@@ -63,8 +63,8 @@
   --spine-width: 72px;
   --reading-measure: 45rem;
   --margin-width: 400px;
-  --touch-target: 44px;
-  --pointer-target: 32px;
+  --touch-target: max(44px, 2.75rem);
+  --pointer-target: max(32px, 2rem);
   --z-spine: 10;
   --z-margin: 20;
   --z-sheet: 40;

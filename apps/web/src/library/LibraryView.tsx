@@ -114,8 +114,8 @@ function Memory() {
           <p className={styles.note}>Source: {overview.source}.</p>
         </>
       ) : null}
-      <RequireCapability id="memory.text" label="Reading and editing memory text">
-        <p className={styles.note}>Memory text is available.</p>
+      <RequireCapability id="memory.text" label="Memory entries">
+        <p className={styles.note}>Memory entries are available.</p>
       </RequireCapability>
     </div>
   )

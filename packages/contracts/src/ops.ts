@@ -205,7 +205,8 @@ export const clientOps = {
     result: MemoryOverview,
     capability: 'memory.overview',
     mutates: false,
-    summary: 'Memory metadata. Memory text is not exposed by Hermes v0.22.5.',
+    summary:
+      'Memory provider metadata (GET /api/memory). Entries are a separate capability.',
   }),
   'connections.mcp': op({
     args: z.object({}),

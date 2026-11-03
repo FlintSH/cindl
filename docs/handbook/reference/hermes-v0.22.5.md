@@ -17,20 +17,21 @@ Machine-readable sources in this repository:
 
 ## REST
 
-| Endpoint                        | Auth    | Purpose                               |
-| ------------------------------- | ------- | ------------------------------------- |
-| `GET /api/status`               | public  | Discovery                             |
-| `GET /api/auth/providers`       | public  | Sign-in providers                     |
-| `GET /api/auth/me`              | session | Identity check                        |
-| `POST /api/auth/ws-ticket`      | session | Single-use WebSocket ticket, 30 s TTL |
-| `GET /auth/native/authorize`    | public  | Start native PKCE sign-in             |
-| `POST /auth/native/token`       | public  | Exchange code + verifier for tokens   |
-| `POST /auth/native/refresh`     | public  | Rotate the refresh token              |
-| `GET /api/skills`               | session | Skill list                            |
-| `GET /api/skills/content`       | session | One skill's content                   |
-| `GET /api/profiles/{name}/soul` | session | Read SOUL.md                          |
-| `PUT /api/profiles/{name}/soul` | session | Replace SOUL.md                       |
-| `GET /api/memory`               | session | Memory metadata only                  |
+| Endpoint                                                       | Auth    | Purpose                                                                                                                       |
+| -------------------------------------------------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/status`                                              | public  | Discovery                                                                                                                     |
+| `GET /api/auth/providers`                                      | public  | Sign-in providers                                                                                                             |
+| `GET /api/auth/me`                                             | session | Identity check                                                                                                                |
+| `POST /api/auth/ws-ticket`                                     | session | Single-use WebSocket ticket, 30 s TTL                                                                                         |
+| `GET /auth/native/authorize`                                   | public  | Start native PKCE sign-in                                                                                                     |
+| `POST /auth/native/token`                                      | public  | Exchange code + verifier for tokens                                                                                           |
+| `POST /auth/native/refresh`                                    | public  | Rotate the refresh token                                                                                                      |
+| `GET /api/skills`                                              | session | Skill list                                                                                                                    |
+| `GET /api/skills/content`                                      | session | One skill's content                                                                                                           |
+| `GET /api/profiles/{name}/soul`                                | session | Read SOUL.md                                                                                                                  |
+| `PUT /api/profiles/{name}/soul`                                | session | Replace SOUL.md                                                                                                               |
+| `GET /api/memory`                                              | session | Memory provider metadata (no entry text)                                                                                      |
+| `GET /api/learning/graph`, `GET/PUT/DELETE /api/learning/node` | session | Memory entries by fingerprinted id (`memory:<source>:<index>:<fingerprint>`); verification in progress, not used by Cindl yet |
 
 ## WebSocket
 

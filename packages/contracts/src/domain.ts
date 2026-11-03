@@ -202,7 +202,10 @@ export const VersionedDocument = z.object({
 })
 export type VersionedDocument = z.infer<typeof VersionedDocument>
 
-/** Hermes v0.22.5 `GET /api/memory` returns metadata only; memory text is not exposed. */
+/**
+ * `GET /api/memory` returns provider metadata only. Memory entries are a
+ * separate Hermes surface (fingerprinted learning nodes) and capability.
+ */
 export const MemoryOverview = z.object({
   items: z.array(
     z.object({ key: z.string(), label: z.string(), detail: z.string().optional() }),

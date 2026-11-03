@@ -27,7 +27,7 @@ reaches Hermes. There is no generic RPC or REST passthrough.
 | `skills.write`           | `skills.write`         | yes           | Replace a skill’s content after a reviewed diff; rejected if it changed since read.         |
 | `soul.read`              | `soul.read`            | no            | The profile’s SOUL.md.                                                                      |
 | `soul.write`             | `soul.write`           | yes           | Replace SOUL.md after a reviewed diff; rejected if it changed since read.                   |
-| `memory.overview`        | `memory.overview`      | no            | Memory metadata. Memory text is not exposed by Hermes v0.22.5.                              |
+| `memory.overview`        | `memory.overview`      | no            | Memory provider metadata (GET /api/memory). Entries are a separate capability.              |
 | `connections.mcp`        | `connections.mcp`      | no            | Cached MCP server health (read-only; does not probe).                                       |
 | `connections.accounts`   | `connections.accounts` | no            | Account coverage evidence, when a safe source exists.                                       |
 | `display.status`         | `computer.view`        | no            | State of the agent-owned screen. Never starts it.                                           |

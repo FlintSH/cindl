@@ -10,33 +10,33 @@ The "v0.22.5 source" column is what the adapter uses at the verified baseline.
 Live negotiation results can differ per instance and are shown on
 **Agent → Runtime**.
 
-| Capability             | Meaning                              | v0.22.5 source                                         | Expected at v0.22.5                        |
-| ---------------------- | ------------------------------------ | ------------------------------------------------------ | ------------------------------------------ |
-| `chat.stream`          | Send messages and stream replies     | `prompt.submit`, `message.*` events                    | available when signed in                   |
-| `chat.interrupt`       | Stop the current turn                | `session.interrupt`                                    | available                                  |
-| `chat.steer`           | Redirect a running turn              | `session.steer`                                        | available                                  |
-| `sessions.list`        | List conversations                   | `session.list`                                         | available                                  |
-| `sessions.create`      | Start a side conversation            | `session.create`                                       | available                                  |
-| `sessions.history`     | Load a transcript                    | `session.history`                                      | available                                  |
-| `sessions.replay`      | Catch up after reconnect             | `session.events.since` (bounded, in memory)            | limited: not durable                       |
-| `sessions.rename`      | Rename a conversation                | `session.title`                                        | available                                  |
-| `requests.approval`    | Answer command approvals             | server request `approval`                              | available                                  |
-| `requests.clarify`     | Answer clarifying questions          | server request `clarify`                               | available                                  |
-| `activity.tools`       | See tool steps                       | `tool.*` events                                        | available                                  |
-| `activity.subagents`   | See delegated work                   | `subagent.list`, `subagent.*` events                   | available                                  |
-| `activity.processes`   | See background processes             | `process.list`                                         | available                                  |
-| `routines.read`        | List cron jobs                       | `cron.manage`                                          | available                                  |
-| `routines.write`       | Pause or resume cron jobs            | `cron.manage`                                          | available, owner-confirmed                 |
-| `skills.read`          | Read skills                          | `GET /api/skills`, `GET /api/skills/content`           | available                                  |
-| `skills.write`         | Edit a skill                         | skill content edit endpoint (to be verified)           | limited: no server compare-and-swap        |
-| `soul.read`            | Read SOUL.md                         | `GET /api/profiles/{name}/soul`                        | available                                  |
-| `soul.write`           | Edit SOUL.md                         | `PUT /api/profiles/{name}/soul`                        | limited: no server compare-and-swap        |
-| `memory.overview`      | Memory metadata                      | `GET /api/memory`                                      | available                                  |
-| `memory.text`          | Read or edit memory text             | none                                                   | unsupported                                |
-| `connections.mcp`      | MCP server health                    | `mcp.servers.status` (cached, no probing)              | available                                  |
-| `connections.accounts` | Account coverage evidence            | none safe                                              | unsupported                                |
-| `computer.view`        | View the agent-owned screen          | `display.status`, `display.observe` (RFB)              | available when a screen is running         |
-| `computer.control`     | Take the input lease                 | `display.lease.acquire` / `release`                    | available when a screen is running         |
-| `artifacts.list`       | List artifacts                       | none identified                                        | unsupported                                |
-| `attachments.upload`   | Attach files to a message            | `file.attach` exists upstream; not wired in Cindl      | unsupported in Cindl                       |
-| `presence.unified`     | One live session across all surfaces | `gateway.ready.session_authority` + canonical protocol | unavailable unless the handshake proves it |
+| Capability             | Meaning                              | v0.22.5 source                                                                     | Expected at v0.22.5                                                                       |
+| ---------------------- | ------------------------------------ | ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| `chat.stream`          | Send messages and stream replies     | `prompt.submit`, `message.*` events                                                | available when signed in                                                                  |
+| `chat.interrupt`       | Stop the current turn                | `session.interrupt`                                                                | available                                                                                 |
+| `chat.steer`           | Redirect a running turn              | `session.steer`                                                                    | available                                                                                 |
+| `sessions.list`        | List conversations                   | `session.list`                                                                     | available                                                                                 |
+| `sessions.create`      | Start a side conversation            | `session.create`                                                                   | available                                                                                 |
+| `sessions.history`     | Load a transcript                    | `session.history`                                                                  | available                                                                                 |
+| `sessions.replay`      | Catch up after reconnect             | `session.events.since` (bounded, in memory)                                        | limited: not durable                                                                      |
+| `sessions.rename`      | Rename a conversation                | `session.title`                                                                    | available                                                                                 |
+| `requests.approval`    | Answer command approvals             | server request `approval`                                                          | available                                                                                 |
+| `requests.clarify`     | Answer clarifying questions          | server request `clarify`                                                           | available                                                                                 |
+| `activity.tools`       | See tool steps                       | `tool.*` events                                                                    | available                                                                                 |
+| `activity.subagents`   | See delegated work                   | `subagent.list`, `subagent.*` events                                               | available                                                                                 |
+| `activity.processes`   | See background processes             | `process.list`                                                                     | available                                                                                 |
+| `routines.read`        | List cron jobs                       | `cron.manage`                                                                      | available                                                                                 |
+| `routines.write`       | Pause or resume cron jobs            | `cron.manage`                                                                      | available, owner-confirmed                                                                |
+| `skills.read`          | Read skills                          | `GET /api/skills`, `GET /api/skills/content`                                       | available                                                                                 |
+| `skills.write`         | Edit a skill                         | skill content edit endpoint (to be verified)                                       | limited: no server compare-and-swap                                                       |
+| `soul.read`            | Read SOUL.md                         | `GET /api/profiles/{name}/soul`                                                    | available                                                                                 |
+| `soul.write`           | Edit SOUL.md                         | `PUT /api/profiles/{name}/soul`                                                    | limited: no server compare-and-swap                                                       |
+| `memory.overview`      | Memory provider metadata             | `GET /api/memory`                                                                  | available                                                                                 |
+| `memory.text`          | Read or edit memory entries          | `GET /api/learning/graph`, `GET/PUT/DELETE /api/learning/node` (fingerprinted ids) | unsupported in Cindl until implemented; present in Hermes v0.22.5 source, not live-tested |
+| `connections.mcp`      | MCP server health                    | `mcp.servers.status` (cached, no probing)                                          | available                                                                                 |
+| `connections.accounts` | Account coverage evidence            | none safe                                                                          | unsupported                                                                               |
+| `computer.view`        | View the agent-owned screen          | `display.status`, `display.observe` (RFB)                                          | available when a screen is running                                                        |
+| `computer.control`     | Take the input lease                 | `display.lease.acquire` / `release`                                                | available when a screen is running                                                        |
+| `artifacts.list`       | List artifacts                       | none identified                                                                    | unsupported                                                                               |
+| `attachments.upload`   | Attach files to a message            | `file.attach` exists upstream; not wired in Cindl                                  | unsupported in Cindl                                                                      |
+| `presence.unified`     | One live session across all surfaces | `gateway.ready.session_authority` + canonical protocol                             | unavailable unless the handshake proves it                                                |
