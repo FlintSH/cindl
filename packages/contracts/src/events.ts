@@ -5,6 +5,7 @@ import {
   DisplayState,
   Message,
   PendingPrompt,
+  RequestAnswer,
   ServerRequest,
   ToolActivity,
   Usage,
@@ -74,6 +75,13 @@ export const CindlEvent = z.discriminatedUnion('type', [
     type: z.literal('request.closed'),
     requestId: z.string(),
     status: z.enum(['answered', 'resolved-elsewhere', 'cancelled', 'expired']),
+    /**
+     * With `answered`: the answer Hermes acknowledged. It wins over any later
+     * local attempt, because Hermes keeps the first answer it accepted.
+     */
+    answer: RequestAnswer.optional(),
+    /** When this close is the outcome of this client's attempt: the epoch it was sent on. */
+    connectionEpoch: z.number().int().nonnegative().optional(),
   }),
   /**
    * After (re)connect: one event for every conversation that has open
@@ -90,7 +98,12 @@ export const CindlEvent = z.discriminatedUnion('type', [
    * This client's answer did not reach Hermes, or Hermes rejected it and still
    * holds the request open: it is answerable again.
    */
-  z.object({ type: z.literal('request.answer-failed'), requestId: z.string() }),
+  z.object({
+    type: z.literal('request.answer-failed'),
+    requestId: z.string(),
+    /** The epoch the failed attempt was sent on; an older attempt cannot unlock a newer one. */
+    connectionEpoch: z.number().int().nonnegative().optional(),
+  }),
   /** A local prompt record (queued or uncertain) was dismissed or delivered. */
   z.object({ type: z.literal('prompt.removed'), clientId: z.string() }),
   z.object({

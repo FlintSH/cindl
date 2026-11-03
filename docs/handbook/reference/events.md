@@ -19,28 +19,28 @@ on the wire.
 
 <!-- BEGIN GENERATED: events. Source: packages/contracts/src/events.ts. Regenerate with node scripts/generate-docs-reference.mjs -->
 
-| Event                                             | Payload                                                                                                                |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| [`link.changed`](#link-changed)                   | `link`: LinkState                                                                                                      |
-| [`capabilities.changed`](#capabilities-changed)   | `capabilities`: CapabilityMap                                                                                          |
-| [`conversation.upserted`](#conversation-upserted) | `conversation`: Conversation                                                                                           |
-| [`conversation.removed`](#conversation-removed)   | `conversationId`: string                                                                                               |
-| [`history.loaded`](#history-loaded)               | `conversationId`: string; `messages`: Message[]                                                                        |
-| [`history.reset`](#history-reset)                 | `conversationId`: string; `reason`: `epoch-changed` / `truncated` / `resync`                                           |
-| [`message.started`](#message-started)             | `conversationId`: string; `messageId`: string; `role`: `user` / `assistant` / `system`                                 |
-| [`message.delta`](#message-delta)                 | `conversationId`: string; `messageId`: string; `kind`: `text` / `reasoning`; `text`: string                            |
-| [`message.completed`](#message-completed)         | `conversationId`: string; `messageId`: string; `status`: `complete` / `interrupted` / `error`; `text`: optional string |
-| [`tool.updated`](#tool-updated)                   | `activity`: ToolActivity                                                                                               |
-| [`prompt.updated`](#prompt-updated)               | `prompt`: PendingPrompt                                                                                                |
-| [`request.opened`](#request-opened)               | `request`: ServerRequest                                                                                               |
-| [`request.closed`](#request-closed)               | `requestId`: string; `status`: `answered` / `resolved-elsewhere` / `cancelled` / `expired`                             |
-| [`requests.synced`](#requests-synced)             | `conversationId`: string; `openRequestIds`: string[]                                                                   |
-| [`request.answer-failed`](#request-answer-failed) | `requestId`: string                                                                                                    |
-| [`prompt.removed`](#prompt-removed)               | `clientId`: string                                                                                                     |
-| [`session.status`](#session-status)               | `conversationId`: string; `status`: `idle` / `working` / `waiting-on-you` / `unknown`; `detail`: optional string       |
-| [`usage.updated`](#usage-updated)                 | `conversationId`: string; `usage`: Usage                                                                               |
-| [`display.changed`](#display-changed)             | `display`: DisplayState                                                                                                |
-| [`notice`](#notice)                               | `level`: `info` / `warning` / `error`; `message`: string                                                               |
+| Event                                             | Payload                                                                                                                                                          |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [`link.changed`](#link-changed)                   | `link`: LinkState                                                                                                                                                |
+| [`capabilities.changed`](#capabilities-changed)   | `capabilities`: CapabilityMap                                                                                                                                    |
+| [`conversation.upserted`](#conversation-upserted) | `conversation`: Conversation                                                                                                                                     |
+| [`conversation.removed`](#conversation-removed)   | `conversationId`: string                                                                                                                                         |
+| [`history.loaded`](#history-loaded)               | `conversationId`: string; `messages`: Message[]                                                                                                                  |
+| [`history.reset`](#history-reset)                 | `conversationId`: string; `reason`: `epoch-changed` / `truncated` / `resync`                                                                                     |
+| [`message.started`](#message-started)             | `conversationId`: string; `messageId`: string; `role`: `user` / `assistant` / `system`                                                                           |
+| [`message.delta`](#message-delta)                 | `conversationId`: string; `messageId`: string; `kind`: `text` / `reasoning`; `text`: string                                                                      |
+| [`message.completed`](#message-completed)         | `conversationId`: string; `messageId`: string; `status`: `complete` / `interrupted` / `error`; `text`: optional string                                           |
+| [`tool.updated`](#tool-updated)                   | `activity`: ToolActivity                                                                                                                                         |
+| [`prompt.updated`](#prompt-updated)               | `prompt`: PendingPrompt                                                                                                                                          |
+| [`request.opened`](#request-opened)               | `request`: ServerRequest                                                                                                                                         |
+| [`request.closed`](#request-closed)               | `requestId`: string; `status`: `answered` / `resolved-elsewhere` / `cancelled` / `expired`; `answer`: optional RequestAnswer; `connectionEpoch`: optional number |
+| [`requests.synced`](#requests-synced)             | `conversationId`: string; `openRequestIds`: string[]                                                                                                             |
+| [`request.answer-failed`](#request-answer-failed) | `requestId`: string; `connectionEpoch`: optional number                                                                                                          |
+| [`prompt.removed`](#prompt-removed)               | `clientId`: string                                                                                                                                               |
+| [`session.status`](#session-status)               | `conversationId`: string; `status`: `idle` / `working` / `waiting-on-you` / `unknown`; `detail`: optional string                                                 |
+| [`usage.updated`](#usage-updated)                 | `conversationId`: string; `usage`: Usage                                                                                                                         |
+| [`display.changed`](#display-changed)             | `display`: DisplayState                                                                                                                                          |
+| [`notice`](#notice)                               | `level`: `info` / `warning` / `error`; `message`: string                                                                                                         |
 
 <!-- END GENERATED: events -->
 

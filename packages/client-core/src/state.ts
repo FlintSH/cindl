@@ -244,10 +244,13 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
     case 'request.opened': {
       const incoming = event.request
       const existing = entry(state.requests, incoming.requestId)
+      // Connection epochs only move forward: a frame from an older connection is
+      // stale and changes nothing.
+      if (existing && incoming.lastSeenEpoch < existing.lastSeenEpoch) return state
       // Hermes re-sends only requests it still holds open, so a re-send on a newer
       // connection reopens it whatever this client knew: an answer still marked as
       // sending never landed, and a close inferred from a sync was wrong.
-      if (existing && incoming.lastSeenEpoch <= existing.lastSeenEpoch) {
+      if (existing && incoming.lastSeenEpoch === existing.lastSeenEpoch) {
         // On the same connection a closed request stays closed...
         if (!OPEN_STATES.has(existing.status)) return state
         // ...and an answer in flight stays in flight.
@@ -269,14 +272,32 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
     case 'request.closed': {
       const existing = entry(state.requests, event.requestId)
       if (!existing) return state
-      // Implementations say `answered` only when Hermes acknowledged this client's
-      // answer. That acknowledgement can arrive after Hermes's own "resolved"
-      // broadcast closed the request as resolved elsewhere.
-      const acknowledged =
-        event.status === 'answered' &&
-        existing.status === 'resolved-elsewhere' &&
-        Boolean(existing.answer)
-      if (!OPEN_STATES.has(existing.status) && !acknowledged) return state
+      if (event.status === 'answered') {
+        // Hermes acknowledged an answer from this client. It keeps the first answer
+        // it accepted, so this one wins over any later attempt, and it can arrive
+        // after Hermes's own "resolved" broadcast closed the request.
+        const upgradable =
+          existing.status === 'resolved-elsewhere' &&
+          Boolean(existing.answer ?? event.answer)
+        if (!OPEN_STATES.has(existing.status) && !upgradable) return state
+        const answer = event.answer ?? existing.answer
+        return {
+          ...state,
+          requests: withEntry(state.requests, event.requestId, {
+            ...existing,
+            status: 'answered',
+            ...(answer ? { answer } : {}),
+          }),
+        }
+      }
+      if (!OPEN_STATES.has(existing.status)) return state
+      // The outcome of an attempt on an older connection says nothing about a
+      // request Hermes has since re-sent.
+      if (
+        event.connectionEpoch !== undefined &&
+        event.connectionEpoch < existing.lastSeenEpoch
+      )
+        return state
       // Any answer this client sent is kept for display, whatever the outcome.
       return {
         ...state,
@@ -289,6 +310,12 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
     case 'request.answer-failed': {
       const existing = entry(state.requests, event.requestId)
       if (!existing || existing.status !== 'answering') return state
+      // Only the attempt in flight can fail; an older one cannot unlock it.
+      if (
+        event.connectionEpoch !== undefined &&
+        event.connectionEpoch !== existing.lastSeenEpoch
+      )
+        return state
       const { answer: _answer, ...rest } = existing
       return {
         ...state,

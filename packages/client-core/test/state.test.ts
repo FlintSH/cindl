@@ -327,6 +327,109 @@ describe('server requests', () => {
     expect(state.requests[id]?.status).toBe('open')
   })
 
+  // Review d2ace34c probe: reorders around a reconnect in the middle of an answer.
+  // Epochs only move forward, and an outcome belongs to the attempt it names.
+  const once = { kind: 'approval' as const, choice: 'once' as const }
+
+  it('ignores a stale frame from an older connection, so an acknowledged answer stays answered', () => {
+    const state = run([
+      { type: 'request.opened', request: approval() },
+      {
+        type: 'request.opened',
+        request: approval({ status: 'answering', answer: deny }),
+      },
+      { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
+      // A late frame from connection 1 must not pull the request back to epoch 1...
+      {
+        type: 'request.opened',
+        request: approval({ status: 'answering', answer: deny }),
+      },
+      {
+        type: 'request.closed',
+        requestId: id,
+        status: 'answered',
+        answer: deny,
+        connectionEpoch: 1,
+      },
+      // ...so a duplicate re-send on connection 2 cannot reopen it.
+      { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
+    ])
+    expect(state.requests[id]).toMatchObject({
+      status: 'answered',
+      answer: deny,
+      lastSeenEpoch: 2,
+    })
+  })
+
+  it('records the answer Hermes acknowledged, not a later attempt', () => {
+    const state = run([
+      {
+        type: 'request.opened',
+        request: approval({ status: 'answering', answer: deny }),
+      },
+      { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
+      {
+        type: 'request.opened',
+        request: approval({ lastSeenEpoch: 2, status: 'answering', answer: once }),
+      },
+      {
+        type: 'request.closed',
+        requestId: id,
+        status: 'answered',
+        answer: deny,
+        connectionEpoch: 1,
+      },
+      // The second attempt then finds the request already ended.
+      {
+        type: 'request.closed',
+        requestId: id,
+        status: 'resolved-elsewhere',
+        connectionEpoch: 2,
+      },
+    ])
+    expect(state.requests[id]).toMatchObject({ status: 'answered', answer: deny })
+  })
+
+  it('does not let an older attempt failing unlock a newer attempt in flight', () => {
+    const state = run([
+      {
+        type: 'request.opened',
+        request: approval({ status: 'answering', answer: deny }),
+      },
+      { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
+      {
+        type: 'request.opened',
+        request: approval({ lastSeenEpoch: 2, status: 'answering', answer: once }),
+      },
+      { type: 'request.answer-failed', requestId: id, connectionEpoch: 1 },
+    ])
+    expect(state.requests[id]).toMatchObject({ status: 'answering', answer: once })
+    // The current attempt failing still makes it answerable again.
+    const failed = reduce(state, {
+      type: 'request.answer-failed',
+      requestId: id,
+      connectionEpoch: 2,
+    })
+    expect(failed.requests[id]?.status).toBe('open')
+  })
+
+  it("does not let an older attempt's outcome close a request Hermes re-sent", () => {
+    const state = run([
+      {
+        type: 'request.opened',
+        request: approval({ status: 'answering', answer: deny }),
+      },
+      { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
+      {
+        type: 'request.closed',
+        requestId: id,
+        status: 'resolved-elsewhere',
+        connectionEpoch: 1,
+      },
+    ])
+    expect(state.requests[id]).toMatchObject({ status: 'open', lastSeenEpoch: 2 })
+  })
+
   it('ignores ids it has never seen, including inherited object keys', () => {
     const state = run([
       { type: 'request.closed', requestId: 'toString', status: 'cancelled' },

@@ -33,15 +33,24 @@ failure state: a failed send returns the request to `open`.
 
 - `request.opened`: Hermes holds the request open. It comes from a live request
   frame or from Hermes's open-requests list after a reconnect, never from
-  history replay. On the same connection it never reopens a closed request and
-  keeps an answer that is in flight. A re-send on a newer connection (higher
-  `lastSeenEpoch`) reopens the request whatever this client knew, because
-  Hermes re-sends only requests it still holds open.
-- `request.closed`: the request is no longer open, with Hermes's status. An
-  `answered` acknowledgement that arrives after a `resolved-elsewhere` close
-  still records `answered`.
+  history replay. Connection epochs only move forward: a frame with a lower
+  `lastSeenEpoch` than the request already has is stale and changes nothing.
+  On the same connection it never reopens a closed request and keeps an answer
+  that is in flight. A re-send on a newer connection (higher `lastSeenEpoch`)
+  reopens the request whatever this client knew, because Hermes re-sends only
+  requests it still holds open.
+- `request.closed`: the request is no longer open, with Hermes's status. When
+  the close is the outcome of this client's attempt it carries that attempt's
+  `connectionEpoch`, and an `answered` close carries the `answer` Hermes
+  acknowledged. That answer is recorded even if a later attempt is in flight,
+  because Hermes keeps the first answer it accepted, and an `answered`
+  acknowledgement that arrives after a `resolved-elsewhere` close still
+  records `answered`. Any other outcome of an attempt from an older connection
+  is ignored once Hermes has re-sent the request.
 - `request.answer-failed`: the answer did not reach Hermes, or Hermes rejected
-  it and still holds the request open. The request is answerable again.
+  it and still holds the request open. The request is answerable again. With
+  a `connectionEpoch`, it applies only to the attempt in flight on that
+  epoch, so a late failure of an older attempt cannot unlock a newer one.
 - `requests.synced`: after a reconnect, one per conversation that has open
   requests, listing what Hermes still holds there. That conversation's other
   open or answering requests close as `resolved-elsewhere`. Other
@@ -63,7 +72,8 @@ these events.
    the answer.
 4. End `answering` with exactly one of: `request.closed` `answered` (Hermes
    acknowledged), `request.closed` `resolved-elsewhere` (Hermes says it was no
-   longer pending), or `request.answer-failed`.
+   longer pending), or `request.answer-failed`. Give each the attempt's
+   `connectionEpoch`, and give `answered` the `answer` Hermes acknowledged.
 5. After every reconnect, emit `requests.synced` for each conversation with
    open requests on either side.
 

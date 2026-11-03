@@ -396,7 +396,13 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
       updateRequest(answering)
       later(200, () => {
         requests.set(requestId, { ...answering, status: 'answered' })
-        emit({ type: 'request.closed', requestId, status: 'answered' })
+        emit({
+          type: 'request.closed',
+          requestId,
+          status: 'answered',
+          answer,
+          connectionEpoch: request.lastSeenEpoch,
+        })
         const { conversationId } = request
         if (request.kind === 'approval') {
           // The turn that asked for approval ends once it has its answer.
