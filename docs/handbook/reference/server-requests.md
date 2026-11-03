@@ -8,22 +8,22 @@ this way is in [ADR 0005](../architecture/decisions/0005-server-requests.md).
 
 ## Kinds
 
-| Kind          | What it is                                                                               | Cindl can answer                                                          |
-| ------------- | ---------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
-| `approval`    | Hermes's dangerous-command gate                                                          | `once` or `deny`, if Hermes offered them                                  |
-| `clarify`     | 1-5 questions answered together                                                          | One submission covering every open question                               |
-| `unsupported` | sudo, secret or vault prompts (`unsupportedKind`), and request kinds Cindl does not know | Never. Nothing is sent, not even a decline (it could become the password) |
+| Kind          | What it is                                                                                                                                                                                                                                    | Cindl can answer                                                          |
+| ------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------- |
+| `approval`    | Hermes's dangerous-command gate                                                                                                                                                                                                               | `once` or `deny`, if Hermes offered them                                  |
+| `clarify`     | 1-5 questions answered together                                                                                                                                                                                                               | One submission covering every open question                               |
+| `unsupported` | sudo, secret and vault prompts (`unsupportedKind`), other prompts Cindl does not answer (`theme.pick`, `setup_beat`) and kinds it does not know. An app-level one (such as `display.install.sudo`) has no conversation and shows only in Work | Never. Nothing is sent, not even a decline (it could become the password) |
 
 ## Statuses
 
-| Status               | Meaning                                                                                        | Reached by                                                                                    |
-| -------------------- | ---------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| `open`               | Hermes is waiting                                                                              | `request.opened`; a failed answer; a re-send on a newer connection                            |
-| `answering`          | This client's answer is on its way                                                             | The implementation re-emits the request with this status and the answer before sending it     |
-| `answered`           | Hermes acknowledged that it accepted this client's answer. The resulting action may still fail | `request.closed` `answered`, emitted only on an acknowledgement                               |
-| `resolved-elsewhere` | Closed without an acknowledged answer from this client                                         | Hermes's "resolved" broadcast, an `expired`/`already_resolved` reply, or a sync that omits it |
-| `cancelled`          | Hermes withdrew it (for example, the turn was interrupted)                                     | `request.closed` `cancelled`                                                                  |
-| `expired`            | It timed out in Hermes                                                                         | `request.closed` `expired`                                                                    |
+| Status               | Meaning                                                                                        | Reached by                                                                                                                                                                                                           |
+| -------------------- | ---------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `open`               | Hermes is waiting                                                                              | `request.opened`; a failed answer; a re-send on a newer connection                                                                                                                                                   |
+| `answering`          | This client's answer is on its way                                                             | The implementation re-emits the request with this status and the answer before sending it                                                                                                                            |
+| `answered`           | Hermes acknowledged that it accepted this client's answer. The resulting action may still fail | `request.closed` `answered`, emitted only on an acknowledgement                                                                                                                                                      |
+| `resolved-elsewhere` | Closed without an acknowledged answer from this client                                         | A "resolved" cancel from Hermes (on the sidecar only when an approval was resolved from another surface; on the owner path after any viewer answers), an `expired`/`already_resolved` reply, or a sync that omits it |
+| `cancelled`          | Hermes withdrew it (for example, the turn was interrupted)                                     | `request.closed` `cancelled`                                                                                                                                                                                         |
+| `expired`            | It timed out in Hermes                                                                         | `request.closed` `expired`                                                                                                                                                                                           |
 
 A closed request keeps the answer this client sent, so the UI can say what was
 sent even when Hermes cannot say whose answer it used. There is no terminal
@@ -54,7 +54,9 @@ failure state: a failed send returns the request to `open`.
 - `requests.synced`: after a reconnect, one per conversation that has open
   requests, listing what Hermes still holds there. That conversation's other
   open or answering requests close as `resolved-elsewhere`. Other
-  conversations are untouched.
+  conversations are untouched. Implementations may also send it while
+  requests are open: the direct client checks every 15 s, because the sidecar
+  tells other clients nothing when one answers by frame.
 
 Related: `prompt.removed` drops a queued or uncertain local prompt record (a
 message, not a server request) after it was dismissed or delivered.
@@ -68,8 +70,8 @@ these events.
    `CindlError` `invalid` with a message that starts `Not sent:`.
 2. Reject answers to `unsupported` requests with `CindlError` `unsupported`,
    and never send Hermes anything for them.
-3. Before sending an answer, emit `request.opened` with status `answering` and
-   the answer.
+3. Before sending an answer, emit `request.opened` with status `answering`,
+   the answer and `lastSeenEpoch` set to the epoch it is sent on.
 4. End `answering` with exactly one of: `request.closed` `answered` (Hermes
    acknowledged), `request.closed` `resolved-elsewhere` (Hermes says it was no
    longer pending), or `request.answer-failed`. Give each the attempt's
@@ -83,10 +85,15 @@ these events.
   `__proto__` is refused: a record keyed by it silently loses the key.
 - `lockedAnswers` are answers other clients locked (`clarify.lock`). Cindl
   shows them and leaves those questions out of its reply. It only knows the
-  locks Hermes has sent, so a lock made since the last snapshot can still be
-  missing.
+  locks Hermes has sent, so a lock made since the last snapshot can be
+  missing, and then Cindl's reply overrides it: Hermes lays the reply over the
+  locks (`tools/clarify_batch.py:27-31`). On the sidecar, the last lock settles
+  the request without an event; Cindl learns that from the open-requests
+  check.
 - The reply must cover exactly the open questions, each answered (`choices` or
-  `text`) or skipped. `clarifyAnswersComplete` checks this.
+  `text`) or skipped. `clarifyAnswersComplete` checks this. There is no
+  decline: an empty reply reaches the agent like an interrupt, so "Skip all"
+  skips every open question.
 - Limits: a choice can be up to 8,192 characters (Hermes allows 8,000 plus a
   " (Recommended)" suffix); typed text up to 20,000. Locked answers from
   Hermes are accepted at any length.
@@ -96,6 +103,8 @@ these events.
 - The decision card locks while the answer call runs, shows "Sending your
   answer…" while the request is `answering`, and is usable again after
   `request.answer-failed`.
+- A question card offers "Skip all", which skips every open question; there
+  is no "decline" button.
 - An `unsupported` request gets a read-only card ("Answer outside Cindl") that
   says what Hermes is waiting for. It counts as waiting on the owner in the
   presence line, Work's "Needs you" list and the navigation count.

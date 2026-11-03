@@ -422,9 +422,21 @@ function DecisionCard({ request }: { request: ServerRequest }) {
               <Button
                 variant="quiet"
                 disabled={busy}
-                onClick={() => void send({ kind: 'clarify-cancel' })}
+                // There is no "decline": an empty reply reads to the agent like an
+                // interrupt. Skipping every open question gives each a clean "skipped".
+                onClick={() =>
+                  void send({
+                    kind: 'clarify',
+                    answers: Object.fromEntries(
+                      questions.map((question) => [
+                        question.qid,
+                        { skipped: true as const },
+                      ]),
+                    ),
+                  })
+                }
               >
-                Decline all
+                Skip all
               </Button>
               <Button type="submit" variant="primary" disabled={busy || !complete}>
                 Send answers

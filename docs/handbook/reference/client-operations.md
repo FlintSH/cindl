@@ -58,8 +58,9 @@ Rules every implementation follows:
 - `request.answer` takes the Hermes request id (`srq-…`) and either one offered
   approval choice (`once` or `deny`), one submission covering every open
   question of a clarify set (each answered or skipped; questions another client
-  locked are left out), or a decline of the whole set (kept only if Hermes
-  gives the agent a clean "declined" result). `unsupported` requests (sudo,
+  locked are left out). There is no decline: an empty reply would reach the
+  agent like an interrupt, so dismissing a set means skipping every question.
+  `unsupported` requests (sudo,
   secret, vault and unknown prompts) are rejected with `unsupported` and Cindl
   sends Hermes nothing for them. The request lifecycle is in
   [server requests](server-requests.md).

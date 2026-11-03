@@ -292,10 +292,27 @@ describe('server request shape (v4)', () => {
     status: 'open',
   }
 
-  it('belongs to a conversation', () => {
+  it('belongs to a conversation, except an app-level prompt Cindl never answers', () => {
     const { conversationId: _omit, ...withoutConversation } = base
     expect(ServerRequest.safeParse(withoutConversation).success).toBe(false)
     expect(ServerRequest.safeParse({ ...base, conversationId: '' }).success).toBe(false)
+    expect(
+      ServerRequest.safeParse({
+        ...withoutConversation,
+        kind: 'unsupported',
+        unsupportedKind: 'sudo',
+        choices: [],
+      }).success,
+    ).toBe(true)
+  })
+
+  it('has no clarify decline: an empty reply reads like an interrupt to the agent', () => {
+    expect(() =>
+      parseOpArgs('request.answer', {
+        requestId: 'srq-00000000000a',
+        answer: { kind: 'clarify-cancel' },
+      }),
+    ).toThrow(CindlError)
   })
 
   it('represents prompts Cindl does not answer', () => {

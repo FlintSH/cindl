@@ -403,7 +403,8 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
           answer,
           connectionEpoch: request.lastSeenEpoch,
         })
-        const { conversationId } = request
+        // Only approvals and questions get here, and both belong to a conversation.
+        const conversationId = request.conversationId ?? 'demo-main'
         if (request.kind === 'approval') {
           // The turn that asked for approval ends once it has its answer.
           emit({

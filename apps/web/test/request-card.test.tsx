@@ -128,6 +128,21 @@ describe('question card', () => {
     ])
   })
 
+  it('skips every open question with "Skip all" (there is no decline)', async () => {
+    const answers = harness(
+      question({
+        requestId: 'srq-0000000000a5',
+        lockedAnswers: { venue: { choices: ['North hall'] } },
+      }),
+    )
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'Skip all' }))
+    await settle()
+    // The question another device locked is left out; the open one is skipped.
+    expect(answers).toEqual([{ kind: 'clarify', answers: { prep: { skipped: true } } }])
+    expect(screen.queryByRole('button', { name: /Decline/ })).toBeNull()
+  })
+
   it('forgets drafts once their request is no longer open', async () => {
     const request = question({ requestId: 'srq-0000000000a4' })
     harness(request)

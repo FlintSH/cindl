@@ -155,9 +155,11 @@ export const LockedClarifyResponse = z.union([
 ])
 
 /**
- * Hermes expects ONE reply for a whole clarify set: every question in the
- * request must appear in `answers` (answered or skipped). `clarify-cancel`
- * declines the whole set.
+ * Hermes expects ONE reply for a whole clarify set: every open question must
+ * appear in `answers` (answered or skipped). There is no decline: an empty
+ * reply reaches the agent as `outcome: "cancelled"`, the same as an interrupt,
+ * while skipping every question gives each a clean "skipped"
+ * (tools/clarify_batch.py at v0.22.5).
  */
 export const RequestAnswer = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('approval'), choice: ApprovalChoice }),
@@ -165,7 +167,6 @@ export const RequestAnswer = z.discriminatedUnion('kind', [
     kind: z.literal('clarify'),
     answers: z.record(QuestionId, ClarifyResponse),
   }),
-  z.object({ kind: z.literal('clarify-cancel') }),
 ])
 export type RequestAnswer = z.infer<typeof RequestAnswer>
 
@@ -196,54 +197,66 @@ export type UnsupportedRequestKind = z.infer<typeof UnsupportedRequestKind>
  * is waiting). Keyed by Hermes's request id, never by connection. It is not a
  * universal spending/sending policy engine.
  */
-export const ServerRequest = z.object({
-  requestId: RequestId,
-  /** Hermes `request_id` inside approval params, when present (diagnostics only). */
-  hermesApprovalId: z.string().optional(),
-  /** Connection epoch on which this client last saw the request. Not identity. */
-  lastSeenEpoch: z.number().int().nonnegative(),
-  kind: z.enum(['approval', 'clarify', 'unsupported']),
-  /** unsupported: what Hermes is asking for (missing means `other`). */
-  unsupportedKind: UnsupportedRequestKind.optional(),
-  /** Hermes `session_id` of the frame; every request belongs to one conversation. */
-  conversationId: z.string().min(1),
-  title: z.string(),
-  /** Approval: the command as Hermes redacted it server-side. */
-  command: z.string().optional(),
-  description: z.string().optional(),
-  toolName: z.string().optional(),
-  /** Approval: offered choices that Cindl can send; empty = answer elsewhere. */
-  choices: z.array(ApprovalChoice),
-  /** Approval: choices Hermes offered that Cindl deliberately does not send. */
-  withheldChoices: z.array(z.string()).optional(),
-  questions: z.array(ClarifyQuestion).optional(),
-  /**
-   * Clarify: answers other clients already locked per question (`clarify.lock`,
-   * replayed on reconnect). Cindl shows them and never overrides them.
-   */
-  lockedAnswers: z.record(z.string(), LockedClarifyResponse).optional(),
-  receivedAt: isoTime,
-  /**
-   * open: waiting (answerable here unless `unsupported`). answering: this
-   * client's answer is on its way. answered: Hermes acknowledged that it
-   * accepted this client's answer; that is registry acceptance, not proof the
-   * resulting action succeeded. resolved-elsewhere: it closed without an
-   * acknowledged answer from this client (another surface answered, or it was
-   * withdrawn). cancelled/expired: Hermes cancelled it or it timed out. A
-   * closed request keeps `answer` if this client sent one. A failed send
-   * returns it to open; there is no terminal failure. See the handbook's
-   * server-requests reference for how each status is reached.
-   */
-  status: z.enum([
-    'open',
-    'answering',
-    'answered',
-    'resolved-elsewhere',
-    'cancelled',
-    'expired',
-  ]),
-  answer: RequestAnswer.optional(),
-})
+export const ServerRequest = z
+  .object({
+    requestId: RequestId,
+    /** Hermes `request_id` inside approval params, when present (diagnostics only). */
+    hermesApprovalId: z.string().optional(),
+    /** Connection epoch on which this client last saw the request. Not identity. */
+    lastSeenEpoch: z.number().int().nonnegative(),
+    kind: z.enum(['approval', 'clarify', 'unsupported']),
+    /** unsupported: what Hermes is asking for (missing means `other`). */
+    unsupportedKind: UnsupportedRequestKind.optional(),
+    /**
+     * Hermes `session_id` of the frame. Approvals and questions always have one;
+     * only `unsupported` prompts may be app-level (`display.install.sudo` arrives
+     * with an empty `session_id`, tui_gateway/methods_display.py at v0.22.5).
+     */
+    conversationId: z.string().min(1).optional(),
+    title: z.string(),
+    /** Approval: the command as Hermes redacted it server-side. */
+    command: z.string().optional(),
+    description: z.string().optional(),
+    toolName: z.string().optional(),
+    /** Approval: offered choices that Cindl can send; empty = answer elsewhere. */
+    choices: z.array(ApprovalChoice),
+    /** Approval: choices Hermes offered that Cindl deliberately does not send. */
+    withheldChoices: z.array(z.string()).optional(),
+    questions: z.array(ClarifyQuestion).optional(),
+    /**
+     * Clarify: answers other clients already locked per question (`clarify.lock`,
+     * replayed on reconnect). Cindl shows them and never overrides them.
+     */
+    lockedAnswers: z.record(z.string(), LockedClarifyResponse).optional(),
+    receivedAt: isoTime,
+    /**
+     * open: waiting (answerable here unless `unsupported`). answering: this
+     * client's answer is on its way. answered: Hermes acknowledged that it
+     * accepted this client's answer; that is registry acceptance, not proof the
+     * resulting action succeeded. resolved-elsewhere: it closed without an
+     * acknowledged answer from this client (another surface answered, or it was
+     * withdrawn). cancelled/expired: Hermes cancelled it or it timed out. A
+     * closed request keeps `answer` if this client sent one. A failed send
+     * returns it to open; there is no terminal failure. See the handbook's
+     * server-requests reference for how each status is reached.
+     */
+    status: z.enum([
+      'open',
+      'answering',
+      'answered',
+      'resolved-elsewhere',
+      'cancelled',
+      'expired',
+    ]),
+    answer: RequestAnswer.optional(),
+  })
+  .refine(
+    (request) => request.kind === 'unsupported' || Boolean(request.conversationId),
+    {
+      message: 'Approvals and questions belong to a conversation',
+      path: ['conversationId'],
+    },
+  )
 export type ServerRequest = z.infer<typeof ServerRequest>
 
 /** Questions still waiting for an answer: those no other client has locked. */
