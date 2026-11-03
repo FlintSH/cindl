@@ -47,6 +47,11 @@ Hermes `hermes serve` backend. There is no Cindl server.
 
 ## Connection lifecycle (Hermes v0.22.5)
 
+0. Prerequisite: Hermes runs `hermes serve` (or `hermes dashboard`) in login
+   mode. Bound to loopback without a configured public URL, Hermes instead uses
+   a per-process token that any local process can read; Cindl never reads or
+   uses that token. Hermes has no TLS settings, so HTTPS comes from the
+   operator's reverse proxy, and its CORS origins are fixed to localhost.
 1. Discover: `GET /api/status`, `GET /api/auth/providers` (public).
 2. Authenticate: same-origin cookie session (web) or the native PKCE flow
    (`/auth/native/authorize` → loopback redirect → `/auth/native/token`) for
