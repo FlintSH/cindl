@@ -166,11 +166,13 @@ until the owner decides about those terms.
   Not shown on the runners yet: the on-screen keyboard. Run 41681122382
   passed that step on a keyboard Android called shown, with its top at the
   display's bottom edge and none on screen; the step now fails on that. The
-  cause is the emulator, not the app's focus or show request (every request
-  reached `onShown`). Every configuration line of that run reads
-  `qwerty/v/v`: the emulator reports a hardware keyboard even with
-  `hw.keyboard=no`, and beside one, Android's keyboard shows its window and
-  navigation strip but not its keys. Its show animation then timed out. The
+  cause is the emulator, not the app's focus or show request: of Cindl's 9
+  show requests from a tap, 7 reached `onShown` and 2 were cancelled at
+  `PHASE_WM_POST_LAYOUT_NOTIFY_CONTROLS_CHANGED`. All 47 configuration lines
+  of that run (61 occurrences) read `qwerty/v/v`: the emulator reports a
+  hardware keyboard even with `hw.keyboard=no`, and beside one, Android's
+  keyboard shows its window and navigation strip but not its keys. Its show
+  animation then timed out. The
   test device now turns on `show_ime_with_hard_keyboard` (show the on-screen
   keyboard with a physical one), a setting, nothing installed.
 
