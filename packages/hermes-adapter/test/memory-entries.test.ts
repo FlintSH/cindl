@@ -50,6 +50,25 @@ describe('memory entries (backing the memory.* operations)', () => {
     })
   })
 
+  it('numbers entries across both stores, agent notes first, like Hermes', async () => {
+    // memory_node_id(card, i) over _memory_cards(): MEMORY.md cards, then USER.md
+    // (agent/learning_graph.py:155-185, 238-245). A per-store count would name a
+    // profile entry memory:profile:0 instead.
+    const { fake, memory } = await setup()
+    const entries = await memory.list()
+    expect(entries.map((e) => e.id.split(':').slice(1, 3).join(':'))).toEqual([
+      'memory:0',
+      'memory:1',
+      'profile:2',
+    ])
+    const profileEntry = entries[2]
+    if (!profileEntry) throw new Error('no profile entry')
+    await expect(memory.read(profileEntry.id)).resolves.toMatchObject({
+      store: 'profile',
+      content: fake.store.profile('default').memory.profile[0],
+    })
+  })
+
   it('writes with the exact id that was read and returns the new id', async () => {
     const { fake, memory } = await setup()
     const [entry] = await memory.list()
