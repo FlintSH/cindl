@@ -1,0 +1,184 @@
+import type { Message } from '@cindl/contracts'
+import { memo, useState } from 'react'
+import { Pressable, Text, View } from 'react-native'
+import { Markdown } from '../markdown/Markdown.tsx'
+import { useTheme } from '../theme/theme.tsx'
+import { ChevronDown, ChevronRight } from '../ui/icons.ts'
+import { Txt } from '../ui/primitives.tsx'
+import { clockTime } from './format.ts'
+import { ToolRow } from './ToolRow.tsx'
+
+const originNote: Partial<Record<NonNullable<Message['origin']>, string>> = {
+  routine: 'From a routine',
+  proactive: 'Unprompted',
+}
+
+/** Owner messages are compact right-aligned bubbles; Hermes replies are full-width reading blocks. */
+export const MessageView = memo(function MessageView({
+  message,
+  agentName,
+  selectedToolId,
+  blockedToolIds,
+  onSelectTool,
+}: {
+  message: Message
+  agentName: string
+  selectedToolId: string | undefined
+  blockedToolIds: ReadonlySet<string>
+  onSelectTool: (toolId: string) => void
+}) {
+  const theme = useTheme()
+  const time = clockTime(message.createdAt)
+  if (message.role === 'user') {
+    const text = message.parts
+      .map((part) => (part.type === 'text' ? part.text : ''))
+      .join('')
+    return (
+      <View style={{ alignItems: 'flex-end' }}>
+        <View
+          accessible
+          accessibilityLabel={`You${time ? ` at ${time}` : ''}: ${text}`}
+          style={{
+            maxWidth: '85%',
+            paddingVertical: theme.space[2.5],
+            paddingHorizontal: theme.space[4],
+            borderRadius: theme.radius.lg,
+            borderBottomRightRadius: theme.radius.xs,
+            backgroundColor: theme.colors.surfaceSunken,
+          }}
+        >
+          <Text selectable style={[theme.text.body, { color: theme.colors.text }]}>
+            {text}
+          </Text>
+        </View>
+      </View>
+    )
+  }
+  const note = message.origin ? originNote[message.origin] : undefined
+  return (
+    <View style={{ gap: theme.space[2] }}>
+      <View
+        accessible
+        accessibilityRole="header"
+        accessibilityLabel={`${agentName}${note ? `, ${note}` : ''}${time ? ` at ${time}` : ''}`}
+        style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}
+      >
+        <Txt variant="label" weight="semibold">
+          {agentName}
+        </Txt>
+        {note ? (
+          <Txt variant="label" tone="accent">
+            {note}
+          </Txt>
+        ) : null}
+        {time ? (
+          <Txt variant="label" tone="tertiary">
+            {time}
+          </Txt>
+        ) : null}
+      </View>
+      <View style={{ gap: theme.space[2] }}>
+        {message.parts.map((part, index) => {
+          switch (part.type) {
+            case 'text':
+              return <Markdown key={index} text={part.text} />
+            case 'reasoning':
+              return <Reasoning key={index} text={part.text} />
+            case 'tool':
+              return (
+                <ToolRow
+                  key={part.toolId}
+                  toolId={part.toolId}
+                  selected={selectedToolId === part.toolId}
+                  blocked={blockedToolIds.has(part.toolId)}
+                  onSelect={onSelectTool}
+                />
+              )
+            case 'notice':
+              return <Notice key={index} level={part.level} text={part.text} />
+          }
+        })}
+        {message.status === 'streaming' && message.parts.length === 0 ? (
+          <Txt tone="tertiary">Working…</Txt>
+        ) : null}
+        {message.status === 'interrupted' ? (
+          <Notice level="info" text="Stopped." />
+        ) : null}
+        {message.status === 'error' ? (
+          <Notice level="error" text="This reply ended with an error." />
+        ) : null}
+      </View>
+    </View>
+  )
+})
+
+function Reasoning({ text }: { text: string }) {
+  const theme = useTheme()
+  const [open, setOpen] = useState(false)
+  const Chevron = open ? ChevronDown : ChevronRight
+  return (
+    <View style={{ gap: theme.space[2] }}>
+      <Pressable
+        accessibilityRole="button"
+        accessibilityState={{ expanded: open }}
+        accessibilityLabel="Reasoning"
+        onPress={() => setOpen(!open)}
+        style={{
+          minHeight: theme.layout.touchTarget,
+          flexDirection: 'row',
+          alignItems: 'center',
+          gap: theme.space[1],
+          alignSelf: 'flex-start',
+        }}
+      >
+        <Chevron size={14} color={theme.colors.textTertiary} strokeWidth={1.75} />
+        <Txt tone="tertiary">Reasoning</Txt>
+      </Pressable>
+      {open ? (
+        <Text
+          selectable
+          style={[
+            theme.text.ui,
+            {
+              color: theme.colors.textSecondary,
+              paddingLeft: theme.space[3],
+              borderLeftWidth: 2,
+              borderLeftColor: theme.colors.border,
+            },
+          ]}
+        >
+          {text}
+        </Text>
+      ) : null}
+    </View>
+  )
+}
+
+export function Notice({
+  level,
+  text,
+}: {
+  level: 'info' | 'warning' | 'error'
+  text: string
+}) {
+  const theme = useTheme()
+  const { colors } = theme
+  const palette =
+    level === 'warning'
+      ? { background: colors.warningSubtle, foreground: colors.warning }
+      : level === 'error'
+        ? { background: colors.dangerSubtle, foreground: colors.danger }
+        : { background: colors.surfaceSunken, foreground: colors.textSecondary }
+  return (
+    <View
+      style={{
+        paddingVertical: theme.space[2],
+        paddingHorizontal: theme.space[3],
+        borderRadius: theme.radius.md,
+        backgroundColor: palette.background,
+      }}
+    >
+      <Text style={[theme.text.ui, { color: palette.foreground }]}>{text}</Text>
+    </View>
+  )
+}
