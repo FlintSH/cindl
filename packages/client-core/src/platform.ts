@@ -20,7 +20,11 @@ export interface SecretStore {
   get(key: string): Promise<string | undefined>
   set(key: string, value: string): Promise<void>
   delete(key: string): Promise<void>
-  /** False when the OS cannot encrypt (e.g. no keyring); callers must not fall back to plaintext. */
+  /**
+   * False when the store cannot take secrets without writing plaintext. A store
+   * that keeps them in memory only (no keyring, or a keyring that refused) is
+   * available; its deletes still reach whatever it wrote to disk before.
+   */
   readonly available: boolean
 }
 

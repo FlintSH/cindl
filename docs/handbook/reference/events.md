@@ -53,8 +53,13 @@ on the wire.
 The connection to Hermes changed phase (for example `connecting`, `online`,
 `reconnecting`, `offline`, `signed-out` or `incompatible`) or its details
 changed: server identity, sign-in method, connection epoch, replay epoch or the
-last error. The reducer replaces the stored link state. Clients show it in the
-presence line, and a `demo: true` link always shows the synthetic-data banner.
+last error. The reducer replaces the stored link state. When the link names a
+different Hermes origin than the state's data came from, the reducer also
+forgets everything that came from the previous one (conversations, messages,
+tools, prompts, requests, usage, the screen and capabilities) and keeps only
+this device's notices; a link that names no server, or the same one, changes
+nothing else. Clients show it in the presence line, and a `demo: true` link
+always shows the synthetic-data banner.
 
 ### `capabilities.changed`
 

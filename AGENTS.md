@@ -115,7 +115,8 @@ age. Keep both protections: pick an older version instead of adding exclusions.
    links open externally with their destination visible.
 8. **Computer control is scoped and leased.** Only the agent-owned screen of a
    Hermes profile; never start/stop/install a screen as a side effect of
-   viewing; never log or record secret entry.
+   viewing (an open view does count as use, so the screen's idle stop waits);
+   never log or record secret entry.
 9. **Honest capabilities.** Every feature is gated on a negotiated capability
    with a reason and source; `unknown` is never rendered as working.
 

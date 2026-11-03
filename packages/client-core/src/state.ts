@@ -37,6 +37,8 @@ export interface ClientState {
   usage: Records<Usage>
   display: DisplayState | undefined
   notices: readonly Notice[]
+  /** The Hermes origin everything above came from, once a link named one. */
+  dataOrigin?: string | undefined
 }
 
 export function initialState(link: LinkState): ClientState {
@@ -120,8 +122,19 @@ function appendDelta(
 /** Pure reducer: the only way client state changes. */
 export function reduce(state: ClientState, event: CindlEvent): ClientState {
   switch (event.type) {
-    case 'link.changed':
-      return { ...state, link: event.link }
+    case 'link.changed': {
+      const origin = event.link.server?.origin
+      // Another Hermes: nothing from the previous one stays (conversations,
+      // requests, the screen, capabilities). This device's notices stay. A
+      // link that names no server, or the same one, keeps everything.
+      if (
+        origin !== undefined &&
+        state.dataOrigin !== undefined &&
+        origin !== state.dataOrigin
+      )
+        return { ...initialState(event.link), notices: state.notices, dataOrigin: origin }
+      return { ...state, link: event.link, dataOrigin: origin ?? state.dataOrigin }
+    }
     case 'capabilities.changed':
       return { ...state, capabilities: event.capabilities }
     case 'conversation.upserted':

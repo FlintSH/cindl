@@ -667,3 +667,59 @@ describe('store', () => {
     expect(calls).toBe(1)
   })
 })
+
+describe('switching Hermes', () => {
+  const at = (
+    origin: string | undefined,
+    phase: LinkState['phase'] = 'online',
+  ): CindlEvent => ({
+    type: 'link.changed',
+    link: {
+      phase,
+      since: '2026-01-01T00:00:02.000Z',
+      connectionEpoch: 2,
+      ...(origin ? { server: { origin } } : {}),
+    },
+  })
+  const conversation: CindlEvent = {
+    type: 'conversation.upserted',
+    conversation: {
+      id: 'c1',
+      session: { storedId: 'c1' },
+      title: 'c1',
+      kind: 'side',
+      status: 'idle',
+    },
+  }
+  const A = 'https://hermes-a.example.test'
+  const B = 'https://hermes-b.example.test'
+
+  // Desktop review: a switch left the previous origin's conversations,
+  // requests and screen state in every store.
+  it('forgets everything from the previous Hermes when a link names another, keeping notices', () => {
+    const before = run([
+      at(A),
+      conversation,
+      { type: 'request.opened', request: approval() },
+      { type: 'notice', level: 'warning', message: 'Sign-in to B did not complete.' },
+    ])
+    expect(Object.keys(before.conversations)).toEqual(['c1'])
+    const after = reduce(before, at(B))
+    expect(after.link.server?.origin).toBe(B)
+    expect(Object.keys(after.conversations)).toEqual([])
+    expect(Object.keys(after.requests)).toEqual([])
+    expect(after.display).toBeUndefined()
+    expect(after.notices).toEqual(before.notices)
+  })
+
+  it('keeps everything through a reconnect to the same Hermes or a link that names none', () => {
+    const before = run([
+      at(A),
+      conversation,
+      { type: 'request.opened', request: approval() },
+    ])
+    const after = [at(undefined, 'reconnecting'), at(A, 'online')].reduce(reduce, before)
+    expect(Object.keys(after.conversations)).toEqual(['c1'])
+    expect(Object.keys(after.requests)).toEqual(['srq-00000000000a'])
+  })
+})
