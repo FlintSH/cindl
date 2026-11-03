@@ -19,6 +19,7 @@ import {
   SYNTHETIC_DEMO_LABEL,
   SYNTHETIC_DEMO_NOTICE,
 } from '@cindl/contracts'
+import { startFakeHermes, type FakeHermes } from '@cindl/fixtures/fake-hermes'
 import { SYNTHETIC_FIXTURE_MARKERS } from '@cindl/fixtures/markers'
 import {
   _electron as electron,
@@ -158,6 +159,11 @@ test.describe('Cindl (real flavour)', () => {
       }),
     )
     expect(identity).toEqual({ name: 'Cindl', title: 'Cindl' })
+    // The owner answers main's native "Sign in to <origin>?" dialog with Cancel.
+    await app.evaluate(({ dialog }: typeof Electron) => {
+      dialog.showMessageBox = () =>
+        Promise.resolve({ response: 0, checkboxChecked: false })
+    })
     const state = await page.evaluate(async () => {
       const bridge = (globalThis as unknown as BridgeWindow).cindlDesktop
       const link = (await bridge.call('link.get', {})) as {
@@ -179,19 +185,22 @@ test.describe('Cindl (real flavour)', () => {
       return {
         phase: link.phase,
         demo: link.demo ?? false,
-        states: [...new Set(Object.values(capabilities).map((c) => c.state))],
+        usable: Object.values(capabilities).some(
+          (c) => c.state === 'available' || c.state === 'limited',
+        ),
         signIn: await code('auth.signIn', { origin: 'https://hermes.example.test' }),
         plainHttp: await code('auth.signIn', { origin: 'http://hermes.example.test' }),
-        signOut: await bridge.call('auth.signOut', {}),
+        after: ((await bridge.call('link.get', {})) as { phase: string }).phase,
       }
     })
     expect(state).toEqual({
       phase: 'unconfigured',
       demo: false,
-      states: ['unknown'],
-      signIn: 'unavailable',
+      usable: false,
+      // Declined in main's dialog: nothing was sent, nothing changed.
+      signIn: 'forbidden',
       plainHttp: 'invalid',
-      signOut: { localOnly: true },
+      after: 'unconfigured',
     })
   })
 
@@ -636,6 +645,82 @@ test.describe('Cindl (real flavour)', () => {
       url: BrowserWindow.getAllWindows()[0]?.webContents.getURL(),
     }))
     expect(state).toEqual({ windows: 1, url: 'app://cindl/index.html' })
+  })
+})
+
+test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
+  let launched: Launched | undefined
+  let fake: FakeHermes | undefined
+  test.beforeAll(async () => {
+    fake = await startFakeHermes()
+    launched = await launch('real')
+  })
+  test.afterAll(async () => {
+    await close(launched)
+    if (fake) {
+      expect(fake.violations).toEqual([])
+      await fake.close()
+    }
+  })
+
+  test('signs in through main, connects, answers an approval and signs out', async () => {
+    const { app, page } = launched as Launched
+    const hermes = fake as FakeHermes
+    // The owner confirms main's dialog; the "system browser" follows Hermes's
+    // authorize redirect to the app's 127.0.0.1 listener, as a browser would.
+    await app.evaluate(({ dialog, shell }: typeof Electron) => {
+      dialog.showMessageBox = () =>
+        Promise.resolve({ response: 1, checkboxChecked: false })
+      shell.openExternal = async (url: string) => {
+        const authorize = await fetch(url, { redirect: 'manual' })
+        const location = authorize.headers.get('location')
+        if (location) await fetch(location)
+      }
+    })
+    const bridgeCall = (name: string, args: unknown) =>
+      page.evaluate(
+        ([op, input]) =>
+          (globalThis as unknown as BridgeWindow).cindlDesktop.call(op, input),
+        [name, args] as const,
+      )
+    await bridgeCall('auth.signIn', { origin: hermes.origin })
+    await expect
+      .poll(async () => ((await bridgeCall('link.get', {})) as { phase: string }).phase)
+      .toBe('online')
+    expect(hermes.calls).toEqual(
+      expect.arrayContaining([
+        { kind: 'rest', name: 'GET /auth/native/authorize' },
+        { kind: 'rest', name: 'POST /auth/native/token' },
+        { kind: 'ws', name: '/api/ws' },
+      ]),
+    )
+    expect(Array.isArray(await bridgeCall('conversations.list', {}))).toBe(true)
+
+    const outcome: { result?: unknown } = {}
+    hermes.gateway.script = async (turn) => {
+      outcome.result = await turn.approval({ choices: ['once', 'deny'] })
+    }
+    const conversation = (await bridgeCall('conversations.create', {
+      title: 'Smoke approval (fixture)',
+    })) as { id: string }
+    await bridgeCall('prompt.submit', {
+      conversationId: conversation.id,
+      clientId: 'smoke-approval-1',
+      text: 'export it',
+    })
+    await expect.poll(() => hermes.gateway.open.size).toBe(1)
+    const [requestId] = [...hermes.gateway.open.keys()]
+    const answered = (await bridgeCall('request.answer', {
+      requestId,
+      answer: { kind: 'approval', choice: 'once' },
+    })) as { status: string }
+    expect(answered.status).toBe('answered')
+    await expect.poll(() => outcome.result !== undefined).toBe(true)
+
+    expect(await bridgeCall('auth.signOut', {})).toEqual({ localOnly: true })
+    expect(((await bridgeCall('link.get', {})) as { phase: string }).phase).toBe(
+      'signed-out',
+    )
   })
 })
 
