@@ -12,18 +12,18 @@ They cannot judge whether prose is complete or true. The review that the
 
 ## Where each gate runs
 
-| Gate                    | Command                                              | CI workflow and job                            |
-| ----------------------- | ---------------------------------------------------- | ---------------------------------------------- |
-| Verify                  | `pnpm verify`                                        | `ci.yml`, Verify and repository gates          |
-| Privacy and secret scan | `node scripts/check-privacy.mjs`                     | `ci.yml`                                       |
-| Licence check           | `node scripts/check-license.mjs`                     | `ci.yml`                                       |
-| Gate tests              | `node --test "scripts/test/*.test.mjs"`              | `ci.yml`                                       |
-| Docs impact             | `node scripts/check-docs-impact.mjs --base <commit>` | `ci.yml` (pull requests and pushes)            |
-| Production web build    | `pnpm --filter @cindl/web build`                     | `ci.yml`                                       |
-| Production output       | `node scripts/check-dist.mjs apps/web/dist`          | `ci.yml`, after the web build                  |
-| Web end-to-end          | `pnpm test:e2e`                                      | `ci.yml`, Web end-to-end on the synthetic demo |
-| Docs coverage           | `node scripts/check-docs-coverage.mjs`               | `docs.yml`                                     |
-| Docs build and links    | `pnpm --dir docs/handbook build`                     | `docs.yml`, at `/` and at `/cindl/`            |
+| Gate                    | Command                                                                      | CI workflow and job                            |
+| ----------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------- |
+| Verify                  | `pnpm verify`                                                                | `ci.yml`, Verify and repository gates          |
+| Privacy and secret scan | `node scripts/check-privacy.mjs`                                             | `ci.yml`                                       |
+| Licence check           | `node scripts/check-license.mjs`                                             | `ci.yml`                                       |
+| Gate tests              | `node --test "scripts/test/*.test.mjs"`                                      | `ci.yml`                                       |
+| Docs impact             | `node scripts/check-docs-impact.mjs --base <commit>`                         | `ci.yml` (pull requests and pushes)            |
+| Web builds              | `pnpm --filter @cindl/web build` and `build:demo`                            | `ci.yml`                                       |
+| Build outputs           | `node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo` | `ci.yml`, after both web builds                |
+| Web end-to-end          | `pnpm test:e2e`                                                              | `ci.yml`, Web end-to-end on the synthetic demo |
+| Docs coverage           | `node scripts/check-docs-coverage.mjs`                                       | `docs.yml`                                     |
+| Docs build and links    | `pnpm --dir docs/handbook build`                                             | `docs.yml`, at `/` and at `/cindl/`            |
 
 Both workflows run on every pull request and on pushes to `main`, with
 read-only permissions and actions pinned to full commit SHAs. `docs.yml`
@@ -154,19 +154,38 @@ area's documentation, or carry a `Docs-Impact: none - <rationale>` trailer. A
 later commit never covers an earlier one. The areas, the trailer rules and how
 to fix a rejected commit are in the [documentation workflow](docs.md).
 
-## Production output
+## Build outputs
 
-`node scripts/check-dist.mjs apps/web/dist` runs after a production build. It
-fails if the output contains synthetic demo data, if a source map lists a
-fixtures source or an absolute path, or if any file contains the build
-machine's checkout or home directory path. The demo markers are every
-distinctive string literal in `packages/fixtures/src` that appears in no
-production source file, plus a short list in `scripts/lib/dist.mjs` that must
-still occur in the fixtures. Never run it on `apps/web/dist-demo`, which is
-meant to contain the scenario; it reports that folder as a demo build.
+`node scripts/check-dist.mjs` checks build outputs by flavour, as
+[ADR 0011](../architecture/decisions/0011-fixtures.md) defines them. Pass each
+output with its flavour; a path may be a folder or a single packaged file, such
+as a desktop `app.asar`:
 
-Desktop and Android outputs join this gate by passing their output folders to
-the same command.
+```sh
+node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo
+```
+
+- **Real flavours** (web `build`; later the desktop real package and the
+  Android release bundle) fail if any file contains a synthetic fixture record:
+  a string from `SYNTHETIC_FIXTURE_MARKERS` in `@cindl/fixtures/markers`, whose
+  own test proves each marker still occurs in the scenario. A source map that
+  lists a fixtures source fails too. The demo label copy is allowed: every
+  renderer keeps it, so a demo flavour built on a production renderer can
+  never show synthetic data unlabelled.
+- **Demo flavours** (web `build:demo`; later the desktop demo package and the
+  Android demo build) fail unless they contain both `SYNTHETIC_DEMO_NOTICE` and
+  `SYNTHETIC_DEMO_LABEL` from `@cindl/contracts`.
+- **Every output** fails if a source map names an absolute path, or if any file
+  contains the build machine's checkout or home directory path.
+
+Every file in an output is searched as bytes, so bundles, Hermes bytecode and
+`app.asar` archives are covered. Compressed containers (`.apk`, `.aab`, `.zip`
+and similar) are rejected: pass the extracted output, because a byte search
+cannot see inside them. An output that is missing or empty fails, and a
+`dist-demo` folder passed as `--real` is reported as a mistake.
+
+Desktop and Android outputs join this gate by passing their packaged outputs
+with the flavour they are built as.
 
 ## Gate tests
 

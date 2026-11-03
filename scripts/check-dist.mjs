@@ -1,33 +1,41 @@
 #!/usr/bin/env node
-// Production-output gate, run after a production build. It fails if the output
-// contains synthetic demo data (markers derived from packages/fixtures/src),
-// if a source map bundles the fixtures or names an absolute path, or if any
-// output file contains the build machine's checkout or home directory path.
-// Never point it at a demo build (apps/web/dist-demo): that output is meant to
-// contain the scenario. Rules live in scripts/lib/dist.mjs.
-// Usage: node scripts/check-dist.mjs [--root <repository>] [<output dir> ...]
-//        (default: apps/web/dist)
+// Build-output gate (ADR 0011). Real-flavour outputs must contain no synthetic
+// fixture record (SYNTHETIC_FIXTURE_MARKERS from @cindl/fixtures/markers);
+// demo-flavour outputs must carry the demo notice and label
+// (SYNTHETIC_DEMO_NOTICE and SYNTHETIC_DEMO_LABEL from @cindl/contracts). No
+// output may name an absolute source path or the build machine's paths.
+// Rules live in scripts/lib/dist.mjs.
+// Usage: node scripts/check-dist.mjs [--root <repository>]
+//          [--real <folder or file>]... [--demo <folder or file>]...
 import { resolve } from 'node:path'
 import { parseArgs } from 'node:util'
-import { checkOutputs, demoMarkers } from './lib/dist.mjs'
+import { checkOutputs, loadMarkers } from './lib/dist.mjs'
 import { defaultRoot, report } from './lib/git.mjs'
 
-const { values, positionals } = parseArgs({
-  options: { root: { type: 'string' } },
-  allowPositionals: true,
+const { values } = parseArgs({
+  options: {
+    root: { type: 'string' },
+    real: { type: 'string', multiple: true },
+    demo: { type: 'string', multiple: true },
+  },
 })
 const root = resolve(values.root ?? defaultRoot)
-const dirs = (positionals.length ? positionals : ['apps/web/dist']).map((dir) =>
-  resolve(root, dir),
-)
+const outputs = [
+  ...(values.real ?? []).map((path) => ({ path: resolve(root, path), flavour: 'real' })),
+  ...(values.demo ?? []).map((path) => ({ path: resolve(root, path), flavour: 'demo' })),
+]
 try {
-  const { markers, errors: markerErrors } = await demoMarkers(root)
-  const { errors, files, maps } = checkOutputs(root, dirs, markers)
+  if (!outputs.length) throw new Error('pass at least one --real or --demo output')
+  const loaded = await loadMarkers(root)
+  const { errors, files, maps } = loaded.errors.length
+    ? { errors: [], files: 0, maps: 0 }
+    : checkOutputs(root, outputs, loaded)
+  const real = outputs.filter((output) => output.flavour === 'real').length
   report(
-    'production output',
-    [...markerErrors, ...errors],
-    `${files} text files in ${dirs.length} output folder(s) checked against ${markers.length} synthetic demo markers; ${maps} source map(s) have only relative paths and no fixtures.`,
+    'build outputs',
+    [...loaded.errors, ...errors],
+    `${real} real and ${outputs.length - real} demo output(s), ${files} files: no fixture records in real outputs, the demo notice and label in demo outputs, ${maps} source map(s) with relative paths only, no build machine paths.`,
   )
 } catch (error) {
-  report('production output', [error.message], '')
+  report('build outputs', [error.message], '')
 }

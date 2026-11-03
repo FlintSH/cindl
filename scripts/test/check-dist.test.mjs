@@ -1,39 +1,51 @@
 import assert from 'node:assert/strict'
+import { mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, it } from 'node:test'
-import { demoMarkers } from '../lib/dist.mjs'
+import { loadMarkers } from '../lib/dist.mjs'
 import { repoRoot, run, tempDir, writeFiles } from './helpers.mjs'
 
-const FIXTURE_DATA = `// SYNTHETIC: Lumen & Kiln is invented.
-export const origin = 'https://hermes.synthetic.invalid'
-export const conversations = [{ id: 'demo-main', title: 'Glaze order 42 for Quill Street' }]
-export const shared = 'Not connected to Hermes'
-`
-const PRODUCTION_SOURCE = `export const status = 'Not connected to Hermes'\n`
-
-/** A fixture repository with fixtures and production source, plus a dist folder. */
-function check(t, dist, { files = {}, args } = {}) {
-  const root = tempDir(t)
-  writeFiles(root, {
-    'packages/fixtures/src/data.ts': FIXTURE_DATA,
-    'apps/web/src/status.ts': PRODUCTION_SOURCE,
-    ...files,
-  })
-  writeFiles(join(root, 'apps/web/dist'), dist)
-  return run('check-dist.mjs', ['--root', root, ...(args ?? ['apps/web/dist'])])
+// The labels and markers mirror the real contract shape without the real values.
+const LABEL = 'Fixture demo'
+const NOTICE = 'Fixture demo. Not connected; everything here is invented.'
+const PACKAGES = {
+  'packages/contracts/package.json': JSON.stringify({
+    name: '@x/contracts',
+    exports: { '.': './src/index.ts' },
+  }),
+  'packages/contracts/src/index.ts': `export const SYNTHETIC_DEMO_LABEL = '${LABEL}'\nexport const SYNTHETIC_DEMO_NOTICE = '${NOTICE}'\n`,
+  'packages/fixtures/package.json': JSON.stringify({
+    name: '@x/fixtures',
+    exports: { './markers': './src/markers.ts' },
+  }),
+  'packages/fixtures/src/markers.ts':
+    "export const SYNTHETIC_FIXTURE_MARKERS = ['Lumen & Kiln', 'srq-demo00000001'] as const\n",
 }
 
-const CLEAN = {
+const app = (body) => ({
   'index.html':
     '<!doctype html><title>Cindl</title><script src="./assets/app.js"></script>',
-  'assets/app.js':
-    'const status="Not connected to Hermes";export{status};\n//# sourceMappingURL=app.js.map',
+  'assets/app.js': `${body}\n//# sourceMappingURL=app.js.map`,
   'assets/app.js.map': JSON.stringify({
     version: 3,
-    sources: ['../../src/status.ts', '../../../../node_modules/.pnpm/react/index.js'],
+    sources: ['../../src/app.ts'],
     mappings: '',
   }),
-  'assets/font.woff2': Buffer.from([0, 1, 2]),
+  'assets/font.woff2': Buffer.from([0, 1, 2, 3]),
+})
+const REAL = app(
+  `const banner=${JSON.stringify(NOTICE)};const dot="${LABEL}, not connected";`,
+)
+const DEMO = app(
+  `const banner=${JSON.stringify(NOTICE)};const studio="Lumen & Kiln";const dot="${LABEL}";`,
+)
+
+/** A fixture repository with the packages above and the given outputs. */
+function check(t, outputs, args, packages = PACKAGES) {
+  const root = tempDir(t)
+  writeFiles(root, packages)
+  for (const [dir, files] of Object.entries(outputs)) writeFiles(join(root, dir), files)
+  return run('check-dist.mjs', ['--root', root, ...args])
 }
 
 function assertFails(result, pattern) {
@@ -42,104 +54,124 @@ function assertFails(result, pattern) {
 }
 
 describe('check-dist', () => {
-  it('passes a production build without demo data', (t) => {
-    const result = check(t, CLEAN)
+  it('passes a real output that keeps the demo label copy', (t) => {
+    const result = check(t, { 'apps/web/dist': REAL }, ['--real', 'apps/web/dist'])
     assert.equal(result.code, 0, result.output)
-    assert.match(result.output, /1 source map\(s\) have only relative paths/)
+    assert.match(result.output, /1 real and 0 demo output/)
   })
 
-  it('finds demo markers and fixture literals in the output', (t) => {
+  it('fails a real output that contains a fixture record', (t) => {
+    const leaked = { ...REAL, 'assets/chunk.js': 'const studio="Lumen & Kiln";' }
     assertFails(
-      check(t, { ...CLEAN, 'assets/chunk.js': 'const id="demo-main";' }),
-      /assets\/chunk\.js: contains synthetic demo data \("demo-main"\)/,
-    )
-    assertFails(
-      check(t, {
-        ...CLEAN,
-        'assets/chunk.js': 'const t="Glaze order 42 for Quill Street";',
-      }),
-      /contains synthetic demo data \("Glaze order 42 for Quill Street"\)/,
-    )
-    assertFails(
-      check(t, { ...CLEAN, 'index.html': '<p>Lumen &amp; Kiln</p><p>Lumen & Kiln</p>' }),
-      /index\.html: contains synthetic demo data \("Lumen & Kiln"\)/,
+      check(t, { 'apps/web/dist': leaked }, ['--real', 'apps/web/dist']),
+      /assets\/chunk\.js: contains synthetic fixture records \("Lumen & Kiln"\)/,
     )
   })
 
-  it('does not treat strings that production code also uses as markers', (t) => {
-    const result = check(t, CLEAN)
-    assert.equal(result.code, 0, result.output)
+  it('passes a labelled demo output and fails one without the notice or label', (t) => {
+    const ok = check(t, { 'apps/web/dist-demo': DEMO }, ['--demo', 'apps/web/dist-demo'])
+    assert.equal(ok.code, 0, ok.output)
+    const unlabelled = app('const studio="Lumen & Kiln";')
+    const result = check(t, { 'apps/web/dist-demo': unlabelled }, [
+      '--demo',
+      'apps/web/dist-demo',
+    ])
+    assertFails(
+      result,
+      /dist-demo: demo output lacks the demo notice \(SYNTHETIC_DEMO_NOTICE\)/,
+    )
+    assert.match(result.output, /lacks the demo label \(SYNTHETIC_DEMO_LABEL\)/)
+  })
+
+  it('checks a packaged single-file output such as app.asar', (t) => {
+    const asar = {
+      'app.asar': Buffer.concat([
+        Buffer.from([0, 4, 0, 0]),
+        Buffer.from('srq-demo00000001'),
+      ]),
+    }
+    assertFails(
+      check(t, { 'out/real': asar }, ['--real', 'out/real/app.asar']),
+      /app\.asar: contains synthetic fixture records \("srq-demo00000001"\)/,
+    )
+    assertFails(
+      check(t, { out: { 'release.aab': 'PK' } }, ['--real', 'out/release.aab']),
+      /release\.aab: compressed archive; pass the extracted output/,
+    )
   })
 
   it('rejects source maps with fixtures or absolute paths', (t) => {
-    const map = (sources, extra = {}) => ({
-      ...CLEAN,
-      'assets/app.js.map': JSON.stringify({
-        version: 3,
-        sources,
-        mappings: '',
-        ...extra,
-      }),
+    const withMap = (sources, extra = {}) => ({
+      'apps/web/dist': {
+        ...REAL,
+        'assets/app.js.map': JSON.stringify({
+          version: 3,
+          sources,
+          mappings: '',
+          ...extra,
+        }),
+      },
     })
+    const args = ['--real', 'apps/web/dist']
     assertFails(
-      check(t, map(['../../../../packages/fixtures/src/data.ts'])),
+      check(t, withMap(['../../../../packages/fixtures/src/data.ts']), args),
       /bundles the synthetic fixtures/,
     )
-    assertFails(check(t, map(['/home/someone/cindl/src/a.ts'])), /absolute source path/)
-    assertFails(check(t, map(['C:\\work\\a.ts'])), /absolute source path/)
     assertFails(
-      check(t, map(['a.ts'], { sourceRoot: 'file:///work/' })),
+      check(t, withMap(['/home/someone/cindl/src/a.ts']), args),
+      /absolute source path/,
+    )
+    assertFails(check(t, withMap(['C:\\work\\a.ts']), args), /absolute source path/)
+    assertFails(
+      check(t, withMap(['a.ts'], { sourceRoot: 'file:///work/' }), args),
       /absolute sourceRoot/,
     )
   })
 
   it('rejects output that contains the checkout path', (t) => {
     const root = tempDir(t)
-    writeFiles(root, {
-      'packages/fixtures/src/data.ts': FIXTURE_DATA,
-      'apps/web/src/status.ts': PRODUCTION_SOURCE,
-    })
+    writeFiles(root, PACKAGES)
     writeFiles(join(root, 'apps/web/dist'), {
-      ...CLEAN,
-      'assets/app.js': `const where=${JSON.stringify(join(root, 'apps/web/src/status.ts'))};`,
+      ...REAL,
+      'assets/where.js': `const w=${JSON.stringify(root)};`,
     })
     assertFails(
-      run('check-dist.mjs', ['--root', root, 'apps/web/dist']),
+      run('check-dist.mjs', ['--root', root, '--real', 'apps/web/dist']),
       /contains the build machine path/,
     )
   })
 
-  it('refuses a demo build and missing output instead of passing', (t) => {
+  it('fails instead of passing on missing or mislabelled input', (t) => {
+    assertFails(check(t, {}, []), /pass at least one --real or --demo output/)
     assertFails(
-      check(t, CLEAN, { args: ['apps/web/dist', 'apps/web/dist-demo'] }),
-      /dist-demo: no build output here/,
+      check(t, {}, ['--real', 'apps/web/dist']),
+      /apps\/web\/dist: no build output here/,
     )
-    const root = tempDir(t)
-    writeFiles(root, { 'packages/fixtures/src/data.ts': FIXTURE_DATA })
-    writeFiles(join(root, 'apps/web/dist-demo'), CLEAN)
+    const empty = tempDir(t)
+    writeFiles(empty, PACKAGES)
+    mkdirSync(join(empty, 'apps/web/dist'), { recursive: true })
     assertFails(
-      run('check-dist.mjs', ['--root', root, 'apps/web/dist-demo']),
-      /apps\/web\/dist-demo: is a demo build/,
+      run('check-dist.mjs', ['--root', empty, '--real', 'apps/web/dist']),
+      /apps\/web\/dist: is empty; there is nothing to check/,
+    )
+    assertFails(
+      check(t, { 'apps/web/dist-demo': DEMO }, ['--real', 'apps/web/dist-demo']),
+      /dist-demo: is a demo build; pass it with --demo/,
+    )
+    const noMarkers = {
+      ...PACKAGES,
+      'packages/fixtures/src/markers.ts': 'export const SYNTHETIC_FIXTURE_MARKERS = []\n',
+    }
+    assertFails(
+      check(t, { 'apps/web/dist': REAL }, ['--real', 'apps/web/dist'], noMarkers),
+      /must be a non-empty list/,
     )
   })
 
-  it('fails when its fixed markers no longer occur in the fixtures', (t) => {
-    assertFails(
-      check(t, CLEAN, {
-        files: {
-          'packages/fixtures/src/data.ts': FIXTURE_DATA.replace('demo-main', 'demo-home'),
-        },
-      }),
-      /EXTRA_MARKERS: "demo-main" no longer occurs/,
-    )
-  })
-
-  it('derives markers from the real fixtures package', async () => {
-    // An empty or stale marker set would let any output pass.
-    const { markers, errors } = await demoMarkers(repoRoot)
+  it('loads the real markers and labels from their packages', async () => {
+    const { markers, labels, errors } = await loadMarkers(repoRoot)
     assert.deepEqual(errors, [])
-    assert.ok(markers.length >= 20, `only ${markers.length} markers`)
-    for (const marker of ['Lumen & Kiln', 'hermes.synthetic.invalid', 'demo-main'])
-      assert.ok(markers.includes(marker), marker)
+    assert.ok(markers.includes('Lumen & Kiln'))
+    assert.ok(labels.notice.startsWith(labels.label))
   })
 })

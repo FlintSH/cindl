@@ -77,6 +77,13 @@ node --test "scripts/test/*.test.mjs"   # the gates' own tests
 node scripts/check-docs-impact.mjs --base origin/main   # per-commit docs impact
 ```
 
+After building both web flavours (`pnpm --filter @cindl/web build` and
+`pnpm --filter @cindl/web build:demo`), check them:
+
+```sh
+node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo
+```
+
 The coverage gate imports the contract source, so run it after
 `pnpm install`. The docs-impact gate needs the base commit in your clone; in a
 shallow clone, fetch more history first.

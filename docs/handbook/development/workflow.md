@@ -107,17 +107,18 @@ request or hand-off:
 Run these before you push. CI runs all of them (see
 [Quality gates](quality-gates.md) for details and fixes).
 
-| Command                                              | Enforces                                                                                          |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| `pnpm verify`                                        | Formatting, lint with zero warnings, type checks, unit tests, generated token CSS                 |
-| `node scripts/check-privacy.mjs`                     | No secrets, private addresses, personal data, build output or stray binaries in tracked files     |
-| `node scripts/check-license.mjs`                     | MIT licence and copyright line, private MIT packages, third-party notices and checksums           |
-| `node scripts/check-docs-coverage.mjs`               | The handbook documents every capability, operation, event, error, shortcut and pinned Hermes name |
-| `node scripts/check-docs-impact.mjs --base <commit>` | Each commit updates the docs for the code areas it changes, or explains why not                   |
-| `pnpm --dir docs/handbook build`                     | The handbook builds; links, anchors and assets resolve; nothing loads from another origin         |
-| `node --test "scripts/test/*.test.mjs"`              | The gates themselves reject bad input                                                             |
-| `pnpm --filter @cindl/web build`                     | The production web bundle builds without demo data                                                |
-| `pnpm test:e2e`                                      | The web client's end-to-end flows pass on the synthetic demo                                      |
+| Command                                                                      | Enforces                                                                                          |
+| ---------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
+| `pnpm verify`                                                                | Formatting, lint with zero warnings, type checks, unit tests, generated token CSS                 |
+| `node scripts/check-privacy.mjs`                                             | No secrets, private addresses, personal data, build output or stray binaries in tracked files     |
+| `node scripts/check-license.mjs`                                             | MIT licence and copyright line, private MIT packages, third-party notices and checksums           |
+| `node scripts/check-docs-coverage.mjs`                                       | The handbook documents every capability, operation, event, error, shortcut and pinned Hermes name |
+| `node scripts/check-docs-impact.mjs --base <commit>`                         | Each commit updates the docs for the code areas it changes, or explains why not                   |
+| `pnpm --dir docs/handbook build`                                             | The handbook builds; links, anchors and assets resolve; nothing loads from another origin         |
+| `node --test "scripts/test/*.test.mjs"`                                      | The gates themselves reject bad input                                                             |
+| `pnpm --filter @cindl/web build`                                             | The production web bundle builds without demo data                                                |
+| `node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo` | Real builds hold no synthetic fixture records; demo builds carry the demo notice and label        |
+| `pnpm test:e2e`                                                              | The web client's end-to-end flows pass on the synthetic demo                                      |
 
 ## Commits and pull requests
 

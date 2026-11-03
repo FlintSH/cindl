@@ -25,15 +25,15 @@ pnpm exec vitest run packages/client-core/test/state.test.ts   # one file
 
 ## What to test where
 
-| Area                      | Test                                                                                                             |
-| ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
-| `packages/contracts`      | Rules a schema enforces: confirmations, versions, offered choices, no passthrough operations                     |
-| `packages/client-core`    | One reducer test for each event rule, including replayed and out-of-order events                                 |
-| `packages/hermes-adapter` | Wire knowledge against the vendored upstream contract; redaction of every secret format; PKCE and redirect rules |
-| `packages/tokens`         | Contrast of every shipped colour pairing in both themes                                                          |
-| `packages/fixtures`       | That the synthetic scenario behaves like the contract says (conflicts, unsupported capabilities, answer-once)    |
-| `apps/web`                | Components through `CindlClientApi` with the synthetic scenario; never by writing to the store directly          |
-| `scripts/`                | Each gate against fixture repositories it must reject (see below)                                                |
+| Area                      | Test                                                                                                                                                                                                                     |
+| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `packages/contracts`      | Rules a schema enforces: confirmations, versions, offered choices, no passthrough operations                                                                                                                             |
+| `packages/client-core`    | One reducer test for each event rule, including replayed and out-of-order events                                                                                                                                         |
+| `packages/hermes-adapter` | Wire knowledge against the vendored upstream contract; redaction of every secret format; PKCE and redirect rules                                                                                                         |
+| `packages/tokens`         | Contrast of every shipped colour pairing in both themes                                                                                                                                                                  |
+| `packages/fixtures`       | That the synthetic scenario behaves like the contract says (conflicts, unsupported capabilities, answer-once)                                                                                                            |
+| `apps/web`                | Components through `CindlClientApi` with the synthetic scenario, never by writing to the store; stylesheet rules (scroll containers are positioned, colours come from tokens); lint rules for fixture and storage access |
+| `scripts/`                | Each gate against fixture repositories it must reject (see below)                                                                                                                                                        |
 
 The adapter's integration tests are to run against a fake Hermes server whose
 frames are validated against the vendored upstream schemas. That server is not
@@ -43,6 +43,10 @@ built yet; see the [acceptance matrix](../project/acceptance-matrix.md).
 
 - Use `@cindl/fixtures` for scenarios. It is fictional, always reports
   `link.demo = true`, and lint forbids importing it from production code.
+- Synthetic records exist only in demo flavours, which always show the demo
+  notice; real builds contain none
+  ([ADR 0011](../architecture/decisions/0011-fixtures.md), checked by the
+  [build-outputs gate](quality-gates.md#build-outputs)).
 - Hosts are `example.test` or `.invalid`; addresses are loopback or from the
   documentation ranges; people and companies are invented.
 - Never paste real data into a test, even redacted.
@@ -76,8 +80,9 @@ check that the test fails without the rule.
 The web client has a Playwright suite in `apps/web/e2e`. It builds the
 synthetic demo (`build:demo`), serves it with the production CSP on
 `127.0.0.1:4173`, and drives it in Chromium with one worker. It fails on any
-console error, page error or CSP violation. It exercises the real UI and
-client state, not a live Hermes.
+console error, page error or CSP violation, and a layout spec checks that the
+document itself never scrolls at phone, tablet and desktop sizes. It exercises
+the real UI and client state, not a live Hermes.
 
 ```sh
 pnpm --filter @cindl/web exec playwright install chromium   # first run only

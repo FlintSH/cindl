@@ -43,7 +43,7 @@ routes in the [Hermes v0.22.5 reference](../reference/hermes-v0.22.5.md).
 | What                             | How                                                                                                                                        |
 | -------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
 | The web client on synthetic data | `pnpm --filter @cindl/web dev:demo`, on `127.0.0.1` only, always bannered as a demo ([Getting started](../development/getting-started.md)) |
-| The production web bundle        | `pnpm --filter @cindl/web build`; checked in CI for demo data and local paths, not served anywhere                                         |
+| The production web bundle        | `pnpm --filter @cindl/web build`; checked in CI for synthetic fixture records and local paths, not served anywhere                         |
 | This handbook                    | Built in CI and uploaded as a workflow artifact for review; not hosted                                                                     |
 
 ## Not validated yet

@@ -52,8 +52,11 @@ jobs:
         run: node scripts/check-docs-impact.mjs --base "$BASE_SHA"
       - name: Build the production web client
         run: pnpm --filter @cindl/web build
-      - name: Check the production output has no demo data or local paths
-        run: node scripts/check-dist.mjs apps/web/dist
+      - name: Build the labelled web demo
+        run: pnpm --filter @cindl/web build:demo
+      # ADR 0011: real builds hold no fixture records; demo builds carry the label.
+      - name: Check both build flavours
+        run: node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo
 
   web-e2e:
     name: Web end-to-end on the synthetic demo
