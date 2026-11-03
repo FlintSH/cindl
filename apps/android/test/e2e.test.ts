@@ -233,6 +233,23 @@ describe('the screen each step starts from (CI run 41656607631)', () => {
     )
   })
 
+  it("takes none of Android's own ids for a scrim: every screen's frames carry them", () => {
+    // The frames over every dump of Cindl (CI run 41712256173,
+    // 19-memory-delete-warning.xml; password="false" as Android writes it).
+    const FRAMES = [
+      `<node index="0" text="" resource-id="${PKG}:id/action_bar_root" class="android.widget.LinearLayout" package="${PKG}" content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[0,0][1080,2400]" drawing-order="1" hint="">`,
+      `<node index="0" text="" resource-id="android:id/content" class="android.widget.FrameLayout" package="${PKG}" content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[0,0][1080,2400]" drawing-order="2" hint="">`,
+    ].join('')
+    const bare = parseUi(
+      dump(`${WINDOW}${FRAMES}${EMPTY}${TALK}${WORK}</node></node></node>`),
+    )
+    expect(overlayOpen(bare)).toBe(false)
+    const open = parseUi(
+      dump(`${WINDOW}${FRAMES}${SCRIM}${TALK}${WORK}</node></node></node>`),
+    )
+    expect(scrimOf(open)?.resourceId).toBe('cindl-scrim')
+  })
+
   it("takes no clickable view over the whole window for a scrim: only the scrim's id tells it", () => {
     // The scrim as CI run 41712256173 had it, before focusable={false}: a bare
     // clickable leaf over the window, as any full-window control could be.
