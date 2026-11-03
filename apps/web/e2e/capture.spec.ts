@@ -60,8 +60,31 @@ test.describe('screenshot capture', () => {
     await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
     await page.goto('/#/talk')
     await page.getByRole('button', { name: /Checked the studio calendar/ }).click()
-    await page.getByText('Step details').waitFor()
+    await page.getByRole('tab', { name: 'Step', selected: true }).waitFor()
     await page.screenshot({ path: `${dir}/talk-evidence-laptop-1280x800-dark.png` })
+  })
+
+  test('margin computer desktop-1440x1000 light', async ({ page }) => {
+    await page.setViewportSize(viewports[0]!)
+    await page.emulateMedia({ colorScheme: 'light', reducedMotion: 'reduce' })
+    await page.goto('/#/talk')
+    await page.getByRole('tab', { name: 'Computer' }).click()
+    await page.getByRole('img', { name: 'The agent’s screen, live.' }).waitFor()
+    await page.evaluate(() => document.fonts.ready)
+    await page.waitForTimeout(300)
+    await page.screenshot({
+      path: `${dir}/talk-margin-computer-desktop-1440x1000-light.png`,
+    })
+  })
+
+  test('margin sheet tablet-768x1024 dark', async ({ page }) => {
+    await page.setViewportSize(viewports[2]!)
+    await page.emulateMedia({ colorScheme: 'dark', reducedMotion: 'reduce' })
+    await page.goto('/#/talk')
+    await page.getByRole('button', { name: 'Show the working margin' }).click()
+    await page.getByRole('dialog', { name: 'Working margin' }).waitFor()
+    await page.evaluate(() => document.fonts.ready)
+    await page.screenshot({ path: `${dir}/talk-margin-sheet-tablet-768x1024-dark.png` })
   })
 
   test('palette and history phone-390x844 light', async ({ page }) => {

@@ -16,7 +16,6 @@ import {
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
-  useReducer,
   useRef,
   useState,
 } from 'react'
@@ -30,7 +29,7 @@ import { Button, Dot } from '../ui/primitives.tsx'
 import { Composer, type ComposerHandle } from './Composer.tsx'
 import { HistoryPopover } from './HistoryPopover.tsx'
 import { MessageView } from './MessageView.tsx'
-import { keepPlace, placeOf } from './places.ts'
+import { keepPlace, placeOf, useSelectedStep } from './places.ts'
 import { composerHint, presenceCopy } from './presence.ts'
 import { RequestCard, requestDomId } from './RequestCard.tsx'
 import { WorkingMargin } from './WorkingMargin.tsx'
@@ -73,7 +72,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     const marginOpen = wide ? marginPreference : sheetOpen
     const setMarginOpen = wide ? setMarginPreference : setSheetOpen
     // The selected step lives in the conversation's place (places.ts).
-    const [, placeChanged] = useReducer((n: number) => n + 1, 0)
+    const selectedToolId = useSelectedStep(conversationId)
     // Pinned to the newest content until the owner scrolls up to read.
     const [atBottom, setAtBottom] = useState(
       () => !conversationId || placeOf(conversationId).scrollTop === undefined,
@@ -181,15 +180,12 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     }
 
     const presence = presenceCopy(link, activity)
-    // Selection belongs to one conversation and comes back with it.
-    const selectedToolId = placeOf(conversationId).toolId
-    const select = (toolId: string | undefined) => {
-      keepPlace(conversationId, { toolId })
-      placeChanged()
-    }
+    // Selection belongs to one conversation and comes back with it. Selecting
+    // a step opens the working margin on Step; selecting it again clears it.
     const selectTool = (toolId: string) => {
-      select(selectedToolId === toolId ? undefined : toolId)
-      setMarginOpen(true)
+      const next = selectedToolId === toolId ? undefined : toolId
+      keepPlace(conversationId, { toolId: next, tool: next ? 'step' : undefined })
+      if (next) setMarginOpen(true)
     }
     const startSide = async () => {
       try {
@@ -367,8 +363,6 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         {wide && marginOpen ? (
           <WorkingMargin
             conversationId={conversationId}
-            selectedToolId={selectedToolId}
-            onClearSelection={() => select(undefined)}
             onClose={() => setMarginOpen(false)}
             onShowRequest={revealRequest}
           />
@@ -382,8 +376,6 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
           >
             <WorkingMargin
               conversationId={conversationId}
-              selectedToolId={selectedToolId}
-              onClearSelection={() => select(undefined)}
               onClose={() => setSheetOpen(false)}
               onShowRequest={revealRequest}
             />

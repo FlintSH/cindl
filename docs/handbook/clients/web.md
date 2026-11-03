@@ -132,7 +132,9 @@ Screenshots of the synthetic demo (every name, message and status is
 invented; the banner says so), and of the desktop app's signed-out screen,
 which has no data to label.
 
-![Talk on a wide screen: an approval and a question set waiting, with the working margin listing both](/screenshots/web/talk-desktop-light.png)
+![Talk on a wide screen: an approval and a question set waiting, with the working margin open on its Waiting tool listing both](/screenshots/web/talk-desktop-light.png)
+
+![The working margin's Computer tool beside the conversation: the agent's synthetic screen, live, with its status and Take control](/screenshots/web/talk-margin-computer-light.png)
 
 ![Work on a phone in the dark theme: a sudo prompt Cindl does not answer, above an approval](/screenshots/web/work-phone-dark.png)
 
@@ -250,6 +252,25 @@ from the desktop app's custom protocol.
   follows you into another conversation. An answer's draft is dropped once its
   request closes, and every draft is forgotten when the session ends, whether
   you sign out or Hermes refuses the session.
+
+## The working margin
+
+Beside the conversation (a sheet below 1280px), the working margin holds a
+few tools for that conversation ([ADR 0013](../architecture/decisions/0013-conversation-panel.md)):
+
+- **Waiting**: what the conversation waits on, with the count on the tab. Show
+  reveals the request's card in the conversation; the card itself is never
+  repeated in the margin.
+- **Step**: the selected step's tool, status and redacted input and result.
+  Selecting a step in the conversation opens the margin here.
+- **Computer**: the agent's screen, live, with the same rules as Work:
+  watching sends nothing, taking control asks first, and leaving the tool or
+  the conversation closes the view.
+
+It switches only when you choose a tool or select a step: a new request
+changes Waiting's count, not the tool. Each conversation keeps its own tool
+while you move between them. The arrow keys, Home and End move between the
+tools.
 
 ## Keyboard
 

@@ -154,7 +154,8 @@ function Routines() {
   )
 }
 
-function Computer() {
+/** The agent's screen and its control: on Work, and in a conversation's working margin. */
+export function Computer() {
   const api = useCindlApi()
   const [controlError, setControlError] = useState<string>()
   const controlCall = async (call: () => Promise<unknown>) => {

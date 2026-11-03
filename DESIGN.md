@@ -28,9 +28,12 @@ Four destinations. Conversation is the anchor; everything else is one step away.
 
 Talk has no permanent thread column. A searchable history popover (title
 button, `Mod+J`) switches conversations; the command palette (`Mod+K`) reaches
-everything. The **working margin** is contextual: it shows the step you
-selected (evidence), or what the conversation is waiting on. It replaces
-content instead of adding panes.
+everything. The **working margin** is the conversation's panel
+([ADR 0013](docs/handbook/architecture/decisions/0013-conversation-panel.md)):
+beside the conversation, it switches between a few tools for that
+conversation (Waiting, Step and Computer), and only when the owner asks; a new
+request changes a count, never the tool. It replaces content instead of adding
+panes.
 
 ## Layout
 
@@ -43,8 +46,9 @@ content instead of adding panes.
 Breakpoints are literal in media queries: 768 and 1280. The working margin
 opens as a sheet over the conversation below 1280px, so closing it returns to
 the same scroll position. Each conversation also keeps where the owner left
-it (the unsent message, the reading position and the selected step) while they
-switch conversations or destinations, in memory until the session ends.
+it (the unsent message, the reading position, the selected step and the
+margin's tool) while they switch conversations or destinations, in memory
+until the session ends.
 
 ## Typography
 
@@ -117,7 +121,8 @@ using it.
 - **Web/Electron**: same renderer. Electron adds native menus, window state and
   native file dialogs; it never changes the visual language.
 - **Android**: native components with the same tokens, bottom navigation for the
-  four destinations, sheets for the margin, platform back and share behaviour.
+  four destinations, the working margin as a sheet with the same tools,
+  platform back and share behaviour.
 
 ## Copy
 
