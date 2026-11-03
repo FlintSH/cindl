@@ -457,11 +457,36 @@ export function rawPixel(
  * Where a point of the agent's screen is drawn on the device: the picture is
  * centred in its view with its aspect kept (modules/cindl-screen ScreenPixels.kt `fit`).
  */
+/**
+ * The live view's whole box is on screen. The view keeps the screen's aspect
+ * ratio (ScreenView.tsx), so a box shorter than the picture at its width is
+ * clipped: the tab bar cuts the view while it runs under it (CI run
+ * 41668168848: [45,1754][1035,2124], 370 of its 619 px). A taller box is the
+ * view letterboxing the picture, and is whole.
+ */
+export function wholeView(
+  bounds: Rect,
+  screen: { width: number; height: number },
+  tolerance = 4,
+): boolean {
+  const pictureHeight = (width(bounds) * screen.height) / screen.width
+  return width(bounds) > 0 && height(bounds) >= pictureHeight - tolerance
+}
+
+/**
+ * Where a point of the agent's screen is on the device, in a whole live view
+ * (the picture scaled to fit and centred). A clipped view is refused: its box
+ * would scale the picture down and shift it, so a point would land elsewhere.
+ */
 export function screenToDevice(
   bounds: Rect,
   screen: { width: number; height: number },
   point: { x: number; y: number },
 ): { x: number; y: number } {
+  if (!wholeView(bounds, screen))
+    throw new Error(
+      `The live view is clipped ([${bounds.left},${bounds.top}][${bounds.right},${bounds.bottom}]); scroll it fully into view first`,
+    )
   const viewWidth = bounds.right - bounds.left
   const viewHeight = bounds.bottom - bounds.top
   const scale = Math.min(viewWidth / screen.width, viewHeight / screen.height)

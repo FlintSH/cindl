@@ -45,6 +45,7 @@ import {
   type Match,
   type TargetAudit,
   type UiNode,
+  wholeView,
   width,
 } from './ui.ts'
 
@@ -261,6 +262,36 @@ function installApk(path: string) {
 }
 
 /**
+ * The agent's live view, scrolled until all of it is on screen, so a point of
+ * the screen maps onto it (ui.ts screenToDevice refuses a clipped view). The
+ * view runs under the tab bar after it is revealed (CI run 41668168848), so the
+ * page is scrolled by what is missing, swiping in the page's left margin, never
+ * on the view (in control, it takes the touch).
+ */
+async function revealWhole(match: Match, what: string) {
+  for (let tries = 0; tries < 6; tries++) {
+    const found = await device.reveal(match, what)
+    const view = found.node.bounds
+    if (wholeView(view, DEMO_SCREEN)) return found
+    let page = found.node.parent
+    while (page && !page.scrollable) page = page.parent
+    if (!page) throw new Error(`${what} is clipped and nothing scrolls it`)
+    const missing =
+      Math.ceil((width(view) * DEMO_SCREEN.height) / DEMO_SCREEN.width) - height(view)
+    // Clipped at the top (under the banner): drag down; else at the bottom: drag up.
+    const down = view.top <= page.bounds.top + 1
+    const distance = missing + 80
+    const from = down
+      ? page.bounds.top + 40
+      : Math.min(page.bounds.bottom - 40, page.bounds.top + 40 + distance)
+    const to = down ? from + distance : from - distance
+    device.shell(`input swipe 24 ${from} 24 ${to} 800`)
+    await sleep(900)
+  }
+  throw new Error(`Could not scroll ${what} fully into view`)
+}
+
+/**
  * Work, Computer: the synthetic screen (scenario/screen.ts, in the demo app or
  * behind the fake Hermes's /api/display/ws) drawn by the Kotlin painter, read
  * back as a pixel of its desktop; then, in control, a tap that the screen
@@ -274,7 +305,7 @@ async function agentScreen(
 ) {
   await startOnTalk()
   await openDestination('Work', named('Needs you'))
-  const live = await device.reveal(
+  const live = await revealWhole(
     (text) => text.startsWith('The agent’s screen, live.'),
     'the live screen',
   )
@@ -301,7 +332,7 @@ async function agentScreen(
         await device.tap('Take control now', 'Take control now')
       },
       act: async () => {
-        const controlled = await device.reveal(
+        const controlled = await revealWhole(
           (text) => text.startsWith('The agent’s screen, live. You are in control'),
           'the screen in control',
         )

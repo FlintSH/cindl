@@ -20,6 +20,7 @@ import {
   overlayOpen,
   rawPixel,
   screenToDevice,
+  wholeView,
   parseKeyboard,
   parseUi,
   TERMS_PROMPT,
@@ -555,6 +556,26 @@ describe('reading the screen back', () => {
       x: 1039,
       y: 762,
     })
+  })
+
+  it('refuses a live view the tab bar clipped, which would map the picture wrong (CI run 41668168848)', () => {
+    const screen = { width: 640, height: 400 }
+    // The live view as that run dumped it, cut by the tab bar at y=2124: the demo's
+    // and the real build's. Whole, it is 990 px wide and 619 tall (the screen's ratio).
+    const demo = { left: 45, top: 1754, right: 1035, bottom: 2124 }
+    const signin = { left: 45, top: 1840, right: 1035, bottom: 2124 }
+    for (const clipped of [demo, signin]) {
+      expect(wholeView(clipped, screen)).toBe(false)
+      // Mapped as it was, the desktop's (20, 200) fell inside the window: device
+      // 263,1940 and 327,1982, the grid colour.
+      expect(() => screenToDevice(clipped, screen, { x: 20, y: 200 })).toThrow(/clipped/)
+    }
+    const whole = { ...demo, bottom: 1754 + 619 }
+    expect(wholeView(whole, screen)).toBe(true)
+    // On the teal desktop, left of the window (which starts near x=200 on the device).
+    expect(screenToDevice(whole, screen, { x: 20, y: 200 })).toEqual({ x: 77, y: 2064 })
+    // The tap marker's point, under the window.
+    expect(screenToDevice(whole, screen, { x: 320, y: 376 })).toEqual({ x: 541, y: 2337 })
   })
 
   it('compares colours with a tolerance for scaling', () => {

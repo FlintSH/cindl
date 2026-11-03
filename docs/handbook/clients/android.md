@@ -189,7 +189,10 @@ until the owner decides about those terms.
     gate and draws the orange pointer marker where it landed. The fake is
     asked which view held control before the app gives control back: once the
     lease returns to the agent, it no longer says
-    (`apps/android/test/e2e-screen.test.ts` runs that order on loopback).
+    (`apps/android/test/e2e-screen.test.ts` runs that order on loopback). In
+    both suites the picture is read from the whole view: the step scrolls it
+    fully into view first (the tab bar clips it otherwise, and a clipped box
+    would map the screen's points elsewhere), and fails if it cannot.
   - **Chat:** a message answered by the fake.
 
   Against a second stand-in whose authorize page can be held open: the app
