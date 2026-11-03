@@ -307,6 +307,15 @@ export interface KeyboardState {
 }
 
 /**
+ * The app whose window has focus, from `dumpsys window` (`mCurrentFocus`), or
+ * undefined for a system window (status bar, notification shade, a system
+ * dialog) or none.
+ */
+export function focusedPackage(dumpsys: string): string | undefined {
+  return /mCurrentFocus=Window\{\S+ \S+ ([\w.]+)\//.exec(dumpsys)?.[1]
+}
+
+/**
  * Reads `dumpsys window InputMethod` (plus `dumpsys input_method` for the
  * shown flag). The visible keyboard starts at the window frame's top plus its
  * given content inset.

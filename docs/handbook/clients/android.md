@@ -177,8 +177,9 @@ until the owner decides about those terms.
   - **Sign-out:** the sign-in screen comes back, the token set is deleted from
     the device, and no token issued during the run is in plain text in the
     app's files.
-  - **Logs:** no token the fake issued is in the device log (logcat, saved
-    after every step).
+  - **Logs:** no token, ticket, code, state or PKCE verifier the run issued
+    or received is in the device log (logcat, read after every step and kept
+    raw in memory only).
   - **The agent's screen:** the fake's synthetic screen, served over
     `/api/display/ws`, drawn by the Kotlin painter (a pixel of its desktop
     read back), and in control, a tap that reaches the fake through its lease
@@ -210,7 +211,13 @@ System animations are off during the tests so UI dumps are stable (the app then
 also reduces its own motion). The `cindl-android-emulator-evidence` artifact
 holds, per suite (`demo/`, `signin/`), screenshots, UI dumps, logcat per step,
 `report.json` (steps, device, the fake's request shapes) and `summary.md`, and
-for the production APK `keystore-evidence.json`. The fake auth server's log
+for the production APK `keystore-evidence.json`. Nothing in it holds a
+sign-in value: every token, ticket, code, state and verifier the fake Hermes
+and the auth stand-in issue or receive is replaced in device logs, UI dumps and
+report lines by a placeholder naming its kind (`[issued-code]`), and the
+adapter's redaction runs over the rest (`apps/android/e2e/secrets.ts`). The
+browser is never captured, because its address bar and pages show the code
+and state; the steps note what it showed instead. The fake auth server's log
 records only request shapes, never codes, verifiers or tokens.
 
 ## Demo and real builds

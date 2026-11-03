@@ -1,0 +1,279 @@
+import { createHash, randomBytes } from 'node:crypto'
+import {
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { base64Url } from '@cindl/hermes-adapter'
+import { afterEach, describe, expect, it } from 'vitest'
+import { fakeHermes, harness } from '../../../packages/client-core/test/direct-harness.ts'
+import { createDevice } from '../e2e/device.ts'
+import { startFakeHermesAuth, type FakeHermesAuth } from '../e2e/fakeHermesAuth.ts'
+import {
+  DeviceLogs,
+  RunSecrets,
+  watchFakeHermes,
+  type SecretKind,
+} from '../e2e/secrets.ts'
+import { focusedPackage } from '../e2e/ui.ts'
+
+// What the emulator runs write about sign-in values (delta check of
+// 94df18b..e0bc0ce, S1, N3, N4): device logs, UI dumps and report lines hold
+// no token, ticket, code, state or verifier the run issued or received, and
+// the browser is never captured. SYNTHETIC values only.
+
+// Secret-shaped strings are assembled at runtime so secret scanners (pnpm
+// check:privacy) do not flag the test itself.
+const fake = (...parts: string[]) => parts.join('')
+const ACCESS = 'synthetic-access-7b1d55aa94c3'
+const TICKET = 'synthetic-ticket-2c8e4f6a1b9d'
+const CODE = 'synthetic-code-91ad7e3c5f02'
+const STATE = 'synthetic-state-4e6b0d2a8c17'
+const VERIFIER = 'synthetic-verifier-0f3a9c7e5b18'
+/** A credential the run never issued: only the adapter's redaction removes it. */
+const PROXY = fake('AbCdEfGhIjKlMn', 'OpQrStUv0123')
+
+const dirs: string[] = []
+const scratch = () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cindl-e2e-'))
+  dirs.push(dir)
+  return dir
+}
+afterEach(() => {
+  for (const dir of dirs.splice(0)) rmSync(dir, { recursive: true, force: true })
+})
+
+describe('the values a run must not publish', () => {
+  it('replaces each with its kind, then redacts whatever else looks like a credential', () => {
+    const secrets = new RunSecrets()
+    secrets.add('access token', ACCESS)
+    secrets.add('ticket', TICKET)
+    secrets.add('code', CODE)
+    secrets.add('state', STATE)
+    secrets.add('verifier', VERIFIER)
+    // Shorter than anything these servers issue: never searched for.
+    secrets.add('state', 'short')
+    const log = [
+      `I ReactNativeJS: tokens ${ACCESS}`,
+      `D OkHttp: --> GET http://127.0.0.1:8642/api/ws?ticket=${TICKET}`,
+      `W chromium: http://127.0.0.1:41234/callback?code=${CODE}&state=${STATE}`,
+      `D Cindl: verifier ${VERIFIER}`,
+      `D Proxy: Authorization: Bearer ${PROXY}`,
+      'I Short: short',
+    ].join('\n')
+    expect(secrets.found(log)).toEqual([
+      'access token',
+      'code',
+      'state',
+      'ticket',
+      'verifier',
+    ])
+    const out = secrets.scrub(log)
+    for (const value of [ACCESS, TICKET, CODE, STATE, VERIFIER, PROXY])
+      expect(out).not.toContain(value)
+    expect(out).toContain('I ReactNativeJS: tokens [issued-access-token]')
+    expect(out).toContain('D Cindl: verifier [issued-verifier]')
+    expect(out).toContain('D Proxy: Authorization: [redacted]')
+    expect(out).toContain('I Short: short')
+    expect(secrets.values('access token', 'ticket')).toEqual([ACCESS, TICKET])
+  })
+
+  it('writes device logs scrubbed, keeps them raw in memory only, and finds a value learned later', () => {
+    const dir = scratch()
+    const secrets = new RunSecrets()
+    secrets.add('access token', ACCESS)
+    const logs = new DeviceLogs(dir, secrets)
+    logs.keep('logcat-01-sign-in.txt', `I ReactNativeJS: ${ACCESS}`)
+    logs.keep('logcat-02-chat.txt', 'I ReactNativeJS: nothing to see')
+    expect(readFileSync(join(dir, 'logcat-01-sign-in.txt'), 'utf8')).toBe(
+      'I ReactNativeJS: [issued-access-token]',
+    )
+    expect(logs.holding()).toEqual([
+      { file: 'logcat-01-sign-in.txt', kinds: ['access token'] },
+    ])
+    // The verifier reaches the fake only with the code exchange, after this log.
+    logs.keep('logcat-03-browser.txt', `D Cindl: ${VERIFIER}`)
+    secrets.add('verifier', VERIFIER)
+    expect(
+      logs.holding().map(({ file, kinds }) => `${file}: ${kinds.join(',')}`),
+    ).toEqual(['logcat-01-sign-in.txt: access token', 'logcat-03-browser.txt: verifier'])
+    logs.rewrite()
+    expect(readFileSync(join(dir, 'logcat-03-browser.txt'), 'utf8')).toBe(
+      'D Cindl: [issued-verifier]',
+    )
+    expect(logs.count).toBe(3)
+    expect(readdirSync(dir).sort()).toEqual([
+      'logcat-01-sign-in.txt',
+      'logcat-02-chat.txt',
+      'logcat-03-browser.txt',
+    ])
+  })
+})
+
+describe('where the values come from', () => {
+  const kindsOf = (secrets: RunSecrets) =>
+    (
+      [
+        'access token',
+        'refresh token',
+        'ticket',
+        'code',
+        'state',
+        'verifier',
+      ] as SecretKind[]
+    ).filter((kind) => secrets.values(kind).length > 0)
+
+  it("the fake Hermes: a sign-in and a connection give every kind, and a refresh's tokens too", async () => {
+    const fake = await fakeHermes()
+    const secrets = new RunSecrets()
+    watchFakeHermes(fake.auth, secrets)
+    const h = await harness({ fake })
+    await h.waitFor(() => h.store.getState().link.phase === 'online')
+    expect(kindsOf(secrets)).toEqual([
+      'access token',
+      'refresh token',
+      'ticket',
+      'code',
+      'state',
+      'verifier',
+    ])
+    const tokens = secrets.values('access token').length
+    const [refresh] = secrets.values('refresh token')
+    expect(fake.auth.refresh(refresh ?? '')).toBeDefined()
+    expect(secrets.values('access token')).toHaveLength(tokens + 1)
+  })
+
+  describe('the auth stand-in', () => {
+    let stand: FakeHermesAuth | undefined
+    afterEach(async () => {
+      await stand?.close()
+      stand = undefined
+    })
+
+    it('hands each value to the run, and its event log still holds none', async () => {
+      const secrets = new RunSecrets()
+      stand = await startFakeHermesAuth(0, (kind, value) => secrets.add(kind, value))
+      const verifier = base64Url(randomBytes(32))
+      const url = new URL('/auth/native/authorize', stand.origin)
+      url.searchParams.set(
+        'code_challenge',
+        base64Url(createHash('sha256').update(verifier).digest()),
+      )
+      url.searchParams.set('code_challenge_method', 'S256')
+      url.searchParams.set('redirect_uri', 'http://127.0.0.1:41234/callback')
+      url.searchParams.set('state', STATE)
+      const location = new URL(
+        (await fetch(url, { redirect: 'manual' })).headers.get('location') ?? '',
+      )
+      const token = await fetch(`${stand.origin}/auth/native/token`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          code: location.searchParams.get('code'),
+          code_verifier: verifier,
+        }),
+      })
+      expect(token.status).toBe(200)
+      expect(kindsOf(secrets)).toEqual([
+        'access token',
+        'refresh token',
+        'code',
+        'state',
+        'verifier',
+      ])
+      expect(secrets.found(location.href)).toEqual(['code', 'state'])
+      const events = JSON.stringify(stand.events)
+      for (const value of secrets.values(...kindsOf(secrets)))
+        expect(events).not.toContain(value)
+    })
+  })
+})
+
+/**
+ * adb as the device helper calls it, answering from the environment: the app
+ * in front, the text of the one field on screen, and the app's error log.
+ */
+const FAKE_ADB = `#!/usr/bin/env node
+const [verb, command = ''] = process.argv.slice(2)
+const env = process.env
+const front = env.FAKE_ADB_FRONT
+const say = (text) => process.stdout.write(text)
+if (verb === 'shell' && command.includes('mCurrentFocus'))
+  say('  mCurrentFocus=Window{5a7c u0 ' + front + '/' + front + '.Main}\\n')
+else if (verb === 'shell' && command.startsWith('uiautomator dump'))
+  say('UI hierchary dumped to: /sdcard/cindl-ui.xml\\n')
+else if (verb === 'exec-out' && command === 'cat')
+  say("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\\"0\\">" +
+    '<node text="' + env.FAKE_ADB_TEXT + '" resource-id="" class="android.widget.EditText" package="' +
+    front + '" content-desc="" clickable="true" long-clickable="false" checkable="false" checked="false"' +
+    ' enabled="true" focused="false" scrollable="false" bounds="[0,0][1080,160]" /></hierarchy>')
+else if (verb === 'exec-out' && command === 'screencap') say('PNG')
+else if (verb === 'shell' && command === 'logcat -d -b crash') say('')
+else if (verb === 'shell' && command.startsWith('logcat -d -s')) say((env.FAKE_ADB_LOG ?? '') + '\\n')
+else {
+  process.stderr.write('fake adb: unexpected ' + process.argv.slice(2).join(' ') + '\\n')
+  process.exit(1)
+}
+`
+
+describe('what the device helper keeps', () => {
+  it('reads which app is in front', () => {
+    expect(
+      focusedPackage(
+        '  mCurrentFocus=Window{1a2b u0 dev.fl1nt.cindl/dev.fl1nt.cindl.MainActivity}',
+      ),
+    ).toBe('dev.fl1nt.cindl')
+    expect(
+      focusedPackage(
+        '  mCurrentFocus=Window{3c4d u0 org.chromium.webview_shell/org.chromium.webview_shell.WebViewBrowserActivity}',
+      ),
+    ).toBe('org.chromium.webview_shell')
+    expect(
+      focusedPackage('  mCurrentFocus=Window{5e6f u0 NotificationShade}'),
+    ).toBeUndefined()
+    expect(focusedPackage('  mCurrentFocus=null')).toBeUndefined()
+  })
+
+  it('captures nothing while the browser is in front, and scrubs UI dumps and error lines', async () => {
+    const dir = scratch()
+    const adb = join(dir, 'adb')
+    writeFileSync(adb, FAKE_ADB, { mode: 0o755 })
+    const out = join(dir, 'out')
+    mkdirSync(out)
+    const secrets = new RunSecrets()
+    secrets.add('code', CODE)
+    secrets.add('state', STATE)
+    const device = createDevice({ adb, out, scrub: (text) => secrets.scrub(text) })
+    try {
+      process.env.FAKE_ADB_TEXT = `http://127.0.0.1:41234/callback?code=${CODE}&amp;state=${STATE}`
+      process.env.FAKE_ADB_FRONT = 'org.chromium.webview_shell'
+      await device.dump()
+      expect(device.screenshot('browser-signed-in')).toBeUndefined()
+      expect(readdirSync(out)).toEqual([])
+
+      process.env.FAKE_ADB_FRONT = 'dev.fl1nt.cindl'
+      process.env.FAKE_ADB_TEXT = `Signed in with ${CODE}`
+      await device.dump()
+      expect(device.screenshot('connected')).toBe('01-connected.png')
+      expect(readdirSync(out).sort()).toEqual(['01-connected.png', '01-connected.xml'])
+      const xml = readFileSync(join(out, '01-connected.xml'), 'utf8')
+      expect(xml).toContain('text="Signed in with [issued-code]"')
+      expect(xml).not.toContain(CODE)
+
+      process.env.FAKE_ADB_LOG = `E ReactNativeJS: TypeError: sign-in failed at ?code=x&state=${STATE} (${CODE})`
+      const problems = device.health().join('\n')
+      expect(problems).toContain('TypeError')
+      expect(problems).not.toContain(CODE)
+      expect(problems).not.toContain(STATE)
+    } finally {
+      // Only this test sets them.
+      for (const key of ['FAKE_ADB_TEXT', 'FAKE_ADB_FRONT', 'FAKE_ADB_LOG'])
+        Reflect.deleteProperty(process.env, key)
+    }
+  })
+})

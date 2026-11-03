@@ -13,7 +13,7 @@
  * screen) is reported as blocked, never accepted, and a blocked step fails the
  * run (e2e/outcome.ts).
  */
-import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { SYNTHETIC_DEMO_LABEL } from '@cindl/contracts'
@@ -22,14 +22,10 @@ import { secureStoreKey } from '../src/platform/secretStore.ts'
 import { createDevice, PACKAGE } from './device.ts'
 import { startFakeHermes, type FakeHermes } from '@cindl/fixtures/fake-hermes'
 import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
-import {
-  holdingTokens,
-  SECURE_STORE_FILE,
-  tokenStorage,
-  type TokenStorage,
-} from './keystore.ts'
+import { SECURE_STORE_FILE, tokenStorage, type TokenStorage } from './keystore.ts'
 import { runExitCode, type StepStatus } from './outcome.ts'
 import { heldControl, inControl } from './screenControl.ts'
+import { DeviceLogs, RunSecrets, watchFakeHermes } from './secrets.ts'
 import {
   center,
   commonAncestor,
@@ -71,7 +67,13 @@ if ((suite !== 'demo' && suite !== 'signin') || !apk || !outDir) {
   process.exit(2)
 }
 mkdirSync(outDir, { recursive: true })
-const device = createDevice({ adb, out: outDir })
+/**
+ * Every token, ticket, code, state and verifier the run issues or receives:
+ * nothing the run writes (device logs, UI dumps, report lines) holds one.
+ */
+const secrets = new RunSecrets()
+const deviceLogs = new DeviceLogs(outDir, secrets)
+const device = createDevice({ adb, out: outDir, scrub: (text) => secrets.scrub(text) })
 const steps: Step[] = []
 const audits: Array<{ screen: string } & TargetAudit> = []
 
@@ -84,13 +86,19 @@ interface StepContext {
 async function step(name: string, body: (context: StepContext) => Promise<void>) {
   const started = Date.now()
   const record: Step = { name, status: 'passed', seconds: 0, detail: [], evidence: [] }
+  const detail = (line: string) => record.detail.push(secrets.scrub(line))
+  const capture = (shot: string) => {
+    const file = device.screenshot(shot)
+    if (file) record.evidence.push(file)
+    else detail(`${shot}: not captured, another app (the browser) was in front`)
+  }
   const context: StepContext = {
-    note: (line) => record.detail.push(line),
-    shot: (shot) => record.evidence.push(device.screenshot(shot)),
+    note: detail,
+    shot: capture,
     audit: async (screen, root) => {
       const result = await device.audit(root)
       audits.push({ screen, ...result })
-      record.detail.push(
+      detail(
         `${screen}: ${result.checked} targets checked, ${result.issues.length} under 48dp` +
           (result.skippedClipped
             ? `, ${result.skippedClipped} partly scrolled off (not measured)`
@@ -105,29 +113,26 @@ async function step(name: string, body: (context: StepContext) => Promise<void>)
     if (problems.length > 0) throw new Error(`App health: ${problems.join(' | ')}`)
   } catch (error) {
     record.status = error instanceof Blocked ? 'blocked' : 'failed'
-    record.detail.push(error instanceof Error ? error.message : String(error))
+    detail(error instanceof Error ? error.message : String(error))
     try {
       await device.dump()
     } catch {
       // The screenshot below is still useful without a fresh dump.
     }
     try {
-      record.evidence.push(device.screenshot(`${slug(name)}-${record.status}`))
+      capture(`${slug(name)}-${record.status}`)
     } catch {
-      record.detail.push('(no screenshot: the device did not answer)')
+      detail('(no screenshot: the device did not answer)')
     }
   }
   try {
     const file = `logcat-${String(steps.length + 1).padStart(2, '0')}-${slug(name)}.txt`
-    writeFileSync(
-      join(outDir as string, file),
-      device.shell('logcat -d -v threadtime', 120_000),
-    )
+    deviceLogs.keep(file, device.shell('logcat -d -v threadtime', 120_000))
     record.evidence.push(file)
     device.shell('logcat -c')
     device.shell('logcat -b crash -c')
   } catch {
-    record.detail.push('(logcat not saved: the device did not answer)')
+    detail('(logcat not saved: the device did not answer)')
   }
   record.seconds = Math.round((Date.now() - started) / 100) / 10
   steps.push(record)
@@ -740,15 +745,10 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
   const restCalls = (name: string) =>
     hermes.calls.filter((call) => call.name === name).length
   hermes.auth.accessTtlSeconds = ACCESS_TTL_SECONDS
-  // Every token value the fake issues (the code exchange and each refresh mint a
-  // session), kept here only to search the app's storage for it.
-  const issuedTokens: string[] = []
-  const mintSession = hermes.auth.mintSession.bind(hermes.auth)
-  hermes.auth.mintSession = () => {
-    const session = mintSession()
-    issuedTokens.push(session.accessToken, session.refreshToken)
-    return session
-  }
+  // Every token the fake issues (the code exchange and each refresh mint a session),
+  // ticket, code, state and verifier, kept in memory to scrub and search for.
+  watchFakeHermes(hermes.auth, secrets)
+  const issuedTokens = () => secrets.values('access token', 'refresh token')
   // Where the app keeps the tokens (read as root; facts only, never values): written
   // to keystore-evidence.json after each step that reads it.
   const tokenKey = secureStoreKey(nativeTokensKey(hermes.origin))
@@ -777,7 +777,7 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
     }
     if (![...files.keys()].some((path) => path.endsWith(SECURE_STORE_FILE)))
       throw new Error('SecureStore.xml could not be read from the app storage')
-    const facts = tokenStorage({ files, tokenKey, tokens: issuedTokens })
+    const facts = tokenStorage({ files, tokenKey, tokens: issuedTokens() })
     keystoreEvidence[when] = { ...facts, unreadable }
     writeFileSync(
       join(outDir as string, 'keystore-evidence.json'),
@@ -916,10 +916,16 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
         ))
       )
         throw new Error('Cindl never exchanged the code')
-      await device
+      const replied = await device
         .waitFor('Signed in', "the listener's reply page in the browser", 20_000)
-        .catch(() => undefined)
-      shot('browser-signed-in')
+        .then(() => true)
+        .catch(() => false)
+      // The browser is not captured: its address bar shows the code and state.
+      note(
+        replied
+          ? "the browser showed the loopback listener's reply page (Signed in)"
+          : "the browser's page was not read (the app came back first)",
+      )
       await device.key('KEYCODE_BACK')
       let result = await device
         .waitFor(isConnected, 'Talk, connected to the fake Hermes', 30_000)
@@ -1118,7 +1124,8 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
     )
       throw new Error(`Unexpected redirect_uri ${String(authorize.detail.redirectUri)}`)
     await sleep(1500)
-    shot('browser-waiting')
+    // The browser holds the stand-in's authorize page; it is not captured (its
+    // address bar shows the state).
     device.shell(`am kill ${PACKAGE}`)
     await sleep(2000)
     let method = 'am kill (background process)'
@@ -1138,7 +1145,8 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
     note(`app process ended with ${method} while the browser showed the authorize page`)
     holding.release()
     await sleep(3000)
-    shot('browser-callback-refused')
+    // The browser now tries the callback, which nothing answers; it is not captured
+    // (the code and state are in its address bar and error page).
     if (holding.events.filter((event) => event.kind === 'token').length !== tokensBefore)
       throw new Error('A code was exchanged for the interrupted attempt')
     await device.key('KEYCODE_BACK')
@@ -1182,25 +1190,21 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
     )
   })
 
-  await step('No issued token in the device log', ({ note }) => {
+  await step('No issued value in the device log', ({ note }) => {
     needsSignIn()
-    // Every step before this one saved the device log (logcat-NN-….txt), then cleared it.
-    const logs = new Map(
-      readdirSync(outDir as string)
-        .filter((file) => /^logcat-\d+-.+\.txt$/.test(file))
-        .map(
-          (file) => [file, readFileSync(join(outDir as string, file), 'utf8')] as const,
-        ),
-    )
-    if (issuedTokens.length === 0)
+    // Every step before this one kept its device log in memory (deviceLogs), and wrote
+    // it scrubbed. The raw logs are searched here for every value known now.
+    if (secrets.values('access token').length === 0)
       throw new Error('The fake issued no token to search the device log for')
-    const leaked = holdingTokens(logs, issuedTokens)
-    if (leaked.length > 0)
+    const held = deviceLogs.holding()
+    if (held.length > 0)
       throw new Error(
-        `A token the fake issued is in the device log: ${leaked.join(', ')}`,
+        `A value the run issued is in the device log: ${held
+          .map(({ file, kinds }) => `${file} (${kinds.join(', ')})`)
+          .join('; ')}`,
       )
     note(
-      `none of the ${issuedTokens.length} token values the fake issued is in the device log saved after each of the ${logs.size} steps before this one`,
+      `none of the ${secrets.size} tokens, tickets, codes, states and verifiers the run issued or received is in the device log of the ${deviceLogs.count} steps before this one`,
     )
     return Promise.resolve()
   })
@@ -1214,7 +1218,7 @@ try {
     await demoSuite()
   } else {
     hermes = await startFakeHermes()
-    holding = await startFakeHermesAuth()
+    holding = await startFakeHermesAuth(0, (kind, value) => secrets.add(kind, value))
     await signinSuite(hermes, holding)
   }
 } catch (error) {
@@ -1278,17 +1282,25 @@ const report = {
   fakeHermesCalls: hermes?.calls ?? [],
   authEvents: holding?.events ?? [],
 }
-writeFileSync(join(outDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`)
-const summary = [
-  `### Emulator tests: ${suite} (${report.device.model}, Android ${report.device.release}, API ${report.device.sdk})`,
-  '',
-  '| Step | Result | Notes |',
-  '| --- | --- | --- |',
-  ...steps.map(
-    (s) => `| ${s.name} | ${s.status} | ${s.detail.join('<br>').replace(/\|/g, '\\|')} |`,
-  ),
-  '',
-].join('\n')
+// Written with every secret known at the end, which a log written earlier may predate.
+deviceLogs.rewrite()
+writeFileSync(
+  join(outDir, 'report.json'),
+  secrets.scrub(`${JSON.stringify(report, null, 2)}\n`),
+)
+const summary = secrets.scrub(
+  [
+    `### Emulator tests: ${suite} (${report.device.model}, Android ${report.device.release}, API ${report.device.sdk})`,
+    '',
+    '| Step | Result | Notes |',
+    '| --- | --- | --- |',
+    ...steps.map(
+      (s) =>
+        `| ${s.name} | ${s.status} | ${s.detail.join('<br>').replace(/\|/g, '\\|')} |`,
+    ),
+    '',
+  ].join('\n'),
+)
 writeFileSync(join(outDir, 'summary.md'), summary)
 console.log(`\n${summary}`)
 const stepSummary = env('GITHUB_STEP_SUMMARY')

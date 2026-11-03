@@ -71,3 +71,8 @@ Working here:
   runs on loopback against the fake Hermes in `test/e2e-screen.test.ts`. Use
   accessibility labels as selectors, so a renamed label breaks a test rather
   than TalkBack silently.
+- An emulator run publishes its artifact, so text from the device (logs, UI
+  dumps, error lines) is written only through `e2e/secrets.ts` (every token,
+  ticket, code, state and verifier the run issued or received becomes a
+  placeholder; tested in `test/e2e-secrets.test.ts`), and the browser is
+  never captured (`device.screenshot` skips any other app in front).

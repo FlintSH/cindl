@@ -2,10 +2,12 @@ import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { redactText } from '@cindl/hermes-adapter'
 import {
   auditTargets,
   find,
   findTappable,
+  focusedPackage,
   label,
   parseKeyboard,
   parseUi,
@@ -19,8 +21,18 @@ import {
 
 export const PACKAGE = 'dev.fl1nt.cindl'
 
-/** adb against the single emulator CI starts; `adb` comes from the pinned platform-tools. */
-export function createDevice(options: { adb: string; out: string }) {
+/**
+ * adb against the single emulator CI starts; `adb` comes from the pinned
+ * platform-tools. `scrub` runs over every text taken from the device that the
+ * run keeps (UI dumps, log lines in a health report); by default the adapter's
+ * redactText.
+ */
+export function createDevice(options: {
+  adb: string
+  out: string
+  scrub?: (text: string) => string
+}) {
+  const scrub = options.scrub ?? redactText
   const run = (args: string[], timeoutMs = 60_000) =>
     execFileSync(options.adb, args, {
       encoding: 'utf8',
@@ -155,7 +167,15 @@ export function createDevice(options: { adb: string; out: string }) {
     await sleep(900)
   }
 
-  const screenshot = (name: string): string => {
+  /**
+   * A screenshot and the last UI dump, as files in the output directory. Not
+   * while another app is in front (the browser during sign-in): its address
+   * bar and pages can show a sign-in code or state, so neither is kept and
+   * this returns undefined.
+   */
+  const screenshot = (name: string): string | undefined => {
+    const front = focusedPackage(shell('dumpsys window | grep mCurrentFocus || true'))
+    if (front !== undefined && front !== PACKAGE) return undefined
     shots += 1
     const file = `${String(shots).padStart(2, '0')}-${name}`
     const png = execFileSync(options.adb, ['exec-out', 'screencap', '-p'], {
@@ -163,7 +183,7 @@ export function createDevice(options: { adb: string; out: string }) {
       maxBuffer: 64 * 1024 * 1024,
     })
     writeFileSync(join(options.out, `${file}.png`), png)
-    if (lastXml) writeFileSync(join(options.out, `${file}.xml`), lastXml)
+    if (lastXml) writeFileSync(join(options.out, `${file}.xml`), scrub(lastXml))
     return `${file}.png`
   }
 
@@ -212,7 +232,7 @@ export function createDevice(options: { adb: string; out: string }) {
           line,
         )
       )
-        problems.push(line.trim().slice(0, 300))
+        problems.push(scrub(line.trim()).slice(0, 300))
     return problems
   }
 
