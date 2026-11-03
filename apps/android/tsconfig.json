@@ -1,0 +1,23 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "jsx": "react-jsx",
+    "customConditions": ["react-native"],
+    "types": ["node"]
+  },
+  "include": [
+    "index.ts",
+    "app.config.ts",
+    "src",
+    "test",
+    "plugins",
+    "scripts",
+    "e2e",
+    "sdk",
+    "notices",
+    "modules/*/index.ts",
+    "vitest.config.ts"
+  ],
+  "exclude": ["android", "dist", "dist-*", "node_modules"]
+}
