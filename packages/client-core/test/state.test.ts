@@ -451,6 +451,51 @@ describe('server requests', () => {
     expect(current.requests[id]?.status).toBe('resolved-elsewhere')
   })
 
+  // Review 91f30e07 SF4: Hermes never lists or re-sends app-level prompts, so
+  // without their own sync scope they could never close.
+  /** An app-level sudo prompt (`display.install.sudo` has no session). */
+  const appLevel = (overrides: Partial<ServerRequest> = {}): ServerRequest => {
+    const { conversationId: _none, ...request } = approval({
+      kind: 'unsupported',
+      unsupportedKind: 'sudo',
+      choices: [],
+      ...overrides,
+    })
+    return request
+  }
+
+  it('syncs app-level prompts as their own scope', () => {
+    const sudo = appLevel({ requestId: 'srq-0000000000a1' })
+    const opened = run([
+      { type: 'request.opened', request: sudo },
+      { type: 'request.opened', request: approval() },
+    ])
+    // A conversation's sync leaves app-level prompts alone, and the reverse.
+    const afterConversation = reduce(opened, {
+      type: 'requests.synced',
+      conversationId: 'c1',
+      openRequestIds: [id],
+      connectionEpoch: 2,
+    })
+    expect(afterConversation.requests['srq-0000000000a1']?.status).toBe('open')
+    const afterAppLevel = reduce(opened, {
+      type: 'requests.synced',
+      openRequestIds: [],
+      connectionEpoch: 2,
+    })
+    expect(afterAppLevel.requests['srq-0000000000a1']?.status).toBe('resolved-elsewhere')
+    expect(afterAppLevel.requests[id]?.status).toBe('open')
+  })
+
+  it('does not let an app-level sync close a prompt seen on a newer connection', () => {
+    const sudo = appLevel({ requestId: 'srq-0000000000a2', lastSeenEpoch: 3 })
+    const state = run([
+      { type: 'request.opened', request: sudo },
+      { type: 'requests.synced', openRequestIds: [], connectionEpoch: 2 },
+    ])
+    expect(state.requests['srq-0000000000a2']?.status).toBe('open')
+  })
+
   it('never shows a prompt Cindl does not answer as being answered', () => {
     const sudo = approval({ kind: 'unsupported', unsupportedKind: 'sudo', choices: [] })
     const state = run([

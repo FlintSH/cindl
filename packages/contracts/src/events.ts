@@ -87,13 +87,25 @@ export const CindlEvent = z.discriminatedUnion('type', [
   }),
   /**
    * After (re)connect: one event for every conversation that has open
-   * requests on either side, listing what Hermes still holds open there. That
-   * conversation's other open or answering requests close as
+   * requests on either side, listing what Hermes still holds open there, and
+   * one without `conversationId` for app-level requests (those with no
+   * conversation). That scope's other open or answering requests close as
    * `resolved-elsewhere`; Hermes cannot say whose answer it used.
+   *
+   * Producers:
+   * - Hermes v0.22.5 lists and re-sends open requests per session only, and
+   *   writes an app-level request and its cancel to the connection that started
+   *   the operation (tui_gateway/server.py `write_json`). A new connection
+   *   therefore holds no app-level requests: send the app-level event with an
+   *   empty list, so ones from an older connection close.
+   * - A list must not close a request whose frame arrived after the list call
+   *   was sent (Hermes built the list before it existed): add such ids to
+   *   `openRequestIds`.
    */
   z.object({
     type: z.literal('requests.synced'),
-    conversationId: z.string(),
+    /** Missing: the app-level scope, requests without a conversation. */
+    conversationId: z.string().optional(),
     openRequestIds: z.array(z.string()),
     /** The connection the list came from; it cannot close a request seen on a newer one. */
     connectionEpoch: z.number().int().nonnegative().optional(),

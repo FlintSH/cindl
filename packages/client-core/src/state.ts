@@ -331,6 +331,8 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
       const open = new Set(event.openRequestIds)
       let requests = state.requests
       for (const [id, request] of Object.entries(state.requests)) {
+        // One scope per event: a conversation, or (no conversationId) the
+        // app-level requests that have none.
         if (request.conversationId !== event.conversationId) continue
         if (!OPEN_STATES.has(request.status) || open.has(id)) continue
         // A list from an older connection says nothing about a request seen since.

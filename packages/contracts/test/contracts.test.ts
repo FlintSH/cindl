@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   capabilityIds,
+  CindlEvent,
   cindlEventTypes,
   clientOps,
   CONTRACTS_VERSION,
@@ -419,6 +420,26 @@ describe('server request shape (v4)', () => {
       lockedAnswers: { q0: { text: 'n'.repeat(30_000) } },
     })
     expect(openQuestionIds(request)).toEqual([])
+  })
+})
+
+describe('request sync scopes', () => {
+  // Review 91f30e07 SF4: app-level prompts need a scope of their own.
+  it('accepts an app-level sync, which has no conversation', () => {
+    expect(
+      CindlEvent.parse({
+        type: 'requests.synced',
+        openRequestIds: [],
+        connectionEpoch: 2,
+      }),
+    ).toEqual({ type: 'requests.synced', openRequestIds: [], connectionEpoch: 2 })
+    expect(
+      CindlEvent.parse({
+        type: 'requests.synced',
+        conversationId: 'c1',
+        openRequestIds: [],
+      }),
+    ).toMatchObject({ conversationId: 'c1' })
   })
 })
 

@@ -36,7 +36,7 @@ on the wire.
 | [`prompt.updated`](#prompt-updated)               | `prompt`: PendingPrompt                                                                                                                                          |
 | [`request.opened`](#request-opened)               | `request`: ServerRequest                                                                                                                                         |
 | [`request.closed`](#request-closed)               | `requestId`: string; `status`: `answered` / `resolved-elsewhere` / `cancelled` / `expired`; `answer`: optional RequestAnswer; `connectionEpoch`: optional number |
-| [`requests.synced`](#requests-synced)             | `conversationId`: string; `openRequestIds`: string[]; `connectionEpoch`: optional number                                                                         |
+| [`requests.synced`](#requests-synced)             | `conversationId`: optional string; `openRequestIds`: string[]; `connectionEpoch`: optional number                                                                |
 | [`request.answer-failed`](#request-answer-failed) | `requestId`: string; `connectionEpoch`: optional number                                                                                                          |
 | [`prompt.removed`](#prompt-removed)               | `clientId`: string                                                                                                                                               |
 | [`session.status`](#session-status)               | `conversationId`: string; `status`: `idle` / `working` / `waiting-on-you` / `unknown`; `detail`: optional string                                                 |
@@ -146,10 +146,11 @@ attempt, it carries that attempt's `connectionEpoch`. See
 ### `requests.synced`
 
 One event per conversation with open requests, after a reconnect, listing what
-Hermes still holds open there. That conversation's other open or answering
+Hermes still holds open there, and one without `conversationId` for app-level
+requests (those with no conversation). That scope's other open or answering
 requests close as `resolved-elsewhere`, because Hermes cannot say whose answer
-it used; other conversations are untouched. A list from an older connection
-cannot close a request seen on a newer one. See
+it used; other scopes are untouched. A list from an older connection cannot
+close a request seen on a newer one. See
 [Server requests](server-requests.md#events).
 
 ### `request.answer-failed`

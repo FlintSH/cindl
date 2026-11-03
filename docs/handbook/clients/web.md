@@ -89,7 +89,10 @@ from the desktop app's custom protocol.
   secret value or a vault code, Cindl shows a read-only "Answer outside Cindl"
   card and sends nothing back, not even a decline, because any reply could
   become the password Hermes uses. Answer it in another Hermes surface, such as
-  the Hermes terminal; it stays open until Hermes closes it.
+  the Hermes terminal; it stays open until Hermes closes it. A prompt that
+  belongs to no conversation (Hermes sends those only to the connection that
+  started the operation) says so instead, and closes when Hermes stops waiting
+  or Cindl reconnects.
 - **Memory edits are explicit:** each entry changes only after you review a
   diff and confirm, and only if it has not changed in Hermes since you read it.
   Deleting an entry warns first, because Hermes keeps no backup.

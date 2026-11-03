@@ -52,13 +52,13 @@ failure state: a failed send returns the request to `open`.
   a `connectionEpoch`, it applies only to the attempt in flight on that
   epoch, so a late failure of an older attempt cannot unlock a newer one.
 - `requests.synced`: after a reconnect, one per conversation that has open
-  requests, listing what Hermes still holds there. That conversation's other
-  open or answering requests close as `resolved-elsewhere`. Other
-  conversations are untouched. Implementations may also send it while
-  requests are open: the direct client checks every 15 s, because the sidecar
-  tells other clients nothing when one answers by frame. With a
-  `connectionEpoch`, a list from an older connection cannot close a request
-  seen on a newer one.
+  requests, listing what Hermes still holds there, and one without
+  `conversationId` for app-level requests. That scope's other open or
+  answering requests close as `resolved-elsewhere`. Other scopes are
+  untouched. Implementations may also send it while requests are open: the
+  direct client checks every 15 s, because the sidecar tells other clients
+  nothing when one answers by frame. With a `connectionEpoch`, a list from an
+  older connection cannot close a request seen on a newer one.
 
 Related: `prompt.removed` drops a queued or uncertain local prompt record (a
 message, not a server request) after it was dismissed or delivered.
@@ -81,7 +81,18 @@ these events.
    longer pending), or `request.answer-failed`. Give each the attempt's
    `connectionEpoch`, and give `answered` the `answer` Hermes acknowledged.
 5. After every reconnect, emit `requests.synced` for each conversation with
-   open requests on either side.
+   open requests on either side, and one without `conversationId` with an
+   empty list. Hermes lists and re-sends open requests per session only, and
+   writes an app-level request (`display.install.sudo`, whose `session_id` is
+   empty) and its cancel only to the connection that started the operation
+   (`tui_gateway/server.py` `write_json`). A new connection holds none, so
+   app-level requests from an older one close instead of waiting forever.
+   Cindl starts no such operation, so at v0.22.5 one only reaches Cindl if
+   that changes.
+6. A list must not close a request whose frame arrived after the list call
+   was sent: Hermes built the list before that request existed, and the
+   request would show as resolved elsewhere while the agent waits. Add such
+   ids to `openRequestIds`.
 
 ## Clarify sets
 

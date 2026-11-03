@@ -222,3 +222,30 @@ describe('question card', () => {
     )
   })
 })
+
+describe('prompts Cindl never answers', () => {
+  const sudo = (overrides: Partial<ServerRequest> = {}): ServerRequest =>
+    question({
+      requestId: 'srq-0000000000b1',
+      kind: 'unsupported',
+      unsupportedKind: 'sudo',
+      title: 'Install the desktop stack',
+      questions: undefined,
+      ...overrides,
+    })
+
+  it('points a conversation prompt to another Hermes surface and offers nothing to send', async () => {
+    harness(sudo())
+    expect(await screen.findByText(/Answer it in another Hermes surface/)).toBeTruthy()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+
+  // Review 91f30e07 SF4: no other surface ever shows an app-level prompt.
+  it('does not send the owner elsewhere for an app-level prompt', async () => {
+    const { conversationId: _none, ...appLevel } = sudo()
+    harness(appLevel)
+    expect(await screen.findByText(/to this connection only/)).toBeTruthy()
+    expect(screen.queryByText(/Answer it in another Hermes surface/)).toBeNull()
+    expect(screen.queryByRole('button')).toBeNull()
+  })
+})
