@@ -17,7 +17,7 @@ export const coordinateId = (c: Coordinate) => `${c.group}:${c.module}:${c.versi
  * Resolved libraries from `gradle :app:dependencies --configuration
  * releaseRuntimeClasspath`. Project modules, dependency constraints "(c)" and
  * unresolved entries "(n)" are not libraries in the APK; "a:b:1 -> 2" means
- * version 2 was resolved.
+ * version 2 was resolved and "a:b:+ -> c:d:2" that module c:d replaced a:b.
  */
 export function parseDependencyReport(report: string): Coordinate[] {
   const found = new Map<string, Coordinate>()
@@ -27,10 +27,30 @@ export function parseDependencyReport(report: string): Coordinate[] {
     const match = /^([\w.-]+):([\w.-]+)(?::(\S+))?(?: -> (\S+))?/.exec(line)
     if (!match) continue
     const [, group = '', module = '', declared, resolved] = match
-    const version =
-      resolved ?? (declared && !declared.startsWith('{') ? declared : undefined)
-    if (!version) continue
-    const coordinate = { group, module, version }
+    // "a:b:+ -> c:d:1.0" means module a:b was substituted by c:d:1.0, the library in the APK.
+    const substitute = resolved?.split(':')
+    const coordinate =
+      substitute && substitute.length === 3
+        ? {
+            group: substitute[0] ?? '',
+            module: substitute[1] ?? '',
+            version: substitute[2] ?? '',
+          }
+        : {
+            group,
+            module,
+            version:
+              resolved ??
+              (declared && !declared.startsWith('{') ? declared : undefined) ??
+              '',
+          }
+    if (
+      !coordinate.group ||
+      !coordinate.module ||
+      !coordinate.version ||
+      coordinate.version.includes(':')
+    )
+      continue
     found.set(coordinateId(coordinate), coordinate)
   }
   return [...found.values()].sort((a, b) =>

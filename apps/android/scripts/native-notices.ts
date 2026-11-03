@@ -117,9 +117,11 @@ const files = libraries.reduce((sum, library) => sum + library.files.length, 0)
 console.log(
   `Native notices: ${libraries.length} libraries, ${files} licence/notice files, written to ${outFile}`,
 )
-for (const library of libraries.filter(
-  (l) => l.licences.length === 0 && l.files.length === 0,
-))
-  console.log(
-    `::warning::${coordinateId(library.coordinate)} declares no licence and ships no licence file${library.source ? '' : ' (artifact not found)'}; review it.`,
+// Notices fail closed: a library with no declared licence and no licence file of its own
+// must be reviewed (and its licence found) before an APK carries it.
+const unknown = libraries.filter((l) => l.licences.length === 0 && l.files.length === 0)
+for (const library of unknown)
+  console.error(
+    `::error::${coordinateId(library.coordinate)} declares no licence and ships no licence file${library.source ? '' : ' (artifact not found)'}; review it.`,
   )
+if (unknown.length > 0) process.exit(1)

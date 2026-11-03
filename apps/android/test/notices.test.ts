@@ -24,6 +24,8 @@ releaseRuntimeClasspath - Runtime classpath of '/release'.
 |    +--- androidx.appcompat:appcompat:1.7.0
 |    \\--- com.facebook.fresco:fresco:3.7.0
 +--- androidx.core:core -> 1.13.1
+|    \\--- com.facebook.react:react-native:+ -> com.facebook.react:react-android:0.88.1 (*)
+\\--- com.facebook.react:hermes-android -> com.facebook.hermes:hermes-android:260318099.0.5
 +--- org.jetbrains.kotlin:kotlin-stdlib:{strictly 2.2.0} -> 2.2.0 (c)
 \\--- com.example.unresolved:thing:1.0 (n)
 
@@ -39,6 +41,7 @@ describe('native library notices', () => {
       'androidx.core:core-ktx:1.13.1',
       'androidx.core:core:1.13.1',
       'com.facebook.fresco:fresco:3.7.0',
+      'com.facebook.hermes:hermes-android:260318099.0.5',
       'com.facebook.react:react-android:0.88.1',
       'org.jetbrains.kotlin:kotlin-stdlib:2.2.0',
     ])
