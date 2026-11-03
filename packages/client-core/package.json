@@ -13,7 +13,8 @@
   },
   "dependencies": {
     "@cindl/contracts": "workspace:*",
-    "@cindl/hermes-adapter": "workspace:*"
+    "@cindl/hermes-adapter": "workspace:*",
+    "zod": "catalog:"
   },
   "devDependencies": {
     "@cindl/fixtures": "workspace:*",
