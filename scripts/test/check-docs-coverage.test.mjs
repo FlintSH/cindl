@@ -241,6 +241,34 @@ describe('check-docs-coverage', () => {
     assert.equal(coverage(ignored).code, 0)
   })
 
+  it('checks the key combinations in the web client page', (t) => {
+    const web = (rows) =>
+      `# Web client\n\n## Keyboard\n\n| Keys | Action |\n| --- | --- |\n${rows.join('\n')}\n`
+    const page = 'docs/handbook/clients/web.md'
+    const good = ['| `Ctrl/⌘ K` | Open the palette |', '| `?` | Show shortcuts |']
+    assert.equal(coverage(fixture(t, { [page]: web(good) })).code, 0)
+    assert.equal(
+      coverage(
+        fixture(t, {
+          [page]: web([...good, '| `Enter` / `Shift Enter` | Send / new line |']),
+        }),
+      ).code,
+      0,
+    )
+    assertFails(
+      fixture(t, { [page]: web([good[0]]) }),
+      /web\.md: the keyboard table is missing \? \(Show shortcuts\)/,
+    )
+    assertFails(
+      fixture(t, { [page]: web([...good, '| `Alt 1` to `Alt 2` | Go places |']) }),
+      /web\.md: the keyboard table lists Alt\+1, which is not in apps\/web\/src\/shortcuts\.ts/,
+    )
+    assertFails(
+      fixture(t, { [page]: web([...good, '| Press both | Something |']) }),
+      /web\.md: cannot read the keys in "Press both"/,
+    )
+  })
+
   it('fails instead of passing when a source list is empty', (t) => {
     const dir = fixture(t)
     writeFiles(dir, {

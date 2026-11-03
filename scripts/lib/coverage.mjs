@@ -17,6 +17,47 @@ const pages = {
   capabilities: 'docs/handbook/reference/capabilities.md',
   events: 'docs/handbook/reference/events.md',
   hermes: 'docs/handbook/reference/hermes-v0.22.5.md',
+  web: 'docs/handbook/clients/web.md',
+}
+
+// Keys the web client page may document that are not registry shortcuts: the
+// message box's own keys (DESIGN.md, Composer).
+const COMPOSER_KEYS = new Set(['Enter', 'Shift+Enter'])
+const MODIFIERS = {
+  Mod: ['Mod', 'Ctrl/⌘', 'Ctrl/Cmd', 'Ctrl', '⌘', 'Cmd'],
+  Alt: ['Alt', 'Alt/⌥', '⌥', 'Option'],
+  Shift: ['Shift', '⇧'],
+}
+
+/** Canonical "Mod+Shift+O" form of a key combination, from registry keys or text. */
+function combo(keys) {
+  const found = new Set()
+  let key = null
+  for (const token of keys) {
+    const modifier = Object.keys(MODIFIERS).find((name) =>
+      MODIFIERS[name].includes(token),
+    )
+    if (modifier) found.add(modifier)
+    else key = token.length === 1 ? token.toUpperCase() : token
+  }
+  return [...Object.keys(MODIFIERS).filter((m) => found.has(m)), key].join('+')
+}
+
+/**
+ * Key combinations in a hand-written keyboard table: one per code span, and
+ * "`Alt 1` to `Alt 4`" ranges expanded. Returns null for an unreadable row.
+ */
+function documentedCombos(cell) {
+  const spans = codeSpans(cell).map((span) => combo(span.split(/[\s+]+/).filter(Boolean)))
+  const between = cell.replace(/`[^`]*`/g, '').trim()
+  if (spans.length !== 2 || between !== 'to') return spans.length ? spans : null
+  const [from, to] = spans.map((value) => value.split('+'))
+  const prefix = from.slice(0, -1).join('+')
+  const [start, end] = [from.at(-1).charCodeAt(0), to.at(-1).charCodeAt(0)]
+  if (prefix !== to.slice(0, -1).join('+') || end < start) return null
+  return Array.from({ length: end - start + 1 }, (_, i) =>
+    [prefix, String.fromCharCode(start + i)].filter(Boolean).join('+'),
+  )
 }
 const PLACEHOLDER = /\b(TODO|TBD|FIXME|XXX)\b|lorem ipsum|coming soon/i
 
@@ -125,6 +166,35 @@ export async function checkCoverage(root) {
     const route = `${endpoint.method} ${endpoint.path}`
     if (!hermes.has(route))
       errors.push(`${pages.hermes}: REST endpoint \`${route}\` is missing`)
+  }
+
+  // The web client page keeps a condensed keyboard table of its own: its key
+  // combinations must be exactly the registry's (plus the message box keys).
+  const web = await readFile(resolve(root, pages.web), 'utf8').catch(() => null)
+  const keyboard =
+    web && sections(web).find((s) => s.level === 2 && /^keyboard$/i.test(s.text))
+  if (keyboard) {
+    const table = tables(keyboard.body).find((t) => /^keys?$/i.test(t.header[0] ?? ''))
+    if (!table) errors.push(`${pages.web}: the Keyboard section has no "Keys" table`)
+    const documented = new Set()
+    for (const [keys] of table?.rows ?? []) {
+      const found = documentedCombos(keys)
+      if (!found) errors.push(`${pages.web}: cannot read the keys in "${keys}"`)
+      for (const value of found ?? []) documented.add(value)
+    }
+    for (const shortcut of sources.shortcuts) {
+      const value = combo(shortcut.keys)
+      if (!documented.has(value))
+        errors.push(
+          `${pages.web}: the keyboard table is missing ${value} (${shortcut.label})`,
+        )
+      documented.delete(value)
+    }
+    for (const value of documented)
+      if (!COMPOSER_KEYS.has(value))
+        errors.push(
+          `${pages.web}: the keyboard table lists ${value}, which is not in apps/web/src/shortcuts.ts`,
+        )
   }
 
   // Generated tables (client operations, event payloads, keyboard shortcuts).

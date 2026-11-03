@@ -110,6 +110,10 @@ loads the TypeScript source directly, so run `pnpm install` first. It requires:
   exactly (regenerate them with `node scripts/generate-docs-reference.mjs`);
 - a described section for every `CindlEvent` type and a table row for every
   error code in [Events and errors](../reference/events.md);
+- the key combinations in the Keyboard table of the
+  [web client page](../clients/web.md) to be exactly those in
+  `apps/web/src/shortcuts.ts`, plus the message box's own `Enter` and
+  `Shift Enter` (ranges such as `Alt 1` to `Alt 4` are expanded);
 - every method, server request and notification in
   `packages/hermes-adapter/src/upstream-surface.ts`, and every REST endpoint in
   `packages/hermes-adapter/src/compat.ts`, in the

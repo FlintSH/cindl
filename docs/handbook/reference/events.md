@@ -33,7 +33,8 @@ on the wire.
 | [`tool.updated`](#tool-updated)                   | `activity`: ToolActivity                                                                                               |
 | [`prompt.updated`](#prompt-updated)               | `prompt`: PendingPrompt                                                                                                |
 | [`request.opened`](#request-opened)               | `request`: ServerRequest                                                                                               |
-| [`request.closed`](#request-closed)               | `rpcId`: string / number; `status`: `answered` / `cancelled` / `expired` / `failed`                                    |
+| [`request.closed`](#request-closed)               | `requestId`: string; `status`: `answered` / `resolved-elsewhere` / `cancelled` / `expired` / `failed`                  |
+| [`requests.synced`](#requests-synced)             | `openRequestIds`: string[]                                                                                             |
 | [`session.status`](#session-status)               | `conversationId`: string; `status`: `idle` / `working` / `waiting-on-you` / `unknown`; `detail`: optional string       |
 | [`usage.updated`](#usage-updated)                 | `conversationId`: string; `usage`: Usage                                                                               |
 | [`display.changed`](#display-changed)             | `display`: DisplayState                                                                                                |
@@ -115,13 +116,25 @@ automatically; the owner decides.
 
 Hermes asked the owner something: a command approval or a clarifying
 question, sent as a server-to-client JSON-RPC request. The reducer keys it by
-JSON-RPC id and connection epoch, and a replayed frame never reopens a request
-this client already answered or closed.
+Hermes's request id (`srq-…`), which stays the same when Hermes re-sends the
+request after a reconnect: a re-sent frame updates the stored request, never
+duplicates it, and never reopens one this client answered or saw closed. Any
+attached client may answer; the first reply wins.
 
 ### `request.closed`
 
-A request was answered, cancelled, expired or failed. The reducer gives every
-matching request that is still open or being answered that final status.
+A request reached a final state: `answered` (this client's answer was
+accepted), `resolved-elsewhere` (it closed without this client's answer, for
+example because another client answered first), `cancelled`, `expired` or
+`failed`. The reducer applies the status only while the request is still open
+or being answered here.
+
+### `requests.synced`
+
+After a connection or replay, the ids of the requests Hermes still holds
+open. The reducer marks every other request that this client still had open
+or was answering as `resolved-elsewhere`, so a decision made on another device
+does not stay answerable here.
 
 ### `session.status`
 
