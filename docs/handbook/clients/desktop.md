@@ -168,8 +168,15 @@ treats these as no encryption:
   Chromium fell back to its built-in key (ciphertext marked `v10`) it does not
   persist tokens, whatever backend name Electron reports.
 
-Cindl logs the reason at startup and sends the renderer a warning notice. If
-the keyring refuses to encrypt later, that token also stays in memory.
+Cindl logs the reason at startup and shows a warning notice at the top of the
+window, above the sign-in screen or the current view.
+
+If the keyring refuses to encrypt later, while Cindl runs, the same place shows
+a warning at once, and Cindl keeps every token in memory until it quits, even if
+the keyring works again: it writes no token to disk for the rest of the run,
+and removes the encrypted copy of each token it replaces. Switching Hermes and
+signing out still delete encrypted records from disk then, so no other
+Hermes's tokens stay behind. After the restart you sign in again.
 
 Other files in `~/.config/Cindl`: `settings.json` (non-secret: the Hermes
 origin and client bookkeeping, mode `0600`) and `window-state.json`. Cindl Demo

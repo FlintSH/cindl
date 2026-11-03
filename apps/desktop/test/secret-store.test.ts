@@ -205,6 +205,44 @@ describe('secret store with OS encryption', () => {
     expect(JSON.parse(disk) as unknown).toEqual({ version: 1, entries: {} })
   })
 
+  it('stays memory-only for the rest of the run once the keyring refuses, and says so once', async () => {
+    const unlocked = fakeSafeStorage()
+    const keyring = { refuse: false }
+    const switchable = {
+      ...unlocked,
+      encryptStringAsync: (plain: string) =>
+        keyring.refuse
+          ? Promise.reject(new Error('keyring locked'))
+          : unlocked.encryptStringAsync(plain),
+    }
+    const store = await createSecretStore({
+      safeStorage: switchable,
+      file,
+      platform: 'linux',
+    })
+    const heard: Array<string | undefined> = []
+    store.onDegrade(() => heard.push(store.reason))
+    await store.set('other', 'other-token-value-0123456789')
+    keyring.refuse = true
+    await store.set('token', TOKEN)
+    // Still usable, so callers keep sending it values and deletes.
+    expect(store.available).toBe(true)
+    expect(store.persistence).toBe('memory-only')
+    expect(heard).toEqual([store.reason])
+    // The keyring works again: values still stay in memory until Cindl quits.
+    keyring.refuse = false
+    await store.set('token', 'next-token-value-0123456789')
+    await store.set('third', 'third-token-value-0123456789')
+    expect(await store.get('token')).toBe('next-token-value-0123456789')
+    const onDisk = () =>
+      Object.keys((JSON.parse(readFileSync(file, 'utf8')) as { entries: object }).entries)
+    expect(onDisk()).toEqual(['other'])
+    // Deleting removes what is on disk, whatever the encrypt state.
+    await store.delete('other')
+    expect(onDisk()).toEqual([])
+    expect(heard).toHaveLength(1)
+  })
+
   it('binds each record to its key, so a copy under another key reads as nothing', async () => {
     const store = await createSecretStore({
       safeStorage: fakeSafeStorage(),

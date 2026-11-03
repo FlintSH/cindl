@@ -13,10 +13,19 @@ export interface SafeStorageLike {
 
 export type TokenPersistence = 'os-keyring' | 'memory-only'
 
+/**
+ * `available` is always true for these stores: they never write plaintext,
+ * and keep in memory what the keyring cannot protect. Callers (the adapter's
+ * NativeAuth) therefore always hand them tokens and deletes, so a delete
+ * reaches the disk whatever the keyring does, and tokens outlive the client
+ * that wrote them. Whether they survive a restart is `persistence`.
+ */
 export interface DesktopSecretStore extends SecretStore {
   readonly persistence: TokenPersistence
   /** Why secrets stay in memory, when they do. */
   readonly reason: string | undefined
+  /** Called once if the keyring stops encrypting while Cindl runs. */
+  onDegrade(listener: () => void): () => void
 }
 
 /**
@@ -119,6 +128,8 @@ export function createMemorySecretStore(reason: string): DesktopSecretStore {
     available: true,
     persistence: 'memory-only',
     reason,
+    // Memory-only from the start: the startup notice already says so.
+    onDegrade: () => () => undefined,
     get: (key) => Promise.resolve(values.get(key)),
     set: (key, value) => {
       values.set(key, value)
@@ -135,8 +146,10 @@ export function createMemorySecretStore(reason: string): DesktopSecretStore {
  * Electron `safeStorage` secret store. Ciphertext lives in one owner-only
  * JSON file in userData. When encryption is unavailable (or the Linux backend
  * is the plaintext fallback), it degrades to `createMemorySecretStore`: it
- * never writes a token in plaintext. If the keyring later refuses to encrypt,
- * that value stays in memory and the store reports `memory-only`.
+ * never writes a token in plaintext. If the keyring refuses to encrypt later,
+ * the store turns memory-only for the rest of the run: that value and every
+ * later one stay in memory, each one's older ciphertext is removed from disk,
+ * and `onDegrade` listeners hear it once. Deletes always reach the disk.
  */
 export async function createSecretStore(options: {
   safeStorage: SafeStorageLike
@@ -152,6 +165,7 @@ export async function createSecretStore(options: {
   const memory = new Map<string, string>()
   let cache: SecretFile | undefined
   let degradedReason: string | undefined
+  const degradeListeners = new Set<() => void>()
 
   const load = async (): Promise<SecretFile> => {
     if (!cache) {
@@ -165,16 +179,26 @@ export async function createSecretStore(options: {
     return cache
   }
   const save = (data: SecretFile) => writeFileAtomic(file, `${JSON.stringify(data)}\n`)
+  /** Keep `value` in memory, and drop the ciphertext it replaces. */
+  const keepInMemory = async (data: SecretFile, key: string, value: string) => {
+    memory.set(key, value)
+    if (key in data.entries) {
+      delete data.entries[key]
+      await save(data)
+    }
+  }
 
   const store: DesktopSecretStore = {
-    get available() {
-      return degradedReason === undefined
-    },
+    available: true,
     get persistence(): TokenPersistence {
       return degradedReason === undefined ? 'os-keyring' : 'memory-only'
     },
     get reason() {
       return degradedReason
+    },
+    onDegrade(listener) {
+      degradeListeners.add(listener)
+      return () => degradeListeners.delete(listener)
     },
     get: (key) =>
       queue(async () => {
@@ -190,12 +214,16 @@ export async function createSecretStore(options: {
             options.onWarning?.('A stored secret does not belong to its key; ignoring it')
             return undefined
           }
-          if (shouldReEncrypt) {
-            const data = await load()
-            data.entries[key] = (await safeStorage.encryptStringAsync(result)).toString(
-              'base64',
-            )
-            await save(data)
+          // Never written once degraded; a refused re-encryption keeps the old ciphertext.
+          if (shouldReEncrypt && degradedReason === undefined) {
+            try {
+              const cipher = await safeStorage.encryptStringAsync(result)
+              const data = await load()
+              data.entries[key] = cipher.toString('base64')
+              await save(data)
+            } catch (error) {
+              options.onWarning?.('A stored secret could not be re-encrypted', error)
+            }
           }
           return value
         } catch (error) {
@@ -206,6 +234,9 @@ export async function createSecretStore(options: {
     set: (key, value) =>
       queue(async () => {
         const data = await load()
+        // Memory-only once degraded, even if the keyring works again: the
+        // warning says tokens are forgotten when Cindl quits, and they are.
+        if (degradedReason !== undefined) return keepInMemory(data, key, value)
         let cipher: string
         try {
           cipher = (await safeStorage.encryptStringAsync(seal(key, value))).toString(
@@ -213,15 +244,12 @@ export async function createSecretStore(options: {
           )
         } catch (error) {
           options.onWarning?.(
-            'The OS keyring refused to encrypt; keeping it in memory',
+            'The OS keyring refused to encrypt; keeping tokens in memory until Cindl quits',
             error,
           )
           degradedReason = 'The OS keyring refused to encrypt Cindl’s tokens.'
-          memory.set(key, value)
-          if (key in data.entries) {
-            delete data.entries[key]
-            await save(data)
-          }
+          await keepInMemory(data, key, value)
+          for (const listener of [...degradeListeners]) listener()
           return
         }
         memory.delete(key)

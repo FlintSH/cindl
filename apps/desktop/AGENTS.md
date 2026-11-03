@@ -25,8 +25,10 @@ documentation: `docs/handbook/clients/desktop.md`. Non-negotiable:
   `parseOpArgs`, and passes on only the parsed arguments.
 - Tokens and the Hermes connection live in main. Persist tokens only with
   `safeStorage` and only after the keyring probe passes (`basic_text` or a
-  `v10` probe means memory only). Never log a token, ticket, code, verifier or
-  cookie: log through `src/main/log.ts`.
+  `v10` probe means memory only). Once the keyring refuses to encrypt, the
+  store stays memory-only for the run and warns at once; its `available`
+  stays true so deletes always reach the disk. Never log a token, ticket,
+  code, verifier or cookie: log through `src/main/log.ts`.
 - The screen socket's URL carries the display ticket: only main opens it,
   through `checkDisplaySocketRequest`, and the renderer gets `display.frame`
   pixels only.

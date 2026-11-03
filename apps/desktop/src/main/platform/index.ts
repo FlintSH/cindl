@@ -45,12 +45,21 @@ export function validateSignInUrl(raw: string): string | undefined {
   }
 }
 
-/** Shown to the renderer when tokens cannot be persisted securely. */
+/** Shown to the renderer when tokens cannot be persisted securely from the start. */
 export function memoryOnlyNotice(reason: string | undefined): CindlEvent {
   return {
     type: 'notice',
     level: 'warning',
     message: `${reason ?? 'No OS keyring is available.'} After you sign in, Cindl keeps Hermes tokens in memory only and forgets them when it quits.`,
+  }
+}
+
+/** Shown as soon as the keyring stops encrypting while Cindl runs. */
+export function keyringRefusedNotice(reason: string | undefined): CindlEvent {
+  return {
+    type: 'notice',
+    level: 'warning',
+    message: `${reason ?? 'The OS keyring stopped encrypting.'} Until Cindl quits it keeps Hermes tokens in memory only and writes none to disk, so you will need to sign in again after a restart.`,
   }
 }
 

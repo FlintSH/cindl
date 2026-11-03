@@ -38,7 +38,12 @@ import {
 } from '@cindl/contracts'
 import { NativeAuth, redactText, type DiagnosticSink } from '@cindl/hermes-adapter'
 import type { Logger } from './log.ts'
-import { memoryOnlyNotice, ORIGIN_KEY, type DesktopPlatform } from './platform/index.ts'
+import {
+  keyringRefusedNotice,
+  memoryOnlyNotice,
+  ORIGIN_KEY,
+  type DesktopPlatform,
+} from './platform/index.ts'
 import { trustedStoredOrigin } from './platform/origin-policy.ts'
 
 /**
@@ -77,6 +82,7 @@ export function createRealClient(
   /** The origin of the last sign-in that succeeded (the stored one at start). */
   let committed = platform.origin()
   let stopped = false
+  let degraded = false
   let confirming = false
   /** Bumped by every confirmed sign-in and every sign-out. */
   let generation = 0
@@ -116,6 +122,11 @@ export function createRealClient(
   }
   let direct = makeDirect(committed)
   let detach = direct.subscribe(emit)
+
+  platform.secrets.onDegrade(() => {
+    degraded = true
+    emit(keyringRefusedNotice(platform.secrets.reason))
+  })
 
   /** A fresh client on `origin` (none: Not set up), as a restart would make it. */
   const restartOn = async (origin: string | undefined) => {
@@ -320,7 +331,11 @@ export function createRealClient(
     client,
     notices: () =>
       platform.secrets.persistence === 'memory-only'
-        ? [memoryOnlyNotice(platform.secrets.reason)]
+        ? [
+            degraded
+              ? keyringRefusedNotice(platform.secrets.reason)
+              : memoryOnlyNotice(platform.secrets.reason),
+          ]
         : [],
     start: async () => {
       stopped = false

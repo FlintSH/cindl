@@ -11,6 +11,7 @@ import {
   codeOf,
   desktop,
   fakeHermes,
+  fakeKeyring,
   noKeyring,
   runCleanups,
   signIn,
@@ -214,6 +215,59 @@ describe('signing in to another Hermes is all or nothing', { timeout: 30_000 }, 
     expect(await pending).toBe('unavailable')
     await d.waitFor(() => d.link().phase === 'signed-out')
     expect(d.link().server?.origin).toBe(a.origin)
+    expect(d.secretEntries()).toEqual([])
+  })
+})
+
+describe('a keyring that stops encrypting', { timeout: 30_000 }, () => {
+  it('leaves no tokens of the previous Hermes on disk after a switch, and warns at once (DP3)', async () => {
+    const a = await fakeHermes()
+    const b = await fakeHermes()
+    const keyring = { refuse: false }
+    const dir = userData()
+    const d = await desktop(dir, { safeStorage: fakeKeyring(keyring) })
+    await signIn(d, a.origin)
+    expect(d.secretEntries()).toEqual([expect.stringContaining(a.origin)])
+    keyring.refuse = true
+    await signIn(d, b.origin)
+    expect(d.platform.secrets.persistence).toBe('memory-only')
+    // A's record is gone; B's tokens live in memory only.
+    expect(d.secretEntries()).toEqual([])
+    expect(warned(d, 'memory only'), JSON.stringify(notices(d))).toBe(true)
+    expect(await codeOf(d.real.client.call('conversations.list', {}))).toBe('resolved')
+    // After a restart with a working keyring, B's tokens are gone (memory only),
+    // and signing in to A again needs the browser: none of A's were left behind.
+    d.real.stop()
+    keyring.refuse = false
+    const again = await desktop(dir, { safeStorage: fakeKeyring(keyring) })
+    await again.waitFor(() => again.link().phase === 'signed-out')
+    expect(again.link().server?.origin).toBe(b.origin)
+    await signIn(again, a.origin)
+    expect(again.openBrowser).toHaveBeenCalledTimes(1)
+    expect(tokenRequests(a.calls)).toHaveLength(2)
+  })
+
+  it('warns as soon as the keyring refuses, and writes no token to disk for the rest of the run', async () => {
+    const a = await fakeHermes()
+    // Short-lived access tokens: every authenticated call refreshes (and stores) first.
+    a.auth.accessTtlSeconds = 30
+    const keyring = { refuse: false }
+    const d = await desktop(userData(), { safeStorage: fakeKeyring(keyring) })
+    await signIn(d, a.origin)
+    keyring.refuse = true
+    // A call can share a refresh that stored its tokens before the keyring
+    // locked; the next call refreshes (and stores) on its own.
+    for (let call = 0; call < 20 && !warned(d, 'memory only'); call++)
+      await d.real.client.call('skills.list', {})
+    expect(warned(d, 'memory only'), JSON.stringify(notices(d))).toBe(true)
+    expect(d.platform.secrets.persistence).toBe('memory-only')
+    expect(d.secretEntries()).toEqual([])
+    // The keyring works again; the tokens still stay in memory until Cindl quits.
+    keyring.refuse = false
+    await d.real.client.call('skills.list', {})
+    expect(d.secretEntries()).toEqual([])
+    // Signing out leaves nothing anywhere.
+    await d.real.client.call('auth.signOut', {})
     expect(d.secretEntries()).toEqual([])
   })
 })
