@@ -514,7 +514,10 @@ The direct client shows the screen (ADR 0012) in
   device, and it is needed exactly when the screen stops being available.
 - When Hermes closes the view: on 4000 (another human took control) Cindl
   observes again with the same viewer id and keeps watching without control.
-  4001 (screen stopped) and every other code end the view as unavailable.
+  A screen that stops mid-view ends the RFB stream, and Hermes closes with a
+  plain 1000 like any clean end, so Cindl asks `display.status`: the view
+  ends as not running if the screen stopped, otherwise as ended. Frames wait
+  for that answer.
 - Frames, input and the ticket URL are never logged. Diagnostics record the
   close code only.
 - `display.lease.acquire {viewer_id}` and `display.lease.release {viewer_id}`
@@ -527,9 +530,13 @@ The direct client shows the screen (ADR 0012) in
   recognises its own lease. After a reconnect Cindl keeps its earlier viewer
   ids in memory (never emitted or logged) and hands back a lease one of them
   holds with `force: true`; it never names another viewer's id.
-- Display close codes: 4000 evicted controller, 4001 screen stopped, 4401
-  ticket missing, expired or used (after accept), 4403 Host/Origin refused,
-  1003 non-binary frame (`web_routers/display.py:37-42`).
+- Display close codes (`web_routers/display.py:37-42`): 4000 evicted
+  controller; 4001 no screen to bridge, only as a socket opens (`:131-136`);
+  4401 ticket missing, expired or used, after accept (`:86-89`); 1003 a
+  non-binary frame or a malformed RFB stream (`:198-205`); 1000 when the RFB
+  stream ends, which is how a screen that stops mid-view shows
+  (`:181-185, 241-244`). Host/Origin is refused before accept (`:80-84`), so a
+  client sees an HTTP 403 handshake failure, not a 4403 close code.
 
 ## Allowlisted surface
 

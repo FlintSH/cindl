@@ -71,12 +71,19 @@ export const METHOD_NOT_FOUND = -32601
 export const DEFAULT_APPROVAL_WINDOW_SECONDS = 300
 export const DEFAULT_CLARIFY_WINDOW_SECONDS = 3600
 
-/** Display WebSocket close codes (hermes_cli/web_routers/display.py:37-42, v0.22.5). */
+/**
+ * Display WebSocket close codes (hermes_cli/web_routers/display.py:37-42).
+ * 4001 comes only when the bridge cannot reach the screen as the socket opens
+ * (:131-136); a screen that stops mid-view ends the RFB stream and the socket
+ * closes with a plain 1000 (:181-185, 241-244). The Host/Origin refusal
+ * (4403) happens before accept, so a client sees an HTTP 403 handshake
+ * failure, never that code (:80-84).
+ */
 export const displayCloseCodes = {
   evictedController: 4000,
+  /** Only as the socket opens: there is no screen to bridge. */
   screenStopped: 4001,
   ticketRejected: 4401,
-  originRejected: 4403,
   protocolError: 1003,
 } as const
 

@@ -126,6 +126,8 @@ export interface DisplayViewer {
   readonly filter: RfbClientFilter
   /** The close code the viewer's socket ended with, once it has. */
   closedWith?: number
+  /** Hermes closed it (an eviction, a protocol error, the end of the RFB stream). */
+  closedByServer?: boolean
 }
 
 /** A second synthetic profile on the same Hermes; real keys are host paths. */
@@ -651,7 +653,7 @@ export class FakeGateway {
     })
     ws.on('message', (data, isBinary) => {
       if (!isBinary) {
-        ws.close(1003, 'RFB is binary')
+        this.#closeViewer(viewer, 1003, 'RFB is binary')
         return
       }
       const bytes = Array.isArray(data)
@@ -665,7 +667,7 @@ export class FakeGateway {
           new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
         )
       } catch {
-        ws.close(1003, 'malformed RFB')
+        this.#closeViewer(viewer, 1003, 'malformed RFB')
         return
       }
       if (allowed.length) session.receive(allowed)
@@ -673,9 +675,21 @@ export class FakeGateway {
     ws.on('close', (code) => {
       viewer.closedWith = code
       this.displayViewers.delete(viewer)
-      if ((code === 1000 || code === 1001) && this.#holds(viewerId)) this.#handBack()
+      // Only the viewer closing its window hands control back; a close
+      // Hermes started does not (display.py:189-196, 234-240).
+      if (
+        !viewer.closedByServer &&
+        (code === 1000 || code === 1001) &&
+        this.#holds(viewerId)
+      )
+        this.#handBack()
     })
     return viewer
+  }
+
+  #closeViewer(viewer: DisplayViewer, code: number, reason: string): void {
+    viewer.closedByServer = true
+    viewer.ws.close(code, reason)
   }
 
   /** A lease change evicts a viewer that held control and lost it to another human (display.py:46-58). */
@@ -684,7 +698,7 @@ export class FakeGateway {
       const display = this.#store.display
       if (display.holder !== 'human') viewer.heldEver = false
       else if (display.holderViewerId === viewer.viewerId) viewer.heldEver = true
-      else if (viewer.heldEver) viewer.ws.close(4000, 'control-taken')
+      else if (viewer.heldEver) this.#closeViewer(viewer, 4000, 'control-taken')
     }
   }
 
@@ -703,13 +717,14 @@ export class FakeGateway {
 
   /**
    * Test control: the screen stops outside Cindl while viewers watch. The
-   * bridge closes them with 4001 and the runtime watcher broadcasts the new
+   * bridge closes them with 1000 and the runtime watcher broadcasts the new
    * state (tui_gateway/methods_display_watch.py:81-103).
    */
   stopScreen(): void {
     this.#store.display.running = false
-    for (const viewer of this.displayViewers)
-      viewer.ws.close(4001, 'Bot Desktop is not running')
+    // The RFB stream ends and the bridge closes with a plain 1000
+    // (display.py:181-185, 241-244); 4001 is only for a socket opening.
+    for (const viewer of this.displayViewers) this.#closeViewer(viewer, 1000, '')
     this.broadcast('display.status', this.#displaySnapshot())
   }
 

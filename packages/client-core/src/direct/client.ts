@@ -245,6 +245,14 @@ class DirectHermesClient implements DirectClient {
           origin: () => this.#origin ?? '',
           observe: (viewerId) => this.#observeDisplay(viewerId ?? this.#display.viewerId),
           holdsLease: (viewerId) => this.#holdsLease(viewerId),
+          screenRunning: async () => {
+            try {
+              await this.#readDisplay()
+              return this.#display.status?.running
+            } catch {
+              return undefined
+            }
+          },
           newViewId: () => `view-${this.#id()}`,
           log: (event, fields) => this.#log.log('info', event, fields),
         })

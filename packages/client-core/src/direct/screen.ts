@@ -36,6 +36,11 @@ export interface LiveScreenOptions {
   observe(viewerId?: string): Promise<ObservedScreen>
   /** Whether this viewer holds the input lease on the current connection. */
   holdsLease(viewerId: string): boolean
+  /**
+   * Whether the screen runs now, by asking Hermes (display.status);
+   * undefined when that cannot be read. Never rejects.
+   */
+  screenRunning(): Promise<boolean | undefined>
   newViewId(): string
   /** Redacted diagnostics: never frames, input or the ticket URL. */
   log(event: string, fields?: Record<string, unknown>): void
@@ -60,6 +65,8 @@ interface View {
 }
 
 const closedError = () => new CindlError('not-found', 'That screen view was closed.')
+const endedError = () =>
+  new CindlError('unavailable', 'The screen connection ended. Watch the screen again.')
 
 export const screenStoppedError = () =>
   new CindlError('unavailable', 'The agent screen is not running. Cindl never starts it.')
@@ -235,10 +242,7 @@ export class LiveScreen {
         view.ended =
           error instanceof CindlError && error.code === 'unavailable'
             ? error
-            : new CindlError(
-                'unavailable',
-                'The screen connection ended. Watch the screen again.',
-              )
+            : endedError()
         view.wake?.()
       }
       throw error
@@ -393,22 +397,20 @@ export class LiveScreen {
           view.ended =
             error instanceof CindlError && error.code === 'unavailable'
               ? error
-              : new CindlError(
-                  'unavailable',
-                  'The screen connection ended. Watch the screen again.',
-                )
+              : endedError()
           view.wake?.()
         })
       return
     }
-    view.ended =
-      code === displayCloseCodes.screenStopped
-        ? screenStoppedError()
-        : new CindlError(
-            'unavailable',
-            'The screen connection ended. Watch the screen again.',
-          )
-    view.wake?.()
+    // A screen that stops mid-view ends the RFB stream, and Hermes closes the
+    // socket with a plain 1000 (display.py:181-185, 241-244); 4001 comes only
+    // as a socket opens. Only the screen's status tells a stop from a dropped
+    // link, so frames wait for that answer.
+    void this.#options.screenRunning().then((running) => {
+      if (this.#view !== view || view.ended) return
+      view.ended = running === false ? screenStoppedError() : endedError()
+      view.wake?.()
+    })
   }
 
   #wait(view: View, ms: number): Promise<void> {

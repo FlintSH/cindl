@@ -371,7 +371,7 @@ describe('direct client: live screen', () => {
     h.fake.gateway.stopScreen()
     await h.waitFor(() => logs.some((l) => l.event === 'direct.screen-closed'))
     expect(logs.find((l) => l.event === 'direct.screen-closed')?.detail).toEqual({
-      code: 4001,
+      code: 1000,
     })
     const ticket = new URL(urls[0] ?? '').searchParams.get('display_ticket') ?? ''
     expect(ticket).not.toBe('')
@@ -417,7 +417,12 @@ function manualClock(): Clock & { fire(): void } {
 
 /** A LiveScreen over stub sockets; `observe` defaults to an immediate ticket. */
 function stubScreen(
-  options: { path?: string; observe?: () => Promise<ObservedScreen>; clock?: Clock } = {},
+  options: {
+    path?: string
+    observe?: () => Promise<ObservedScreen>
+    clock?: Clock
+    screenRunning?: () => Promise<boolean | undefined>
+  } = {},
 ) {
   const opened: string[] = []
   const sockets: StubSocket[] = []
@@ -457,6 +462,7 @@ function stubScreen(
           viewerId: 'fixture-viewer',
         })),
     holdsLease: () => false,
+    screenRunning: options.screenRunning ?? (() => Promise.resolve(true)),
     newViewId: () => 'view-fixture01',
     log: (event) => logs.push(event),
   })
@@ -507,8 +513,11 @@ const desktopSize = (width: number, height: number) => [
 ]
 
 /** Watch a stub screen through the handshake; returns the view and its socket. */
-async function watchedStub(clock: Clock) {
-  const stub = stubScreen({ clock })
+async function watchedStub(
+  clock: Clock,
+  screenRunning?: () => Promise<boolean | undefined>,
+) {
+  const stub = stubScreen({ clock, ...(screenRunning ? { screenRunning } : {}) })
   const watching = stub.live.watch()
   await vi.waitFor(() => expect(stub.sockets).toHaveLength(1))
   const socket = stub.sockets[0] as StubSocket
@@ -549,6 +558,41 @@ describe('live screen: frames', () => {
     const repainted = await live.frame(viewId)
     expect(repainted).toMatchObject({ width: 6, height: 2 })
     expect(pixel(repainted, 5, 1)).toEqual([4, 5, 6])
+  })
+})
+
+describe('live screen: when Hermes closes the view', () => {
+  it('waits for the screen status and ends a stopped screen as not running', async () => {
+    let answer: (running: boolean | undefined) => void = () => undefined
+    const { live, socket, viewId } = await watchedStub(
+      systemClock,
+      () =>
+        new Promise((resolve) => {
+          answer = resolve
+        }),
+    )
+    socket.feed([
+      ...updateHeader(1),
+      ...rawRect({ x: 0, y: 0, width: 4, height: 2 }, [1, 2, 3]),
+    ])
+    await live.frame(viewId)
+    // A screen that stops mid-view ends with a plain 1000 (display.py:181-185, 241-244).
+    socket.drop(1000)
+    const pulling = failure(live.frame(viewId))
+    answer(false)
+    const ended = await pulling
+    expect(ended?.code).toBe('unavailable')
+    expect(ended?.message).toMatch(/not running/)
+  })
+
+  it('calls the view ended, not the screen stopped, while the screen still runs', async () => {
+    const { live, socket, viewId } = await watchedStub(systemClock, () =>
+      Promise.resolve(true),
+    )
+    socket.drop(1000)
+    const ended = await failure(live.frame(viewId))
+    expect(ended?.code).toBe('unavailable')
+    expect(ended?.message).toMatch(/connection ended/)
   })
 })
 

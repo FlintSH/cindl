@@ -102,3 +102,31 @@ describe('fake Hermes: screen viewers (display.py)', () => {
     client.close()
   })
 })
+
+describe('fake Hermes: a screen that stops mid-view (display.py:181-185, 241-244)', () => {
+  it('closes each viewer with 1000 and keeps the human in control', async () => {
+    const f = await fake()
+    const client = await connectRawClient(f, f.signIn())
+    const observed = (
+      (await client.request('display.observe', {})) as {
+        result: { ticket: string; viewer_id: string }
+      }
+    ).result
+    const ws = await new Promise<WebSocket>((resolve) => {
+      const socket = new WebSocket(
+        `${f.origin.replace('http', 'ws')}/api/display/ws?display_ticket=${observed.ticket}`,
+      )
+      socket.once('message', () => resolve(socket))
+    })
+    await client.request('display.lease.acquire', { viewer_id: observed.viewer_id })
+    const closed = new Promise<number>((resolve) =>
+      ws.once('close', (code) => resolve(code)),
+    )
+    f.gateway.stopScreen()
+    expect(await closed).toBe(1000)
+    await until(() => f.gateway.displayViewers.size === 0)
+    // Hermes closed it, so this is no hand-back by the viewer.
+    expect(f.store.display.holderViewerId).toBe(observed.viewer_id)
+    client.close()
+  })
+})
