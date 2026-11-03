@@ -576,6 +576,14 @@ describe('direct client in cookie mode: confirming a sign-out', () => {
     expect(notices(h)).toBe(1)
   })
 
+  it("does not take a 401 that is not the gate's for a confirmation", async () => {
+    const { fake, h } = await signedIn()
+    // Hermes clears the cookies, but a proxy answers the check with its own 401.
+    fake.failNextRest('GET /api/auth/me', 401)
+    await h.client.call('auth.signOut', {})
+    expect(notices(h)).toBe(1)
+  })
+
   it('does not take a redirect that never reached Hermes for a sign-out', async () => {
     const { fake, jar, h } = await signedIn()
     // A proxy in front of Hermes answers the redirect; Hermes clears nothing.
@@ -629,6 +637,22 @@ describe('direct client: discovery that stop() or a newer run overtakes', () => 
     expect(store.getState().link.phase).toBe('offline')
   })
 
+  it('asks nothing more when stop() comes while Hermes reads its status', async () => {
+    const fake = await fakeHermes()
+    const jar = cookieJar(fake.origin)
+    await passwordLogin(fake, jar)
+    const held = fake.holdNextRest('GET /api/status')
+    const { client, store } = manualClient(fake, jar)
+    const starting = client.start()
+    await held.arrived
+    client.stop()
+    held.release()
+    await starting
+    await pause(50)
+    expect(requests(fake, 'GET /api/auth/me')).toBe(0)
+    expect(store.getState().link.phase).toBe('offline')
+  })
+
   it('leaves the connecting to a newer start', async () => {
     const fake = await fakeHermes()
     const jar = cookieJar(fake.origin)
@@ -643,6 +667,24 @@ describe('direct client: discovery that stop() or a newer run overtakes', () => 
     held.release()
     await first
     await pause(50)
+    expect(requests(fake, '/api/ws')).toBe(1)
+  })
+
+  it('leaves the link to a sign-in that overtakes a discovery still asking', async () => {
+    const fake = await fakeHermes()
+    const jar = cookieJar(fake.origin)
+    // The discovery asks before the browser has signed in: its answer is a 401.
+    const held = fake.holdNextRest('GET /api/auth/me')
+    const { client, store } = manualClient(fake, jar)
+    const starting = client.start()
+    await held.arrived
+    await passwordLogin(fake, jar)
+    await client.call('auth.signIn', { origin: fake.origin })
+    await waitUntil(() => store.getState().link.phase === 'online')
+    held.release()
+    await starting
+    await pause(50)
+    expect(store.getState().link.phase).toBe('online')
     expect(requests(fake, '/api/ws')).toBe(1)
   })
 
@@ -688,6 +730,30 @@ describe('direct client: discovery when Hermes does not answer', () => {
     await h.waitFor(() => h.store.getState().link.phase === 'online')
     expect(linkErrors(h)).toContain('offline unavailable')
     expect(requests(fake, 'GET /api/auth/me')).toBe(2)
+  })
+
+  it('keeps the link offline, not connecting, between attempts', async () => {
+    const fake = await fakeHermes()
+    const jar = cookieJar(fake.origin)
+    await passwordLogin(fake, jar)
+    let failures = 2
+    const restarting: FetchLike = (url, init) =>
+      new URL(url).pathname === '/api/auth/me' && failures-- > 0
+        ? Promise.resolve(
+            new Response('{"detail":"Service Unavailable"}', { status: 503 }),
+          )
+        : jar.fetch(url, init)
+    const h = await harness({
+      fake,
+      signIn: false,
+      deps: { auth: 'same-origin-cookie', fetch: restarting },
+    })
+    await h.waitFor(() => h.store.getState().link.phase === 'online')
+    // Two failed attempts, one offline link: the retry did not flip it back.
+    const phases = h.events.flatMap((e) =>
+      e.type === 'link.changed' ? [e.link.phase] : [],
+    )
+    expect(phases).toEqual(['connecting', 'offline', 'connecting', 'online'])
   })
 
   it('asks again after no answer at all', async () => {

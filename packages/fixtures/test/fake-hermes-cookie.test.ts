@@ -261,12 +261,23 @@ describe('fake Hermes: OAuth sign-in (routes.py:217-233, 338-379)', () => {
     ).toBe(200)
   })
 
-  it('refuses a callback without its PKCE cookie, or with another state', async () => {
+  it('quotes the landing as Starlette does, keeping escapes and URL syntax', async () => {
+    const f = await fake({ providers: PROVIDERS })
+    const start = await hop(
+      f,
+      '/auth/login?provider=portal&next=%2Fcindl%2Fa%20b%3Fq%3D1',
+    )
+    expect((await hop(f, start.location, start.cookie)).location).toBe('/cindl/a%20b?q=1')
+  })
+
+  it('refuses a callback without its PKCE cookie, or with another state or code', async () => {
     const f = await fake({ providers: PROVIDERS })
     const start = await hop(f, '/auth/login?provider=portal')
     expect((await hop(f, start.location)).status).toBe(400)
     const forged = start.location.replace(/state=[^&]*/, 'state=forged')
     expect((await hop(f, forged, start.cookie)).status).toBe(400)
+    const guessed = start.location.replace(/code=[^&]*/, 'code=guessed')
+    expect((await hop(f, guessed, start.cookie)).status).toBe(400)
   })
 
   it("sends a password provider's /auth/login to the login page, next kept", async () => {

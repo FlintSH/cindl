@@ -1899,6 +1899,29 @@ describe('direct client: a subscriber that joins late', () => {
     expect(state.display).toEqual(h.store.getState().display)
   })
 
+  it('is not told the screen of the Hermes it left', async () => {
+    const h = await harness()
+    await h.waitFor(() => h.events.some((e) => e.type === 'display.changed'))
+    // Hermes B cannot read its screen, so B reports none of its own.
+    const b = await fakeHermes()
+    b.gateway.respondError = (method) =>
+      method === 'display.status'
+        ? { code: 5000, message: 'display.status failed (fixture)' }
+        : undefined
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.waitFor(() => h.store.getState().link.server?.origin === b.origin)
+    await online(h)
+    const boot = {
+      phase: 'connecting' as const,
+      since: '2026-01-01T00:00:00.000Z',
+      connectionEpoch: 0,
+    }
+    const late = createStore(boot)
+    h.client.subscribe((event) => late.dispatch(event))
+    expect(late.getState().link.server?.origin).toBe(b.origin)
+    expect(late.getState().display).toEqual(createStore(boot).getState().display)
+  })
+
   it('hears nothing before the client has reported a link', async () => {
     const fake = await fakeHermes()
     const client = createDirectClient({
