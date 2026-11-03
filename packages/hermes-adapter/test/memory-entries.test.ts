@@ -2,7 +2,13 @@ import { createHash } from 'node:crypto'
 import { CindlError } from '@cindl/contracts'
 import { memoryFingerprint as fixtureFingerprint } from '@cindl/fixtures/fake-hermes'
 import { describe, expect, it } from 'vitest'
-import { MemoryEntries, parseMemoryEntryId, RestClient } from '../src/index.ts'
+import {
+  memoryFingerprint,
+  MemoryEntries,
+  parseMemoryEntryId,
+  pythonStrip,
+  RestClient,
+} from '../src/index.ts'
 import { bearerRest, fakeHermes, timers } from './harness.ts'
 
 const sha256Hex = (text: string) =>
@@ -48,6 +54,39 @@ describe('memory entries (backing the memory.* operations)', () => {
       readAt: NOW,
       source: 'GET /api/learning/node',
     })
+  })
+
+  it('strips what Python strips before fingerprinting, not what trim() strips', () => {
+    expect(pythonStrip('\x1c\x1d note \x1e\x1f\x85')).toBe('note')
+    expect(pythonStrip(' \t\u3000note\u2028 ')).toBe('note')
+    // U+FEFF is not whitespace to Python, so Hermes keeps it.
+    expect(pythonStrip('\ufeffnote')).toBe('\ufeffnote')
+    expect(memoryFingerprint(sha256Hex, '\x85note\x1f')).toBe(
+      sha256Hex('note').slice(0, 12),
+    )
+    expect(memoryFingerprint(sha256Hex, '\ufeffnote')).toBe(
+      sha256Hex('\ufeffnote').slice(0, 12),
+    )
+  })
+
+  it('names an edited entry by the fingerprint Hermes computes for it', async () => {
+    const { memory } = await setup()
+    const [first] = await memory.list()
+    if (!first) throw new Error('no entries')
+    const written = await memory.write(first.id, 'Edited note (fixture)\x85', {
+      confirm: true,
+    })
+    expect((await memory.read(written.id)).content).toBe('Edited note (fixture)')
+  })
+
+  it('refuses text Python strips to nothing before sending it', async () => {
+    const { memory, writes } = await setup()
+    const [first] = await memory.list()
+    if (!first) throw new Error('no entries')
+    expect(await codeOf(memory.write(first.id, '\x1c\x85', { confirm: true }))).toBe(
+      'invalid',
+    )
+    expect(writes()).toEqual([])
   })
 
   it('numbers entries across both stores, agent notes first, like Hermes', async () => {

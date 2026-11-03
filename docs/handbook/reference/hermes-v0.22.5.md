@@ -407,7 +407,9 @@ separate surface (`web_routers/status.py:693-743`,
 
 - An entry id is `memory:<source>:<index>:<fingerprint>`, where `source` is
   `memory` (MEMORY.md, agent notes) or `profile` (USER.md) and the fingerprint
-  is `sha256(entry.strip())[:12]` (`learning_graph.py:143-158`). Hermes
+  is `sha256(entry.strip())[:12]` (`learning_graph.py:143-158`). Cindl
+  strips with Python's whitespace set, not `trim()`'s: it includes U+001C to
+  U+001F and U+0085 and leaves U+FEFF. Hermes
   resolves the fingerprint under the memory store's file lock, re-reads, and
   refuses with "memory node id is stale" when no entry has that text any more
   (`learning_mutations.py:52-112`). The id is therefore a per-entry

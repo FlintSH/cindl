@@ -32,6 +32,7 @@ import {
   FixtureStore,
   hex,
   memoryFingerprint,
+  pyStrip,
   validProfileName,
   type FixtureProfile,
   type MemoryFiles,
@@ -655,7 +656,7 @@ export async function startFakeHermes(
               return { ok: true, kind: 'skill', id, label: id, content: skill.content }
             }
             const { source, local } = locate(profile, id)
-            const content = (profile.memory[source][local] ?? '').trim()
+            const content = pyStrip(profile.memory[source][local] ?? '')
             return {
               ok: true,
               kind: 'memory',
@@ -693,7 +694,7 @@ export async function startFakeHermes(
             }
             if (method === 'DELETE') return mutateMemory(profile, id, null)
             parseMemoryId(id)
-            const content = String(body.content).trim()
+            const content = pyStrip(String(body.content))
             if (!content)
               return { ok: false, message: 'empty memory — use delete to remove it' }
             return mutateMemory(profile, id, content)

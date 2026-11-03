@@ -51,8 +51,15 @@ export const MEMORY_LIMITS = { memory: 2200, profile: 1375 } as const
 export const ENTRY_DELIMITER = '\n§\n'
 
 /** agent/learning_graph.py `memory_fingerprint`: sha256(entry.strip())[:12]. */
+/** Python's `str.strip()` whitespace, which Hermes strips entries with (not `trim()`'s). */
+const PYTHON_SPACE =
+  '\\t\\n\\v\\f\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000'
+const PYTHON_STRIP = new RegExp(`^[${PYTHON_SPACE}]+|[${PYTHON_SPACE}]+$`, 'g')
+export const pyStrip = (text: string) => text.replace(PYTHON_STRIP, '')
+
+/** sha256(entry.strip())[:12] (agent/learning_graph.py:153). */
 export const memoryFingerprint = (entry: string) =>
-  createHash('sha256').update(entry.trim(), 'utf8').digest('hex').slice(0, 12)
+  createHash('sha256').update(pyStrip(entry), 'utf8').digest('hex').slice(0, 12)
 
 export const hex = (bytes: number) => randomBytes(bytes).toString('hex')
 

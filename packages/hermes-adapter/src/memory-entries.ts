@@ -69,8 +69,23 @@ export function parseMemoryEntryId(id: string): ParsedMemoryEntryId {
   }
 }
 
+/**
+ * What Python's `str.strip()` strips, which Hermes applies before it
+ * fingerprints or stores an entry (learning_graph.py:153,
+ * learning_mutations.py:204). Unlike `String.prototype.trim` it includes
+ * U+001C to U+001F and U+0085, and not U+FEFF.
+ */
+const PYTHON_SPACE =
+  '\\t\\n\\v\\f\\r\\x1c-\\x20\\x85\\xa0\\u1680\\u2000-\\u200a\\u2028\\u2029\\u202f\\u205f\\u3000'
+const PYTHON_STRIP = new RegExp(`^[${PYTHON_SPACE}]+|[${PYTHON_SPACE}]+$`, 'g')
+
+/** `text.strip()` as Python computes it. */
+export function pythonStrip(text: string): string {
+  return text.replace(PYTHON_STRIP, '')
+}
+
 export function memoryFingerprint(sha256Hex: (text: string) => string, text: string) {
-  return sha256Hex(text.trim()).slice(0, 12)
+  return sha256Hex(pythonStrip(text)).slice(0, 12)
 }
 
 /** Map a learning-route failure to a Cindl error without echoing Hermes's text (it can hold host paths). */
@@ -184,7 +199,7 @@ export class MemoryEntries {
     if (options.confirm !== true)
       throw new CindlError('invalid', 'Confirm the reviewed change before saving.')
     const parsed = parseMemoryEntryId(id)
-    const body = content.trim()
+    const body = pythonStrip(content)
     if (!body)
       throw new CindlError(
         'invalid',
