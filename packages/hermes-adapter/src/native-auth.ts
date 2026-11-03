@@ -47,8 +47,10 @@ export class NativeAuth {
   readonly #key: string
   readonly #log: Diagnostics
   #tokens: NativeTokenResponse | undefined
-  #loaded = false
+  #loading: Promise<void> | undefined
   #refreshing: Promise<boolean> | undefined
+  /** Bumped by sign-out: results of work started before it are discarded. */
+  #generation = 0
 
   constructor(options: NativeAuthOptions) {
     this.#options = options
@@ -84,6 +86,7 @@ export class NativeAuth {
   }
 
   async signIn(leg: LoopbackLeg, provider?: string): Promise<NativeIdentity> {
+    const generation = this.#generation
     const pkce = await createPkcePair(this.#options.crypto)
     const state = createState(this.#options.crypto)
     const callbackUrl = await leg.authorize((redirectUri) =>
@@ -118,6 +121,8 @@ export class NativeAuth {
         )
       throw error
     }
+    if (generation !== this.#generation)
+      throw new CindlError('unauthenticated', 'Signed out while signing in.')
     await this.#store(tokens)
     this.#log.log('info', 'auth.signed-in', { provider: tokens.provider })
     return this.#identityOf(tokens)
@@ -158,16 +163,20 @@ export class NativeAuth {
 
   /** Local sign-out: forget tokens on this device. Hermes cannot revoke them remotely. */
   async signOut(): Promise<void> {
+    this.#generation++
     this.#tokens = undefined
-    this.#loaded = true
+    this.#loading = Promise.resolve()
     if (this.#options.secrets.available) await this.#options.secrets.delete(this.#key)
   }
 
   async #doRefresh(): Promise<boolean> {
     const tokens = await this.#current()
     if (!tokens) return false
+    const generation = this.#generation
     try {
       const next = await this.#public.nativeRefresh(tokens.refresh_token, tokens.provider)
+      // A sign-out while the refresh was in flight wins: never write the rotated pair back.
+      if (generation !== this.#generation) return false
       await this.#store(next)
       this.#log.log('info', 'auth.refreshed', { provider: next.provider })
       return true
@@ -182,26 +191,28 @@ export class NativeAuth {
   }
 
   async #current(): Promise<NativeTokenResponse | undefined> {
-    if (!this.#loaded) {
-      this.#loaded = true
-      if (this.#options.secrets.available) {
-        const raw = await this.#options.secrets.get(this.#key)
-        if (raw) {
-          try {
-            const parsed = NativeTokenResponse.safeParse(JSON.parse(raw))
-            if (parsed.success) this.#tokens = parsed.data
-          } catch {
-            this.#log.log('warn', 'auth.stored-tokens-unreadable')
-          }
-        }
-      }
-    }
+    // One shared load: concurrent first callers all see the stored tokens.
+    this.#loading ??= this.#load()
+    await this.#loading
     return this.#tokens
+  }
+
+  async #load(): Promise<void> {
+    if (!this.#options.secrets.available) return
+    const generation = this.#generation
+    const raw = await this.#options.secrets.get(this.#key)
+    if (!raw || generation !== this.#generation) return
+    try {
+      const parsed = NativeTokenResponse.safeParse(JSON.parse(raw))
+      if (parsed.success) this.#tokens = parsed.data
+    } catch {
+      this.#log.log('warn', 'auth.stored-tokens-unreadable')
+    }
   }
 
   async #store(tokens: NativeTokenResponse): Promise<void> {
     this.#tokens = tokens
-    this.#loaded = true
+    this.#loading = Promise.resolve()
     if (this.#options.secrets.available)
       await this.#options.secrets.set(this.#key, JSON.stringify(tokens))
   }

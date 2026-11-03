@@ -66,6 +66,7 @@ describe('live probe', () => {
     const { fake } = await probe()
     const capabilities = fake.calls.filter((c) => c.name === 'client.capabilities')
     expect(capabilities).toHaveLength(1)
+    expect(fake.gateway.advertisements).toEqual([{}])
   })
 
   it('stops at an unauthenticated token without retrying', async () => {

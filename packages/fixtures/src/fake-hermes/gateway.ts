@@ -70,6 +70,8 @@ interface OpenRequest {
   requestId?: string
   createdAt: number
   declined: Set<FakeConnection>
+  /** Batch clarify: answers locked so far (server_requests.py:319-336). */
+  locked?: Record<string, string | null>
   settle(result: Json | null): void
 }
 
@@ -172,11 +174,21 @@ export class FakeGateway {
   sessionAuthority = false
   /** When true the server reads nothing and writes nothing: a silently dead socket. */
   frozen = false
+  /** Test hook awaited before a request is handled (delays, interleavings). */
+  beforeHandle: ((method: string, params: Json) => Promise<void> | void) | undefined
+  /**
+   * Test hook run after a request was handled and before its reply is written:
+   * what happens there is newer than the reply, as when another Hermes thread
+   * writes a frame while a handler finishes.
+   */
+  afterHandle: ((method: string, params: Json) => void) | undefined
   script: TurnScript = defaultScript
   readonly connections = new Set<FakeConnection>()
   readonly live = new Map<string, LiveSession>()
   readonly open = new Map<string, OpenRequest>()
   readonly settled: SettledRequest[] = []
+  /** `client.capabilities` params per call, to check what each client advertised. */
+  readonly advertisements: Json[] = []
   readonly droppedResponses: string[] = []
   readonly failNext = new Map<string, FailMode>()
   readonly #rings = new Map<string, Array<{ seq: number; params: Json }>>()
@@ -357,9 +369,12 @@ export class FakeGateway {
     requestId?: string,
   ): Promise<Json | null> {
     return new Promise((resolve) => {
-      const clients = this.#answering(sid)
-      // server_requests._unanswerable: no client advertised, nothing is sent.
-      if (!clients.length) {
+      const attached = [...(this.live.get(sid)?.connections ?? [])].filter((c) => c.open)
+      const clients = attached.filter((c) => c.answersRequests)
+      // session_transports.py:58-67: with clients attached but none answering, nothing is
+      // sent and the wait fails at once. With no client attached the request is registered
+      // and waits in open_requests for a reconnect.
+      if (attached.length && !clients.length) {
         resolve(null)
         return
       }
@@ -373,6 +388,7 @@ export class FakeGateway {
         declined: new Set(),
         settle: resolve,
         ...(requestId ? { requestId } : {}),
+        ...(method === 'clarify' ? { locked: {} } : {}),
       }
       this.open.set(id, request)
       for (const client of clients)
@@ -382,6 +398,45 @@ export class FakeGateway {
           method,
           params: { session_id: sid, ...params },
         })
+    })
+  }
+
+  /**
+   * Test control: another client locks one clarify answer (`clarify.lock`). The last
+   * lock settles the batch as submitted (server_requests.py:319-336).
+   */
+  lockClarify(id: string, qid: string, answer: string | null): void {
+    const request = this.open.get(id)
+    if (!request?.locked) return
+    request.locked[qid] = answer
+    const questions = (request.params.questions ?? []) as Array<{ qid?: unknown }>
+    if (
+      !questions.every(
+        (q) => typeof q.qid === 'string' && q.qid in (request.locked ?? {}),
+      )
+    )
+      return
+    this.open.delete(id)
+    const result = { answers: { ...request.locked }, outcome: 'submitted' }
+    this.settled.push({ id, method: request.method, outcome: 'answered', result })
+    request.settle(result)
+  }
+
+  /**
+   * Test control: an approval resolved from another surface (`approval.respond`, a chat
+   * platform, `/approve`) while the request is still open. It is withdrawn with
+   * `request.cancel {reason: resolved}` (approval_gateway_wait.py:209-221).
+   */
+  resolveElsewhere(id: string, choice: 'once' | 'deny' = 'deny'): void {
+    const request = this.open.get(id)
+    if (!request) return
+    this.open.delete(id)
+    request.settle({ choice })
+    this.settled.push({ id, method: request.method, outcome: 'cancelled' })
+    this.emit(request.sid, 'request.cancel', {
+      id,
+      method: request.method,
+      reason: 'resolved',
     })
   }
 
@@ -438,7 +493,14 @@ export class FakeGateway {
       .map((r) => ({
         id: r.id,
         method: r.method,
-        params: { session_id: sid, ...r.params },
+        // ServerRequest.snapshot (server_requests.py:93-99): locked batch answers ride along.
+        params: {
+          session_id: sid,
+          ...r.params,
+          ...(r.locked && Object.keys(r.locked).length
+            ? { answers: { ...r.locked } }
+            : {}),
+        },
       }))
   }
 
@@ -490,7 +552,22 @@ export class FakeGateway {
       const check = this.#contract.serverRequestResult(request.method, frame.result)
       if (!check.ok) this.#violations.push(...check.errors)
     }
-    const result = (frame.result ?? {}) as Json
+    let result = (frame.result ?? {}) as Json
+    if (request.locked) {
+      // tools/clarify_batch.py:27-31: the frame's answers lay over the locks; no answers = cancel-all.
+      const { answers, outcome } = result
+      result =
+        answers && typeof answers === 'object' && !Array.isArray(answers)
+          ? {
+              ...result,
+              answers: { ...request.locked, ...(answers as Json) },
+              outcome:
+                outcome === 'timed_out' || outcome === 'cancelled'
+                  ? outcome
+                  : 'submitted',
+            }
+          : { answers: { ...request.locked }, outcome: 'cancelled' }
+    }
     this.settled.push({
       id,
       method: request.method,
@@ -656,6 +733,8 @@ export class FakeGateway {
       }
       this.#violations.push(...check.errors.map((e) => `client params ${e}`))
     }
+    if (this.beforeHandle) await this.beforeHandle(method, params)
+    if (!connection.open) return
     const fail = this.failNext.get(method)
     if (fail) this.failNext.delete(method)
     if (fail === 'error-5000') {
@@ -675,6 +754,7 @@ export class FakeGateway {
     if (fail === 'no-response') return
     const handler = this.#handlers[method] as Handler
     const reply = await handler(connection, params, id)
+    this.afterHandle?.(method, params)
     if (fail === 'drop-before-response') {
       connection.socket.terminate()
       return
@@ -721,6 +801,7 @@ export class FakeGateway {
 
   readonly #handlers: Record<string, Handler> = {
     'client.capabilities': (connection, params, id) => {
+      this.advertisements.push(structuredClone(params))
       if ('server_requests' in params)
         connection.answersRequests = Boolean(params.server_requests)
       return ok(id, {
@@ -908,8 +989,17 @@ export class FakeGateway {
       if (!text.trim()) return err(id, 4002, 'text required')
       const stored = this.#storedFor(live)
       if (live.running) {
-        live.queue.push(text)
-        return ok(id, { status: 'queued' })
+        // server.py:382-384 + session_auto_continue.py:400-406: `queued` forces queue mode;
+        // otherwise the default busy_input_mode `interrupt` redirects the running turn.
+        if (params.queued === true) {
+          live.queue.push(text)
+          return ok(id, { status: 'queued' })
+        }
+        live.interrupted = true
+        this.cancelRequests(live.sid, 'interrupted')
+        this.emit(live.sid, 'message.complete', { text: '', status: 'interrupted' })
+        live.queue.unshift(text)
+        return ok(id, { status: 'redirected' })
       }
       const rowId = this.#appendRow(stored, { role: 'user', text })
       stored.preview ||= text.slice(0, 80)
@@ -930,8 +1020,7 @@ export class FakeGateway {
           (params.request_id === undefined || r.requestId === params.request_id),
       )
       if (!target) return ok(id, { resolved: 0 })
-      this.open.delete(target.id)
-      target.settle({ choice: params.choice ?? 'deny' })
+      this.resolveElsewhere(target.id, params.choice === 'once' ? 'once' : 'deny')
       return ok(id, { resolved: 1 })
     },
     'request.answer': (_c, params, id) => {

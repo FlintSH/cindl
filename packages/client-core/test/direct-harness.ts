@@ -16,6 +16,8 @@ import {
   type DirectClientDeps,
   type KeyValueStore,
   type SecretStore,
+  type WebSocketFactory,
+  type WebSocketLike,
 } from '../src/index.ts'
 
 const cleanups: Array<() => Promise<void> | void> = []
@@ -56,9 +58,42 @@ export async function fakeHermes(options: FakeHermesOptions = {}): Promise<FakeH
   return fake
 }
 
+/**
+ * Sockets whose sends can be made to fail on demand: `readyState` reports
+ * CLOSED while the socket is still up, as when a drop has not been noticed.
+ */
+function breakableSockets() {
+  const state = { broken: false }
+  const base = nodeSocketFactory()
+  const factory: WebSocketFactory = (url, protocols) => {
+    const inner = base(url, protocols)
+    const outer = {
+      get readyState() {
+        return state.broken ? 3 : inner.readyState
+      },
+      get protocol() {
+        return inner.protocol
+      },
+      send: (data: string) => inner.send(data),
+      close: (code?: number, reason?: string) => inner.close(code, reason),
+    } as WebSocketLike
+    for (const key of ['onopen', 'onmessage', 'onclose', 'onerror'] as const)
+      Object.defineProperty(outer, key, {
+        get: () => inner[key],
+        set: (handler: never) => {
+          inner[key] = handler
+        },
+      })
+    return outer
+  }
+  return { factory, state }
+}
+
 export interface Harness {
   fake: FakeHermes
   client: DirectClient
+  /** Make sends fail as if the socket had silently closed. */
+  breakSends(broken: boolean): void
   events: CindlEvent[]
   store: ClientStore
   kv: ReturnType<typeof memoryKv>
@@ -85,11 +120,12 @@ export async function harness(
   const fake = options.fake ?? (await fakeHermes())
   const kv = options.kv ?? memoryKv()
   const secrets = options.secrets ?? memorySecrets()
+  const sockets = breakableSockets()
   const client = createDirectClient({
     origin: fake.origin,
     auth: 'native-pkce',
     fetch: (url, init) => fetch(url, init),
-    socketFactory: nodeSocketFactory(),
+    socketFactory: sockets.factory,
     clock: systemClock,
     kv,
     secrets,
@@ -102,9 +138,9 @@ export async function harness(
         return response.headers.get('location') ?? ''
       },
     },
-    connection: { backoff: { initialMs: 20, maxMs: 100 } },
     random: () => 0.5,
     ...options.deps,
+    connection: { backoff: { initialMs: 20, maxMs: 100 }, ...options.deps?.connection },
   })
   const events: CindlEvent[] = []
   const store = createStore(initialLink)
@@ -134,6 +170,9 @@ export async function harness(
   const harnessed: Harness = {
     fake,
     client,
+    breakSends: (broken) => {
+      sockets.state.broken = broken
+    },
     events,
     store,
     kv,

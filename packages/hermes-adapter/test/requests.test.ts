@@ -212,6 +212,87 @@ describe('clarify requests', () => {
     ).toBe('invalid')
   })
 
+  it('carries answers other clients locked and leaves those questions to them', () => {
+    const params = {
+      session_id: 'a1b2c3d4',
+      questions,
+      answers: { q0: 'South hall', q1: '["Tue","Wed"]', gone: 'stale lock' },
+    }
+    expect(contract.serverRequestParams('clarify', params).errors).toEqual([])
+    const mapped = mapServerRequest({
+      requestId: 'srq-0000000000ce',
+      method: 'clarify',
+      params,
+      lastSeenEpoch: 2,
+      receivedAt,
+    })
+    const request = ServerRequest.parse(mapped?.request)
+    expect(request.lockedAnswers).toEqual({
+      q0: { choices: ['South hall'] },
+      q1: { choices: ['Tue', 'Wed'] },
+    })
+    // Only q2 is open, so the reply carries q2 alone and cannot override a lock.
+    expect(result(request, { kind: 'clarify', answers: { q2: { text: 'No' } } })).toEqual(
+      {
+        answers: { q2: 'No' },
+      },
+    )
+    expect(
+      invalid(() =>
+        answerResult(request, {
+          kind: 'clarify',
+          answers: { q0: { choices: ['North hall (Recommended)'] }, q2: { text: 'No' } },
+        }),
+      ),
+    ).toBe('invalid')
+  })
+
+  it('maps skipped and typed locks, and leaves nothing to send when all are locked', () => {
+    const params = {
+      session_id: 'a1b2c3d4',
+      questions,
+      answers: { q0: 'The rooftop', q1: null, q2: '' },
+    }
+    expect(contract.serverRequestParams('clarify', params).errors).toEqual([])
+    const request = ServerRequest.parse(
+      mapServerRequest({
+        requestId: 'srq-0000000000cf',
+        method: 'clarify',
+        params,
+        lastSeenEpoch: 2,
+        receivedAt,
+      })?.request,
+    )
+    expect(request.lockedAnswers).toEqual({
+      q0: { text: 'The rooftop' },
+      q1: { skipped: true },
+      q2: { skipped: true },
+    })
+    expect(invalid(() => answerResult(request, { kind: 'clarify', answers: {} }))).toBe(
+      'invalid',
+    )
+  })
+
+  it('maps only ids in the srq-<12 hex> form Hermes mints', () => {
+    const params = { session_id: 'a1b2c3d4', questions }
+    for (const requestId of [
+      'srq-1',
+      'srq-0123456789AB',
+      'srq-0123456789abc',
+      'req-0123456789ab',
+      'srq-0123456789ab ',
+    ])
+      expect(
+        mapServerRequest({
+          requestId,
+          method: 'clarify',
+          params,
+          lastSeenEpoch: 1,
+          receivedAt,
+        }),
+      ).toBeUndefined()
+  })
+
   it('does not map malformed frames', () => {
     expect(
       mapServerRequest({

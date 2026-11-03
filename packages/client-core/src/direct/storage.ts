@@ -4,27 +4,20 @@ import type { KeyValueStore } from '../platform.ts'
 
 /**
  * What the direct client keeps on the device, per Hermes origin, in the
- * platform's non-secret KeyValueStore: the prompt outbox, the ledger of
- * requests this device answered, the connection-epoch counter and the
- * device's main-conversation pin. No tokens; those live in the SecretStore.
+ * platform's non-secret KeyValueStore: the prompt outbox, the client ids of
+ * prompts Hermes already accepted (so a retried submit is never sent twice),
+ * the connection-epoch counter and the device's main-conversation pin. No
+ * tokens (those live in the SecretStore) and no request answers: Hermes's
+ * `open_requests` is the record of what is still unanswered.
  */
 
-export const AnsweredEntry = z.object({
-  requestId: z.string().min(1),
-  /** The exact JSON-RPC result sent, so a lost reply can be re-sent unchanged. */
-  result: z.record(z.string(), z.unknown()),
-  answeredAt: z.string(),
-  epoch: z.number().int().nonnegative(),
-})
-export type AnsweredEntry = z.infer<typeof AnsweredEntry>
-
-const MAX_ANSWERED = 200
+const MAX_ACCEPTED = 500
 
 export class DirectStorage {
   readonly #kv: KeyValueStore
   readonly #prefix: string
   readonly #onError: (name: string) => void
-  #writes: Promise<void> = Promise.resolve()
+  #writes: Promise<boolean> = Promise.resolve(true)
 
   constructor(
     kv: KeyValueStore,
@@ -37,7 +30,13 @@ export class DirectStorage {
   }
 
   async #read<T>(name: string, schema: z.ZodType<T>, fallback: T): Promise<T> {
-    const raw = await this.#kv.get(this.#prefix + name)
+    let raw: string | undefined
+    try {
+      raw = await this.#kv.get(this.#prefix + name)
+    } catch {
+      this.#onError(name)
+      return fallback
+    }
     if (raw === undefined) return fallback
     try {
       const parsed = schema.safeParse(JSON.parse(raw))
@@ -49,13 +48,19 @@ export class DirectStorage {
 
   /**
    * Writes are serialized so a slow store never applies an older value last.
-   * They never reject: a failed write is reported and the in-memory state
-   * stays authoritative for this run.
+   * They resolve false instead of rejecting when the store fails, so callers
+   * that must not proceed without a durable record can check.
    */
-  #write(name: string, value: unknown): Promise<void> {
-    const write = this.#writes
-      .then(() => this.#kv.set(this.#prefix + name, JSON.stringify(value)))
-      .catch(() => this.#onError(name))
+  #write(name: string, value: unknown): Promise<boolean> {
+    const write = this.#writes.then(() =>
+      this.#kv.set(this.#prefix + name, JSON.stringify(value)).then(
+        () => true,
+        () => {
+          this.#onError(name)
+          return false
+        },
+      ),
+    )
     this.#writes = write
     return write
   }
@@ -88,11 +93,11 @@ export class DirectStorage {
     )
   }
 
-  loadAnswered() {
-    return this.#read('answered', z.array(AnsweredEntry), [])
+  loadAccepted() {
+    return this.#read('accepted', z.array(z.string().min(1)), [])
   }
 
-  saveAnswered(entries: Iterable<AnsweredEntry>) {
-    return this.#write('answered', [...entries].slice(-MAX_ANSWERED))
+  saveAccepted(clientIds: Iterable<string>) {
+    return this.#write('accepted', [...clientIds].slice(-MAX_ACCEPTED))
   }
 }

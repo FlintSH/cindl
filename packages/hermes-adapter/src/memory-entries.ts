@@ -1,4 +1,5 @@
 import { CindlError } from '@cindl/contracts'
+import { hermesReasonOf } from './errors.ts'
 import type { RestClient } from './rest.ts'
 
 /**
@@ -90,8 +91,8 @@ export function memoryFingerprint(sha256Hex: (text: string) => string, text: str
 /** Map a learning-route failure to a Cindl error without echoing Hermes's text (it can hold host paths). */
 function classify(error: unknown, label: string): unknown {
   if (!(error instanceof CindlError)) return error
-  const detail = error.detail ?? ''
-  const status = /HTTP (\d{3})/.exec(detail)?.[1] ?? '?'
+  const detail = `${error.detail ?? ''} ${hermesReasonOf(error)}`
+  const status = /HTTP (\d{3})/.exec(error.detail ?? '')?.[1] ?? '?'
   const at = (kind: string) => `${label}: HTTP ${status} (${kind})`
   if (/stale/i.test(detail))
     return new CindlError(

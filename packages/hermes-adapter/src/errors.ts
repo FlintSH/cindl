@@ -20,6 +20,25 @@ export const rpcErrorCodes = {
   storedSessionNotFound: 4007,
 } as const
 
+/**
+ * Hermes's raw error text, kept off the serialised error: it can contain host
+ * paths (e.g. `Could not write SOUL.md: <OSError>`). Adapter code may classify
+ * it; it never reaches `detail`, logs or IPC.
+ */
+const hermesReasons = new WeakMap<CindlError, string>()
+
+export function hermesReasonOf(error: unknown): string {
+  return error instanceof CindlError ? (hermesReasons.get(error) ?? '') : ''
+}
+
+/** Short machine tokens such as `revision_conflict` are safe to show; prose is not. */
+const SAFE_TOKEN = /^[a-z][a-z0-9_]{2,40}$/
+
+function withReason(error: CindlError, reason: string): CindlError {
+  if (reason) hermesReasons.set(error, reason)
+  return error
+}
+
 const httpCodes: ReadonlyArray<[number, ErrorCode, string]> = [
   [400, 'invalid', 'Hermes rejected the request.'],
   [401, 'unauthenticated', 'Sign in to Hermes again.'],
@@ -33,7 +52,12 @@ const httpCodes: ReadonlyArray<[number, ErrorCode, string]> = [
 
 export function httpError(status: number, body: unknown, context: string): CindlError {
   const reason = bodyReason(body)
-  const detail = safeText(`${context}: HTTP ${status}${reason ? ` (${reason})` : ''}`)
+  const shown = SAFE_TOKEN.test(reason) ? ` (${reason})` : ''
+  const detail = safeText(`${context}: HTTP ${status}${shown}`)
+  return withReason(httpErrorFor(status, detail), reason)
+}
+
+function httpErrorFor(status: number, detail: string): CindlError {
   const known = httpCodes.find(([code]) => code === status)
   if (known) return new CindlError(known[1], known[2], detail)
   if (status === 502 || status === 503 || status === 504)
@@ -70,8 +94,12 @@ export function rpcError(error: RpcErrorPayload | undefined, method: string): Ci
   const code = typeof error?.code === 'number' ? error.code : undefined
   const message = typeof error?.message === 'string' ? error.message : ''
   const detail = safeText(
-    `${method}: ${code ?? 'no code'}${message ? ` ${message}` : ''}`,
+    `${method}: ${code ?? 'no code'}${SAFE_TOKEN.test(message) ? ` ${message}` : ''}`,
   )
+  return withReason(rpcErrorFor(code, detail), message)
+}
+
+function rpcErrorFor(code: number | undefined, detail: string): CindlError {
   switch (code) {
     case rpcErrorCodes.methodNotFound:
       return new CindlError(

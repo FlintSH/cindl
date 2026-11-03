@@ -28,6 +28,7 @@ import {
   displayState,
   EventNormalizer,
   HermesConnection,
+  hermesReasonOf,
   isBaselineVersion,
   mapServerRequest,
   mcpFromStatus,
@@ -64,7 +65,7 @@ import type {
   WebSocketFactory,
 } from '../platform.ts'
 import { sha256Hex } from '../sha256.ts'
-import { DirectStorage, type AnsweredEntry } from './storage.ts'
+import { DirectStorage } from './storage.ts'
 
 /** Compile-time proof that client-core's platform types satisfy the adapter's structural ones. */
 type Assignable<T extends U, U> = T
@@ -82,7 +83,7 @@ export interface DirectClientDeps {
   fetch: FetchLike
   socketFactory: WebSocketFactory
   clock: Clock
-  /** Non-secret device storage: outbox, answered ledger, epoch counter, main pin. */
+  /** Non-secret device storage: outbox, accepted prompt ids, epoch counter, main pin. */
   kv: KeyValueStore
   /** Native only: OS-backed token storage. */
   secrets?: SecretStore
@@ -101,13 +102,15 @@ export interface DirectClientDeps {
     heartbeatIntervalMs?: number
     heartbeatDeadlineMs?: number
     backoff?: { initialMs: number; maxMs: number }
+    /** How often open request cards are checked against Hermes. Default 15 s. */
+    requestSyncMs?: number
   }
 }
 
 export interface DirectClient extends CindlClientApi {
   /** Load device state, discover Hermes and connect when signed in. */
   start(): Promise<void>
-  /** Close the connection. Device state stays. */
+  /** Close the connection. Device state stays; `start()` connects again. */
   stop(): void
 }
 
@@ -116,10 +119,21 @@ type Handler<K extends OpName> = (args: OpArgs<K>) => Promise<OpResult<K>> | OpR
 interface TrackedRequest {
   request: ServerRequest
   runtimeSessionId: string
+  conversationId: string | undefined
 }
+
+type ReattachOutcome = 'ok' | 'gone' | 'abort'
 
 const LOOPBACK_MODE =
   'Hermes is running in loopback-token mode. Cindl needs a sign-in provider (password or OAuth) and never reads the per-process dashboard token.'
+
+/** `session.events.since` watermark that returns no events, only `open_requests`. */
+const NO_EVENTS = Number.MAX_SAFE_INTEGER
+
+/** Offline, timed out or never sent: worth retrying on the next connection. */
+const isTransient = (error: unknown) =>
+  error instanceof NotSentError ||
+  (error instanceof CindlError && (error.code === 'offline' || error.code === 'timeout'))
 
 /**
  * The direct Hermes client (overview: data flow). It implements every
@@ -136,6 +150,8 @@ class DirectHermesClient implements DirectClient {
   readonly #deps: DirectClientDeps
   readonly #log: Diagnostics
   readonly #listeners = new Set<(event: CindlEvent) => void>()
+  readonly #profile: string
+  readonly #requestSyncMs: number
   #origin: string | undefined
   #storage: DirectStorage | undefined
   #rest: RestClient | undefined
@@ -156,10 +172,9 @@ class DirectHermesClient implements DirectClient {
   readonly #watermark = new Map<string, number>()
   readonly #historyLoaded = new Set<string>()
   readonly #requests = new Map<string, TrackedRequest>()
-  readonly #answered = new Map<string, AnsweredEntry>()
-  readonly #resent = new Set<string>()
   readonly #noticed = new Set<string>()
   readonly #prompts = new Map<string, PendingPrompt>()
+  readonly #accepted = new Set<string>()
   #main: string | undefined
   #holding = false
   #held: HermesEventParams[] = []
@@ -171,8 +186,9 @@ class DirectHermesClient implements DirectClient {
     previous: Set<string>
   } = { previous: new Set() }
   #listRefresh: unknown
+  #requestSync: unknown
   #started = false
-  readonly #profile: string
+  #deviceLoaded = false
 
   constructor(deps: DirectClientDeps) {
     this.#deps = deps
@@ -185,6 +201,7 @@ class DirectHermesClient implements DirectClient {
     }
     this.#normalizer = this.#newNormalizer()
     this.#profile = ProfileName.parse(deps.profile ?? 'default')
+    this.#requestSyncMs = deps.connection?.requestSyncMs ?? 15_000
     if (deps.origin) this.#configure(HermesOrigin.parse(deps.origin))
   }
 
@@ -220,14 +237,21 @@ class DirectHermesClient implements DirectClient {
       this.#setLink('unconfigured')
       return
     }
-    await this.#loadDevice()
+    if (!this.#deviceLoaded) await this.#loadDevice()
     await this.#discoverAndConnect()
   }
 
   stop(): void {
+    this.#started = false
     this.#connection?.stop()
     this.#connection = undefined
+    this.#handshake = undefined
     this.#deps.clock.clearTimeout(this.#listRefresh)
+    this.#deps.clock.clearTimeout(this.#requestSync)
+    const phase = this.#link.phase
+    if (phase === 'online' || phase === 'connecting' || phase === 'reconnecting')
+      this.#setLink('offline')
+    this.#refreshCapabilities()
   }
 
   // --- setup -------------------------------------------------------------------
@@ -253,7 +277,7 @@ class DirectHermesClient implements DirectClient {
   #configure(origin: string): void {
     this.#origin = origin
     this.#storage = new DirectStorage(this.#deps.kv, origin, (name) =>
-      this.#log.log('warn', 'direct.storage-write-failed', { name }),
+      this.#log.log('warn', 'direct.storage-failed', { name }),
     )
     const timers: Timers = this.#deps.clock
     if (this.#deps.auth === 'native-pkce') {
@@ -283,10 +307,10 @@ class DirectHermesClient implements DirectClient {
   async #loadDevice(): Promise<void> {
     const storage = this.#storage
     if (!storage) return
+    this.#deviceLoaded = true
     this.#epoch = await storage.loadEpoch()
     this.#main = await storage.loadMain()
-    for (const entry of await storage.loadAnswered())
-      this.#answered.set(entry.requestId, entry)
+    for (const clientId of await storage.loadAccepted()) this.#accepted.add(clientId)
     let changed = false
     for (const prompt of await storage.loadOutbox()) {
       // A prompt that was being sent when the app stopped may have reached Hermes.
@@ -312,12 +336,7 @@ class DirectHermesClient implements DirectClient {
     try {
       this.#status = await rest.status()
     } catch (error) {
-      const cause = asCindlError(error, 'discovery')
-      this.#setLink(
-        cause.code === 'offline' || cause.code === 'timeout' ? 'offline' : 'error',
-        cause,
-      )
-      this.#refreshCapabilities()
+      this.#offline(asCindlError(error, 'discovery'))
       return
     }
     if (this.#status.auth_required === false) {
@@ -328,12 +347,7 @@ class DirectHermesClient implements DirectClient {
     try {
       this.#signedIn = await this.#checkSignedIn()
     } catch (error) {
-      const cause = asCindlError(error, 'auth.me')
-      this.#setLink(
-        cause.code === 'offline' || cause.code === 'timeout' ? 'offline' : 'error',
-        cause,
-      )
-      this.#refreshCapabilities()
+      this.#offline(asCindlError(error, 'auth.me'))
       return
     }
     if (!this.#signedIn) {
@@ -342,6 +356,11 @@ class DirectHermesClient implements DirectClient {
       return
     }
     this.#connect()
+  }
+
+  #offline(cause: CindlError): void {
+    this.#setLink(isTransient(cause) ? 'offline' : 'error', cause)
+    this.#refreshCapabilities()
   }
 
   async #checkSignedIn(): Promise<boolean> {
@@ -506,6 +525,7 @@ class DirectHermesClient implements DirectClient {
         this.#setLink('incompatible', state.lastError)
         break
       case 'stopped':
+        // stop() and sign-out set the phase themselves.
         break
     }
     this.#refreshCapabilities()
@@ -528,18 +548,16 @@ class DirectHermesClient implements DirectClient {
     const epochChanged =
       previous !== undefined && handshake.previousReplayEpoch !== handshake.replayEpoch
     this.#holding = true
-    const openIds = new Set<string>()
-    const openEntries: wire.OpenRequestEntry[] = []
+    let aborted = false
     try {
       for (const [storedId, oldSid] of [...this.#runtime]) {
-        await this.#reattach(
-          storedId,
-          oldSid,
-          epochChanged,
-          handshake,
-          openIds,
-          openEntries,
-        )
+        if (
+          (await this.#reattach(storedId, oldSid, epochChanged, handshake)) === 'abort'
+        ) {
+          // The new socket failed too; keep every binding for the next attempt.
+          aborted = true
+          break
+        }
       }
     } finally {
       this.#holding = false
@@ -547,64 +565,94 @@ class DirectHermesClient implements DirectClient {
       this.#held = []
       for (const params of held) this.#dispatchEvent(params)
     }
-    this.#connection?.channel?.deliverOpenRequests(openEntries)
-    for (const [requestId, tracked] of [...this.#requests])
-      if (!openIds.has(requestId) && tracked.request.status === 'open')
-        this.#requests.delete(requestId)
-    this.#emit({ type: 'requests.synced', openRequestIds: [...openIds] })
+    if (aborted) return
     void this.#flushOutbox()
     this.#scheduleListRefresh(0)
     void this.#probeDisplay()
+    this.#scheduleRequestSync()
   }
 
+  /**
+   * Re-attach one session after a reconnect: resume it on this socket, replay
+   * what this client missed when the numbering is unchanged (or reload history
+   * when it is not), then report the requests Hermes still holds open for that
+   * conversation. The replay runs before that report so a request Hermes
+   * withdrew while this client was away closes with Hermes's reason; the
+   * report then closes the ones that ended without an event (another client
+   * answered them).
+   */
   async #reattach(
     storedId: string,
     oldSid: string,
     epochChanged: boolean,
     handshake: Handshake,
-    openIds: Set<string>,
-    openEntries: wire.OpenRequestEntry[],
-  ): Promise<void> {
-    const collect = (entries: readonly wire.OpenRequestEntry[] | null | undefined) => {
-      for (const entry of entries ?? [])
-        if (!openIds.has(entry.id)) {
-          openIds.add(entry.id)
-          openEntries.push(entry)
-        }
-    }
+  ): Promise<ReattachOutcome> {
+    let before = this.#trackedIn(storedId)
     let snapshot: wire.SessionResumeResult
     try {
       snapshot = await this.#resume(storedId, true)
     } catch (error) {
+      if (isTransient(error)) return 'abort'
       this.#log.log('warn', 'direct.reattach-failed', {
         code: asCindlError(error, 'resume').code,
       })
-      this.#detachRuntime(storedId)
-      return
+      if (asCindlError(error, 'resume').code === 'not-found') {
+        this.#detachRuntime(storedId)
+        this.#syncRequests(storedId, [])
+        return 'gone'
+      }
+      return 'abort'
     }
-    collect(snapshot.open_requests)
     const newSid = snapshot.session_id
     const watermark = this.#watermark.get(oldSid)
-    if (newSid === oldSid && !epochChanged && watermark !== undefined) {
-      const raw = await this.#connection
-        ?.request('session.events.since', { session_id: oldSid, last_seen: watermark })
-        .catch(() => undefined)
-      const since =
-        raw === undefined ? undefined : wire.parseWire(wire.SessionEventsSinceResult, raw)
-      if (since) collect(since.open_requests)
-      if (!since || since.epoch !== handshake.replayEpoch || since.truncated) {
+    let open: readonly wire.OpenRequestEntry[] = snapshot.open_requests ?? []
+    let replay: readonly HermesEventParams[] = []
+    if (newSid === oldSid && !epochChanged) {
+      let since: wire.SessionEventsSinceResult | undefined
+      const beforeSince = this.#trackedIn(storedId)
+      try {
+        since = wire.parseWire(
+          wire.SessionEventsSinceResult,
+          await this.#rpc('session.events.since', {
+            session_id: newSid,
+            last_seen: watermark ?? NO_EVENTS,
+          }),
+        )
+      } catch (error) {
+        if (isTransient(error)) return 'abort'
+      }
+      if (since) {
+        open = since.open_requests
+        before = beforeSince
+      }
+      if (watermark === undefined) this.#resetHistory(storedId, 'resync')
+      else if (!since || since.epoch !== handshake.replayEpoch || since.truncated) {
         // The replay has a hole (or none came back): reload instead of trusting it.
-        if (since) this.#watermark.set(oldSid, Math.max(watermark, since.latest_seq))
+        if (since) this.#watermark.set(newSid, Math.max(watermark, since.latest_seq))
         this.#resetHistory(storedId, since?.truncated ? 'truncated' : 'epoch-changed')
-      } else
-        for (const event of since.events)
-          this.#dispatchEvent(event as unknown as HermesEventParams)
-      return
+      } else replay = since.events as unknown as HermesEventParams[]
+    } else {
+      // A different runtime session or a restarted Hermes: the old numbering is gone.
+      this.#normalizer.forgetSession(oldSid)
+      this.#watermark.delete(oldSid)
+      this.#resetHistory(storedId, epochChanged ? 'epoch-changed' : 'resync')
     }
-    // A different runtime session or a restarted Hermes: the old numbering is gone.
-    this.#normalizer.forgetSession(oldSid)
-    this.#watermark.delete(oldSid)
-    this.#resetHistory(storedId, epochChanged ? 'epoch-changed' : 'resync')
+    this.#connection?.channel?.deliverOpenRequests(open)
+    for (const event of replay) this.#dispatchEvent(event)
+    this.#releaseHeld(newSid)
+    this.#syncRequests(
+      storedId,
+      open.map((entry) => entry.id),
+      before,
+    )
+    return 'ok'
+  }
+
+  /** Apply one re-attached session's live events that arrived meanwhile, in order. */
+  #releaseHeld(sid: string): void {
+    const held = this.#held
+    this.#held = held.filter((params) => params.session_id !== sid)
+    for (const params of held) if (params.session_id === sid) this.#dispatchEvent(params)
   }
 
   #resetHistory(
@@ -613,6 +661,75 @@ class DirectHermesClient implements DirectClient {
   ): void {
     if (!this.#historyLoaded.delete(storedId)) return
     this.#emit({ type: 'history.reset', conversationId: storedId, reason })
+  }
+
+  /**
+   * Report what Hermes holds open for one conversation. A tracked request the
+   * snapshot leaves out closed without an event (another client answered it),
+   * unless it was not yet tracked when the snapshot was asked for (`before`):
+   * then it is newer than the snapshot and still open.
+   */
+  #syncRequests(
+    conversationId: string,
+    listed: readonly string[],
+    before?: ReadonlySet<string>,
+  ): void {
+    const open = new Set(listed)
+    for (const [requestId, tracked] of [...this.#requests]) {
+      if (tracked.conversationId !== conversationId || open.has(requestId)) continue
+      if (before && !before.has(requestId)) open.add(requestId)
+      else this.#requests.delete(requestId)
+    }
+    this.#emit({ type: 'requests.synced', conversationId, openRequestIds: [...open] })
+  }
+
+  #trackedIn(conversationId: string): Set<string> {
+    const ids = new Set<string>()
+    for (const [requestId, tracked] of this.#requests)
+      if (tracked.conversationId === conversationId) ids.add(requestId)
+    return ids
+  }
+
+  /**
+   * On `hermes serve` v0.22.5 an answer from another client produces no
+   * event here (server_requests.py:281-317), so while a card is open the
+   * client asks Hermes which requests are still open in that conversation.
+   */
+  #scheduleRequestSync(): void {
+    this.#deps.clock.clearTimeout(this.#requestSync)
+    if (!this.#requests.size || this.#requestSyncMs <= 0) return
+    this.#requestSync = this.#deps.clock.setTimeout(() => {
+      void this.#syncOpenRequests()
+    }, this.#requestSyncMs)
+  }
+
+  async #syncOpenRequests(): Promise<void> {
+    const conversations = new Set(
+      [...this.#requests.values()].map((tracked) => tracked.conversationId),
+    )
+    for (const conversationId of conversations) {
+      const sid = conversationId && this.#runtime.get(conversationId)
+      if (!conversationId || !sid) continue
+      const before = this.#trackedIn(conversationId)
+      try {
+        const since = wire.parseWire(
+          wire.SessionEventsSinceResult,
+          await this.#rpc('session.events.since', {
+            session_id: sid,
+            last_seen: NO_EVENTS,
+          }),
+        )
+        if (since)
+          this.#syncRequests(
+            conversationId,
+            since.open_requests.map((entry) => entry.id),
+            before,
+          )
+      } catch {
+        // Next tick, or the reconnect, tries again.
+      }
+    }
+    this.#scheduleRequestSync()
   }
 
   // --- events ---------------------------------------------------------------------
@@ -649,9 +766,14 @@ class DirectHermesClient implements DirectClient {
         this.#scheduleListRefresh(250)
         return
       case 'request-cancelled':
+        // `resolved`: settled from another surface (approval_gateway_wait.py:209-221).
         this.#closeRequest(
           effect.requestId,
-          effect.reason === 'timeout' ? 'expired' : 'cancelled',
+          effect.reason === 'resolved'
+            ? 'resolved-elsewhere'
+            : effect.reason === 'timeout'
+              ? 'expired'
+              : 'cancelled',
         )
         return
       case 'approvals-cancelled':
@@ -753,15 +875,25 @@ class DirectHermesClient implements DirectClient {
         'session.resume',
       )
     this.#bindRuntime(storedId, snapshot.session_id)
-    if (snapshot.running) {
-      const conversation = this.#conversations.get(storedId)
-      if (conversation)
-        this.#emit({
-          type: 'session.status',
-          conversationId: storedId,
-          status: 'working',
-        })
-    }
+    if (snapshot.running && this.#conversations.has(storedId))
+      this.#emit({ type: 'session.status', conversationId: storedId, status: 'working' })
+    return snapshot
+  }
+
+  /** Attach a stored session to this socket and reconcile its open requests. */
+  async #attachWithSnapshot(
+    storedId: string,
+    omitMessages: boolean,
+  ): Promise<wire.SessionResumeResult> {
+    const before = this.#trackedIn(storedId)
+    const snapshot = await this.#resume(storedId, omitMessages)
+    const open = snapshot.open_requests ?? []
+    this.#connection?.channel?.deliverOpenRequests(open)
+    this.#syncRequests(
+      storedId,
+      open.map((entry) => entry.id),
+      before,
+    )
     return snapshot
   }
 
@@ -769,9 +901,7 @@ class DirectHermesClient implements DirectClient {
   async #attach(storedId: string): Promise<string> {
     const known = this.#runtime.get(storedId)
     if (known) return known
-    const snapshot = await this.#resume(storedId, true)
-    this.#connection?.channel?.deliverOpenRequests(snapshot.open_requests ?? [])
-    return snapshot.session_id
+    return (await this.#attachWithSnapshot(storedId, true)).session_id
   }
 
   #conversationOrThrow(conversationId: string): Conversation {
@@ -821,12 +951,7 @@ class DirectHermesClient implements DirectClient {
 
   async #rpc(method: string, params: Record<string, unknown>): Promise<unknown> {
     const connection = this.#connection
-    if (!connection)
-      throw new CindlError(
-        'offline',
-        'Not connected to Hermes.',
-        `${method}: no connection`,
-      )
+    if (!connection) throw new NotSentError(`${method}: no connection`)
     return connection.request(method, params)
   }
 
@@ -838,18 +963,6 @@ class DirectHermesClient implements DirectClient {
   // --- server requests ----------------------------------------------------------------
 
   #onServerRequest(inbound: InboundServerRequest, epoch: number): void {
-    const answered = this.#answered.get(inbound.id)
-    if (answered) {
-      // Hermes still lists a request this device answered, so the reply never
-      // arrived. Re-send the same decision; the first reply wins, so this is safe.
-      const key = `${inbound.id}|${epoch}`
-      if (!this.#resent.has(key)) {
-        this.#resent.add(key)
-        inbound.respond(answered.result)
-        this.#log.log('info', 'direct.request-reply-resent', { epoch })
-      }
-      return
-    }
     const sid =
       typeof inbound.params.session_id === 'string' ? inbound.params.session_id : ''
     const conversationId = this.#stored.get(sid)
@@ -870,10 +983,14 @@ class DirectHermesClient implements DirectClient {
     this.#requests.set(inbound.id, {
       request: mapped.request,
       runtimeSessionId: mapped.runtimeSessionId,
+      conversationId,
     })
+    // Hermes holds it open, so even a request this client answered before is
+    // answerable again: that answer did not land (the reducer reopens it).
     this.#emit({ type: 'request.opened', request: mapped.request })
     if (conversationId)
       this.#emit({ type: 'session.status', conversationId, status: 'waiting-on-you' })
+    this.#scheduleRequestSync()
   }
 
   #onUnhandledServerRequest(request: UnhandledServerRequest): void {
@@ -888,7 +1005,7 @@ class DirectHermesClient implements DirectClient {
 
   #closeRequest(
     requestId: string,
-    status: 'answered' | 'resolved-elsewhere' | 'cancelled' | 'expired' | 'failed',
+    status: 'answered' | 'resolved-elsewhere' | 'cancelled' | 'expired',
   ): void {
     if (!this.#requests.delete(requestId)) return
     this.#emit({ type: 'request.closed', requestId, status })
@@ -903,57 +1020,90 @@ class DirectHermesClient implements DirectClient {
     return prompt
   }
 
-  async #send(prompt: PendingPrompt): Promise<PendingPrompt> {
-    const sending = this.#setPrompt({ ...prompt, state: 'sending' })
+  /**
+   * Send one recorded prompt. Only a prompt still `queued-offline` is sent, so
+   * a discard or a second flush always wins; and only after the `sending`
+   * record is durable, so a crash can never lead to a second send.
+   */
+  async #send(
+    prompt: PendingPrompt,
+    options: { queued: boolean },
+  ): Promise<PendingPrompt> {
+    const clientId = prompt.clientId
+    const current = this.#prompts.get(clientId)
+    if (!current)
+      return { ...prompt, state: 'failed', error: 'Discarded before it was sent.' }
+    if (current.state !== 'queued-offline') return current
+    const sending: PendingPrompt = { ...current, state: 'sending' }
+    this.#prompts.set(clientId, sending)
+    this.#emit({ type: 'prompt.updated', prompt: sending })
+    const durable = (await this.#storage?.saveOutbox(this.#prompts.values())) ?? true
+    if (!durable)
+      return this.#setPrompt({
+        ...current,
+        error: 'This device could not record the message, so it was not sent.',
+      })
     let sid: string
     try {
-      sid = await this.#attach(prompt.conversationId)
+      sid = await this.#attach(current.conversationId)
     } catch (error) {
       const cause = asCindlError(error, 'attach')
       return this.#setPrompt(
-        cause.code === 'offline' || cause.code === 'timeout'
-          ? { ...prompt, state: 'queued-offline' }
-          : { ...prompt, state: 'failed', error: cause.message },
+        isTransient(cause)
+          ? current
+          : { ...current, state: 'failed', error: cause.message },
       )
     }
     let raw: unknown
     try {
-      raw = await this.#rpc('prompt.submit', { session_id: sid, text: prompt.text })
+      raw = await this.#rpc('prompt.submit', {
+        session_id: sid,
+        text: current.text,
+        // A prompt written while offline waits behind a running turn instead of
+        // redirecting it (prompt_voice.py:35, session_auto_continue.py:400-406).
+        ...(options.queued ? { queued: true } : {}),
+      })
     } catch (error) {
-      if (error instanceof NotSentError)
-        return this.#setPrompt({ ...prompt, state: 'queued-offline' })
+      if (error instanceof NotSentError) return this.#setPrompt(current)
       const cause = asCindlError(error, 'prompt.submit')
       // A timeout or a drop after sending: Hermes may have run it. Never resent.
-      if (cause.code === 'offline' || cause.code === 'timeout')
+      if (isTransient(cause))
         return this.#setPrompt({
-          ...prompt,
+          ...current,
           state: 'uncertain',
           error:
             'The connection dropped before Hermes confirmed this message. It was not resent.',
         })
-      return this.#setPrompt({ ...prompt, state: 'failed', error: cause.message })
+      return this.#setPrompt({ ...current, state: 'failed', error: cause.message })
     }
     const result = wire.parseWire(wire.PromptSubmitResult, raw)
+    this.#accepted.add(clientId)
+    void this.#storage?.saveAccepted(this.#accepted)
     const accepted = this.#setPrompt({
-      ...sending,
+      ...current,
       state: 'accepted',
       ...(result?.status ? { disposition: result.status } : {}),
     })
-    const messageId = `prompt:${prompt.clientId}`
+    const messageId = `prompt:${clientId}`
     this.#emit({
       type: 'message.started',
-      conversationId: prompt.conversationId,
+      conversationId: current.conversationId,
       messageId,
       role: 'user',
     })
     this.#emit({
       type: 'message.completed',
-      conversationId: prompt.conversationId,
+      conversationId: current.conversationId,
       messageId,
       status: 'complete',
-      text: prompt.text,
+      text: current.text,
     })
     return accepted
+  }
+
+  /** A prompt Hermes accepted earlier on this device (its record is no longer kept). */
+  #acceptedRecord(clientId: string, conversationId: string, text: string): PendingPrompt {
+    return { clientId, conversationId, text, createdAt: this.#now(), state: 'accepted' }
   }
 
   async #flushOutbox(): Promise<void> {
@@ -962,7 +1112,9 @@ class DirectHermesClient implements DirectClient {
       .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
     for (const prompt of queued) {
       if (!this.#connection?.channel) return
-      await this.#send(prompt)
+      // Re-read each time: a discard during the flush wins.
+      if (this.#prompts.get(prompt.clientId)?.state !== 'queued-offline') continue
+      await this.#send(prompt, { queued: true })
     }
   }
 
@@ -1044,6 +1196,7 @@ class DirectHermesClient implements DirectClient {
         this.#configure(origin)
         await this.#loadDevice()
       }
+      this.#started = true
       const rest = this.#restOrThrow()
       this.#setLink('connecting')
       this.#status = await rest.status()
@@ -1086,7 +1239,6 @@ class DirectHermesClient implements DirectClient {
       this.stop()
       await this.#native?.signOut()
       this.#signedIn = false
-      this.#handshake = undefined
       for (const requestId of [...this.#requests.keys()])
         this.#closeRequest(requestId, 'cancelled')
       this.#setLink('signed-out')
@@ -1167,7 +1319,7 @@ class DirectHermesClient implements DirectClient {
           // refused write was not applied.
           if (
             cause.code === 'conflict' &&
-            /revision_conflict/.test(cause.detail ?? '') &&
+            hermesReasonOf(cause) === 'revision_conflict' &&
             attempt === 0
           )
             continue
@@ -1177,8 +1329,7 @@ class DirectHermesClient implements DirectClient {
       return this.#upsert({ ...conversation, title, updatedAt: this.#now() })
     },
     'conversations.history': async ({ conversationId }) => {
-      const snapshot = await this.#resume(conversationId, false)
-      this.#connection?.channel?.deliverOpenRequests(snapshot.open_requests ?? [])
+      const snapshot = await this.#attachWithSnapshot(conversationId, false)
       const history = transcriptToHistory(conversationId, snapshot.messages)
       for (const activity of history.tools) this.#emit({ type: 'tool.updated', activity })
       this.#historyLoaded.add(conversationId)
@@ -1186,19 +1337,21 @@ class DirectHermesClient implements DirectClient {
       return history
     },
     'prompt.submit': async ({ conversationId, clientId, text }) => {
+      // Never send the same client prompt twice, even after a restart.
+      if (this.#accepted.has(clientId) && !this.#prompts.has(clientId))
+        return this.#acceptedRecord(clientId, conversationId, text)
       const existing = this.#prompts.get(clientId)
-      // Never send the same client prompt twice.
       if (existing) return existing
       this.#conversationOrThrow(conversationId)
-      const prompt: PendingPrompt = {
+      const prompt = this.#setPrompt({
         clientId,
         conversationId,
         text,
         createdAt: this.#now(),
         state: 'queued-offline',
-      }
-      if (!this.#connection?.channel) return this.#setPrompt(prompt)
-      return this.#send(prompt)
+      })
+      if (!this.#connection?.channel) return prompt
+      return this.#send(prompt, { queued: false })
     },
     'prompt.discard': async ({ clientId }) => {
       const prompt = this.#prompts.get(clientId)
@@ -1206,6 +1359,7 @@ class DirectHermesClient implements DirectClient {
         return { discarded: false }
       this.#prompts.delete(clientId)
       await this.#storage?.saveOutbox(this.#prompts.values())
+      this.#emit({ type: 'prompt.removed', clientId })
       return { discarded: true }
     },
     'conversation.interrupt': async ({ conversationId }) => {
@@ -1214,48 +1368,33 @@ class DirectHermesClient implements DirectClient {
       await this.#rpc('session.interrupt', { session_id: sid })
       return { requested: true as const }
     },
-    'request.answer': async ({ requestId, answer }) => {
+    'request.answer': ({ requestId, answer }) => {
       const tracked = this.#requests.get(requestId)
       if (!tracked) throw new CindlError('not-found', 'This request is no longer open.')
-      if (this.#answered.has(requestId) || tracked.request.status !== 'open')
-        throw new CindlError(
-          'conflict',
-          'This request was already answered on this device.',
-        )
       this.#require(
         tracked.request.kind === 'approval' ? 'requests.approval' : 'requests.clarify',
       )
       const result = answerResult(tracked.request, answer)
-      const channel = this.#connection?.channel
-      if (!channel)
-        throw new CindlError('offline', 'Not connected to Hermes.', 'request.answer')
-      // Recorded before sending: a crash after sending must never allow a second answer.
-      const entry: AnsweredEntry = {
-        requestId,
-        result,
-        answeredAt: this.#now(),
-        epoch: this.#epoch,
-      }
-      this.#answered.set(requestId, entry)
-      await this.#storage?.saveAnswered(this.#answered.values())
-      const sent = channel.respondTo(requestId, result)
+      const answering: ServerRequest = { ...tracked.request, status: 'answering', answer }
+      // No second answer from this device while this one is on its way.
+      this.#requests.delete(requestId)
+      this.#emit({ type: 'request.opened', request: answering })
+      const sent = this.#connection?.channel?.respondTo(requestId, result) ?? 'not-sent'
       if (sent === 'not-sent') {
-        this.#answered.delete(requestId)
-        await this.#storage?.saveAnswered(this.#answered.values())
+        this.#requests.set(requestId, tracked)
+        this.#emit({ type: 'request.answer-failed', requestId })
         throw new CindlError(
           'offline',
-          'Not connected to Hermes.',
+          'Not connected to Hermes. The answer was not sent.',
           'request.answer: not sent',
         )
       }
-      const answering: ServerRequest = { ...tracked.request, status: 'answering', answer }
-      this.#emit({ type: 'request.opened', request: answering })
-      this.#requests.delete(requestId)
+      // `answered` means sent: Hermes keeps the first reply and does not acknowledge it.
       this.#emit({ type: 'request.closed', requestId, status: 'answered' })
-      if (tracked.request.conversationId)
+      if (tracked.conversationId)
         this.#emit({
           type: 'session.status',
-          conversationId: tracked.request.conversationId,
+          conversationId: tracked.conversationId,
           status: 'working',
         })
       return { ...answering, status: 'answered' as const }
@@ -1270,7 +1409,7 @@ class DirectHermesClient implements DirectClient {
         throw new CindlError(
           'unavailable',
           'Hermes could not list its routines.',
-          safeText(result?.error ?? 'cron.manage list'),
+          'cron.manage list',
         )
       return (result.jobs ?? []).map(routineFromJob)
     },
@@ -1280,12 +1419,16 @@ class DirectHermesClient implements DirectClient {
         name: id,
       })
       const result = wire.parseWire(wire.CronManageResult, raw)
-      if (!result?.success || !result.job)
+      if (!result?.success || !result.job) {
+        const missing = /not found/i.test(result?.error ?? '')
         throw new CindlError(
-          /not found/i.test(result?.error ?? '') ? 'not-found' : 'unavailable',
-          'Hermes could not change that routine.',
-          safeText(result?.error ?? 'cron.manage'),
+          missing ? 'not-found' : 'unavailable',
+          missing
+            ? 'That routine no longer exists.'
+            : 'Hermes could not change that routine.',
+          `cron.manage ${enabled ? 'resume' : 'pause'}`,
         )
+      }
       return routineFromJob(result.job)
     },
     'skills.list': async () => (await this.#restOrThrow().skills()).map(skillFromRow),
@@ -1395,14 +1538,14 @@ class DirectHermesClient implements DirectClient {
     this.#watermark.clear()
     this.#historyLoaded.clear()
     this.#requests.clear()
-    this.#answered.clear()
-    this.#resent.clear()
     this.#noticed.clear()
     this.#prompts.clear()
+    this.#accepted.clear()
     this.#handshake = undefined
     this.#status = undefined
     this.#signedIn = false
     this.#everOnline = false
+    this.#deviceLoaded = false
     this.#epoch = 0
     this.#display = { previous: new Set() }
     this.#normalizer = this.#newNormalizer()

@@ -236,7 +236,14 @@ async function main(argv: string[]): Promise<number> {
     // A bare access token, or a stored token set with an access_token field.
     token = raw
     if (raw.startsWith('{')) {
-      const parsed = JSON.parse(raw) as { access_token?: unknown }
+      let parsed: { access_token?: unknown }
+      try {
+        parsed = JSON.parse(raw) as { access_token?: unknown }
+      } catch {
+        // Never echo the parser's message: it quotes the file's contents.
+        console.error('error: the token file is not valid JSON')
+        return 2
+      }
       token = typeof parsed.access_token === 'string' ? parsed.access_token : undefined
     }
     if (!token) {

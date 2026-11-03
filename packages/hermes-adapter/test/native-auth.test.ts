@@ -8,7 +8,7 @@ import {
   type LoopbackLeg,
   type SecretVault,
 } from '../src/index.ts'
-import { captureLog, fakeHermes, timers } from './harness.ts'
+import { captureLog, fakeHermes, timers, until } from './harness.ts'
 
 const crypto = webCryptoProvider()
 
@@ -191,6 +191,62 @@ describe('native PKCE sign-in', () => {
     expect(identity.persistent).toBe(false)
     expect(secrets.writes).toEqual([])
     await expect(rest.me()).resolves.toMatchObject({ user_id: 'fixture-owner' })
+  })
+
+  it('drops a refresh that finishes after sign-out (review M3)', async () => {
+    const fake = await fakeHermes()
+    const secrets = vault()
+    let refreshing = false
+    let release: () => void = () => undefined
+    const gate = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    const auth = new NativeAuth({
+      origin: fake.origin,
+      fetch: async (url, init) => {
+        if (url.endsWith('/auth/native/refresh')) {
+          refreshing = true
+          await gate
+        }
+        return fetch(url, init)
+      },
+      timers,
+      secrets,
+      crypto,
+    })
+    await auth.signIn(browserLeg())
+    const pending = auth.refresh()
+    await until(() => refreshing)
+    await auth.signOut()
+    release()
+    await expect(pending).resolves.toBe(false)
+    expect(secrets.map.size).toBe(0)
+    await expect(auth.identity()).resolves.toBeUndefined()
+    await expect(auth.accessToken()).resolves.toBeUndefined()
+  })
+
+  it('reads the stored tokens once for concurrent callers (review L1)', async () => {
+    const { fake, secrets } = await signedIn()
+    let reads = 0
+    const slow: SecretVault = {
+      ...secrets,
+      get: async (key) => {
+        reads++
+        await new Promise((resolve) => setTimeout(resolve, 20))
+        return secrets.map.get(key)
+      },
+    }
+    const again = new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      secrets: slow,
+      crypto,
+    })
+    const [identity, token] = await Promise.all([again.identity(), again.accessToken()])
+    expect(identity).toMatchObject({ userId: 'fixture-owner' })
+    expect(token).toEqual(expect.any(String))
+    expect(reads).toBe(1)
   })
 
   it('reloads stored tokens in a new client instance', async () => {

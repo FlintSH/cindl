@@ -3,6 +3,7 @@ import type { z } from 'zod'
 import { endpointPath, restEndpoints, type RestEndpointName } from './compat.ts'
 import { silentDiagnostics, type Diagnostics } from './diagnostics.ts'
 import { httpError, offlineError, protocolError, timeoutError } from './errors.ts'
+import { parseMemoryEntryId } from './memory-entries.ts'
 import type { FetchLike, Timers } from './platform.ts'
 import * as wire from './wire.ts'
 
@@ -177,21 +178,25 @@ export class RestClient {
     })
   }
 
-  learningNode(id: string, profile?: string) {
+  /** Memory entries only: a non-`memory:` or positional id would address a skill or a position. */
+  async learningNode(id: string, profile?: string) {
+    parseMemoryEntryId(id)
     return this.#call('learningNode', {
       query: { id, profile },
       schema: wire.LearningNodeResponse,
     })
   }
 
-  writeLearningNode(id: string, content: string, profile?: string) {
+  async writeLearningNode(id: string, content: string, profile?: string) {
+    parseMemoryEntryId(id)
     return this.#call('learningNodeWrite', {
       body: profile ? { id, content, profile } : { id, content },
       schema: wire.LearningMutationResponse,
     })
   }
 
-  deleteLearningNode(id: string, profile?: string) {
+  async deleteLearningNode(id: string, profile?: string) {
+    parseMemoryEntryId(id)
     return this.#call('learningNodeDelete', {
       body: profile ? { id, profile } : { id },
       schema: wire.LearningMutationResponse,

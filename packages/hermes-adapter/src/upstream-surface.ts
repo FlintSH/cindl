@@ -62,10 +62,14 @@ export const canonicalMethods = [
   'cron.status',
 ] as const
 
-/** Server-to-client requests Cindl answers. Every other request gets JSON-RPC -32601. */
+/**
+ * Server-to-client requests Cindl answers. Others are never answered with an
+ * error: window-owned bridges get the 4404 decline and the rest get no reply
+ * (rpc.ts `unhandledRequestAction`).
+ */
 export const answeredServerRequests = ['approval', 'clarify'] as const
 
-/** Notifications the normalizer understands. Unknown types are ignored, never guessed. */
+/** Notifications `normalize.ts` maps. Unknown types are ignored, never guessed. */
 export const handledNotifications = [
   'gateway.ready',
   'message.start',

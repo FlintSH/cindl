@@ -54,7 +54,11 @@ export type RestEndpointName = keyof typeof restEndpoints
 /** Single-use WebSocket ticket lifetime advertised by `POST /api/auth/ws-ticket`. */
 export const WS_TICKET_TTL_SECONDS = 30
 
-/** JSON-RPC error code for server requests Cindl does not implement. */
+/**
+ * JSON-RPC "method not found". Hermes answers it for methods a build lacks,
+ * which Cindl reads as version skew. Cindl never sends it as a reply to a
+ * server request: that would close the request for every client (rpc.ts).
+ */
 export const METHOD_NOT_FOUND = -32601
 
 /**

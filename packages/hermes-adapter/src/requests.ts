@@ -1,8 +1,11 @@
 import {
   CindlError,
   clarifyAnswersComplete,
+  openQuestionIds,
+  RequestId,
   type ApprovalChoice,
   type ClarifyQuestion,
+  type ClarifyResponse,
   type RequestAnswer,
   type ServerRequest,
 } from '@cindl/contracts'
@@ -19,10 +22,12 @@ import { boundedText, safeText } from './diagnostics.ts'
  *            -> {answers: {qid: string | null}}; a result without answers cancels all
  *
  * Cindl answers approvals only with `once` or `deny` and never sends `all`.
- * A clarify set is answered in one reply covering every question: typed text
- * as is, picked options as the option text (single select) or a JSON array
- * string (multi select, tools/clarify_tool.py:36-47), skipped as `null`.
- * Requests are keyed by Hermes's `srq-` id, which survives reconnects.
+ * A clarify set is answered in one reply covering every question no other
+ * client has locked: typed text as is, picked options as the option text
+ * (single select) or a JSON array string (multi select,
+ * tools/clarify_tool.py:36-47), skipped as `null`. Locked questions are left
+ * out because Hermes lays the reply over the locks (tools/clarify_batch.py:27-30).
+ * Requests are keyed by Hermes's `srq-<12 hex>` id, which survives reconnects.
  */
 
 const PERMITTED: readonly ApprovalChoice[] = ['once', 'deny']
@@ -41,6 +46,8 @@ const ApprovalParams = z.object({
 
 const ClarifyParams = z.object({
   session_id: z.string().min(1),
+  /** Answers other clients locked with clarify.lock; only on a reconnect snapshot. */
+  answers: z.record(z.string(), z.string().nullable()).nullable().optional(),
   questions: z
     .array(
       z.object({
@@ -80,7 +87,33 @@ function defaultChoices(params: z.infer<typeof ApprovalParams>): string[] {
   return [...choices, 'deny']
 }
 
+/** A locked raw answer as the contract's per-question response. */
+function lockedResponse(
+  question: ClarifyQuestion | undefined,
+  raw: string | null,
+): ClarifyResponse {
+  const value = raw?.trim() ?? ''
+  if (!value) return { skipped: true }
+  if (question?.multiSelect) {
+    try {
+      const parsed: unknown = JSON.parse(value)
+      if (
+        Array.isArray(parsed) &&
+        parsed.length > 0 &&
+        parsed.every((item) => typeof item === 'string')
+      )
+        return { choices: parsed }
+    } catch {
+      // A typed "Other" answer to a multi-select question.
+    }
+  }
+  if (question?.choices?.includes(value)) return { choices: [value] }
+  return { text: value.slice(0, 20_000) }
+}
+
 export function mapServerRequest(input: InboundRequestInput): MappedRequest | undefined {
+  // Hermes mints `srq-<12 hex>` (server_requests.py:71); anything else is not one of its requests.
+  if (!RequestId.safeParse(input.requestId).success) return undefined
   const base = {
     requestId: input.requestId,
     lastSeenEpoch: input.lastSeenEpoch,
@@ -123,6 +156,11 @@ export function mapServerRequest(input: InboundRequestInput): MappedRequest | un
       ...(question.choices?.length ? { choices: question.choices } : {}),
       multiSelect: question.multi_select === true && Boolean(question.choices?.length),
     }))
+    // Answers other clients locked (ServerRequest.snapshot, server_requests.py:93-99).
+    const locked = Object.entries(parsed.data.answers ?? {}).flatMap(([qid, raw]) => {
+      const question = questions.find((q) => q.qid === qid)
+      return question ? [[qid, lockedResponse(question, raw)] as const] : []
+    })
     const request: ServerRequest = {
       ...base,
       kind: 'clarify',
@@ -132,6 +170,7 @@ export function mapServerRequest(input: InboundRequestInput): MappedRequest | un
           : `Hermes has ${questions.length} questions`,
       choices: [],
       questions,
+      ...(locked.length ? { lockedAnswers: Object.fromEntries(locked) } : {}),
     }
     return { request, runtimeSessionId: parsed.data.session_id }
   }
@@ -163,10 +202,13 @@ export function answerResult(
   if (!clarifyAnswersComplete(request, answer.answers))
     throw new CindlError(
       'invalid',
-      'Answer or skip every question, then send them together.',
+      'Answer or skip every open question, then send them together.',
     )
+  const open = new Set(openQuestionIds(request))
   const answers: Record<string, string | null> = {}
   for (const question of request.questions ?? []) {
+    // A question another client locked is not ours to answer: the reply would override it.
+    if (!open.has(question.qid)) continue
     const response = answer.answers[question.qid]
     if (!response || 'skipped' in response) {
       answers[question.qid] = null

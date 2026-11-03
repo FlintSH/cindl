@@ -1,7 +1,8 @@
-import { CindlError, type Conversation } from '@cindl/contracts'
+import { CindlError, type Conversation, type ServerRequest } from '@cindl/contracts'
+import { connectRawClient } from '@cindl/fixtures/fake-hermes'
 import { describe, expect, it } from 'vitest'
-import { selectOpenRequests, sha256Hex } from '../src/index.ts'
-import { fakeHermes, harness, type Harness } from './direct-harness.ts'
+import { entry, selectOpenRequests, sha256Hex, type KeyValueStore } from '../src/index.ts'
+import { fakeHermes, harness, memoryKv, type Harness } from './direct-harness.ts'
 
 const codeOf = (promise: Promise<unknown>) =>
   promise.then(
@@ -9,18 +10,68 @@ const codeOf = (promise: Promise<unknown>) =>
     (error: unknown) => (error instanceof CindlError ? error.code : String(error)),
   )
 
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
 async function conversation(h: Harness, title = 'Side (fixture)'): Promise<Conversation> {
   return h.client.call('conversations.create', { title })
 }
 
 function assistantText(h: Harness, conversationId: string): string {
-  const messages = h.store.getState().messages[conversationId] ?? []
+  const messages = entry(h.store.getState().messages, conversationId) ?? []
   return messages
     .filter((m) => m.role === 'assistant')
     .flatMap((m) => m.parts)
     .map((p) => (p.type === 'text' ? p.text : ''))
     .join('')
 }
+
+const requestOf = (h: Harness, requestId: string): ServerRequest | undefined =>
+  entry(h.store.getState().requests, requestId)
+
+const online = (h: Harness, epoch?: number) =>
+  h.waitFor(
+    () =>
+      h.store.getState().link.phase === 'online' &&
+      (epoch === undefined || h.store.getState().link.connectionEpoch >= epoch),
+  )
+
+/** The next turn asks for approval; `outcome` records what Hermes received. */
+function approvalScript(
+  h: Harness,
+  choices: Array<'once' | 'session' | 'always' | 'deny'> = [
+    'once',
+    'session',
+    'always',
+    'deny',
+  ],
+) {
+  const outcome: { result?: unknown; done?: boolean } = {}
+  h.fake.gateway.script = async (turn) => {
+    outcome.result = await turn.approval({ choices: [...choices] })
+    outcome.done = true
+  }
+  return outcome
+}
+
+/** Submit a prompt in `target` (or a new conversation) and wait for its request. */
+async function openRequest(h: Harness, target?: Conversation) {
+  const c = target ?? (await conversation(h))
+  await h.client.call('prompt.submit', {
+    conversationId: c.id,
+    clientId: `p-${c.id}`,
+    text: 'export it',
+  })
+  const request = await h.waitFor(() =>
+    selectOpenRequests(h.store.getState()).find((r) => r.conversationId === c.id),
+  )
+  return { c, request }
+}
+
+const approve = (h: Harness, requestId: string, choice: 'once' | 'deny') =>
+  h.client.call('request.answer', {
+    requestId,
+    answer: { kind: 'approval', choice },
+  })
 
 describe('direct client: sign-in, capabilities and conversations', () => {
   it('signs in, goes online and negotiates honest capabilities', async () => {
@@ -122,40 +173,29 @@ describe('direct client: sign-in, capabilities and conversations', () => {
     await h.client.call('conversations.setMain', { conversationId: a.id })
     await h.client.call('conversations.setMain', { conversationId: b.id })
     const conversations = h.store.getState().conversations
-    expect(conversations[a.id]?.kind).toBe('side')
-    expect(conversations[b.id]?.kind).toBe('main')
+    expect(entry(conversations, a.id)?.kind).toBe('side')
+    expect(entry(conversations, b.id)?.kind).toBe('main')
     expect([...h.kv.map.values()]).toContain(JSON.stringify(b.id))
+  })
+
+  it('goes offline on stop() and reconnects on start() (review M5)', async () => {
+    const h = await harness()
+    h.client.stop()
+    expect(h.store.getState().link.phase).toBe('offline')
+    expect(h.store.getState().capabilities['chat.stream']?.state).toBe('unavailable')
+    await h.client.start()
+    await online(h, 2)
+    expect(
+      h.fake.calls.filter((call) => call.name === 'POST /api/auth/ws-ticket'),
+    ).toHaveLength(2)
   })
 })
 
 describe('direct client: approvals and questions', () => {
-  async function approvalTurn(
-    h: Harness,
-    choices: Array<'once' | 'session' | 'always' | 'deny'> = [
-      'once',
-      'session',
-      'always',
-      'deny',
-    ],
-  ) {
-    const outcome: { result?: unknown } = {}
-    h.fake.gateway.script = async (turn) => {
-      outcome.result = await turn.approval({ choices: [...choices] })
-      await turn.reply('done')
-    }
-    const c = await conversation(h)
-    await h.client.call('prompt.submit', {
-      conversationId: c.id,
-      clientId: 'p1',
-      text: 'export it',
-    })
-    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
-    return { c, request, outcome }
-  }
-
-  it('answers an approval once, with an offered choice, and rejects a second answer locally', async () => {
+  it('answers an approval once with an offered choice; answered means sent', async () => {
     const h = await harness()
-    const { c, request, outcome } = await approvalTurn(h)
+    const outcome = approvalScript(h)
+    const { c, request } = await openRequest(h)
     expect(request).toMatchObject({
       kind: 'approval',
       conversationId: c.id,
@@ -163,68 +203,116 @@ describe('direct client: approvals and questions', () => {
       withheldChoices: ['session', 'always'],
       status: 'open',
     })
-    expect(request.requestId).toMatch(/^srq-/)
-    expect(h.store.getState().conversations[c.id]?.status).toBe('waiting-on-you')
-    const answered = await h.client.call('request.answer', {
-      requestId: request.requestId,
-      answer: { kind: 'approval', choice: 'once' },
-    })
+    expect(request.requestId).toMatch(/^srq-[0-9a-f]{12}$/)
+    expect(entry(h.store.getState().conversations, c.id)?.status).toBe('waiting-on-you')
+    const answered = await approve(h, request.requestId, 'once')
     expect(answered.status).toBe('answered')
-    await h.waitFor(() => outcome.result)
+    await h.waitFor(() => outcome.done)
     expect(outcome.result).toEqual({ choice: 'once' })
-    expect(
-      await codeOf(
-        h.client.call('request.answer', {
-          requestId: request.requestId,
-          answer: { kind: 'approval', choice: 'deny' },
-        }),
-      ),
-    ).toBe('not-found')
-    expect(h.store.getState().requests[request.requestId]?.status).toBe('answered')
+    expect(await codeOf(approve(h, request.requestId, 'deny'))).toBe('not-found')
+    expect(requestOf(h, request.requestId)?.status).toBe('answered')
     expect(h.fake.gateway.droppedResponses).toEqual([])
   })
 
   it('refuses a choice Hermes did not offer without sending anything', async () => {
     const h = await harness()
-    const { request } = await approvalTurn(h, ['deny'])
-    expect(
-      await codeOf(
-        h.client.call('request.answer', {
-          requestId: request.requestId,
-          answer: { kind: 'approval', choice: 'once' },
-        }),
-      ),
-    ).toBe('invalid')
+    approvalScript(h, ['deny'])
+    const { request } = await openRequest(h)
+    expect(await codeOf(approve(h, request.requestId, 'once'))).toBe('invalid')
     expect(h.fake.gateway.open.has(request.requestId)).toBe(true)
+    expect(requestOf(h, request.requestId)?.status).toBe('open')
+  })
+
+  it('reports an answer it could not send and keeps the request answerable', async () => {
+    const h = await harness()
+    const outcome = approvalScript(h)
+    const { request } = await openRequest(h)
+    h.breakSends(true)
+    expect(await codeOf(approve(h, request.requestId, 'once'))).toBe('offline')
+    expect(
+      h.events.some(
+        (e) => e.type === 'request.answer-failed' && e.requestId === request.requestId,
+      ),
+    ).toBe(true)
+    expect(requestOf(h, request.requestId)).toMatchObject({ status: 'open' })
+    expect(requestOf(h, request.requestId)?.answer).toBeUndefined()
+    h.breakSends(false)
+    await approve(h, request.requestId, 'once')
+    await h.waitFor(() => outcome.done)
+    expect(outcome.result).toEqual({ choice: 'once' })
   })
 
   it('closes a request Hermes withdrew and refuses to answer it afterwards', async () => {
     const h = await harness()
-    const { request } = await approvalTurn(h)
+    approvalScript(h)
+    const { request } = await openRequest(h)
     h.fake.gateway.expireRequest(request.requestId)
+    await h.waitFor(() => requestOf(h, request.requestId)?.status === 'expired')
+    expect(await codeOf(approve(h, request.requestId, 'once'))).toBe('not-found')
+  })
+
+  it('shows an approval resolved from another surface as resolved elsewhere', async () => {
+    const h = await harness()
+    approvalScript(h)
+    const { request } = await openRequest(h)
+    h.fake.gateway.resolveElsewhere(request.requestId, 'deny')
     await h.waitFor(
-      () => h.store.getState().requests[request.requestId]?.status === 'expired',
+      () => requestOf(h, request.requestId)?.status === 'resolved-elsewhere',
     )
-    expect(
-      await codeOf(
-        h.client.call('request.answer', {
-          requestId: request.requestId,
-          answer: { kind: 'approval', choice: 'once' },
-        }),
+  })
+
+  it('notices, while the card is open, that another client answered it', async () => {
+    const fake = await fakeHermes()
+    const h = await harness({ fake, deps: { connection: { requestSyncMs: 40 } } })
+    const outcome = approvalScript(h)
+    const { c, request } = await openRequest(h)
+    const other = await connectRawClient(fake, fake.signIn())
+    await other.request('session.resume', { session_id: c.id })
+    other.send({ id: request.requestId, result: { choice: 'deny' } })
+    await h.waitFor(() => outcome.done)
+    // The sidecar tells this client nothing (server_requests.py:281-317); the
+    // periodic check of open_requests closes the card.
+    await h.waitFor(
+      () => requestOf(h, request.requestId)?.status === 'resolved-elsewhere',
+    )
+    other.close()
+  })
+
+  it('keeps a request that is newer than the open-request list it is missing from', async () => {
+    const fake = await fakeHermes()
+    const h = await harness({ fake, deps: { connection: { requestSyncMs: 40 } } })
+    approvalScript(h)
+    const { c, request } = await openRequest(h)
+    let raised: Promise<unknown> | undefined
+    // Hermes raises a request after building the list and before writing it.
+    fake.gateway.afterHandle = (method) => {
+      if (method !== 'session.events.since' || raised) return
+      raised = fake.gateway.serverRequest(c.session.runtimeId ?? '', 'approval', {
+        request_id: 'd'.repeat(32),
+        command: 'ls (fixture)',
+      })
+    }
+    const newer = await h.waitFor(() =>
+      selectOpenRequests(h.store.getState()).find(
+        (r) => r.requestId !== request.requestId,
       ),
-    ).toBe('not-found')
+    )
+    await pause(150)
+    expect(requestOf(h, newer.requestId)?.status).toBe('open')
+    expect(requestOf(h, request.requestId)?.status).toBe('open')
+    await approve(h, newer.requestId, 'deny')
+    await expect(raised).resolves.toEqual({ choice: 'deny' })
   })
 
   it('maps an interrupt to cancelled approvals', async () => {
     const h = await harness()
-    const { c, request } = await approvalTurn(h)
+    approvalScript(h)
+    const { c, request } = await openRequest(h)
     await h.client.call('conversation.interrupt', { conversationId: c.id })
-    await h.waitFor(
-      () => h.store.getState().requests[request.requestId]?.status === 'cancelled',
-    )
+    await h.waitFor(() => requestOf(h, request.requestId)?.status === 'cancelled')
   })
 
-  it('answers a clarify set in one submission covering every question', async () => {
+  it('answers the open questions of a clarify set and never overrides a lock', async () => {
     const h = await harness()
     const outcome: { result?: unknown } = {}
     h.fake.gateway.script = async (turn) => {
@@ -242,48 +330,42 @@ describe('direct client: approvals and questions', () => {
           multi_select: true,
         },
       ])
-      await turn.reply('ok')
     }
-    const c = await conversation(h)
-    await h.client.call('prompt.submit', {
-      conversationId: c.id,
-      clientId: 'p1',
-      text: 'book it',
-    })
-    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+    const { request } = await openRequest(h)
     expect(request.questions?.map((q) => [q.qid, q.multiSelect])).toEqual([
       ['q0', false],
       ['q1', true],
     ])
+    const clarify = (answers: Record<string, { choices: string[] }>) =>
+      h.client.call('request.answer', {
+        requestId: request.requestId,
+        answer: { kind: 'clarify', answers },
+      })
+    // One reply settles the whole set, so it must cover every open question.
+    expect(await codeOf(clarify({ q0: { choices: ['North'] } }))).toBe('invalid')
+    // Another client locks q0; this client sees the lock after a reconnect.
+    h.fake.gateway.lockClarify(request.requestId, 'q0', 'South')
+    h.fake.gateway.dropConnections()
+    await online(h, 2)
+    const relisted = await h.waitFor(() => requestOf(h, request.requestId)?.lockedAnswers)
+    expect(relisted).toEqual({ q0: { choices: ['South'] } })
     expect(
-      await codeOf(
-        h.client.call('request.answer', {
-          requestId: request.requestId,
-          answer: { kind: 'clarify', answers: { q0: { choices: ['North'] } } },
-        }),
-      ),
+      await codeOf(clarify({ q0: { choices: ['North'] }, q1: { choices: ['Mon'] } })),
     ).toBe('invalid')
-    await h.client.call('request.answer', {
-      requestId: request.requestId,
-      answer: {
-        kind: 'clarify',
-        answers: { q0: { choices: ['North'] }, q1: { choices: ['Mon', 'Tue'] } },
-      },
-    })
+    await clarify({ q1: { choices: ['Mon', 'Tue'] } })
     await h.waitFor(() => outcome.result)
-    expect(outcome.result).toEqual({ answers: { q0: 'North', q1: '["Mon","Tue"]' } })
+    expect(outcome.result).toEqual({
+      answers: { q0: 'South', q1: '["Mon","Tue"]' },
+      outcome: 'submitted',
+    })
   })
 
   it('tells the user about a credential prompt it leaves to other clients', async () => {
     const h = await harness()
     const c = await conversation(h)
-    await h.client.call('prompt.submit', {
-      conversationId: c.id,
-      clientId: 'p1',
-      text: 'x',
+    void h.fake.gateway.serverRequest(c.session.runtimeId ?? '', 'sudo', {
+      command: 'apt list (fixture)',
     })
-    const sid = c.session.runtimeId ?? ''
-    void h.fake.gateway.serverRequest(sid, 'sudo', { command: 'apt list (fixture)' })
     await h.waitFor(() =>
       h.store.getState().notices.some((n) => n.message.includes('(sudo)')),
     )
@@ -319,11 +401,7 @@ describe('direct client: reconnect and replay', () => {
     h.fake.gateway.dropConnections()
     await h.waitFor(() => h.store.getState().link.phase !== 'online')
     release()
-    await h.waitFor(
-      () =>
-        h.store.getState().link.connectionEpoch === 2 &&
-        h.store.getState().link.phase === 'online',
-    )
+    await online(h, 2)
     await h.waitFor(
       () => assistantText(h, c.id) === 'before the drop, while away, and after.',
     )
@@ -335,7 +413,9 @@ describe('direct client: reconnect and replay', () => {
       h.fake.calls.filter((call) => call.name === 'POST /api/auth/ws-ticket'),
     ).toHaveLength(2)
     expect(h.rpcCalls('session.events.since')).toBe(1)
-    expect(h.events.some((e) => e.type === 'requests.synced')).toBe(true)
+    expect(
+      h.events.some((e) => e.type === 'requests.synced' && e.conversationId === c.id),
+    ).toBe(true)
   })
 
   it('reloads history instead of trusting replay after a Hermes restart', async () => {
@@ -357,8 +437,8 @@ describe('direct client: reconnect and replay', () => {
           e.reason === 'epoch-changed',
       ),
     )
-    expect(h.store.getState().messages[c.id]).toBeUndefined()
-    await h.waitFor(() => h.store.getState().link.phase === 'online')
+    expect(entry(h.store.getState().messages, c.id)).toBeUndefined()
+    await online(h)
     const reloaded = await h.client.call('conversations.history', {
       conversationId: c.id,
     })
@@ -387,60 +467,126 @@ describe('direct client: reconnect and replay', () => {
     )
   })
 
+  it('offers a request raised while it was disconnected once it is back', async () => {
+    const h = await harness()
+    const c = await conversation(h)
+    h.fake.gateway.dropConnections()
+    // No client attached: Hermes keeps it for the next one (session_transports.py:58-67).
+    const pending = h.fake.gateway.serverRequest(c.session.runtimeId ?? '', 'approval', {
+      request_id: 'a'.repeat(32),
+      command: 'ls (fixture)',
+    })
+    await online(h, 2)
+    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+    await approve(h, request.requestId, 'deny')
+    await expect(pending).resolves.toEqual({ choice: 'deny' })
+  })
+
   it('closes requests another client answered while it was away', async () => {
     const h = await harness()
     h.fake.gateway.script = async (turn) => {
       await turn.approval()
     }
-    const c = await conversation(h)
-    await h.client.call('prompt.submit', {
-      conversationId: c.id,
-      clientId: 'p1',
-      text: 'x',
-    })
-    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
-    h.fake.gateway.frozen = true
-    const [open] = [...h.fake.gateway.open.values()]
-    h.fake.gateway.frozen = false
-    // Another surface settles it, then Cindl's socket drops.
-    open?.settle({ choice: 'deny' })
-    h.fake.gateway.open.delete(request.requestId)
+    const { request } = await openRequest(h)
+    const open = h.fake.gateway.open.get(request.requestId)
+    // Another client's reply settles it while Cindl's socket is down.
     h.fake.gateway.dropConnections()
+    h.fake.gateway.open.delete(request.requestId)
+    open?.settle({ choice: 'deny' })
+    await online(h, 2)
     await h.waitFor(
-      () =>
-        h.store.getState().requests[request.requestId]?.status === 'resolved-elsewhere',
+      () => requestOf(h, request.requestId)?.status === 'resolved-elsewhere',
     )
   })
 
-  it('re-sends its own answer when Hermes still waits after a lost reply', async () => {
+  it('reopens a request whose answer never reached Hermes', async () => {
     const h = await harness()
-    const outcome: { result?: unknown } = {}
-    h.fake.gateway.script = async (turn) => {
-      outcome.result = await turn.approval()
-    }
-    const c = await conversation(h)
-    await h.client.call('prompt.submit', {
-      conversationId: c.id,
-      clientId: 'p1',
-      text: 'x',
-    })
-    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+    const outcome = approvalScript(h)
+    const { request } = await openRequest(h)
     h.fake.gateway.frozen = true
-    await h.client.call('request.answer', {
-      requestId: request.requestId,
-      answer: { kind: 'approval', choice: 'deny' },
-    })
-    await new Promise((resolve) => setTimeout(resolve, 30))
+    await approve(h, request.requestId, 'deny')
+    expect(requestOf(h, request.requestId)?.status).toBe('answered')
+    await pause(30)
     h.fake.gateway.frozen = false
     expect(h.fake.gateway.open.has(request.requestId)).toBe(true)
     h.fake.gateway.dropConnections()
-    await h.waitFor(() => outcome.result)
-    expect(outcome.result).toEqual({ choice: 'deny' })
-    expect(h.store.getState().requests[request.requestId]?.status).toBe('answered')
+    // Hermes still holds it after the reconnect, so that answer did not land.
+    await h.waitFor(() => requestOf(h, request.requestId)?.status === 'open')
+    expect(outcome.done).toBeUndefined()
+    await approve(h, request.requestId, 'once')
+    await h.waitFor(() => outcome.done)
+    expect(outcome.result).toEqual({ choice: 'once' })
+  })
+
+  it('keeps a live request that arrives while another session re-attaches (review H1)', async () => {
+    const h = await harness()
+    const a = await conversation(h, 'A')
+    const b = await conversation(h, 'B')
+    let resumes = 0
+    let raised: Promise<unknown> | undefined
+    h.fake.gateway.beforeHandle = async (method) => {
+      if (method !== 'session.resume' || ++resumes !== 2) return
+      // One session is already back on the new socket when it asks for approval.
+      raised = h.fake.gateway.serverRequest(a.session.runtimeId ?? '', 'approval', {
+        request_id: 'c'.repeat(32),
+        command: 'ls (fixture)',
+      })
+      await pause(50)
+    }
+    h.fake.gateway.dropConnections()
+    await online(h, 2)
+    await h.waitFor(() => resumes >= 2)
+    const request = await h.waitFor(() =>
+      selectOpenRequests(h.store.getState()).find((r) => r.conversationId === a.id),
+    )
+    await pause(60)
+    expect(requestOf(h, request.requestId)?.status).toBe('open')
+    expect(h.fake.gateway.live.get(b.session.runtimeId ?? '')?.connections.size).toBe(1)
+    await approve(h, request.requestId, 'deny')
+    await expect(raised).resolves.toEqual({ choice: 'deny' })
+  })
+
+  it('keeps every session and its requests when the socket drops while re-attaching (review H2)', async () => {
+    const h = await harness()
+    const a = await conversation(h, 'A')
+    const outcome = approvalScript(h)
+    const { c: b, request } = await openRequest(h, await conversation(h, 'B'))
+    let dropped = false
+    h.fake.gateway.beforeHandle = (method) => {
+      if (method !== 'session.resume' || dropped) return
+      dropped = true
+      h.fake.gateway.dropConnections()
+    }
+    h.fake.gateway.dropConnections()
+    await online(h, 3)
+    await h.waitFor(
+      () => h.fake.gateway.live.get(b.session.runtimeId ?? '')?.connections.size === 1,
+    )
+    expect(h.fake.gateway.live.get(a.session.runtimeId ?? '')?.connections.size).toBe(1)
+    expect(requestOf(h, request.requestId)?.status).toBe('open')
+    await approve(h, request.requestId, 'once')
+    await h.waitFor(() => outcome.done)
+    expect(outcome.result).toEqual({ choice: 'once' })
+  })
+
+  it('closes a request with the reason Hermes gave while it was re-attaching (review M2)', async () => {
+    const h = await harness()
+    approvalScript(h)
+    const { request } = await openRequest(h)
+    h.fake.gateway.beforeHandle = (method) => {
+      if (method === 'session.events.since')
+        h.fake.gateway.expireRequest(request.requestId)
+    }
+    h.fake.gateway.dropConnections()
+    await online(h, 2)
+    await h.waitFor(() => requestOf(h, request.requestId)?.status === 'expired')
+    await pause(30)
+    expect(requestOf(h, request.requestId)?.status).toBe('expired')
+    expect(await codeOf(approve(h, request.requestId, 'once'))).toBe('not-found')
   })
 })
 
-describe('direct client: prompts are never resent once uncertain', () => {
+describe('direct client: prompts', () => {
   it('marks a prompt uncertain when the reply is lost and never sends it again', async () => {
     const fake = await fakeHermes()
     const h = await harness({ fake })
@@ -452,50 +598,140 @@ describe('direct client: prompts are never resent once uncertain', () => {
       text: 'charge the card',
     })
     expect(prompt.state).toBe('uncertain')
-    await h.waitFor(
-      () =>
-        h.store.getState().link.connectionEpoch === 2 &&
-        h.store.getState().link.phase === 'online',
-    )
-    await new Promise((resolve) => setTimeout(resolve, 50))
+    await online(h, 2)
+    await pause(50)
     expect(h.rpcCalls('prompt.submit')).toBe(1)
     // The same client id is never sent again, even if the UI retries.
-    expect(
-      (
-        await h.client.call('prompt.submit', {
-          conversationId: c.id,
-          clientId: 'p-lost',
-          text: 'charge the card',
-        })
-      ).state,
-    ).toBe('uncertain')
+    const retried = await h.client.call('prompt.submit', {
+      conversationId: c.id,
+      clientId: 'p-lost',
+      text: 'charge the card',
+    })
+    expect(retried.state).toBe('uncertain')
     expect(h.rpcCalls('prompt.submit')).toBe(1)
     // A restarted app recovers it as uncertain and still does not send it.
     h.client.stop()
     const again = await harness({ fake, kv: h.kv, secrets: h.secrets })
-    expect(again.store.getState().prompts['p-lost']?.state).toBe('uncertain')
+    expect(entry(again.store.getState().prompts, 'p-lost')?.state).toBe('uncertain')
     expect(again.rpcCalls('prompt.submit')).toBe(1)
     await expect(
       again.client.call('prompt.discard', { clientId: 'p-lost' }),
     ).resolves.toEqual({ discarded: true })
+    expect(
+      again.events.some((e) => e.type === 'prompt.removed' && e.clientId === 'p-lost'),
+    ).toBe(true)
+    expect(entry(again.store.getState().prompts, 'p-lost')).toBeUndefined()
   })
 
-  it('queues a prompt while offline and sends it once the link is back', async () => {
+  it('never sends an accepted client id again, even after a restart (review L5)', async () => {
+    const fake = await fakeHermes()
+    const h = await harness({ fake })
+    const c = await conversation(h)
+    await h.client.call('prompt.submit', {
+      conversationId: c.id,
+      clientId: 'p-once',
+      text: 'hello',
+    })
+    h.client.stop()
+    const again = await harness({ fake, kv: h.kv, secrets: h.secrets })
+    const retried = await again.client.call('prompt.submit', {
+      conversationId: c.id,
+      clientId: 'p-once',
+      text: 'hello',
+    })
+    expect(retried.state).toBe('accepted')
+    expect(again.rpcCalls('prompt.submit')).toBe(1)
+  })
+
+  it('sends offline prompts behind a running turn instead of redirecting it (review M4)', async () => {
+    const fake = await fakeHermes()
+    const h = await harness({ fake })
+    const c = await conversation(h)
+    const gates: Array<() => void> = []
+    fake.gateway.script = async (turn) => {
+      turn.emit('message.start', {})
+      await new Promise<void>((resolve) => gates.push(resolve))
+    }
+    await h.client.call('prompt.submit', {
+      conversationId: c.id,
+      clientId: 'p-run',
+      text: 'long task',
+    })
+    await h.waitFor(() => gates.length === 1)
+    fake.gateway.frozen = true
+    fake.gateway.dropConnections()
+    await h.waitFor(() => h.store.getState().link.phase !== 'online')
+    const queued = await h.client.call('prompt.submit', {
+      conversationId: c.id,
+      clientId: 'p-later',
+      text: 'and then this',
+    })
+    expect(queued.state).toBe('queued-offline')
+    fake.gateway.frozen = false
+    await h.waitFor(
+      () => entry(h.store.getState().prompts, 'p-later')?.state === 'accepted',
+    )
+    expect(entry(h.store.getState().prompts, 'p-later')?.disposition).toBe('queued')
+    // Typed while online, the same message redirects the turn (Hermes's default).
+    const typed = await h.client.call('prompt.submit', {
+      conversationId: c.id,
+      clientId: 'p-now',
+      text: 'stop and do this',
+    })
+    expect(typed.disposition).toBe('redirected')
+    for (const release of gates.splice(0)) release()
+  })
+
+  it('does not send a queued prompt discarded during the flush (review H3)', async () => {
     const fake = await fakeHermes()
     const h = await harness({ fake })
     const c = await conversation(h)
     fake.gateway.frozen = true
     fake.gateway.dropConnections()
     await h.waitFor(() => h.store.getState().link.phase !== 'online')
-    const queued = await h.client.call('prompt.submit', {
+    await h.client.call('prompt.submit', {
       conversationId: c.id,
-      clientId: 'p-q',
-      text: 'later',
+      clientId: 'p1',
+      text: 'one',
     })
-    expect(queued.state).toBe('queued-offline')
+    await h.client.call('prompt.submit', {
+      conversationId: c.id,
+      clientId: 'p2',
+      text: 'two',
+    })
+    let discarded: Promise<unknown> | undefined
+    fake.gateway.beforeHandle = async (method) => {
+      if (method !== 'prompt.submit' || discarded) return
+      discarded = h.client.call('prompt.discard', { clientId: 'p2' })
+      await discarded
+    }
     fake.gateway.frozen = false
-    await h.waitFor(() => h.store.getState().prompts['p-q']?.state === 'accepted')
+    await h.waitFor(() => entry(h.store.getState().prompts, 'p1')?.state === 'accepted')
+    await expect(discarded).resolves.toEqual({ discarded: true })
+    await pause(50)
     expect(h.rpcCalls('prompt.submit')).toBe(1)
+    expect(entry(h.store.getState().prompts, 'p2')).toBeUndefined()
+  })
+
+  it('does not send a prompt it could not record as sending (review M1)', async () => {
+    const base = memoryKv()
+    const kv: KeyValueStore & { map: Map<string, string> } = {
+      ...base,
+      set: (key, value) =>
+        value.includes('"state":"sending"')
+          ? Promise.reject(new Error('disk full (fixture)'))
+          : base.set(key, value),
+    }
+    const h = await harness({ kv })
+    const c = await conversation(h)
+    const prompt = await h.client.call('prompt.submit', {
+      conversationId: c.id,
+      clientId: 'p1',
+      text: 'hello',
+    })
+    expect(prompt.state).toBe('queued-offline')
+    expect(prompt.error).toMatch(/could not record/)
+    expect(h.rpcCalls('prompt.submit')).toBe(0)
   })
 })
 
@@ -530,19 +766,29 @@ describe('direct client: owner edits, routines, connections, screen', () => {
   it('writes a skill only when the reviewed version still matches', async () => {
     const h = await harness()
     const skill = await h.client.call('skills.read', { name: 'fixture-notes' })
-    const profile = h.fake.store.profile('default')
-    const entry = profile.skills.get('fixture-notes')
-    if (entry) entry.content += '\nedited elsewhere (fixture)\n'
+    const written = await h.client.call('skills.write', {
+      name: 'fixture-notes',
+      content: 'Notes v2 (fixture)\n',
+      expectedVersion: skill.version,
+      confirm: true,
+    })
+    expect(written).toMatchObject({
+      content: 'Notes v2 (fixture)\n',
+      version: sha256Hex('Notes v2 (fixture)\n'),
+    })
+    const onHost = h.fake.store.profile('default').skills.get('fixture-notes')
+    if (onHost) onHost.content += 'edited elsewhere (fixture)\n'
     expect(
       await codeOf(
         h.client.call('skills.write', {
           name: 'fixture-notes',
           content: 'x',
-          expectedVersion: skill.version,
+          expectedVersion: written.version,
           confirm: true,
         }),
       ),
     ).toBe('conflict')
+    expect(onHost?.content).toBe('Notes v2 (fixture)\nedited elsewhere (fixture)\n')
     const list = await h.client.call('skills.list', {})
     expect(list.map((s) => [s.name, s.enabled])).toEqual([
       ['fixture-notes', true],
