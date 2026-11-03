@@ -880,7 +880,15 @@ describe('the 48dp row (delta check of c6ce4d3)', () => {
       ]),
     ).toEqual({ status: 'failed', detail: ['16-link-confirmation: no target measured'] })
     expect(auditLine('16-link-confirmation', audit(0))).toBe(
-      '16-link-confirmation: 0 targets checked, 0 under 48dp, nothing measured (fails the 48dp row)',
+      '16-link-confirmation: 0 targets checked, 0 under 48dp, 0 exempt as inline, nothing measured (fails the 48dp row)',
+    )
+  })
+
+  it("says on each screen's line how many targets were exempt as inline (N4)", () => {
+    expect(
+      auditLine('Agent output reply', audit(17, { exemptInline: 1, skippedClipped: 2 })),
+    ).toBe(
+      'Agent output reply: 17 targets checked, 0 under 48dp, 1 exempt as inline, 2 partly scrolled off (not measured)',
     )
   })
 

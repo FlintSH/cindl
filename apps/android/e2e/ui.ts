@@ -447,7 +447,7 @@ export function auditTargets(
 /** A screen's audit as its step reports it. */
 export function auditLine(screen: string, audit: TargetAudit): string {
   return (
-    `${screen}: ${audit.checked} targets checked, ${audit.issues.length} under 48dp` +
+    `${screen}: ${audit.checked} targets checked, ${audit.issues.length} under 48dp, ${audit.exemptInline} exempt as inline` +
     (audit.skippedClipped
       ? `, ${audit.skippedClipped} partly scrolled off (not measured)`
       : '') +
