@@ -61,6 +61,15 @@ this device's notices; a link that names no server, or the same one, changes
 nothing else. Clients show it in the presence line, and a `demo: true` link
 always shows the synthetic-data banner.
 
+Before it connects, the direct client asks Hermes what it is
+(`GET /api/status`) and whether this device is signed in. When Hermes does not
+answer either (no network, a timeout, a 5xx while it restarts, rate limiting),
+the link is `offline` with that error, and the client asks again with the
+reconnect backoff, keeping that link until an attempt succeeds. An answer
+that is not Hermes is `error` and is not repeated. A discovery or sign-in that
+`stop()`, a newer `start()` or another sign-in overtakes neither connects nor
+changes the link.
+
 ### `capabilities.changed`
 
 The negotiated capabilities for this connection changed. The reducer replaces

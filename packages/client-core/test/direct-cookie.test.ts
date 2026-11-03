@@ -2,12 +2,20 @@ import { CindlError } from '@cindl/contracts'
 import {
   FIXTURE_LOGIN,
   nodeBinarySocketFactory,
+  nodeSocketFactory,
   type FakeHermes,
 } from '@cindl/fixtures/fake-hermes'
 import { loginPagePath, type FetchLike } from '@cindl/hermes-adapter'
-import { describe, expect, it } from 'vitest'
-import { entry, selectOpenRequests, type DirectClientDeps } from '../src/index.ts'
-import { fakeHermes, harness, type Harness } from './direct-harness.ts'
+import { describe, expect, it, onTestFinished } from 'vitest'
+import {
+  createDirectClient,
+  createStore,
+  entry,
+  selectOpenRequests,
+  systemClock,
+  type DirectClientDeps,
+} from '../src/index.ts'
+import { fakeHermes, harness, memoryKv, type Harness } from './direct-harness.ts'
 
 const failure = (promise: Promise<unknown>) =>
   promise.then(
@@ -109,6 +117,14 @@ const requests = (fake: FakeHermes, name: string) =>
   fake.calls.filter((c) => c.name === name).length
 
 const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function waitUntil(check: () => boolean, ms = 5_000): Promise<void> {
+  const started = Date.now()
+  while (!check()) {
+    if (Date.now() - started > ms) throw new Error('condition not met in time')
+    await pause(10)
+  }
+}
 
 /**
  * Two tabs of one browser: two cookie clients on one jar, both signed in.
@@ -534,5 +550,159 @@ describe('direct client in cookie mode: confirming a sign-out', () => {
     expect(h.store.getState().link.phase).toBe('signed-out')
     expect(jar.jar.size).toBe(3)
     expect(notices(h)).toBe(1)
+  })
+})
+
+/** A cookie-mode client like the harness's, which the test starts itself. */
+function manualClient(fake: FakeHermes, jar: Jar) {
+  const client = createDirectClient({
+    origin: fake.origin,
+    auth: 'same-origin-cookie',
+    fetch: jar.fetch,
+    socketFactory: nodeSocketFactory(),
+    clock: systemClock,
+    kv: memoryKv(),
+    random: () => 0.5,
+    connection: { backoff: { initialMs: 20, maxMs: 100 } },
+  })
+  const store = createStore({
+    phase: 'unconfigured',
+    since: '2026-01-01T00:00:00.000Z',
+    connectionEpoch: 0,
+  })
+  client.subscribe((event) => store.dispatch(event))
+  onTestFinished(() => client.stop())
+  return { client, store }
+}
+
+describe('direct client: discovery that stop() or a newer run overtakes', () => {
+  it('stays stopped when stop() comes while Hermes answers', async () => {
+    const fake = await fakeHermes()
+    const jar = cookieJar(fake.origin)
+    await passwordLogin(fake, jar)
+    const held = fake.holdNextRest('GET /api/auth/me')
+    const { client, store } = manualClient(fake, jar)
+    const starting = client.start()
+    await held.arrived
+    client.stop()
+    held.release()
+    await starting
+    await pause(50)
+    expect(requests(fake, '/api/ws')).toBe(0)
+    expect(store.getState().link.phase).toBe('offline')
+  })
+
+  it('leaves the connecting to a newer start', async () => {
+    const fake = await fakeHermes()
+    const jar = cookieJar(fake.origin)
+    await passwordLogin(fake, jar)
+    const held = fake.holdNextRest('GET /api/auth/me')
+    const { client, store } = manualClient(fake, jar)
+    const first = client.start()
+    await held.arrived
+    client.stop()
+    await client.start()
+    await waitUntil(() => store.getState().link.phase === 'online')
+    held.release()
+    await first
+    await pause(50)
+    expect(requests(fake, '/api/ws')).toBe(1)
+  })
+
+  it('keeps a sign-in that stop() overtook from connecting, until start()', async () => {
+    const fake = await fakeHermes()
+    const jar = cookieJar(fake.origin)
+    const { client, store } = manualClient(fake, jar)
+    await client.start()
+    expect(store.getState().link.phase).toBe('signed-out')
+    await passwordLogin(fake, jar)
+    const held = fake.holdNextRest('GET /api/auth/me')
+    const signingIn = client.call('auth.signIn', { origin: fake.origin })
+    await held.arrived
+    client.stop()
+    held.release()
+    await signingIn
+    await pause(50)
+    expect(requests(fake, '/api/ws')).toBe(0)
+    expect(store.getState().link.phase).not.toBe('online')
+    await client.start()
+    await waitUntil(() => store.getState().link.phase === 'online')
+  })
+})
+
+describe('direct client: discovery when Hermes does not answer', () => {
+  const linkErrors = (h: Harness) =>
+    h.events.flatMap((e) =>
+      e.type === 'link.changed' && e.link.lastError
+        ? [`${e.link.phase} ${e.link.lastError.code}`]
+        : [],
+    )
+
+  it('shows a 5xx on its own sign-in check as offline and asks again', async () => {
+    const fake = await fakeHermes()
+    const jar = cookieJar(fake.origin)
+    await passwordLogin(fake, jar)
+    fake.failNextRest('GET /api/auth/me', 503)
+    const h = await harness({
+      fake,
+      signIn: false,
+      deps: { auth: 'same-origin-cookie', fetch: jar.fetch },
+    })
+    await h.waitFor(() => h.store.getState().link.phase === 'online')
+    expect(linkErrors(h)).toContain('offline unavailable')
+    expect(requests(fake, 'GET /api/auth/me')).toBe(2)
+  })
+
+  it('asks again after no answer at all', async () => {
+    const fake = await fakeHermes()
+    const jar = cookieJar(fake.origin)
+    await passwordLogin(fake, jar)
+    let dropped = false
+    const flaky: FetchLike = (url, init) => {
+      if (!dropped && new URL(url).pathname === '/api/status') {
+        dropped = true
+        return Promise.reject(new TypeError('network error (fixture)'))
+      }
+      return jar.fetch(url, init)
+    }
+    const h = await harness({
+      fake,
+      signIn: false,
+      deps: { auth: 'same-origin-cookie', fetch: flaky },
+    })
+    await h.waitFor(() => h.store.getState().link.phase === 'online')
+    expect(linkErrors(h)).toContain('offline offline')
+  })
+
+  it('shows an answer that is not Hermes as an error, without asking again', async () => {
+    const fake = await fakeHermes()
+    fake.failNextRest('GET /api/status', 404)
+    const h = await harness({ fake, signIn: false })
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'error',
+      lastError: { code: 'not-found' },
+    })
+    await pause(150)
+    expect(requests(fake, 'GET /api/status')).toBe(1)
+  })
+
+  it('stops asking once stopped', async () => {
+    const fake = await fakeHermes()
+    const jar = cookieJar(fake.origin)
+    await passwordLogin(fake, jar)
+    fake.failNextRest('GET /api/auth/me', 503)
+    const h = await harness({
+      fake,
+      signIn: false,
+      deps: {
+        auth: 'same-origin-cookie',
+        fetch: jar.fetch,
+        connection: { backoff: { initialMs: 60, maxMs: 100 } },
+      },
+    })
+    expect(h.store.getState().link.phase).toBe('offline')
+    h.client.stop()
+    await pause(200)
+    expect(requests(fake, 'GET /api/auth/me')).toBe(1)
   })
 })

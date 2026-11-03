@@ -152,6 +152,12 @@ const LOOPBACK_MODE =
 /** The gate's `error` when a browser session is over (middleware.py:72-87). */
 const SESSION_OVER = new Set(['unauthenticated', 'session_expired'])
 
+/**
+ * Hermes did not answer: no network, a timeout, a 5xx while it restarts, or
+ * rate limiting. Worth asking again, unlike an answer that it is not Hermes.
+ */
+const NO_ANSWER = new Set(['offline', 'timeout', 'unavailable', 'internal'])
+
 /** `session.events.since` watermark that returns no events, only `open_requests`. */
 const NO_EVENTS = Number.MAX_SAFE_INTEGER
 
@@ -242,6 +248,13 @@ class DirectHermesClient implements DirectClient {
   #listRefresh: unknown
   #requestSync: unknown
   #started = false
+  /**
+   * Bumped by start(), stop() and sign-in: work begun under an older value
+   * (a discovery, a sign-in) neither connects nor changes the link.
+   */
+  #run = 0
+  #discoveryRetry: unknown
+  #discoveryAttempt = 0
   /** Cookie mode: the session check in flight, so a tick and a cue share one request. */
   #sessionCheck: Promise<void> | undefined
   #unwatchSession: (() => void) | undefined
@@ -395,6 +408,8 @@ class DirectHermesClient implements DirectClient {
   async start(): Promise<void> {
     if (this.#started) return
     this.#started = true
+    const run = ++this.#run
+    this.#discoveryAttempt = 0
     if (!this.#origin) {
       // The link starts out unconfigured, so #setLink stays silent here and a
       // renderer waiting for its first link would wait forever: say it once.
@@ -405,11 +420,13 @@ class DirectHermesClient implements DirectClient {
       return
     }
     if (!this.#deviceLoaded) await this.#loadDevice()
-    await this.#discoverAndConnect()
+    await this.#discoverAndConnect(run)
   }
 
   stop(): void {
     this.#started = false
+    this.#run++
+    this.#deps.clock.clearTimeout(this.#discoveryRetry)
     this.#unwatchSession?.()
     this.#unwatchSession = undefined
     this.#screen?.close()
@@ -524,28 +541,41 @@ class DirectHermesClient implements DirectClient {
     if (changed) await storage.saveOutbox(this.#prompts.values())
   }
 
-  async #discoverAndConnect(): Promise<void> {
+  /**
+   * Ask Hermes what it is and whether this device is signed in, then
+   * connect. Each await may outlast the run that started it: stop(), or a
+   * newer start or sign-in, takes over, and then this one only returns.
+   */
+  async #discoverAndConnect(run: number): Promise<void> {
     const rest = this.#rest
-    if (!rest) return
-    this.#setLink('connecting')
+    if (!rest || run !== this.#run) return
+    // A retry keeps showing why the last attempt failed until one succeeds.
+    if (!this.#discoveryAttempt) this.#setLink('connecting')
+    let status: wire.StatusResponse
     try {
-      this.#status = await rest.status()
+      status = await rest.status()
     } catch (error) {
-      this.#offline(asCindlError(error, 'discovery'))
+      this.#discoveryFailed(asCindlError(error, 'discovery'), run)
       return
     }
-    if (this.#status.auth_required === false) {
+    if (run !== this.#run) return
+    this.#status = status
+    if (status.auth_required === false) {
       this.#setLink('incompatible', new CindlError('unsupported', LOOPBACK_MODE))
       this.#refreshCapabilities()
       return
     }
+    let signedIn: boolean
     try {
-      this.#signedIn = await this.#checkSignedIn()
+      signedIn = await this.#checkSignedIn()
     } catch (error) {
-      this.#offline(asCindlError(error, 'auth.me'))
+      this.#discoveryFailed(asCindlError(error, 'auth.me'), run)
       return
     }
-    if (!this.#signedIn) {
+    if (run !== this.#run) return
+    this.#discoveryAttempt = 0
+    this.#signedIn = signedIn
+    if (!signedIn) {
       this.#setLink('signed-out')
       this.#refreshCapabilities()
       return
@@ -553,9 +583,34 @@ class DirectHermesClient implements DirectClient {
     this.#connect()
   }
 
-  #offline(cause: CindlError): void {
-    this.#setLink(isTransient(cause) ? 'offline' : 'error', cause)
+  /**
+   * When Hermes did not answer discovery, the link is offline with the cause
+   * and discovery runs again with the connection's backoff. Any other
+   * failure (not Hermes, a refusal) is an error to show, not to repeat.
+   */
+  #discoveryFailed(cause: CindlError, run: number): void {
+    if (run !== this.#run) return
+    if (!NO_ANSWER.has(cause.code)) {
+      this.#setLink('error', cause)
+      this.#refreshCapabilities()
+      return
+    }
+    this.#setLink('offline', cause)
     this.#refreshCapabilities()
+    this.#deps.clock.clearTimeout(this.#discoveryRetry)
+    this.#discoveryRetry = this.#deps.clock.setTimeout(() => {
+      void this.#discoverAndConnect(run)
+    }, this.#retryDelay(this.#discoveryAttempt++))
+  }
+
+  /** The connection's reconnect backoff (HermesConnection), jitter included. */
+  #retryDelay(attempt: number): number {
+    const { initialMs, maxMs } = this.#deps.connection?.backoff ?? {
+      initialMs: 1_000,
+      maxMs: 30_000,
+    }
+    const base = Math.min(maxMs, initialMs * 2 ** Math.min(attempt, 10))
+    return Math.round(base * (0.8 + 0.4 * (this.#deps.random ?? Math.random)()))
   }
 
   async #checkSignedIn(): Promise<boolean> {
@@ -1699,6 +1754,10 @@ class DirectHermesClient implements DirectClient {
         this.#started = true
         this.#setLink('connecting')
       }
+      // From here this sign-in owns the client: a discovery still running
+      // stops, and a stop() before it finishes keeps it from connecting.
+      const run = ++this.#run
+      this.#deps.clock.clearTimeout(this.#discoveryRetry)
       let status: wire.StatusResponse | undefined
       let failed: LinkPhase = 'signed-out'
       try {
@@ -1735,8 +1794,12 @@ class DirectHermesClient implements DirectClient {
         }
         throw cause
       }
+      // stop() came in meanwhile: the sign-in stands, but nothing connects
+      // until start(), which finds it again.
+      const stopped = run !== this.#run
       if (keep && switching) await this.#switchTo(parts)
       this.#status = status
+      if (stopped) return this.#link
       this.#started = true
       this.#signedIn = true
       this.#connect()
