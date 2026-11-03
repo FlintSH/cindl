@@ -28,8 +28,14 @@ const uncertain =
 type Draft = { selected: string[]; other: string; useOther: boolean; skipped: boolean }
 const emptyDraft: Draft = { selected: [], other: '', useOther: false, skipped: false }
 
-/** Drafts survive remounts (switching views, re-sent requests) for the session. */
+/** Drafts survive remounts (switching views, re-sent requests) while a request is open. */
 const draftsByRequest = new Map<string, Record<string, Draft>>()
+
+/** Drop drafts of requests that are no longer open (all of them when `open` is empty). */
+export function pruneRequestDrafts(open: ReadonlySet<string>) {
+  for (const requestId of draftsByRequest.keys())
+    if (!open.has(requestId)) draftsByRequest.delete(requestId)
+}
 
 function responseFor(
   question: ClarifyQuestion,
@@ -254,11 +260,16 @@ function DecisionCard({ request }: { request: ServerRequest }) {
     questions.length === 1 &&
     !questions[0]?.multiSelect &&
     Boolean(questions[0]?.choices?.length)
-  const answers: Record<string, ClarifyResponse> = {}
-  for (const question of questions) {
-    const response = responseFor(question, drafts[question.qid] ?? emptyDraft)
-    if (response) answers[question.qid] = response
-  }
+  // Question ids come from Hermes: read and build these records by own keys only,
+  // so ids such as `constructor` or `__proto__` behave like any other id.
+  const draftFor = (qid: string) =>
+    Object.hasOwn(drafts, qid) ? drafts[qid] : emptyDraft
+  const answers: Record<string, ClarifyResponse> = Object.fromEntries(
+    questions.flatMap((question) => {
+      const response = responseFor(question, draftFor(question.qid) ?? emptyDraft)
+      return response ? [[question.qid, response] as const] : []
+    }),
+  )
   const complete = clarifyAnswersComplete(request, answers)
 
   return (
@@ -396,7 +407,7 @@ function DecisionCard({ request }: { request: ServerRequest }) {
             <QuestionFields
               key={question.qid}
               question={question}
-              draft={drafts[question.qid] ?? emptyDraft}
+              draft={draftFor(question.qid) ?? emptyDraft}
               disabled={busy}
               onChange={(draft) => setDraft(question.qid, draft)}
             />

@@ -16,7 +16,8 @@ import { formatRoute, type AgentSection } from '../router.ts'
 import { linkCopy } from '../shell/LinkStatus.tsx'
 import { Badge, Button, Dot, SectionTitle, type Tone } from '../ui/primitives.tsx'
 import { RequireCapability } from '../views/Capability.tsx'
-import { DocumentEditor } from '../views/DocumentEditor.tsx'
+import { pruneRequestDrafts } from '../talk/RequestCard.tsx'
+import { DocumentEditor, forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
 import { useResource } from '../views/useResource.ts'
 import styles from '../views/views.module.css'
 
@@ -247,8 +248,7 @@ function Runtime() {
 function Device() {
   const api = useCindlApi()
   const link = useLink()
-  const [done, setDone] = useState(false)
-  const [failed, setFailed] = useState(false)
+  const [outcome, setOutcome] = useState<'done' | 'failed'>()
   return (
     <section className={styles.section} aria-labelledby="device-title">
       <SectionTitle id="device-title">This device</SectionTitle>
@@ -260,23 +260,29 @@ function Device() {
       <div className={styles.actions}>
         <Button
           disabled={link.phase === 'signed-out'}
-          onClick={() =>
+          onClick={() => {
+            setOutcome(undefined)
             void api.call('auth.signOut', {}).then(
-              () => setDone(true),
-              () => setFailed(true),
+              () => {
+                // Nothing typed on this device outlives the session.
+                pruneRequestDrafts(new Set())
+                forgetDocumentDrafts()
+                setOutcome('done')
+              },
+              () => setOutcome('failed'),
             )
-          }
+          }}
         >
           Sign out on this device
         </Button>
       </div>
-      {failed ? (
+      {outcome === 'failed' ? (
         <p className={styles.error} role="alert">
           Signing out did not complete. Try again; until it does, this device may still be
           signed in.
         </p>
       ) : null}
-      {done ? (
+      {outcome === 'done' ? (
         <p className={styles.note} role="status">
           Signed out on this device.
         </p>

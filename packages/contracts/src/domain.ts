@@ -115,8 +115,19 @@ export type PendingPrompt = z.infer<typeof PendingPrompt>
 export const ApprovalChoice = z.enum(['once', 'deny'])
 export type ApprovalChoice = z.infer<typeof ApprovalChoice>
 
+/**
+ * Question id. Hermes uses `q<index>` (tools/clarify_tool.py at v0.22.5).
+ * `__proto__` is refused outright: a record keyed by it silently loses the
+ * key, so an answer to it could never reach Hermes.
+ */
+const QuestionId = z
+  .string()
+  .min(1)
+  .max(256)
+  .refine((qid) => qid !== '__proto__', 'Unsupported question id')
+
 export const ClarifyQuestion = z.object({
-  qid: z.string().min(1),
+  qid: QuestionId,
   question: z.string(),
   choices: z.array(z.string()).optional(),
   multiSelect: z.boolean(),
@@ -152,7 +163,7 @@ export const RequestAnswer = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('approval'), choice: ApprovalChoice }),
   z.object({
     kind: z.literal('clarify'),
-    answers: z.record(z.string().min(1).max(256), ClarifyResponse),
+    answers: z.record(QuestionId, ClarifyResponse),
   }),
   z.object({ kind: z.literal('clarify-cancel') }),
 ])

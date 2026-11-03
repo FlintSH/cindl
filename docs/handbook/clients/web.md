@@ -73,6 +73,9 @@ from the desktop app's custom protocol.
   card and sends nothing back, not even a decline, because any reply could
   become the password Hermes uses. Answer it in another Hermes surface, such as
   the Hermes terminal; it stays open until Hermes closes it.
+- **Drafts stay on this device, briefly:** answers being written and document
+  edits kept after a save conflict live in memory only. An answer's draft is
+  dropped once its request closes, and every draft is forgotten on sign-out.
 
 ## Keyboard
 

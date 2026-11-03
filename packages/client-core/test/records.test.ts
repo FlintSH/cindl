@@ -56,12 +56,33 @@ describe('ids that are also Object.prototype names', () => {
       },
       { type: 'session.status', conversationId: id, status: 'working' },
       { type: 'usage.updated', conversationId: id, usage: { inputTokens: 1 } },
+      {
+        type: 'request.opened',
+        request: {
+          requestId: id,
+          lastSeenEpoch: 1,
+          kind: 'approval',
+          conversationId: id,
+          title: 'Run',
+          choices: ['deny'],
+          receivedAt: '2026-01-01T00:00:00.000Z',
+          status: 'open',
+        },
+      },
     ]
     const state = events.reduce(reduce, initialState(link))
     expect(entry(state.conversations, id)?.status).toBe('working')
     expect(entry(state.messages, id)?.[0]?.parts[0]).toEqual({ type: 'text', text: 'ok' })
     expect(entry(state.tools, id)?.status).toBe('running')
     expect(entry(state.usage, id)).toEqual({ inputTokens: 1 })
+    expect(entry(state.requests, id)?.status).toBe('open')
+    expect(Object.getPrototypeOf(state.requests)).toBeNull()
+    const closed = reduce(state, {
+      type: 'request.closed',
+      requestId: id,
+      status: 'cancelled',
+    })
+    expect(entry(closed.requests, id)?.status).toBe('cancelled')
     expect(Object.getPrototypeOf(state.conversations)).toBeNull()
     const removed = reduce(state, { type: 'conversation.removed', conversationId: id })
     expect(entry(removed.conversations, id)).toBeUndefined()

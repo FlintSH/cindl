@@ -7,7 +7,7 @@ import {
 } from '@cindl/contracts'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { RequestCard } from '../src/talk/RequestCard.tsx'
+import { pruneRequestDrafts, RequestCard } from '../src/talk/RequestCard.tsx'
 
 afterEach(cleanup)
 
@@ -90,6 +90,60 @@ describe('question card', () => {
         },
       },
     ])
+  })
+
+  it('treats question ids named like Object.prototype members as ordinary ids', async () => {
+    const answers = harness(
+      question({
+        requestId: 'srq-0000000000a3',
+        questions: [
+          {
+            qid: 'constructor',
+            question: 'Which venue?',
+            choices: ['North hall', 'South hall'],
+            multiSelect: false,
+          },
+          {
+            qid: 'toString',
+            question: 'What should I prepare?',
+            choices: ['Floor plan', 'Quotes'],
+            multiSelect: true,
+          },
+        ],
+      }),
+    )
+    await settle()
+    fireEvent.click(screen.getByRole('radio', { name: 'South hall' }))
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Quotes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Send answers' }))
+    await settle()
+    expect(answers).toEqual([
+      {
+        kind: 'clarify',
+        answers: {
+          constructor: { choices: ['South hall'] },
+          toString: { choices: ['Quotes'] },
+        },
+      },
+    ])
+  })
+
+  it('forgets drafts once their request is no longer open', async () => {
+    const request = question({ requestId: 'srq-0000000000a4' })
+    harness(request)
+    await settle()
+    const other = () =>
+      screen.getByRole('textbox', { name: /Your own answer to: What should I prepare/ })
+    fireEvent.change(other(), { target: { value: 'Parking map' } })
+    cleanup()
+    harness(request)
+    await settle()
+    expect((other() as HTMLInputElement).value).toBe('Parking map')
+    cleanup()
+    pruneRequestDrafts(new Set(['srq-0000000000ff']))
+    harness(request)
+    await settle()
+    expect((other() as HTMLInputElement).value).toBe('')
   })
 
   it('shows answers locked on another device and leaves them out of the reply', async () => {

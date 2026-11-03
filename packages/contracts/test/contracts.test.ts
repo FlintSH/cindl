@@ -317,6 +317,30 @@ describe('server request shape (v4)', () => {
     ).toBe(false)
   })
 
+  it('refuses a question id that a record would silently drop', () => {
+    const question = (qid: string) => ({
+      ...base,
+      kind: 'clarify',
+      choices: [],
+      questions: [{ qid, question: 'Which?', multiSelect: false }],
+    })
+    expect(ServerRequest.safeParse(question('q0')).success).toBe(true)
+    expect(ServerRequest.safeParse(question('constructor')).success).toBe(true)
+    expect(ServerRequest.safeParse(question('__proto__')).success).toBe(false)
+    // An answer keyed `__proto__` can only target a question no request has:
+    // validation drops it without touching any prototype.
+    const parsed = parseOpArgs('request.answer', {
+      requestId: 'srq-00000000000a',
+      answer: {
+        kind: 'clarify',
+        answers: JSON.parse('{"__proto__": {"skipped": true}}') as unknown,
+      },
+    })
+    const answers = (parsed.answer as { answers: object }).answers
+    expect(Object.hasOwn(answers, '__proto__')).toBe(false)
+    expect(Object.getPrototypeOf(answers)).toBe(Object.prototype)
+  })
+
   it('accepts any locked answer Hermes reports, however long', () => {
     const request = ServerRequest.parse({
       ...base,

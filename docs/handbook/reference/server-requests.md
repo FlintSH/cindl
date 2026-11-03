@@ -69,6 +69,8 @@ these events.
 
 ## Clarify sets
 
+- Question ids are Hermes's `q<index>` (`tools/clarify_tool.py`). An id of
+  `__proto__` is refused: a record keyed by it silently loses the key.
 - `lockedAnswers` are answers other clients locked (`clarify.lock`). Cindl
   shows them and leaves those questions out of its reply. It only knows the
   locks Hermes has sent, so a lock made since the last snapshot can still be

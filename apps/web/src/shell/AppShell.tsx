@@ -12,6 +12,7 @@ import { Mark } from '../ui/Mark.tsx'
 import { WorkView } from '../work/WorkView.tsx'
 import { CommandPalette, type Command } from './CommandPalette.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
+import { pruneRequestDrafts } from '../talk/RequestCard.tsx'
 import { Notices } from './Notices.tsx'
 import { SignIn } from './SignIn.tsx'
 import { LinkStatusDot } from './LinkStatus.tsx'
@@ -34,6 +35,8 @@ export function AppShell() {
   const current: Destination = route.view
 
   useEffect(() => applyTheme(theme), [theme])
+  // Drafts belong to open requests only.
+  useEffect(() => pruneRequestDrafts(new Set(open.map((r) => r.requestId))), [open])
   useEffect(() => {
     document.title = link.demo ? `Cindl (${SYNTHETIC_DEMO_LABEL.toLowerCase()})` : 'Cindl'
   }, [link.demo])

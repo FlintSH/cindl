@@ -1,11 +1,9 @@
 import { expect, test } from './fixtures.ts'
 
-// Note 4 of the first review: two clicks in the same task (before React
-// re-renders) must not send two answers. Hermes keeps the first reply, so a
-// second send would at best be ignored and at worst look like a reversal.
-test('a decision card sends one answer even for clicks in the same task', async ({
-  page,
-}) => {
+// The demo's fixture also rejects a second answer, so this checks the visible
+// outcome only. decision-lock.spec.ts proves the card's own lock against a
+// client that accepts every call.
+test('in the demo, two clicks in the same task end in one decision', async ({ page }) => {
   await page.goto('/#/talk')
   const card = page.getByRole('region', {
     name: /Approval needed: Run the inventory export script/,

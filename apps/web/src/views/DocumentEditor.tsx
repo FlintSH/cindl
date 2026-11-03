@@ -13,6 +13,11 @@ type Stage =
  */
 const keptDrafts = new Map<string, string>()
 
+/** Forget every kept draft (on sign-out, so nothing outlives the session). */
+export function forgetDocumentDrafts() {
+  keptDrafts.clear()
+}
+
 function Review({ before, draft }: { before: string; draft: string }) {
   const { lines, exact } = useMemo(() => diffLines(before, draft), [before, draft])
   const stats = diffStats(lines)

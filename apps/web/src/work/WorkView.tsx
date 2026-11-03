@@ -75,7 +75,10 @@ function Routines() {
   const [overrides, setOverrides] = useState<Record<string, Routine>>({})
   const [actionError, setActionError] = useState<string>()
   const [pending, setPending] = useState<Routine>()
-  const routines = list.data?.map((routine) => overrides[routine.id] ?? routine)
+  // Routine ids come from Hermes; only own keys count as overrides.
+  const routines = list.data?.map((routine) =>
+    Object.hasOwn(overrides, routine.id) ? (overrides[routine.id] ?? routine) : routine,
+  )
   const error = list.error ?? actionError
   if (error) return <p className={styles.error}>{error}</p>
   if (!routines) return <p className={styles.note}>Loading routines…</p>

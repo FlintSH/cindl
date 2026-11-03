@@ -30,9 +30,9 @@ test('the question form never discards what the owner typed or picked', async ({
   await expect(page.getByRole('checkbox', { name: 'Floor plan' }).first()).toBeChecked()
 })
 
-test('a question set is sent once even for two submits in the same task', async ({
-  page,
-}) => {
+// Outcome only (the demo's fixture rejects a second answer too); the card's
+// lock is proved in decision-lock.spec.ts.
+test('in the demo, two submits in the same task end in one answer', async ({ page }) => {
   await page.goto('/#/talk')
   await page.getByRole('radio', { name: 'Harbor Loft (fictional)' }).check()
   await page.getByRole('checkbox', { name: 'Floor plan' }).check()

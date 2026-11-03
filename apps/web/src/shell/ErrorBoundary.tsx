@@ -17,7 +17,9 @@ export class ErrorBoundary extends Component<
   }
 
   override componentDidCatch(_error: unknown, _info: ErrorInfo) {
-    // Intentionally not logged: messages may contain private content.
+    // Cindl adds no logging or reporting of its own: messages may contain
+    // private content. React itself still prints caught errors to the local
+    // browser console; nothing leaves the device.
   }
 
   override render() {
