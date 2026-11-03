@@ -327,9 +327,11 @@ class DirectHermesClient implements DirectClient {
 
   /**
    * Cookie mode: POST /auth/logout, so Hermes clears the HttpOnly cookies,
-   * which nothing else can. It revokes nothing at v0.22.5, so the session
-   * itself lasts until it expires. A failure never blocks the local sign-out;
-   * it is shown.
+   * which nothing else can. Whether a copy of them stops working depends on
+   * the provider: basic and Nous Portal revoke nothing, and self-hosted OIDC
+   * revokes the refresh token only when its IdP has a revocation endpoint
+   * (self_hosted/__init__.py:124-145); an access cookie lasts until it
+   * expires. A failure never blocks the local sign-out; it is shown.
    */
   async #endCookieSession(): Promise<void> {
     const rest = this.#rest

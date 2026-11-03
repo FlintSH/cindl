@@ -56,10 +56,14 @@ export const restEndpoints = {
   loginPage: { method: 'GET', path: '/login', auth: 'public' },
   /**
    * Cookie sign-out (routes.py:496-512): clears the session cookies and
-   * answers 302 to /login. Its best-effort revoke is a no-op for every bundled
-   * provider (plugins/dashboard_auth/basic/__init__.py:165-167), so a copy of
-   * the cookies works until it expires. On the gate's public list
-   * (middleware.py:39-42): it reads the cookies it clears.
+   * answers 302 to /login. Its best-effort revoke depends on the provider: a
+   * no-op for basic (stateless tokens) and Nous Portal (no revocation grant),
+   * an RFC 7009 revocation of the refresh token for self-hosted OIDC when its
+   * IdP advertises a revocation_endpoint (plugins/dashboard_auth/basic/
+   * __init__.py:165-167, nous/__init__.py:67-70, self_hosted/__init__.py:
+   * 124-145). Either way a copy of the access cookie works until it expires.
+   * On the gate's public list (middleware.py:39-42): it reads the cookies it
+   * clears.
    */
   logout: { method: 'POST', path: '/auth/logout', auth: 'public' },
 } as const
