@@ -531,7 +531,9 @@ Hermes server, Chrome's Custom Tab, and a phone.
   shared tokens' 44px is the floor for every client), TalkBack labels match the
   web labels, and the system font size, dark theme and "Remove animations"
   setting are followed. A destination keeps its scroll position when you come
-  back to it. Every overlay is the app's Dialog or Sheet (no native Modal).
+  back to it; while another is shown, it is hidden from TalkBack and closed to
+  a hardware keyboard's focus, so Tab never reaches a control no one can see.
+  Every overlay is the app's Dialog or Sheet (no native Modal).
   While one is open, everything beneath it is hidden from TalkBack (the app's
   content is marked "no-hide-descendants"), closed to a hardware keyboard's
   focus, and its scrim takes every touch there. The scrim takes touches and

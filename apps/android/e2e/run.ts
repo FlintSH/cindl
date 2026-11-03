@@ -25,7 +25,7 @@ import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
 import { SECURE_STORE_FILE, tokenStorage, type TokenStorage } from './keystore.ts'
 import { runExitCode, type StepStatus } from './outcome.ts'
 import { keyboardMoment, settledKeyboard } from './keyboard.ts'
-import { describePasses } from './reset.ts'
+import { resetNote } from './reset.ts'
 import { heldControl, inControl } from './screenControl.ts'
 import { DeviceLogs, RunSecrets, watchFakeHermes } from './secrets.ts'
 import {
@@ -256,8 +256,8 @@ const keyboardReader = {
  * report, the keyboard's window geometry included when back was for it.
  */
 async function closeOverlays() {
-  const passes = await device.resetToCindl()
-  if (passes.length > 1) resetNotes.push(describePasses(passes))
+  const note = resetNote(await device.resetToCindl())
+  if (note) resetNotes.push(note)
 }
 
 /**

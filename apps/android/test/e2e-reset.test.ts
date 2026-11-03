@@ -3,6 +3,7 @@ import {
   describePasses,
   RESET_PASSES,
   resetDeviceFrom,
+  resetNote,
   resetToCindl,
   type ResetDevice,
 } from '../e2e/reset.ts'
@@ -155,6 +156,52 @@ describe('the reset at a step start', () => {
     expect(error?.message).toContain("back (the keyboard's window up: window view 0x0")
     expect(error?.message).toContain('relaunch (another app in front)')
     expect(describePasses([{ move: 'done', reason: 'r' }])).toBe('1 done (r)')
+  })
+})
+
+describe('what a reset leaves in the report (delta check of 7dab9fe, notes 7 and 8)', () => {
+  it('names the passes it took before a read or an action failed', async () => {
+    // A sheet left open, closed by back; then the dump fails.
+    const { device } = scripted({ front: [true], dumps: [SHEET] })
+    let dumps = 0
+    const failing: ResetDevice = {
+      ...device,
+      dump: () => {
+        dumps += 1
+        return dumps === 1
+          ? device.dump()
+          : Promise.reject(new Error('uiautomator: could not get idle state'))
+      },
+    }
+    const error = await resetToCindl(failing, PKG).then(
+      () => undefined,
+      (e: unknown) => e as Error,
+    )
+    expect(error?.message).toBe(
+      'The reset failed: uiautomator: could not get idle state. Its passes so far: 1 back (a dialog or sheet open)',
+    )
+    // A relaunch that fails is named as the pass it was.
+    const launcher = scripted({ front: [false] })
+    const relaunchFails: ResetDevice = {
+      ...launcher.device,
+      relaunch: () => Promise.reject(new Error('am start: no answer')),
+    }
+    expect(
+      await resetToCindl(relaunchFails, PKG).then(
+        () => '',
+        (e: unknown) => (e as Error).message,
+      ),
+    ).toBe(
+      'The reset failed: am start: no answer. Its passes so far: 1 relaunch (another app in front)',
+    )
+  })
+
+  it('notes a reset only when it took more than one pass, naming each', () => {
+    const done = { move: 'done', reason: 'Cindl in front with nothing over it' } as const
+    expect(resetNote([done])).toBeUndefined()
+    expect(resetNote([{ move: 'back', reason: 'a dialog or sheet open' }, done])).toBe(
+      '1 back (a dialog or sheet open); 2 done (Cindl in front with nothing over it)',
+    )
   })
 })
 

@@ -47,13 +47,42 @@ export const RESET_PASSES = 6
  *   app can come to the front meanwhile. That narrows the window, not closes
  *   it: a few hundred milliseconds remain between the read and the key.
  * After `RESET_PASSES` passes it gives up, naming every pass (CI run
- * 41696032323: the old loop named only its last reason).
+ * 41696032323: the old loop named only its last reason). A read or an action
+ * that fails names the passes before it too.
  */
 export async function resetToCindl(
   device: ResetDevice,
   pkg: string,
 ): Promise<ResetPass[]> {
   const passes: ResetPass[] = []
+  let done: boolean
+  try {
+    done = await resetPasses(device, pkg, passes)
+  } catch (error) {
+    const reason = error instanceof Error ? error.message : String(error)
+    throw new Error(
+      `The reset failed: ${reason}. Its passes so far: ${
+        passes.length ? describePasses(passes) : 'none'
+      }`,
+      { cause: error },
+    )
+  }
+  if (!done)
+    throw new Error(
+      `The screen did not come back to Cindl with nothing over it in ${RESET_PASSES} passes: ${describePasses(passes)}`,
+    )
+  return passes
+}
+
+/**
+ * Takes the reset's passes, recording each in `passes` as it is taken: true
+ * once Cindl is in front with nothing over it, false when out of passes.
+ */
+async function resetPasses(
+  device: ResetDevice,
+  pkg: string,
+  passes: ResetPass[],
+): Promise<boolean> {
   for (let pass = 0; pass < RESET_PASSES; pass++) {
     const inFront = device.cindlInFront()
     const root = inFront ? await device.dump() : undefined
@@ -70,7 +99,7 @@ export async function resetToCindl(
     })
     if (move === 'done') {
       passes.push({ move, reason: 'Cindl in front with nothing over it' })
-      return passes
+      return true
     }
     if (move === 'relaunch') {
       passes.push({ move, reason: 'another app in front' })
@@ -96,10 +125,15 @@ export async function resetToCindl(
     )
     await device.back()
   }
-  throw new Error(
-    `The screen did not come back to Cindl with nothing over it in ${RESET_PASSES} passes: ${describePasses(passes)}`,
-  )
+  return false
 }
+
+/**
+ * What a step's report says of its reset: nothing when one pass did it, else
+ * every pass (run.ts adds it to the step's detail).
+ */
+export const resetNote = (passes: readonly ResetPass[]): string | undefined =>
+  passes.length > 1 ? describePasses(passes) : undefined
 
 /** The passes as one line, in order: "1 back (the keyboard's window up: …); 2 relaunch (…)". */
 export const describePasses = (passes: readonly ResetPass[]) =>
