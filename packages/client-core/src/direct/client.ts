@@ -547,11 +547,6 @@ class DirectHermesClient implements DirectClient {
     this.#epoch = handshake.connectionEpoch
     // Requests waiting for a binding belonged to the old socket; open_requests re-delivers them.
     this.#waiting.clear()
-    // An app-level prompt went to the socket that asked for it and is never re-listed
-    // (open_requests is per session): this client cannot see it any more.
-    for (const [requestId, tracked] of [...this.#requests])
-      if (!tracked.conversationId && tracked.request.lastSeenEpoch < this.#epoch)
-        this.#closeRequest(requestId, 'resolved-elsewhere')
     void this.#storage?.saveEpoch(this.#epoch)
     if (this.#display.viewerId && this.#display.viewerEpoch !== this.#epoch) {
       // Viewer ids belong to the connection that minted them (methods_display.py).
@@ -589,6 +584,7 @@ class DirectHermesClient implements DirectClient {
     }
     void this.#flushOutbox()
     this.#scheduleListRefresh(0)
+    void this.#syncAppLevel()
     void this.#probeDisplay()
     void this.#probeMemory()
     this.#scheduleRequestSync()
@@ -622,7 +618,7 @@ class DirectHermesClient implements DirectClient {
         code: asCindlError(error, 'resume').code,
       })
       this.#detachRuntime(storedId)
-      this.#syncRequests(storedId, [])
+      this.#syncRequests(storedId, [], undefined, handshake.connectionEpoch)
       return 'gone'
     }
     const newSid = snapshot.session_id
@@ -666,6 +662,7 @@ class DirectHermesClient implements DirectClient {
       storedId,
       open.map((entry) => entry.id),
       before,
+      handshake.connectionEpoch,
     )
     return 'ok'
   }
@@ -692,9 +689,12 @@ class DirectHermesClient implements DirectClient {
    * then it is newer than the snapshot and still open.
    */
   #syncRequests(
-    conversationId: string,
+    /** A conversation, or undefined for the app-level scope (requests with none). */
+    conversationId: string | undefined,
     listed: readonly string[],
     before?: ReadonlySet<string>,
+    /** The connection the list came from. */
+    epoch: number = this.#epoch,
   ): void {
     const open = new Set(listed)
     for (const [requestId, tracked] of [...this.#requests]) {
@@ -702,10 +702,47 @@ class DirectHermesClient implements DirectClient {
       if (before && !before.has(requestId)) open.add(requestId)
       else this.#requests.delete(requestId)
     }
-    this.#emit({ type: 'requests.synced', conversationId, openRequestIds: [...open] })
+    this.#emit({
+      type: 'requests.synced',
+      ...(conversationId ? { conversationId } : {}),
+      openRequestIds: [...open],
+      connectionEpoch: epoch,
+    })
   }
 
-  #trackedIn(conversationId: string): Set<string> {
+  /**
+   * App-level prompts (empty session_id, such as display.install.sudo) belong to
+   * the Hermes surface that started the operation, which gets the frame; Cindl
+   * starts none. `session.events.since {session_id: ""}` lists every
+   * connection's open ones (methods_session.py:2309-2323, server.py:797-810).
+   * Show the listed ones not seen yet and close only what the list no longer
+   * holds. A disconnect cancels nothing app-level (Hermes waits out the prompt's
+   * own timeout), so when the list cannot be read nothing changes.
+   */
+  async #syncAppLevel(): Promise<void> {
+    const before = this.#trackedIn(undefined)
+    const epoch = this.#epoch
+    let since: wire.SessionEventsSinceResult | undefined
+    try {
+      since = wire.parseWire(
+        wire.SessionEventsSinceResult,
+        await this.#rpc('session.events.since', { session_id: '', last_seen: NO_EVENTS }),
+      )
+    } catch {
+      return
+    }
+    if (!since || epoch !== this.#epoch) return
+    const unseen = since.open_requests.filter((entry) => !this.#requests.has(entry.id))
+    this.#connection?.channel?.deliverOpenRequests(unseen)
+    this.#syncRequests(
+      undefined,
+      since.open_requests.map((entry) => entry.id),
+      before,
+      epoch,
+    )
+  }
+
+  #trackedIn(conversationId: string | undefined): Set<string> {
     const ids = new Set<string>()
     for (const [requestId, tracked] of this.#requests)
       if (tracked.conversationId === conversationId) ids.add(requestId)
@@ -735,6 +772,7 @@ class DirectHermesClient implements DirectClient {
       const sid = this.#runtime.get(conversationId)
       if (!sid) continue
       const before = this.#trackedIn(conversationId)
+      const epoch = this.#epoch
       try {
         const since = wire.parseWire(
           wire.SessionEventsSinceResult,
@@ -748,11 +786,13 @@ class DirectHermesClient implements DirectClient {
             conversationId,
             since.open_requests.map((entry) => entry.id),
             before,
+            epoch,
           )
       } catch {
         // Next tick, or the reconnect, tries again.
       }
     }
+    await this.#syncAppLevel()
     this.#scheduleRequestSync()
   }
 
@@ -931,6 +971,7 @@ class DirectHermesClient implements DirectClient {
     omitMessages: boolean,
   ): Promise<wire.SessionResumeResult> {
     const before = this.#trackedIn(storedId)
+    const epoch = this.#epoch
     const snapshot = await this.#resume(storedId, omitMessages)
     const open = snapshot.open_requests ?? []
     this.#connection?.channel?.deliverOpenRequests(open)
@@ -938,6 +979,7 @@ class DirectHermesClient implements DirectClient {
       storedId,
       open.map((entry) => entry.id),
       before,
+      epoch,
     )
     return snapshot
   }

@@ -406,6 +406,28 @@ export class FakeGateway {
   }
 
   /**
+   * An app-level prompt (empty session_id, like display.install.sudo): registered for
+   * every connection's `session.events.since {session_id: ""}` but written only to `to`,
+   * the connection that started the operation (server_requests.py:166-188). Without `to`
+   * another surface started it and no connection here receives the frame.
+   */
+  appRequest(method: string, params: Json, to?: FakeConnection): Promise<Json | null> {
+    return new Promise((resolve) => {
+      const id = `srq-${hex(6)}`
+      this.open.set(id, {
+        id,
+        method,
+        sid: '',
+        params,
+        createdAt: this.#clock.now(),
+        declined: new Set(),
+        settle: resolve,
+      })
+      to?.send({ jsonrpc: '2.0', id, method, params: { session_id: '', ...params } })
+    })
+  }
+
+  /**
    * Test control: another client locks one clarify answer (`clarify.lock`). The last
    * lock settles the batch as submitted (server_requests.py:319-336).
    */

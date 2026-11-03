@@ -296,7 +296,9 @@ ended without an event. A request that arrives while that list is on its way
 is newer than the list and stays open; one that arrives before the reply that
 binds its session (`session.resume` attaches before it answers) is shown once
 the binding lands. While a card is open Cindl repeats the check every 15 s,
-because the sidecar does not report answers from other clients.
+because the sidecar does not report answers from other clients. Every
+`requests.synced` carries the `connectionEpoch` its list came from, so a list
+from an older connection cannot close a request seen on a newer one.
 
 The link goes online only once every conversation is re-attached. If Hermes
 answers a conversation's `session.resume` with an error (not found, or a
@@ -329,8 +331,14 @@ other) with a title only, nothing from Hermes's params, and closes like any
 other request: withdrawn, timed out, or gone from Hermes's open list once
 another surface answered it. A prompt that belongs to no session (Hermes sends
 `display.install.sudo` with an empty `session_id`, `methods_display.py:202-206`)
-has no conversation and shows only in Work; Hermes never lists it again
-(`open_requests` is per session), so it is dropped after a reconnect. When
+has no conversation and shows only in Work. It belongs to the surface that
+started the operation (Hermes writes the frame only there, and Cindl starts
+none), but `session.events.since` with `session_id: ""` lists every
+connection's open app-level prompts (`methods_session.py:2309-2323`,
+`server.py:797-810`). Cindl reads that list after every connect and in the
+15 s check, shows the ones it has not seen, and closes only what the list no
+longer holds. A disconnect cancels nothing app-level (Hermes waits out the
+prompt's own timeout), so if the list cannot be read nothing changes. When
 Hermes reclaims a session (`session.reclaimed`,
 `session_lifecycle.py:545-560`), its open requests close as `cancelled`.
 

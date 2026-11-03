@@ -38,4 +38,5 @@ the RFB screen viewer, steer and process operations.
   whose frames are validated against the vendored schemas. A test that only
   checks a mock it wrote proves nothing. Drive interleavings and failures with
   the fake's own controls (`beforeHandle`, `afterHandle`, `respondError`,
-  `failNext`, `frozen`, `dropConnections`) rather than mocks.
+  `failNext`, `frozen`, `dropConnections`, `appRequest` for app-level prompts)
+  rather than mocks.

@@ -453,18 +453,17 @@ describe('direct client: approvals and questions', () => {
     ).toBeUndefined()
   })
 
-  it('shows an app-level prompt without a conversation and drops it after a reconnect', async () => {
+  it('keeps an app-level prompt open across a reconnect while Hermes still lists it', async () => {
     const h = await harness()
     // display.install.sudo goes to the client that clicked Install, with no session
-    // (tui_gateway/methods_display.py:202-206).
-    for (const connection of h.fake.gateway.connections)
-      connection.send({
-        jsonrpc: '2.0',
-        id: 'srq-00000000cafe',
-        method: 'display.install.sudo',
-        params: { session_id: '', profile_key: 'default' },
-      })
-    const request = await h.waitFor(() => requestOf(h, 'srq-00000000cafe'))
+    // (tui_gateway/methods_display.py:202-206); Hermes registers it for every list.
+    const [mine] = [...h.fake.gateway.connections]
+    void h.fake.gateway.appRequest(
+      'display.install.sudo',
+      { profile_key: 'default' },
+      mine,
+    )
+    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
     expect(request).toMatchObject({
       kind: 'unsupported',
       unsupportedKind: 'sudo',
@@ -475,12 +474,64 @@ describe('direct client: approvals and questions', () => {
     expect(h.store.getState().notices).toEqual([])
     expect(await codeOf(approve(h, request.requestId, 'deny'))).toBe('unsupported')
     expect(h.rpcCalls('request.answer')).toBe(0)
-    // Hermes never re-lists it (open_requests is per session), so a new socket drops it.
+    // A disconnect cancels nothing app-level: the new connection lists it again.
     h.fake.gateway.dropConnections()
     await online(h, 2)
+    await h.waitFor(() =>
+      h.events.some(
+        (e) =>
+          e.type === 'requests.synced' &&
+          e.conversationId === undefined &&
+          e.connectionEpoch === 2 &&
+          e.openRequestIds.includes(request.requestId),
+      ),
+    )
+    expect(requestOf(h, request.requestId)?.status).toBe('open')
+    expect(h.fake.gateway.settled).toEqual([])
+  })
+
+  it('shows app-level prompts another surface started and closes the ones Hermes stops listing', async () => {
+    const fake = await fakeHermes()
+    // Started elsewhere: no connection here gets the frame, only the list has it.
+    void fake.gateway.appRequest('display.install.sudo', { profile_key: 'default' })
+    const h = await harness({ fake, deps: { connection: { requestSyncMs: 40 } } })
+    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+    expect(request).toMatchObject({ kind: 'unsupported', unsupportedKind: 'sudo' })
+    expect(request.conversationId).toBeUndefined()
+    // Hermes's own deadline ends it; the periodic list no longer holds it.
+    fake.gateway.expireRequest(request.requestId)
     await h.waitFor(
       () => requestOf(h, request.requestId)?.status === 'resolved-elsewhere',
     )
+    // Nothing was ever sent for it.
+    expect(h.rpcCalls('request.answer')).toBe(0)
+  })
+
+  it('changes nothing app-level when the list cannot be read', async () => {
+    const h = await harness()
+    const [mine] = [...h.fake.gateway.connections]
+    void h.fake.gateway.appRequest(
+      'display.install.sudo',
+      { profile_key: 'default' },
+      mine,
+    )
+    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+    h.fake.gateway.respondError = (method, params) =>
+      method === 'session.events.since' && params.session_id === ''
+        ? { code: 5000, message: 'list failed (fixture)' }
+        : undefined
+    h.fake.gateway.dropConnections()
+    await online(h, 2)
+    await pause(60)
+    expect(requestOf(h, request.requestId)?.status).toBe('open')
+    expect(
+      h.events.some(
+        (e) =>
+          e.type === 'requests.synced' &&
+          e.conversationId === undefined &&
+          e.connectionEpoch === 2,
+      ),
+    ).toBe(false)
   })
 
   it('skips a whole clarify set by skipping every open question', async () => {
@@ -635,7 +686,8 @@ describe('direct client: reconnect and replay', () => {
     expect(
       h.fake.calls.filter((call) => call.name === 'POST /api/auth/ws-ticket'),
     ).toHaveLength(2)
-    expect(h.rpcCalls('session.events.since')).toBe(1)
+    // The replay and the app-level list share session.events.since.
+    expect(h.rpcCalls('session.events.since')).toBeGreaterThanOrEqual(2)
     expect(
       h.events.some((e) => e.type === 'requests.synced' && e.conversationId === c.id),
     ).toBe(true)
