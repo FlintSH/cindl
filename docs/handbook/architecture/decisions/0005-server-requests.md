@@ -76,3 +76,11 @@ is in the [server requests reference](../../reference/server-requests.md).
 - Cindl cannot unblock a sudo, secret or vault prompt. Hermes stays blocked
   until the owner answers it elsewhere, and Cindl shows that as waiting on
   the owner, outside Cindl.
+- Staying silent has a cost where Cindl cannot vote: a prompt another app's
+  window owns (`window.read`, `terminal.read`, `preview.*`, `tour`,
+  `theme.apply`) settles only when every client that answers server requests
+  declines (`tui_gateway/server_requests.py:264-273`). If Cindl is attached on
+  a socket that does not count votes, the agent waits out the prompt's
+  deadline (30 s for `window.read`, `tui_gateway/agent_callbacks.py:176`) and
+  gets an empty answer instead of "no window shows this chat". These kinds are
+  candidates for a per-kind rule once it is pinned by tests.

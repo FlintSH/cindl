@@ -56,11 +56,18 @@ Canonical methods (only after `session_authority`): `runtime.describe`,
 `prompt.receipt`, `prompt.resolve_unknown`, `approval.respond`,
 `clarify.respond`, `profiles.list`, `cron.status`.
 
-Server requests Cindl answers: `approval`, `clarify`. Hermes broadcasts each
-request to every attached client and keeps the first reply, so Cindl declines
-the others in a way that leaves them answerable by the owner's other clients
-(the not-shown reply, code 4404, where Hermes defines it). Per-kind behaviour is
-being verified against the pinned source; no blanket error reply is used.
+Server requests Cindl answers: `approval`, `clarify`, through the sidecar's
+acknowledged `request.answer`. Hermes broadcasts each request to every attached
+client and keeps the first reply. Cindl never replies to sudo, secret or vault
+prompts or to kinds it does not know: no 4404 decline, no error, no empty value,
+because a unanimous 4404 settles the request with a JSON error string that the
+secret callback stores and sudo and vault prompts use as the password or code
+(`tui_gateway/server_requests.py:254-278`, `tui_gateway/agent_callbacks.py:250-279`).
+They stay open for another Hermes surface. The one non-answer reply Cindl sends
+is the 4404 vote for a prompt another app's window owns, and only on a sidecar
+socket that counts such votes. See
+[ADR 0005](../architecture/decisions/0005-server-requests.md) and
+[server requests](server-requests.md).
 
 Notifications handled: `gateway.ready`, `message.start`, `message.delta`,
 `message.interim`, `message.complete`, `reasoning.delta`,

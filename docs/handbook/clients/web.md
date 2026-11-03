@@ -29,8 +29,9 @@ process instead of Hermes directly:
   only on this machine) appear above the current view until dismissed. They sit
   in the page flow, so they never cover a control.
 - Errors cross the desktop bridge as plain objects and are turned back into
-  `CindlError` values with their stable code. Anything unrecognised becomes an
-  `internal` error rather than an unexplained failure.
+  `CindlError` values with their stable code. A plain object that is not a
+  Cindl error becomes an `internal` error rather than an unexplained failure;
+  an `Error` passes through unchanged.
 
 ## Run the synthetic demo
 

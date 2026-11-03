@@ -1,6 +1,6 @@
 # 0008 Native Android with Expo / React Native
 
-**Status:** Accepted (SDK licences approved for GitHub-hosted builds and emulator tests; no APK built yet)
+**Status:** Accepted (Google's Android SDK licence approved for Cindl APK builds and emulator tests on existing GitHub build runners only; no APK built yet)
 
 **Decision.** The Android app is React Native on Expo SDK 58 (React Native
 0.88, React 19.3) using native components, not a WebView. It shares
