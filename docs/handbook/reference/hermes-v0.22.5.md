@@ -320,7 +320,9 @@ other) with a title only, nothing from Hermes's params, and closes like any
 other request: withdrawn, timed out, or gone from Hermes's open list once
 another surface answered it. A prompt that belongs to no session (Hermes sends
 `display.install.sudo` with an empty `session_id`, `methods_display.py:202-206`)
-is only noted. When Hermes reclaims a session (`session.reclaimed`,
+has no conversation and shows only in Work; Hermes never lists it again
+(`open_requests` is per session), so it is dropped after a reconnect. When
+Hermes reclaims a session (`session.reclaimed`,
 `session_lifecycle.py:545-560`), its open requests close as `cancelled`.
 
 | Kind                                                                                              | Cindl's reply                                                                                               | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |

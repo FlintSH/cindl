@@ -201,16 +201,26 @@ const unsupportedTitles: Record<UnsupportedRequestKind, string> = {
  * what kind of input Hermes wants.
  */
 export function mapUnsupportedRequest(
-  input: Omit<InboundRequestInput, 'params'> & { sessionId: string },
+  input: Omit<InboundRequestInput, 'params' | 'conversationId'> & {
+    /** The frame's `session_id`; empty for an app-level prompt. */
+    sessionId: string
+    /** Required unless the prompt is app-level. */
+    conversationId?: string
+  },
 ): MappedRequest | undefined {
-  if (!RequestId.safeParse(input.requestId).success || !input.sessionId) return undefined
+  if (!RequestId.safeParse(input.requestId).success) return undefined
+  // An app-level prompt (display.install.sudo is sent with an empty session_id,
+  // tui_gateway/methods_display.py:202-206) belongs to no conversation.
+  if (input.sessionId && !input.conversationId) return undefined
   const kind = unsupportedKind(input.method)
   const request: ServerRequest = {
     requestId: input.requestId,
     lastSeenEpoch: input.lastSeenEpoch,
     receivedAt: input.receivedAt,
     status: 'open',
-    conversationId: input.conversationId,
+    ...(input.sessionId && input.conversationId
+      ? { conversationId: input.conversationId }
+      : {}),
     kind: 'unsupported',
     unsupportedKind: kind,
     title:

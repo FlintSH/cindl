@@ -376,8 +376,30 @@ describe('requests Cindl never answers', () => {
     })
   })
 
-  it('maps nothing without a session or a Hermes request id', () => {
-    expect(unsupported('sudo', '')).toBeUndefined()
+  it('maps an app-level prompt without a conversation, and nothing without a request id', () => {
+    const appLevel = mapUnsupportedRequest({
+      requestId: 'srq-00000000beef',
+      method: 'display.install.sudo',
+      sessionId: '',
+      lastSeenEpoch: 2,
+      receivedAt,
+    })
+    expect(ServerRequest.parse(appLevel?.request)).toMatchObject({
+      kind: 'unsupported',
+      unsupportedKind: 'sudo',
+      status: 'open',
+    })
+    expect(appLevel?.request.conversationId).toBeUndefined()
+    // A session-scoped prompt needs its conversation (the caller resolves it first).
+    expect(
+      mapUnsupportedRequest({
+        requestId: 'srq-00000000beef',
+        method: 'sudo',
+        sessionId: 'a1b2c3d4',
+        lastSeenEpoch: 1,
+        receivedAt,
+      }),
+    ).toBeUndefined()
     expect(
       mapUnsupportedRequest({
         requestId: 'srq-1',

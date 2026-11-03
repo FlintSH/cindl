@@ -450,7 +450,7 @@ describe('direct client: approvals and questions', () => {
     ).toBeUndefined()
   })
 
-  it('only notes an app-level prompt it cannot place in a conversation', async () => {
+  it('shows an app-level prompt without a conversation and drops it after a reconnect', async () => {
     const h = await harness()
     // display.install.sudo goes to the client that clicked Install, with no session
     // (tui_gateway/methods_display.py:202-206).
@@ -461,12 +461,48 @@ describe('direct client: approvals and questions', () => {
         method: 'display.install.sudo',
         params: { session_id: '', profile_key: 'default' },
       })
-    await h.waitFor(() => h.store.getState().notices.length > 0)
-    expect(h.store.getState().notices.map((n) => n.message)).toEqual([
-      'Hermes is waiting for input Cindl does not answer. Answer it where Hermes asked, or it times out.',
-    ])
-    expect(Object.keys(h.store.getState().requests)).toEqual([])
+    const request = await h.waitFor(() => requestOf(h, 'srq-00000000cafe'))
+    expect(request).toMatchObject({
+      kind: 'unsupported',
+      unsupportedKind: 'sudo',
+      status: 'open',
+      lastSeenEpoch: 1,
+    })
+    expect(request.conversationId).toBeUndefined()
+    expect(h.store.getState().notices).toEqual([])
+    expect(await codeOf(approve(h, request.requestId, 'deny'))).toBe('unsupported')
     expect(h.rpcCalls('request.answer')).toBe(0)
+    // Hermes never re-lists it (open_requests is per session), so a new socket drops it.
+    h.fake.gateway.dropConnections()
+    await online(h, 2)
+    await h.waitFor(
+      () => requestOf(h, request.requestId)?.status === 'resolved-elsewhere',
+    )
+  })
+
+  it('skips a whole clarify set by skipping every open question', async () => {
+    const h = await harness()
+    const outcome: { result?: unknown } = {}
+    h.fake.gateway.script = async (turn) => {
+      outcome.result = await turn.clarify([
+        { qid: 'q0', question: 'Venue? (fixture)', choices: ['North', 'South'] },
+        { qid: 'q1', question: 'Anything else? (fixture)' },
+      ])
+    }
+    const { request } = await openRequest(h)
+    await h.client.call('request.answer', {
+      requestId: request.requestId,
+      answer: {
+        kind: 'clarify',
+        answers: { q0: { skipped: true }, q1: { skipped: true } },
+      },
+    })
+    await h.waitFor(() => outcome.result)
+    // Each question reaches the agent as skipped, with outcome submitted, never cancelled.
+    expect(outcome.result).toEqual({
+      answers: { q0: null, q1: null },
+      outcome: 'submitted',
+    })
   })
 
   it('answers through request.answer and stays answering until Hermes acknowledges', async () => {

@@ -120,7 +120,8 @@ type Handler<K extends OpName> = (args: OpArgs<K>) => Promise<OpResult<K>> | OpR
 interface TrackedRequest {
   request: ServerRequest
   runtimeSessionId: string
-  conversationId: string
+  /** Absent only for an app-level `unsupported` prompt. */
+  conversationId: string | undefined
 }
 
 type ReattachOutcome = 'ok' | 'gone' | 'abort'
@@ -173,7 +174,6 @@ class DirectHermesClient implements DirectClient {
   readonly #watermark = new Map<string, number>()
   readonly #historyLoaded = new Set<string>()
   readonly #requests = new Map<string, TrackedRequest>()
-  readonly #noticed = new Set<string>()
   /** Requests for a runtime session this socket has not bound yet: session id -> request id -> show it. */
   readonly #waiting = new Map<string, Map<string, () => void>>()
   readonly #prompts = new Map<string, PendingPrompt>()
@@ -543,6 +543,11 @@ class DirectHermesClient implements DirectClient {
     this.#epoch = handshake.connectionEpoch
     // Requests waiting for a binding belonged to the old socket; open_requests re-delivers them.
     this.#waiting.clear()
+    // An app-level prompt went to the socket that asked for it and is never re-listed
+    // (open_requests is per session): this client cannot see it any more.
+    for (const [requestId, tracked] of [...this.#requests])
+      if (!tracked.conversationId && tracked.request.lastSeenEpoch < this.#epoch)
+        this.#closeRequest(requestId, 'resolved-elsewhere')
     void this.#storage?.saveEpoch(this.#epoch)
     if (this.#display.viewerId && this.#display.viewerEpoch !== this.#epoch) {
       // Viewer ids belong to the connection that minted them (methods_display.py).
@@ -711,7 +716,9 @@ class DirectHermesClient implements DirectClient {
 
   async #syncOpenRequests(): Promise<void> {
     const conversations = new Set(
-      [...this.#requests.values()].map((tracked) => tracked.conversationId),
+      [...this.#requests.values()].flatMap((tracked) =>
+        tracked.conversationId ? [tracked.conversationId] : [],
+      ),
     )
     for (const conversationId of conversations) {
       const sid = this.#runtime.get(conversationId)
@@ -1037,23 +1044,13 @@ class DirectHermesClient implements DirectClient {
   #onUnhandledServerRequest(request: UnhandledServerRequest, epoch: number): void {
     if (request.action !== 'leave-open') return
     const sid = request.sessionId ?? ''
-    const conversationId = this.#stored.get(sid)
-    if (!conversationId) {
-      if (sid) {
-        this.#waitForBinding(sid, request.id, epoch, () =>
-          this.#onUnhandledServerRequest(request, epoch),
-        )
-        return
-      }
-      // App-level prompts (display.install.sudo) belong to no conversation.
-      if (this.#noticed.has(request.id)) return
-      this.#noticed.add(request.id)
-      this.#emit({
-        type: 'notice',
-        level: 'warning',
-        message:
-          'Hermes is waiting for input Cindl does not answer. Answer it where Hermes asked, or it times out.',
-      })
+    // An app-level prompt (empty session_id) belongs to no conversation and is
+    // shown only in Work; a session-scoped one waits for its binding.
+    const conversationId = sid ? this.#stored.get(sid) : undefined
+    if (sid && !conversationId) {
+      this.#waitForBinding(sid, request.id, epoch, () =>
+        this.#onUnhandledServerRequest(request, epoch),
+      )
       return
     }
     const existing = this.#requests.get(request.id)
@@ -1063,7 +1060,7 @@ class DirectHermesClient implements DirectClient {
       sessionId: sid,
       lastSeenEpoch: epoch,
       receivedAt: existing?.request.receivedAt ?? this.#now(),
-      conversationId,
+      ...(conversationId ? { conversationId } : {}),
     })
     if (!mapped) return
     this.#requests.set(request.id, {
@@ -1072,7 +1069,8 @@ class DirectHermesClient implements DirectClient {
       conversationId,
     })
     this.#emit({ type: 'request.opened', request: mapped.request })
-    this.#emit({ type: 'session.status', conversationId, status: 'waiting-on-you' })
+    if (conversationId)
+      this.#emit({ type: 'session.status', conversationId, status: 'waiting-on-you' })
     this.#scheduleRequestSync()
   }
 
@@ -1486,11 +1484,12 @@ class DirectHermesClient implements DirectClient {
           connectionEpoch: epoch,
           answer,
         })
-        this.#emit({
-          type: 'session.status',
-          conversationId: tracked.conversationId,
-          status: 'working',
-        })
+        if (tracked.conversationId)
+          this.#emit({
+            type: 'session.status',
+            conversationId: tracked.conversationId,
+            status: 'working',
+          })
         return { ...answering, status: 'answered' as const }
       }
       if (outcome.kind === 'no-longer-pending') {
@@ -1698,7 +1697,6 @@ class DirectHermesClient implements DirectClient {
     this.#watermark.clear()
     this.#historyLoaded.clear()
     this.#requests.clear()
-    this.#noticed.clear()
     this.#waiting.clear()
     this.#prompts.clear()
     this.#accepted.clear()
