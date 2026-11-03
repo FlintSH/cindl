@@ -572,16 +572,53 @@ describe('the rules the screen is built on', () => {
     expect(placeNow([...entries, summary(kiln(2), KILN)], identityOf(kiln(0)))).toBe(
       undefined,
     )
-    expect(lockNotice({ noun: 'agent note', place: 2, movedTo: 1, adopted: false })).toBe(
-      `${LOCKED_NOTICE} The same text is now agent note 1; close this and open it there to keep editing it.`,
+    // Where the text in the box goes when the editor closes, by where it is kept.
+    const own = memoryDraftKey(harbor(1))
+    const notice = (keptAs: string | undefined, movedTo: number | undefined = 1) =>
+      lockNotice({
+        noun: 'agent note',
+        place: 2,
+        movedTo,
+        keptAs,
+        ownKey: own,
+        placeNow: (identity) =>
+          identity === identityOf(kiln(0))
+            ? 3
+            : identity === 'profile:bbbbbbbbbbbb'
+              ? 1
+              : undefined,
+      })
+    const here = `${LOCKED_NOTICE} The same text is now agent note 1`
+    // This entry's own draft (or none yet) returns with the entry.
+    expect(notice(undefined)).toBe(
+      `${here}; close this and open it there to keep editing it.`,
     )
-    // A draft used for this entry from another does not follow it: it waits under Unsaved drafts.
-    expect(lockNotice({ noun: 'agent note', place: 2, movedTo: 1, adopted: true })).toBe(
-      `${LOCKED_NOTICE} The same text is now agent note 1. This draft was written for another entry, so when you close this it stays under Unsaved drafts.`,
+    expect(notice(own)).toBe(`${here}; close this and open it there to keep editing it.`)
+    // A draft kept beside the entry's own draft waits under Unsaved drafts.
+    expect(notice(`${own}#2`)).toBe(
+      `${here}. The text you were editing is kept apart from that entry's own draft, so when you close this it stays under Unsaved drafts.`,
     )
-    expect(lockNotice({ noun: 'agent note', place: 2, movedTo: 2, adopted: false })).toBe(
-      LOCKED_NOTICE,
+    // A draft written for another entry goes back to it while it is listed, else waits.
+    expect(notice(memoryDraftKey(kiln(1)))).toBe(
+      `${here}. This draft was written for agent note 3, so when you close this it goes back to that entry.`,
     )
+    expect(notice('memory-draft:profile:bbbbbbbbbbbb')).toBe(
+      `${here}. This draft was written for note about you 1, so when you close this it goes back to that entry.`,
+    )
+    expect(notice('memory-draft:memory:cccccccccccc')).toBe(
+      `${here}. This draft was written for another entry, so when you close this it stays under Unsaved drafts.`,
+    )
+    expect(notice(own, 2)).toBe(LOCKED_NOTICE)
+    expect(
+      lockNotice({
+        noun: 'agent note',
+        place: 2,
+        movedTo: undefined,
+        keptAs: undefined,
+        ownKey: own,
+        placeNow: () => undefined,
+      }),
+    ).toBe(LOCKED_NOTICE)
   })
 
   it('names an entry by the first line with words, cut as Hermes cuts card titles, else "this entry"', () => {

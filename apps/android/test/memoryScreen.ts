@@ -142,6 +142,8 @@ interface DocumentEditorState {
   backup: { content: string; version: string } | undefined
   keepDeps: [string | undefined, string | undefined] | undefined
   wasLocked: boolean
+  /** Where the box's draft was kept at the last commit (its layout effect). */
+  keptAsNow: string | undefined
 }
 
 interface DeleteEntryState {
@@ -519,13 +521,14 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
           backup: undefined,
           keepDeps: undefined,
           wasLocked: Boolean(view.lockNotice),
+          keptAsNow: undefined,
         }
       renderDocumentEditor(out, commit, self.doc, {
         document: memoryDocument(data, place),
         draftKey,
         locked: view.lockNotice,
         nowHere: view.nowHere,
-        onAdopt: target ? () => adopt(target, draftKey) : undefined,
+        onAdopt: target ? (keptAs) => adopt(target, keptAs ?? draftKey) : undefined,
         adoption: self.adoption,
         draftNote: view.draftNote,
         keepDraft: view.keepDraft,
@@ -585,9 +588,9 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
     props: {
       document: VersionedDocument
       draftKey: string
-      locked: string | undefined
+      locked: string | ((keptAs: string | undefined) => string) | undefined
       nowHere: string | undefined
-      onAdopt: (() => void) | undefined
+      onAdopt: ((keptAs: string | undefined) => void) | undefined
       adoption: { busy: boolean; error?: string | undefined } | undefined
       draftNote: string | undefined
       keepDraft: boolean
@@ -596,11 +599,14 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
       onSave: (content: string, expectedVersion: string) => Promise<VersionedDocument>
     },
   ) {
-    const { document, draftKey, locked, onAdopt } = props
+    const { document, draftKey, onAdopt } = props
+    const lockFor = (keptAs: string | undefined) =>
+      typeof props.locked === 'function' ? props.locked(keptAs) : props.locked
     const setStage = (next: Stage) => set(self, () => (self.stage = next))
-    // A draft kept for the first time is filed once, while rendering.
+    // A draft kept for the first time is filed once, while rendering (React then
+    // renders again with the new slot).
     if (self.stage.kind !== 'view') {
-      const first = keptDraft(locked, props.keepDraft, self.stage)
+      const first = keptDraft(lockFor(self.stage.keptAs), props.keepDraft, self.stage)
       if (first !== undefined && self.stage.keptAs === undefined)
         self.stage = {
           ...self.stage,
@@ -609,6 +615,8 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
     }
     const stage = self.stage
     const keptAs = stage.kind === 'view' ? undefined : stage.keptAs
+    const locked = lockFor(keptAs)
+    commit.layout.push(() => (self.keptAsNow = keptAs))
     const { restored, offered } = keptState(keptDrafts, draftKey, stage)
     const keep = keptDraft(locked, props.keepDraft, stage)
     const isLocked = Boolean(locked)
@@ -650,7 +658,7 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
           name: 'Use this draft for the entry now here',
           ...(panel.adopt.hint ? { hint: panel.adopt.hint } : {}),
           disabled: panel.adopt.disabled,
-          press: onAdopt,
+          press: () => onAdopt(keptAs),
         })
     }
     const notice = draftNotice({ draftNote: props.draftNote, restored, locked })
@@ -738,15 +746,16 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
       try {
         const previous = document.content
         const saved = await props.onSave(draft, base)
-        // Only this draft's kept copy; another kept draft for the document stays.
-        if (keptAs !== undefined) keptDrafts.delete(keptAs)
+        // Only this draft's kept copy, wherever it is filed now.
+        const filed = self.keptAsNow
+        if (filed !== undefined) keptDrafts.delete(filed)
         set(self, () => {
           self.backup = { content: previous, version: saved.version }
           self.stage = { kind: 'view' }
         })
       } catch (error) {
         if (isCindlError(error) && error.code === 'conflict') {
-          const key = keepKey(keptDrafts, draftKey, keptAs, draft)
+          const key = keepKey(keptDrafts, draftKey, self.keptAsNow, draft)
           keptDrafts.set(key, draft)
           set(self, () => {
             self.stage = { kind: 'review', draft, base, keptAs: key }
@@ -1110,6 +1119,20 @@ export function memoryBackend(
     ops,
     resolve,
     add: (store: Store, content: string) => void entries.push({ store, content }),
+    /** Replaces a store's entries, in order (as the web probes set the fake's list). */
+    set: (store: Store, contents: string[]) => {
+      const others = entries.filter((e) => e.store !== store)
+      entries.splice(
+        0,
+        entries.length,
+        ...others,
+        ...contents.map((content) => ({ store, content })),
+      )
+    },
+    store: (store: Store) =>
+      ordered()
+        .filter((e) => e.store === store)
+        .map((e) => e.content),
     remove: (re: RegExp) => void entries.splice(entries.indexOf(byText(re)), 1),
     replace: (re: RegExp, content: string) => void (byText(re).content = content),
     has: (re: RegExp) => entries.some((e) => re.test(e.content)),
@@ -1126,16 +1149,32 @@ export function harness(
 ) {
   const mem = memoryBackend(initial, options)
   const calls: Array<{ name: string; args: unknown }> = []
-  const held = new Set<Gate>()
+  // `request`: the call waits before Hermes sees it; `answer`: Hermes acts at once and
+  // the answer waits (a slow response).
+  const held = new Map<Gate, 'request' | 'answer'>()
   const releases = new Map<Gate, () => void>()
   const failNext = new Map<string, CindlError>()
   const state = { refuseDeletes: false }
   let failRead = false
   const call = (async (name: string, args: unknown) => {
     calls.push({ name, args })
-    if (held.has(name as Gate)) {
-      held.delete(name as Gate)
-      await new Promise<void>((resolve) => releases.set(name as Gate, resolve))
+    const mode = held.get(name as Gate)
+    if (mode) held.delete(name as Gate)
+    const gate = () => new Promise<void>((resolve) => releases.set(name as Gate, resolve))
+    if (mode === 'request') await gate()
+    if (mode === 'answer') {
+      const op = mem.ops[name]
+      if (!op) throw new Error(`unexpected call ${name}`)
+      let result: unknown
+      let failed: Error | undefined
+      try {
+        result = op(args as never)
+      } catch (error) {
+        failed = error instanceof Error ? error : new Error(String(error))
+      }
+      await gate()
+      if (failed) throw failed
+      return result
     }
     const failure = failNext.get(name)
     if (failure) {
@@ -1171,7 +1210,8 @@ export function harness(
       calls
         .filter((c) => c.name === 'memory.delete')
         .map((c) => c.args as { id: string }),
-    hold: (gate: Gate) => void held.add(gate),
+    hold: (gate: Gate) => void held.set(gate, 'request'),
+    holdAnswer: (gate: Gate) => void held.set(gate, 'answer'),
     release: (gate: Gate) => {
       const resolve = releases.get(gate)
       releases.delete(gate)

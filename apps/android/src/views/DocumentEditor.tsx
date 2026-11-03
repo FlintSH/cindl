@@ -1,6 +1,6 @@
 import { diffLines, diffStats } from '@cindl/client-core'
 import { isCindlError, type VersionedDocument } from '@cindl/contracts'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   AccessibilityInfo,
   Text,
@@ -45,7 +45,7 @@ export function DocumentEditor({
   draftKey = document.key,
   canWrite,
   writeNote,
-  locked,
+  locked: lockedBy,
   onAdopt,
   adoption,
   nowHere,
@@ -65,12 +65,12 @@ export function DocumentEditor({
    * Why this editor may no longer save (its document is gone, or the one shown
    * may not be it). The draft stays visible, read-only, and is kept.
    */
-  locked?: string | undefined
+  locked?: string | ((keptAs: string | undefined) => string) | undefined
   /**
    * The owner's explicit choice to use a locked draft for the document now
    * shown. Without it, nothing written for one document reaches another.
    */
-  onAdopt?: (() => void) | undefined
+  onAdopt?: ((keptAs: string | undefined) => void) | undefined
   /** An adoption under way (`busy`) or refused (`error`); the draft stays kept either way. */
   adoption?: { busy: boolean; error?: string | undefined } | undefined
   /** What a locked editor's adoption would use the draft for, said beside the button. */
@@ -95,6 +95,16 @@ export function DocumentEditor({
   // kept draft is restored when the box holds it, and offered when it does not:
   // nothing done in the box replaces or forgets it.
   const keptAs = stage.kind === 'view' ? undefined : stage.keptAs
+  // Given as a function, the lock is told where the box's draft is kept, so it
+  // can say where that draft goes when the editor closes.
+  const locked = typeof lockedBy === 'function' ? lockedBy(keptAs) : lockedBy
+  // Where the box's draft is kept now. A save or conflict that ends after the
+  // editor locked (the lock files the draft) acts on that key, not on the one
+  // the draft had when the save started (web parity, e501a97).
+  const keptAsNow = useRef(keptAs)
+  useLayoutEffect(() => {
+    keptAsNow.current = keptAs
+  })
   const { restored, offered } = keptState(keptDrafts, draftKey, stage)
   // A locked editor keeps its draft, so closing it loses nothing (it is listed
   // to copy) and it never returns to another document. So does an editor asked
@@ -168,7 +178,7 @@ export function DocumentEditor({
               variant="quiet"
               disabled={panel.adopt.disabled}
               {...(panel.adopt.hint ? { accessibilityHint: panel.adopt.hint } : {})}
-              onPress={onAdopt}
+              onPress={() => onAdopt(keptAs)}
             />
           ) : null}
         </View>
@@ -395,13 +405,15 @@ export function DocumentEditor({
     try {
       const previous = document.content
       const saved = await onSave(draft, base)
-      // Only this draft's kept copy; another kept draft for the document stays.
-      if (keptAs !== undefined) keptDrafts.delete(keptAs)
+      // Only this draft's kept copy, wherever it is filed now; another kept
+      // draft for the document stays.
+      const filed = keptAsNow.current
+      if (filed !== undefined) keptDrafts.delete(filed)
       setBackup({ content: previous, version: saved.version })
       setStage({ kind: 'view' })
     } catch (error) {
       if (isCindlError(error) && error.code === 'conflict') {
-        const key = keepKey(keptDrafts, draftKey, keptAs, draft)
+        const key = keepKey(keptDrafts, draftKey, keptAsNow.current, draft)
         keptDrafts.set(key, draft)
         setStage({ kind: 'review', draft, base, keptAs: key })
         setFailure({ message: `${error.message} Your draft is kept.`, conflict: true })

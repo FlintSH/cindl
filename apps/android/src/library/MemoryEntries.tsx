@@ -370,7 +370,9 @@ function EntryEditor({
             writeNote={write?.reason}
             locked={view.lockNotice}
             nowHere={view.nowHere}
-            onAdopt={target ? () => adopt(target, draftKey) : undefined}
+            // The draft goes with the key it is actually kept under (a `#n`
+            // slot included), not the editor's (web parity, e501a97).
+            onAdopt={target ? (keptAs) => adopt(target, keptAs ?? draftKey) : undefined}
             adoption={adoption}
             draftNote={view.draftNote}
             keepDraft={view.keepDraft}

@@ -315,23 +315,42 @@ export function placeNow(
 export const LOCKED_NOTICE =
   'The entry this editor showed was changed, removed or moved in Hermes, and Cindl cannot tell which, so nothing here can be saved or deleted. Your text is kept below to copy.'
 
+/** "agent note" or "note about you", for an identity (`<store>:<fingerprint>`). */
+const nounOf = (identity: string) =>
+  memoryStores.find((entry) => identity.startsWith(`${entry.store}:`))?.noun ?? 'entry'
+
 /**
- * The lock notice, and where the same text is now. A draft written for this
- * entry comes back when the entry is opened there; a draft used for it from
- * another entry does not follow it, and waits under Unsaved drafts.
+ * The lock notice, and when the entry moved, where the text in the box goes
+ * when the editor closes (web parity, e501a97). By where that draft is kept
+ * (`keptAs`): this entry's own draft (or none yet) returns with the entry; a
+ * draft kept beside another (`#n`) waits under Unsaved drafts; a draft
+ * written for another entry goes back to that entry while Hermes lists it,
+ * and otherwise waits under Unsaved drafts.
  */
 export function lockNotice(input: {
   /** "agent note" or "note about you". */
   noun: string
   place: number
   movedTo: number | undefined
-  /** The draft was written for another entry (`adoptedFrom`). */
-  adopted: boolean
+  /** Where the draft in the box is kept now (DocumentEditor's `keptAs`). */
+  keptAs: string | undefined
+  /** Where this entry's own draft is kept. */
+  ownKey: string | undefined
+  /** Where an identity is listed now (`placeNow`). */
+  placeNow: (identity: string | undefined) => number | undefined
 }): string {
-  if (input.movedTo === undefined || input.movedTo === input.place) return LOCKED_NOTICE
-  return input.adopted
-    ? `${LOCKED_NOTICE} The same text is now ${input.noun} ${input.movedTo}. This draft was written for another entry, so when you close this it stays under Unsaved drafts.`
-    : `${LOCKED_NOTICE} The same text is now ${input.noun} ${input.movedTo}; close this and open it there to keep editing it.`
+  const { movedTo, keptAs } = input
+  if (movedTo === undefined || movedTo === input.place) return LOCKED_NOTICE
+  const here = `${LOCKED_NOTICE} The same text is now ${input.noun} ${movedTo}`
+  if (keptAs === undefined || keptAs === input.ownKey)
+    return `${here}; close this and open it there to keep editing it.`
+  if (keptAs.includes('#'))
+    return `${here}. The text you were editing is kept apart from that entry's own draft, so when you close this it stays under Unsaved drafts.`
+  const source = keptAs.slice(MEMORY_DRAFT_PREFIX.length)
+  const sourcePlace = input.placeNow(source)
+  return sourcePlace === undefined
+    ? `${here}. This draft was written for another entry, so when you close this it stays under Unsaved drafts.`
+    : `${here}. This draft was written for ${nounOf(source)} ${sourcePlace}, so when you close this it goes back to that entry.`
 }
 
 /** Said above a draft used for the entry now here. */
@@ -360,8 +379,11 @@ export interface EntryEditorView {
   ownKey: string | undefined
   /** Where the draft being edited is kept: a used draft's own key, else `ownKey`. */
   draftKey: string | undefined
-  /** Why nothing can be saved, when locked. */
-  lockNotice: string | undefined
+  /**
+   * Why nothing can be saved, when locked: told where the box's draft is kept,
+   * it says where that draft goes when the editor closes.
+   */
+  lockNotice: ((keptAs: string | undefined) => string) | undefined
   /** The title of the entry listed at the place, when locked. */
   nowHere: string | undefined
   /** The entry "Use this draft for the entry now here" would use the draft for. */
@@ -404,12 +426,15 @@ export function entryEditorView(input: {
     ownKey,
     draftKey: editorDraftKey(adoptedFrom, binding.identity),
     lockNotice: locked
-      ? lockNotice({
-          noun,
-          place: input.place,
-          movedTo: input.placeNow(binding.identity),
-          adopted: adoptedFrom !== undefined,
-        })
+      ? (keptAs) =>
+          lockNotice({
+            noun,
+            place: input.place,
+            movedTo: input.placeNow(binding.identity),
+            keptAs,
+            ownKey,
+            placeNow: input.placeNow,
+          })
       : undefined,
     nowHere: locked ? row?.title : undefined,
     adoptTarget: locked ? row : undefined,
