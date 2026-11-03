@@ -1,4 +1,5 @@
 import { z } from 'zod'
+import { CindlError } from './errors.ts'
 
 const isoTime = z.iso.datetime()
 
@@ -142,7 +143,9 @@ export const ClarifyResponse = z.union([
   z.object({ text: z.string().trim().min(1).max(20_000) }),
   // Hermes allows choices up to 8,000 characters plus a " (Recommended)" suffix
   // (tools/clarify_tool.py at v0.22.5); every offered choice must be sendable.
-  z.object({ choices: z.array(z.string().max(8_192)).min(1).max(50) }),
+  // Hermes counts code points; this counts UTF-16 units, so 16,384 admits every
+  // offered choice even when it is written in astral characters (emoji).
+  z.object({ choices: z.array(z.string().max(16_384)).min(1).max(50) }),
   z.object({ skipped: z.literal(true) }),
 ])
 export type ClarifyResponse = z.infer<typeof ClarifyResponse>
@@ -257,6 +260,15 @@ export const ServerRequest = z
       path: ['conversationId'],
     },
   )
+  .refine(
+    (request) =>
+      request.kind !== 'unsupported' ||
+      (request.choices.length === 0 && !request.questions?.length),
+    {
+      message: 'A prompt Cindl does not answer offers nothing to answer',
+      path: ['kind'],
+    },
+  )
 export type ServerRequest = z.infer<typeof ServerRequest>
 
 /** Questions still waiting for an answer: those no other client has locked. */
@@ -273,6 +285,18 @@ export function openQuestionIds(
  * True when `answers` covers exactly the open questions: every unlocked
  * question once, and no locked one (a reply's value would override a lock).
  */
+/**
+ * The single check every implementation runs before sending an answer:
+ * prompts Cindl does not answer get nothing, not even a decline (ADR 0005).
+ */
+export function assertAnswerable(request: Pick<ServerRequest, 'kind'>): void {
+  if (request.kind === 'unsupported')
+    throw new CindlError(
+      'unsupported',
+      'Cindl does not answer this kind of prompt. Answer it in another Hermes surface.',
+    )
+}
+
 export function clarifyAnswersComplete(
   request: Pick<ServerRequest, 'questions' | 'lockedAnswers'>,
   answers: Record<string, ClarifyResponse>,

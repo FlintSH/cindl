@@ -242,7 +242,12 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
         prompts: withEntry(state.prompts, event.prompt.clientId, event.prompt),
       }
     case 'request.opened': {
-      const incoming = event.request
+      // Nothing is ever sent for a prompt Cindl does not answer, so it can only
+      // be open or closed here, whatever an implementation emits.
+      const incoming: ServerRequest =
+        event.request.kind === 'unsupported' && event.request.status === 'answering'
+          ? { ...event.request, status: 'open' }
+          : event.request
       const existing = entry(state.requests, incoming.requestId)
       // Connection epochs only move forward: a frame from an older connection is
       // stale and changes nothing.
@@ -328,6 +333,12 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
       for (const [id, request] of Object.entries(state.requests)) {
         if (request.conversationId !== event.conversationId) continue
         if (!OPEN_STATES.has(request.status) || open.has(id)) continue
+        // A list from an older connection says nothing about a request seen since.
+        if (
+          event.connectionEpoch !== undefined &&
+          request.lastSeenEpoch > event.connectionEpoch
+        )
+          continue
         // Hermes no longer holds it; it cannot say whose answer, if any, it used.
         requests = withEntry(requests, id, { ...request, status: 'resolved-elsewhere' })
       }

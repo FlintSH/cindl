@@ -7,20 +7,21 @@
  */
 import { sha256Hex } from '@cindl/client-core'
 import {
-  CindlError,
-  clarifyAnswersComplete,
-  parseOpArgs,
+  assertAnswerable,
   type Capability,
   type CapabilityId,
   type CapabilityMap,
   type CindlClientApi,
+  CindlError,
   type CindlEvent,
+  clarifyAnswersComplete,
   type Conversation,
   type DisplayState,
   type LinkState,
   type OpArgs,
   type OpName,
   type OpResult,
+  parseOpArgs,
   type PendingPrompt,
   type Routine,
   type ServerRequest,
@@ -397,11 +398,7 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
       if (!request) throw new CindlError('not-found', 'This request is no longer open.')
       if (request.status !== 'open')
         throw new CindlError('conflict', 'This request was already answered or closed.')
-      if (request.kind === 'unsupported')
-        throw new CindlError(
-          'unsupported',
-          'Cindl does not answer this kind of prompt. Answer it in another Hermes surface.',
-        )
+      assertAnswerable(request)
       if (
         answer.kind === 'approval' &&
         (request.kind !== 'approval' || !request.choices.includes(answer.choice))

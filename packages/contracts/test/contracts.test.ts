@@ -8,6 +8,7 @@ import {
   opNames,
   parseOpArgs,
   ServerRequest,
+  assertAnswerable,
   clarifyAnswersComplete,
   CindlError,
   openQuestionIds,
@@ -300,8 +301,8 @@ describe('validation failures', () => {
       answer: { kind: 'clarify', answers: { q0: { choices: [choice] } } },
     })
     expect(parseOpArgs('request.answer', answer(offered))).toBeTruthy()
-    expect(() => parseOpArgs('request.answer', answer('c'.repeat(8_193)))).toThrow(
-      'Not sent: the text is longer than 8,192 characters.',
+    expect(() => parseOpArgs('request.answer', answer('c'.repeat(16_385)))).toThrow(
+      'Not sent: the text is longer than 16,384 characters.',
     )
   })
 })
@@ -382,6 +383,31 @@ describe('server request shape (v4)', () => {
     const answers = (parsed.answer as { answers: object }).answers
     expect(Object.hasOwn(answers, '__proto__')).toBe(false)
     expect(Object.getPrototypeOf(answers)).toBe(Object.prototype)
+  })
+
+  it('gives a prompt Cindl does not answer nothing to answer, and refuses answers to it', () => {
+    const sudo = { ...base, kind: 'unsupported', unsupportedKind: 'sudo', choices: [] }
+    expect(ServerRequest.safeParse(sudo).success).toBe(true)
+    expect(ServerRequest.safeParse({ ...sudo, choices: ['once'] }).success).toBe(false)
+    expect(
+      ServerRequest.safeParse({
+        ...sudo,
+        questions: [{ qid: 'q0', question: 'Password?', multiSelect: false }],
+      }).success,
+    ).toBe(false)
+    expect(() => assertAnswerable({ kind: 'unsupported' })).toThrow(CindlError)
+    expect(() => assertAnswerable({ kind: 'approval' })).not.toThrow()
+  })
+
+  it('accepts every choice Hermes can offer even in astral characters', () => {
+    // 8,000 emoji plus the suffix: 8,014 code points, 16,014 UTF-16 units.
+    const offered = `${'\u{1F525}'.repeat(8_000)} (Recommended)`
+    expect(
+      parseOpArgs('request.answer', {
+        requestId: 'srq-00000000000a',
+        answer: { kind: 'clarify', answers: { q0: { choices: [offered] } } },
+      }),
+    ).toBeTruthy()
   })
 
   it('accepts any locked answer Hermes reports, however long', () => {

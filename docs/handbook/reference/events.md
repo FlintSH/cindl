@@ -34,7 +34,7 @@ on the wire.
 | [`prompt.updated`](#prompt-updated)               | `prompt`: PendingPrompt                                                                                                                                          |
 | [`request.opened`](#request-opened)               | `request`: ServerRequest                                                                                                                                         |
 | [`request.closed`](#request-closed)               | `requestId`: string; `status`: `answered` / `resolved-elsewhere` / `cancelled` / `expired`; `answer`: optional RequestAnswer; `connectionEpoch`: optional number |
-| [`requests.synced`](#requests-synced)             | `conversationId`: string; `openRequestIds`: string[]                                                                                                             |
+| [`requests.synced`](#requests-synced)             | `conversationId`: string; `openRequestIds`: string[]; `connectionEpoch`: optional number                                                                         |
 | [`request.answer-failed`](#request-answer-failed) | `requestId`: string; `connectionEpoch`: optional number                                                                                                          |
 | [`prompt.removed`](#prompt-removed)               | `clientId`: string                                                                                                                                               |
 | [`session.status`](#session-status)               | `conversationId`: string; `status`: `idle` / `working` / `waiting-on-you` / `unknown`; `detail`: optional string                                                 |

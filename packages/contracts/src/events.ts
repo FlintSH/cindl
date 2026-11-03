@@ -57,6 +57,8 @@ export const CindlEvent = z.discriminatedUnion('type', [
   /**
    * Hermes holds this request open: a live request frame, or Hermes's list of
    * open requests after (re)connect. Never emitted from history replay.
+   * Implementations also emit it for their own `answering` transition, with
+   * `lastSeenEpoch` set to the connection the answer is sent on.
    * Hermes re-sends only open requests, so a re-send with a higher
    * `lastSeenEpoch` reopens the request whatever this client last knew.
    */
@@ -93,6 +95,8 @@ export const CindlEvent = z.discriminatedUnion('type', [
     type: z.literal('requests.synced'),
     conversationId: z.string(),
     openRequestIds: z.array(z.string()),
+    /** The connection the list came from; it cannot close a request seen on a newer one. */
+    connectionEpoch: z.number().int().nonnegative().optional(),
   }),
   /**
    * This client's answer did not reach Hermes, or Hermes rejected it and still

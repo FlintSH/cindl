@@ -96,6 +96,16 @@ describe('synthetic scenario client', () => {
     })
   })
 
+  it('refuses to answer a prompt Cindl does not answer, and sends nothing', async () => {
+    const { client } = harness()
+    await expect(
+      client.call('request.answer', {
+        requestId: 'srq-00000000dea3',
+        answer: { kind: 'approval', choice: 'deny' },
+      }),
+    ).rejects.toMatchObject({ code: 'unsupported' })
+  })
+
   it('answers a request once, with an offered choice only', async () => {
     const { client, flush } = harness()
     const requestId = 'srq-00000000dea1'

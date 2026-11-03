@@ -430,6 +430,36 @@ describe('server requests', () => {
     expect(state.requests[id]).toMatchObject({ status: 'open', lastSeenEpoch: 2 })
   })
 
+  it('does not let a sync from an older connection close a request re-sent since', () => {
+    const state = run([
+      { type: 'request.opened', request: approval() },
+      { type: 'request.opened', request: approval({ lastSeenEpoch: 2 }) },
+      {
+        type: 'requests.synced',
+        conversationId: 'c1',
+        openRequestIds: [],
+        connectionEpoch: 1,
+      },
+    ])
+    expect(state.requests[id]?.status).toBe('open')
+    const current = reduce(state, {
+      type: 'requests.synced',
+      conversationId: 'c1',
+      openRequestIds: [],
+      connectionEpoch: 2,
+    })
+    expect(current.requests[id]?.status).toBe('resolved-elsewhere')
+  })
+
+  it('never shows a prompt Cindl does not answer as being answered', () => {
+    const sudo = approval({ kind: 'unsupported', unsupportedKind: 'sudo', choices: [] })
+    const state = run([
+      { type: 'request.opened', request: sudo },
+      { type: 'request.opened', request: { ...sudo, status: 'answering' } },
+    ])
+    expect(state.requests[id]?.status).toBe('open')
+  })
+
   it('ignores ids it has never seen, including inherited object keys', () => {
     const state = run([
       { type: 'request.closed', requestId: 'toString', status: 'cancelled' },

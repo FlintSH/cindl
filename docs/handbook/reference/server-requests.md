@@ -56,7 +56,9 @@ failure state: a failed send returns the request to `open`.
   open or answering requests close as `resolved-elsewhere`. Other
   conversations are untouched. Implementations may also send it while
   requests are open: the direct client checks every 15 s, because the sidecar
-  tells other clients nothing when one answers by frame.
+  tells other clients nothing when one answers by frame. With a
+  `connectionEpoch`, a list from an older connection cannot close a request
+  seen on a newer one.
 
 Related: `prompt.removed` drops a queued or uncertain local prompt record (a
 message, not a server request) after it was dismissed or delivered.
@@ -68,8 +70,10 @@ these events.
 
 1. Validate `request.answer` arguments with `parseOpArgs`. Failures are
    `CindlError` `invalid` with a message that starts `Not sent:`.
-2. Reject answers to `unsupported` requests with `CindlError` `unsupported`,
-   and never send Hermes anything for them.
+2. Call `assertAnswerable` (from `@cindl/contracts`) before sending: it
+   rejects `unsupported` requests with `CindlError` `unsupported`. Never send
+   Hermes anything for them. The schema gives them no choices or questions,
+   and the reducer never shows one as `answering`.
 3. Before sending an answer, emit `request.opened` with status `answering`,
    the answer and `lastSeenEpoch` set to the epoch it is sent on.
 4. End `answering` with exactly one of: `request.closed` `answered` (Hermes
@@ -94,9 +98,10 @@ these events.
   `text`) or skipped. `clarifyAnswersComplete` checks this. There is no
   decline: an empty reply reaches the agent like an interrupt, so "Skip all"
   skips every open question.
-- Limits: a choice can be up to 8,192 characters (Hermes allows 8,000 plus a
-  " (Recommended)" suffix); typed text up to 20,000. Locked answers from
-  Hermes are accepted at any length.
+- Limits: a choice can be up to 16,384 UTF-16 units, so every choice Hermes
+  offers is sendable (Hermes allows 8,000 code points plus a " (Recommended)"
+  suffix, and an astral character takes two units); typed text up to 20,000.
+  Locked answers from Hermes are accepted at any length.
 
 ## In the UI
 
