@@ -1,7 +1,14 @@
 import { diffLines, diffStats } from '@cindl/client-core'
 import { isCindlError, type VersionedDocument } from '@cindl/contracts'
-import { useEffect, useState, type ReactNode } from 'react'
-import { Text, TextInput, View } from 'react-native'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
+import {
+  AccessibilityInfo,
+  Text,
+  TextInput,
+  View,
+  type HostInstance,
+  type TextInputInstance,
+} from 'react-native'
 import { useBackHandler, useDestinationActive } from '../nav/NavProvider.tsx'
 import { Dialog } from '../overlay/Sheet.tsx'
 import { describeFailure, NOT_APPLIED, SAVE_UNCERTAIN } from '../talk/failures.ts'
@@ -10,8 +17,13 @@ import { Button, Note, Txt } from '../ui/primitives.tsx'
 import { keptDrafts } from './drafts.ts'
 import {
   draftNotice,
+  focusAfterLock,
   initialStage,
+  KEPT_BESIDE,
+  KEPT_OFFER,
+  keepKey,
   keptDraft,
+  keptState,
   lockPanel,
   previousTextOffer,
   reviewMoved,
@@ -36,6 +48,7 @@ export function DocumentEditor({
   locked,
   onAdopt,
   adoption,
+  nowHere,
   draftNote,
   keepDraft = false,
   onDiscard,
@@ -60,59 +73,105 @@ export function DocumentEditor({
   onAdopt?: (() => void) | undefined
   /** An adoption under way (`busy`) or refused (`error`); the draft stays kept either way. */
   adoption?: { busy: boolean; error?: string | undefined } | undefined
+  /** What a locked editor's adoption would use the draft for, said beside the button. */
+  nowHere?: string | undefined
   /** Said above a draft in place of the kept-draft note. */
   draftNote?: string | undefined
-  /** Keep the draft under `draftKey` while it is edited, not only once locked. */
+  /** Keep the draft while it is edited, not only once locked. */
   keepDraft?: boolean
-  /** The owner discarded the draft (it is forgotten under `draftKey` first). */
+  /** The owner discarded the draft (its kept copy, if any, is forgotten first). */
   onDiscard?: (() => void) | undefined
   onSave: (content: string, expectedVersion: string) => Promise<VersionedDocument>
   onReload: () => void
 }) {
   const theme = useTheme()
   const active = useDestinationActive()
-  const [stage, setStage] = useState<Stage>(() => initialStage(keptDrafts.get(draftKey)))
-  const restored = keptDrafts.has(draftKey) && stage.kind !== 'view'
-  // A locked editor keeps its draft under the key it was written for, so closing
-  // it loses nothing (it is listed to copy) and it never returns to another
-  // document. So does an editor asked to keep its draft (one written for another).
+  const [stage, setStage] = useState<Stage>(() =>
+    initialStage(keptDrafts.get(draftKey), draftKey),
+  )
+  const [, setKeptSeen] = useState(0)
+  // Every draft in the box records the kept slot it came from or was filed
+  // under (`keptAs`); a save or discard forgets that slot only. This document's
+  // kept draft is restored when the box holds it, and offered when it does not:
+  // nothing done in the box replaces or forgets it.
+  const keptAs = stage.kind === 'view' ? undefined : stage.keptAs
+  const { restored, offered } = keptState(keptDrafts, draftKey, stage)
+  // A locked editor keeps its draft, so closing it loses nothing (it is listed
+  // to copy) and it never returns to another document. So does an editor asked
+  // to keep its draft (one written for another). A draft kept for the first time
+  // is filed once (adjusted while rendering): under this document's key, or
+  // beside the different draft already there (`<key>#2`).
   const keep = keptDraft(locked, keepDraft, stage)
+  if (keep !== undefined && keptAs === undefined && stage.kind !== 'view')
+    setStage({ ...stage, keptAs: keepKey(keptDrafts, draftKey, undefined, keep) })
   useEffect(() => {
-    if (keep !== undefined) keptDrafts.set(draftKey, keep)
-  }, [draftKey, keep])
+    if (keep !== undefined && keptAs !== undefined) keptDrafts.set(keptAs, keep)
+  }, [keptAs, keep])
+  // TalkBack focus follows the lock: into the draft when it lifts (an adoption
+  // completed), onto the notice when it starts (it takes Edit and Delete away).
+  const box = useRef<TextInputInstance>(null)
+  const lockText = useRef<HostInstance>(null)
+  const isLocked = Boolean(locked)
+  const wasLocked = useRef(isLocked)
+  useEffect(() => {
+    const target = focusAfterLock(wasLocked.current, isLocked)
+    wasLocked.current = isLocked
+    if (!target) return
+    const timer = setTimeout(() => {
+      const node = target === 'draft' ? box.current : lockText.current
+      if (node) AccessibilityInfo.sendAccessibilityEvent(node, 'focus')
+    }, 60)
+    return () => clearTimeout(timer)
+  }, [isLocked])
   const [failure, setFailure] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
   // The text a save replaced, with the version that save produced.
   const [backup, setBackup] = useState<{ content: string; version: string }>()
   const [discarding, setDiscarding] = useState(false)
   const dirty = stage.kind !== 'view' && stage.draft !== document.content
-  const panel = lockPanel({ locked, canAdopt: Boolean(onAdopt), stage, adoption })
+  const panel = lockPanel({
+    locked,
+    canAdopt: Boolean(onAdopt),
+    stage,
+    adoption,
+    nowHere,
+  })
   const lockNotice = panel ? (
     <View style={{ gap: theme.space[2] }}>
-      {panel.alerts.map((alert) => (
-        <Txt
+      {panel.alerts.map((alert, index) => (
+        <Text
           key={alert}
-          tone="danger"
+          ref={index === 0 ? lockText : undefined}
           accessibilityRole="alert"
           accessibilityLiveRegion="assertive"
+          style={[theme.text.ui, { color: theme.colors.danger }]}
         >
           {alert}
-        </Txt>
+        </Text>
       ))}
+      {panel.nowHere ? <Note>{panel.nowHere}</Note> : null}
       {panel.note ? <Note>{panel.note}</Note> : null}
       {panel.busy ? (
         <Txt variant="label" tone="tertiary" accessibilityLiveRegion="polite">
           {panel.busy}
         </Txt>
       ) : null}
-      {panel.adopt && onAdopt ? (
-        <Button
-          label="Use this draft for the entry now here"
-          variant="quiet"
-          disabled={panel.adopt.disabled}
-          style={{ alignSelf: 'flex-start' }}
-          onPress={onAdopt}
-        />
+      {panel.reload || (panel.adopt && onAdopt) ? (
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+          {/* The view stage has its own Reload; here the list may be stale. */}
+          {panel.reload ? (
+            <Button label="Reload" variant="quiet" onPress={onReload} />
+          ) : null}
+          {panel.adopt && onAdopt ? (
+            <Button
+              label="Use this draft for the entry now here"
+              variant="quiet"
+              disabled={panel.adopt.disabled}
+              {...(panel.adopt.hint ? { accessibilityHint: panel.adopt.hint } : {})}
+              onPress={onAdopt}
+            />
+          ) : null}
+        </View>
       ) : null}
     </View>
   ) : null
@@ -125,7 +184,8 @@ export function DocumentEditor({
 
   useBackHandler(
     () => {
-      if (stage.kind === 'review') setStage({ kind: 'edit', draft: stage.draft })
+      if (stage.kind === 'review')
+        setStage({ kind: 'edit', draft: stage.draft, keptAs: stage.keptAs })
       else leaveEditing()
       return true
     },
@@ -149,7 +209,7 @@ export function DocumentEditor({
             variant="danger"
             onPress={() => {
               setDiscarding(false)
-              keptDrafts.delete(draftKey)
+              if (keptAs !== undefined) keptDrafts.delete(keptAs)
               setFailure(undefined)
               setStage({ kind: 'view' })
               onDiscard?.()
@@ -196,6 +256,37 @@ export function DocumentEditor({
         <Note>
           {`Read ${new Date(document.readAt).toLocaleString()} from ${document.source}. Version ${document.version.slice(0, 12)}.`}
         </Note>
+        {offered !== undefined && !locked ? (
+          <View style={{ gap: theme.space[2] }}>
+            <Txt variant="label" tone="secondary" accessibilityLiveRegion="polite">
+              {KEPT_OFFER}
+            </Txt>
+            <Text selectable style={[theme.text.code, { color: theme.colors.text }]}>
+              {offered}
+            </Text>
+            {actions(
+              <>
+                <Button
+                  label="Discard the draft"
+                  variant="quiet"
+                  onPress={() => {
+                    keptDrafts.delete(draftKey)
+                    setKeptSeen((value) => value + 1)
+                  }}
+                />
+                {canWrite ? (
+                  <Button
+                    label="Continue the draft"
+                    onPress={() => {
+                      setFailure(undefined)
+                      setStage({ kind: 'edit', draft: offered, keptAs: draftKey })
+                    }}
+                  />
+                ) : null}
+              </>,
+            )}
+          </View>
+        ) : null}
         {previous === 'restore' && backup ? (
           <View style={{ gap: theme.space[2] }}>
             <Note>The previous version is kept on this screen until you leave it.</Note>
@@ -243,11 +334,15 @@ export function DocumentEditor({
             {notice}
           </Txt>
         ) : null}
+        {offered !== undefined && !locked ? <Note>{KEPT_BESIDE}</Note> : null}
         <TextInput
+          ref={box}
           accessibilityLabel={`Edit ${document.key}`}
           value={stage.draft}
           editable={!locked}
-          onChangeText={(draft) => setStage({ kind: 'edit', draft })}
+          onChangeText={(draft) =>
+            setStage({ kind: 'edit', draft, keptAs: stage.keptAs })
+          }
           multiline
           autoCorrect={false}
           spellCheck
@@ -271,7 +366,7 @@ export function DocumentEditor({
               label="Discard changes"
               variant="quiet"
               onPress={() => {
-                keptDrafts.delete(draftKey)
+                if (stage.keptAs !== undefined) keptDrafts.delete(stage.keptAs)
                 setFailure(undefined)
                 setStage({ kind: 'view' })
                 onDiscard?.()
@@ -281,7 +376,7 @@ export function DocumentEditor({
               label="Review changes"
               variant="primary"
               disabled={Boolean(locked) || stage.draft === document.content}
-              onPress={() => setStage(reviewStage(stage.draft, document))}
+              onPress={() => setStage(reviewStage(stage.draft, document, stage.keptAs))}
             />
           </>,
         )}
@@ -300,12 +395,15 @@ export function DocumentEditor({
     try {
       const previous = document.content
       const saved = await onSave(draft, base)
-      keptDrafts.delete(draftKey)
+      // Only this draft's kept copy; another kept draft for the document stays.
+      if (keptAs !== undefined) keptDrafts.delete(keptAs)
       setBackup({ content: previous, version: saved.version })
       setStage({ kind: 'view' })
     } catch (error) {
       if (isCindlError(error) && error.code === 'conflict') {
-        keptDrafts.set(draftKey, draft)
+        const key = keepKey(keptDrafts, draftKey, keptAs, draft)
+        keptDrafts.set(key, draft)
+        setStage({ kind: 'review', draft, base, keptAs: key })
         setFailure({ message: `${error.message} Your draft is kept.`, conflict: true })
       } else {
         const copy = describeFailure(error, SAVE_UNCERTAIN, NOT_APPLIED)
@@ -390,7 +488,7 @@ export function DocumentEditor({
                 // Fetch the current version, keep the draft, and review it again against the new text.
                 onReload()
                 setFailure(undefined)
-                setStage({ kind: 'edit', draft })
+                setStage({ kind: 'edit', draft, keptAs })
               }}
             />
           ) : null}
@@ -398,7 +496,7 @@ export function DocumentEditor({
             label="Back to editing"
             variant="quiet"
             disabled={saving}
-            onPress={() => setStage({ kind: 'edit', draft })}
+            onPress={() => setStage({ kind: 'edit', draft, keptAs })}
           />
           <Button
             label={saving ? 'Saving…' : 'Confirm and save'}

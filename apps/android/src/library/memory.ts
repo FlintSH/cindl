@@ -75,7 +75,8 @@ export function memoryEntryName(store: MemoryStore, place: number): string {
  * An entry's identity across renumbering, `<store>:<fingerprint>`: Hermes ids
  * (`memory:<store>:<index>:<fingerprint>`) carry a global index, which shifts
  * when an earlier entry is removed, and the text's fingerprint, which changes
- * only with the text.
+ * only with the text. Entries with identical text in one store share one
+ * identity (Hermes resolves either to the first), a known limit.
  */
 export function identityOf(id: string): string {
   const [, store, , fingerprint] = id.split(':')
@@ -84,18 +85,24 @@ export function identityOf(id: string): string {
 
 /**
  * Kept memory drafts are filed under the entry they were written for, never
- * under a place or an index: a place can later hold another entry.
+ * under a place or an index: a place can later hold another entry (but an
+ * entry with identical text shares the identity, a known limit).
  */
 export const MEMORY_DRAFT_PREFIX = 'memory-draft:'
 export const memoryDraftKey = (id: string) => `${MEMORY_DRAFT_PREFIX}${identityOf(id)}`
 
 /**
  * How the delete confirmation names an entry, and a discard control its
- * draft: the first line of the text, cut as Hermes cuts its card titles
- * (`agent/learning_graph.py`). The lock notice uses the list's own title.
+ * draft: the first line with words in it once heading marks are stripped, cut
+ * as Hermes cuts its card titles (`agent/learning_graph.py`), else "this
+ * entry". The lock notice uses the list's own title.
  */
 export function titleOf(content: string): string {
-  const first = (content.trim().split('\n')[0] ?? '').replace(/^[#\s]+/, '').trim()
+  const first =
+    content
+      .split('\n')
+      .map((line) => line.replace(/^[#\s]+/, '').trim())
+      .find((line) => line.length > 0) ?? 'this entry'
   return first.length > 80 ? `${first.slice(0, 80)}…` : first
 }
 
@@ -217,7 +224,10 @@ export function completeAdoption(input: {
 /**
  * The adoption's read and its check. `rowNow` is asked once the read has
  * answered: the place may have changed while it was out. A failed read is
- * reported; nothing changes either way until the caller applies an `ok`.
+ * reported; nothing changes either way until the caller applies an `ok`. When
+ * Hermes says the entry changed or is gone (`conflict`, `not-found`), the list
+ * is stale: `reloadList` asks the caller to fetch it, so the next try names the
+ * entry that is here now.
  */
 export async function readForAdoption(input: {
   read: (args: { id: string }) => Promise<MemoryEntry>
@@ -226,7 +236,7 @@ export async function readForAdoption(input: {
   rowNow: () => MemoryEntrySummary | undefined
 }): Promise<
   | { ok: true; read: MemoryEntry; identity: string; adoptedFrom: string | undefined }
-  | { ok: false; error: string }
+  | { ok: false; error: string; reloadList: boolean }
 > {
   let read: MemoryEntry
   try {
@@ -235,6 +245,9 @@ export async function readForAdoption(input: {
     return {
       ok: false,
       error: isCindlError(failure) ? failure.message : ADOPTION_READ_FAILED,
+      reloadList:
+        isCindlError(failure) &&
+        (failure.code === 'conflict' || failure.code === 'not-found'),
     }
   }
   const outcome = completeAdoption({
@@ -243,7 +256,22 @@ export async function readForAdoption(input: {
     rowNowId: input.rowNow()?.id,
     from: input.from,
   })
-  return outcome.ok ? { ...outcome, read } : outcome
+  return outcome.ok ? { ...outcome, read } : { ...outcome, reloadList: false }
+}
+
+/**
+ * Numbers an editor's adoptions: each one started gets the next number, and a
+ * discard (or a newer adoption) retires the one that is out, so its answer is
+ * dropped. Otherwise an adoption answering after a discard would file the
+ * entry's own text as the old entry's draft.
+ */
+export function adoptionRuns() {
+  let current = 0
+  return {
+    start: () => (current += 1),
+    retire: () => void (current += 1),
+    isCurrent: (run: number) => run === current,
+  }
 }
 
 /**
@@ -287,21 +315,23 @@ export function placeNow(
 export const LOCKED_NOTICE =
   'The entry this editor showed was changed, removed or moved in Hermes, and Cindl cannot tell which, so nothing here can be saved or deleted. Your text is kept below to copy.'
 
-/** The lock notice: where the same text is now, and which entry is at this place. */
+/**
+ * The lock notice, and where the same text is now. A draft written for this
+ * entry comes back when the entry is opened there; a draft used for it from
+ * another entry does not follow it, and waits under Unsaved drafts.
+ */
 export function lockNotice(input: {
   /** "agent note" or "note about you". */
   noun: string
   place: number
   movedTo: number | undefined
-  nowTitle: string | undefined
+  /** The draft was written for another entry (`adoptedFrom`). */
+  adopted: boolean
 }): string {
-  const moved =
-    input.movedTo !== undefined && input.movedTo !== input.place
-      ? ` The same text is now ${input.noun} ${input.movedTo}; close this and open it there to keep editing it.`
-      : ''
-  const now =
-    input.nowTitle !== undefined ? ` Now at this place: “${input.nowTitle}”.` : ''
-  return `${LOCKED_NOTICE}${moved}${now}`
+  if (input.movedTo === undefined || input.movedTo === input.place) return LOCKED_NOTICE
+  return input.adopted
+    ? `${LOCKED_NOTICE} The same text is now ${input.noun} ${input.movedTo}. This draft was written for another entry, so when you close this it stays under Unsaved drafts.`
+    : `${LOCKED_NOTICE} The same text is now ${input.noun} ${input.movedTo}; close this and open it there to keep editing it.`
 }
 
 /** Said above a draft used for the entry now here. */
@@ -332,6 +362,8 @@ export interface EntryEditorView {
   draftKey: string | undefined
   /** Why nothing can be saved, when locked. */
   lockNotice: string | undefined
+  /** The title of the entry listed at the place, when locked. */
+  nowHere: string | undefined
   /** The entry "Use this draft for the entry now here" would use the draft for. */
   adoptTarget: MemoryEntrySummary | undefined
   /** Said above a used draft. */
@@ -376,9 +408,10 @@ export function entryEditorView(input: {
           noun,
           place: input.place,
           movedTo: input.placeNow(binding.identity),
-          nowTitle: row?.title,
+          adopted: adoptedFrom !== undefined,
         })
       : undefined,
+    nowHere: locked ? row?.title : undefined,
     adoptTarget: locked ? row : undefined,
     draftNote:
       adoptedFrom === undefined
@@ -407,8 +440,9 @@ export function guardMemorySave(
 
 /**
  * Kept drafts whose entry Hermes no longer lists (removed, or rewritten
- * elsewhere). They are never attached to another entry: the owner copies or
- * discards them.
+ * elsewhere). They attach to no other entry (except one with identical text,
+ * which shares the identity): the owner copies or discards them. A draft filed
+ * beside another (`…#2`) never matches a listed entry, so it is always here.
  */
 export function orphanDrafts(
   entries: readonly MemoryEntrySummary[],

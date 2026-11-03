@@ -538,7 +538,7 @@ describe('the rules the screen is built on', () => {
       read: read(kiln(1), KILN),
     })
     expect(locked).toMatchObject({ locked: true, adoptTarget: other, deletes: undefined })
-    expect(locked.lockNotice).toMatch(/Now at this place: “Harbor Loft/)
+    expect(locked.nowHere).toBe(HARBOR)
     // A used draft stays filed under the entry it was written for, kept while edited.
     const used = entryEditorView({
       ...base,
@@ -572,20 +572,27 @@ describe('the rules the screen is built on', () => {
     expect(placeNow([...entries, summary(kiln(2), KILN)], identityOf(kiln(0)))).toBe(
       undefined,
     )
-    expect(
-      lockNotice({ noun: 'agent note', place: 2, movedTo: 1, nowTitle: 'Harbor Loft' }),
-    ).toBe(
-      `${LOCKED_NOTICE} The same text is now agent note 1; close this and open it there to keep editing it. Now at this place: “Harbor Loft”.`,
+    expect(lockNotice({ noun: 'agent note', place: 2, movedTo: 1, adopted: false })).toBe(
+      `${LOCKED_NOTICE} The same text is now agent note 1; close this and open it there to keep editing it.`,
     )
-    expect(
-      lockNotice({ noun: 'agent note', place: 2, movedTo: 2, nowTitle: undefined }),
-    ).toBe(LOCKED_NOTICE)
+    // A draft used for this entry from another does not follow it: it waits under Unsaved drafts.
+    expect(lockNotice({ noun: 'agent note', place: 2, movedTo: 1, adopted: true })).toBe(
+      `${LOCKED_NOTICE} The same text is now agent note 1. This draft was written for another entry, so when you close this it stays under Unsaved drafts.`,
+    )
+    expect(lockNotice({ noun: 'agent note', place: 2, movedTo: 2, adopted: false })).toBe(
+      LOCKED_NOTICE,
+    )
   })
 
-  it('names an entry by the first line of its text, cut as Hermes cuts card titles', () => {
+  it('names an entry by the first line with words, cut as Hermes cuts card titles, else "this entry"', () => {
     expect(titleOf('  ## Kiln log\nsecond line')).toBe('Kiln log')
     expect(titleOf('x'.repeat(81))).toBe(`${'x'.repeat(80)}…`)
     expect(titleOf('x'.repeat(80))).toBe('x'.repeat(80))
+    // Z3: a first line that is only a heading mark is skipped.
+    expect(titleOf('#\nStudio keys are in the blue box (fictional).')).toBe(
+      'Studio keys are in the blue box (fictional).',
+    )
+    expect(titleOf('##\n\n  \n')).toBe('this entry')
   })
 
   it('keeps a draft while locked or while it is a used draft, and says so neutrally', () => {
@@ -613,28 +620,34 @@ describe('the rules the screen is built on', () => {
         canAdopt: true,
         stage: editing,
         adoption: undefined,
+        nowHere: 'Zed',
       }),
     ).toBeUndefined()
+    // In the view stage (no draft) there is nothing to adopt, and its own Reload serves.
     expect(
       lockPanel({
         locked: 'L',
         canAdopt: true,
         stage: { kind: 'view' },
         adoption: undefined,
-      })?.adopt,
-    ).toBeUndefined()
+        nowHere: 'Zed',
+      }),
+    ).toMatchObject({ reload: false, adopt: undefined })
     expect(
       lockPanel({
         locked: 'L',
         canAdopt: true,
         stage: editing,
         adoption: { busy: true },
+        nowHere: 'Zed',
       }),
     ).toEqual({
       alerts: ['L'],
       note: undefined,
+      nowHere: 'Now at this place: “Zed”.',
       busy: ADOPTION_BUSY,
-      adopt: { disabled: true },
+      reload: true,
+      adopt: { disabled: true, hint: 'Now at this place: “Zed”.' },
     })
     expect(
       lockPanel({
@@ -642,12 +655,15 @@ describe('the rules the screen is built on', () => {
         canAdopt: true,
         stage: editing,
         adoption: { busy: false, error: 'E' },
+        nowHere: undefined,
       }),
     ).toEqual({
       alerts: ['L', 'E'],
       note: ADOPTION_NOT_USED,
+      nowHere: undefined,
       busy: undefined,
-      adopt: { disabled: false },
+      reload: true,
+      adopt: { disabled: false, hint: undefined },
     })
   })
 

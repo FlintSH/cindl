@@ -149,12 +149,12 @@ until the owner decides about those terms.
 
 The memory editor's lock, adoption and kept-draft flows need memory changed
 elsewhere while an entry is open, which the demo cannot do. Node tests run
-them instead (`apps/android/test/memory-identity.test.ts` and
-`memory-adoption.test.ts`, the web client's probes with their assertions) on
-`apps/android/test/memoryScreen.ts`, which keeps the editor's state and wiring
-and calls the same functions the components call. How those states render
-in React Native, and what TalkBack reads, is not covered by an emulator test
-yet.
+them instead (`apps/android/test/memory-identity.test.ts`,
+`memory-adoption.test.ts` and `memory-drafts.test.ts`, the web client's
+probes with their assertions) on `apps/android/test/memoryScreen.ts`, which
+keeps the editor's state and wiring and calls the same functions the
+components call. How those states render in React Native, where TalkBack
+focus lands and what TalkBack reads are not covered by an emulator test yet.
 
 System animations are off during the tests so UI dumps are stable (the app then
 also reduces its own motion). The `cindl-android-emulator-evidence` artifact
@@ -215,9 +215,11 @@ marker and says "Cindl stopped waiting for the browser (the app was closed
 during sign-in). Nothing was saved. Start again." The same happens if only the
 JavaScript runtime restarted: the verifier was in its memory. **Signing out**
 deletes this device's tokens only: Hermes v0.22.5 cannot revoke tokens it
-already issued. It also forgets drafts the app kept in memory (an edit kept
+already issued. Whenever the session ends, by signing out or because Hermes
+refused the session, Cindl forgets drafts the app kept in memory (an edit kept
 after a conflict, a lock or while used for another memory entry, and unsent
-answers to questions). The address stays, ready to sign in again.
+answers to questions), so none comes back after another sign-in, to the same
+Hermes or another. The address stays, ready to sign in again.
 
 A device that signed in with an earlier build (which ran its own PKCE before
 the direct client existed) keeps its sign-in: on the first start, its tokens
@@ -299,21 +301,34 @@ phone.
   reads that other entry on its own. When an entry before it in the same
   store was removed, the entry moved up a place: the locked editor says where
   the same text is now (its row reads "No longer at this place" when nothing
-  took its place), and your draft comes back when you open it there.
+  took its place), and your draft comes back when you open it there. A
+  locked editor with a draft can reload the list.
   - **Use this draft for the entry now here** reads that entry first, saying
-    so while it does. Nothing changes unless the read succeeds and the entry
-    is still at that place; a failed or refused read is shown, your draft is
-    kept, and you can try again. Then you review the draft against that
-    entry's text before saving.
+    so while it does; TalkBack describes the button by the entry now at the
+    place. Nothing changes unless the read succeeds and the entry is still at
+    that place; a failed or refused read is shown, your draft is kept, and you
+    can try again. If the entry changed again, Cindl fetches the list, so the
+    next try uses the entry now there. Then you review the draft against that
+    entry's text before saving. Discarding the draft while the read is out
+    cancels the adoption.
   - A draft stays kept for the entry it was written for until you save or
-    discard it, including while you edit it for another entry, so closing the
-    editor loses nothing and another entry's own kept draft is never replaced
-    (the editor says when that entry has one). Drafts for entries Hermes no
-    longer lists stay under **Unsaved drafts**, to copy or discard; TalkBack
-    names each discard button by its draft.
-  - A delete names the text it removes: the first line of the text Cindl read
-    under the id the delete sends. The confirmation closes if the entry read
-    there changes. Deleting warns first, because Hermes keeps no backup.
+    discard that draft, including while you edit it for another entry. So
+    closing the editor loses nothing, and if that entry moves, the draft waits
+    under **Unsaved drafts** rather than following it.
+  - An entry's own kept draft is never replaced or forgotten by other text.
+    When the editor shows the entry without it, the draft is offered
+    (**Continue the draft**, **Discard the draft**). Editing afresh, saving or
+    discarding that fresh text leaves it; if the fresh text must be kept too,
+    it is kept beside it. Drafts for entries Hermes no longer lists stay under
+    **Unsaved drafts**, to copy or discard; TalkBack names each discard button
+    by its draft.
+  - A delete names the text it removes: the first line with words in it, of
+    the text Cindl read under the id the delete sends ("this entry" if there
+    is none). The confirmation closes if the entry read there changes.
+    Deleting warns first, because Hermes keeps no backup.
+  - TalkBack focus moves into your draft when an adoption completes, and onto
+    the lock notice whenever the editor locks: Android cannot tell whether the
+    control TalkBack was on is the one the lock removed.
   - After a save, the text it replaced stays on screen: restorable only onto
     the version that save produced, otherwise shown to copy.
   - Known limit: entries with identical text in one store look the same to

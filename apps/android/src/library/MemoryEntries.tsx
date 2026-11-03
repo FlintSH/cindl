@@ -15,6 +15,7 @@ import { DocumentEditor } from '../views/DocumentEditor.tsx'
 import { forgetDocumentDraft, keptDocumentDrafts, keptDrafts } from '../views/drafts.ts'
 import { useResource } from '../views/useResource.ts'
 import {
+  adoptionRuns,
   bindingAfterSave,
   CLOSE_NO_LONGER_HERE,
   DELETE_REFUSED,
@@ -49,7 +50,8 @@ import {
  * apps/web/src/library/MemoryEntries.tsx). An open editor stays bound to the
  * entry it read: edits go through the reviewed diff and the write names that
  * entry's id; a delete asks first, names the entry and is permanent. Drafts
- * are kept under the entry they were written for, never its place.
+ * are kept under the entry they were written for, never its place (entries
+ * with identical text in one store share one identity, a known limit).
  */
 export function MemoryEntries() {
   const api = useCindlApi()
@@ -303,8 +305,10 @@ function EntryEditor({
 
   // "Use this draft for the entry now here" reads that entry first (memory.ts
   // readForAdoption). Until it succeeds, and if it fails or the editor closes,
-  // the draft stays kept under the entry it was written for.
+  // the draft stays kept under the entry it was written for. A discard (or a
+  // newer adoption) retires the one that is out (memory.ts adoptionRuns).
   const [adoption, setAdoption] = useState<{ busy: boolean; error?: string }>()
+  const [runs] = useState(adoptionRuns)
   const row = useRef(summary)
   const mounted = useRef(true)
   useLayoutEffect(() => {
@@ -317,6 +321,7 @@ function EntryEditor({
     }
   }, [])
   const adopt = (target: MemoryEntrySummary, from: string) => {
+    const run = runs.start()
     setAdoption({ busy: true })
     void readForAdoption({
       read: (args) => api.call('memory.read', args),
@@ -324,9 +329,11 @@ function EntryEditor({
       from,
       rowNow: () => row.current,
     }).then((outcome) => {
-      if (!mounted.current) return
+      if (!mounted.current || !runs.isCurrent(run)) return
       if (!outcome.ok) {
         setAdoption({ busy: false, error: outcome.error })
+        // Changed or gone since the list was read: the next try names the entry here now.
+        if (outcome.reloadList) onChanged()
         return
       }
       entry.replace(outcome.read)
@@ -362,11 +369,16 @@ function EntryEditor({
             canWrite={canWrite}
             writeNote={write?.reason}
             locked={view.lockNotice}
+            nowHere={view.nowHere}
             onAdopt={target ? () => adopt(target, draftKey) : undefined}
             adoption={adoption}
             draftNote={view.draftNote}
             keepDraft={view.keepDraft}
-            onDiscard={() => setAdoptedFrom(undefined)}
+            onDiscard={() => {
+              runs.retire()
+              setAdoption(undefined)
+              setAdoptedFrom(undefined)
+            }}
             // The list names the entry's current id; the read follows it.
             onReload={onChanged}
             onSave={async (content, reviewed) => {

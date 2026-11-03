@@ -3,12 +3,14 @@ import {
   CindlError,
   isCindlError,
   type CindlClientApi,
+  type LinkState,
   type MemoryEntry,
   type MemoryEntrySummary,
   type MemoryStore,
   type VersionedDocument,
 } from '@cindl/contracts'
 import {
+  adoptionRuns,
   bindingAfterSave,
   CLOSE_NO_LONGER_HERE,
   DELETE_REFUSED,
@@ -40,13 +42,20 @@ import {
 import { describeFailure, NOT_APPLIED, SAVE_UNCERTAIN } from '../src/talk/failures.ts'
 import {
   forgetDocumentDraft,
+  forgetDrafts,
   keptDocumentDrafts,
   keptDrafts,
+  sessionEnded,
 } from '../src/views/drafts.ts'
 import {
   draftNotice,
+  focusAfterLock,
   initialStage,
+  KEPT_BESIDE,
+  KEPT_OFFER,
+  keepKey,
   keptDraft,
+  keptState,
   lockPanel,
   previousTextOffer,
   reviewMoved,
@@ -99,6 +108,8 @@ export type ScreenNode =
       label: string
       /** The accessible name: accessibilityLabel, else the label. */
       name: string
+      /** What TalkBack says after the name (accessibilityHint). */
+      hint?: string
       disabled: boolean
       press: () => void
       dialog?: string
@@ -129,7 +140,8 @@ interface DocumentEditorState {
   failure: { message: string; conflict: boolean } | undefined
   saving: boolean
   backup: { content: string; version: string } | undefined
-  keepDeps: [string, string | undefined] | undefined
+  keepDeps: [string | undefined, string | undefined] | undefined
+  wasLocked: boolean
 }
 
 interface DeleteEntryState {
@@ -149,6 +161,7 @@ interface EntryEditorState {
   followed: [string | undefined, string | undefined]
   row: { current: MemoryEntrySummary | undefined }
   mounted: { current: boolean }
+  runs: ReturnType<typeof adoptionRuns>
   entry: Resource<MemoryEntry>
   doc: DocumentEditorState | undefined
   del: DeleteEntryState | undefined
@@ -172,6 +185,8 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
   let activity = 0
   let nodes: ScreenNode[] = []
   let root: RootState | undefined
+  /** Where DocumentEditor sent TalkBack focus, in order (its focus effect). */
+  const focusLog: Array<'draft' | 'notice'> = []
 
   /** A state update outside rendering: rendered by the next flush. */
   const changed = () => {
@@ -403,6 +418,7 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
         followed: [summary?.id, undefined],
         row: { current: summary },
         mounted: { current: true },
+        runs: adoptionRuns(),
         entry: resource<MemoryEntry>(
           'This entry could not be loaded. It may have changed; reload the list.',
         ),
@@ -455,6 +471,7 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
     const data = entry.data
     const { locked, draftKey } = view
     const adopt = (target: MemoryEntrySummary, from: string) => {
+      const run = self.runs.start()
       set(self, () => (self.adoption = { busy: true }))
       void readForAdoption({
         read: (args) => api.call('memory.read', args),
@@ -463,9 +480,10 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
         rowNow: () => self.row.current,
       }).then((outcome) => {
         activity += 1
-        if (!self.mounted.current) return
+        if (!self.mounted.current || !self.runs.isCurrent(run)) return
         if (!outcome.ok) {
           set(self, () => (self.adoption = { busy: false, error: outcome.error }))
+          if (outcome.reloadList) onChanged()
           return
         }
         entry.replace(outcome.read)
@@ -495,21 +513,29 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
       if (!self.doc)
         self.doc = {
           alive: true,
-          stage: initialStage(keptDrafts.get(draftKey)),
+          stage: initialStage(keptDrafts.get(draftKey), draftKey),
           failure: undefined,
           saving: false,
           backup: undefined,
           keepDeps: undefined,
+          wasLocked: Boolean(view.lockNotice),
         }
       renderDocumentEditor(out, commit, self.doc, {
         document: memoryDocument(data, place),
         draftKey,
         locked: view.lockNotice,
+        nowHere: view.nowHere,
         onAdopt: target ? () => adopt(target, draftKey) : undefined,
         adoption: self.adoption,
         draftNote: view.draftNote,
         keepDraft: view.keepDraft,
-        onDiscard: () => set(self, () => (self.adoptedFrom = undefined)),
+        onDiscard: () => {
+          self.runs.retire()
+          set(self, () => {
+            self.adoption = undefined
+            self.adoptedFrom = undefined
+          })
+        },
         onReload: onChanged,
         onSave: async (content, reviewed) => {
           guardMemorySave(locked, memoryDocument(data, place).version, reviewed)
@@ -560,6 +586,7 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
       document: VersionedDocument
       draftKey: string
       locked: string | undefined
+      nowHere: string | undefined
       onAdopt: (() => void) | undefined
       adoption: { busy: boolean; error?: string | undefined } | undefined
       draftNote: string | undefined
@@ -570,40 +597,63 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
     },
   ) {
     const { document, draftKey, locked, onAdopt } = props
-    const stage = self.stage
     const setStage = (next: Stage) => set(self, () => (self.stage = next))
-    const restored = keptDrafts.has(draftKey) && stage.kind !== 'view'
+    // A draft kept for the first time is filed once, while rendering.
+    if (self.stage.kind !== 'view') {
+      const first = keptDraft(locked, props.keepDraft, self.stage)
+      if (first !== undefined && self.stage.keptAs === undefined)
+        self.stage = {
+          ...self.stage,
+          keptAs: keepKey(keptDrafts, draftKey, undefined, first),
+        }
+    }
+    const stage = self.stage
+    const keptAs = stage.kind === 'view' ? undefined : stage.keptAs
+    const { restored, offered } = keptState(keptDrafts, draftKey, stage)
     const keep = keptDraft(locked, props.keepDraft, stage)
-    // The effect on [draftKey, keep]; it runs before the parents' effects.
-    commit.passive.unshift(() => {
-      const deps = self.keepDeps
-      if (deps && deps[0] === draftKey && deps[1] === keep) return
-      self.keepDeps = [draftKey, keep]
-      if (keep !== undefined) keptDrafts.set(draftKey, keep)
-    })
+    const isLocked = Boolean(locked)
+    // Its effects, before the parents': the kept copy on [keptAs, keep], then
+    // TalkBack focus on [isLocked].
+    commit.passive.unshift(
+      () => {
+        const deps = self.keepDeps
+        if (deps && deps[0] === keptAs && deps[1] === keep) return
+        self.keepDeps = [keptAs, keep]
+        if (keep !== undefined && keptAs !== undefined) keptDrafts.set(keptAs, keep)
+      },
+      () => {
+        const target = focusAfterLock(self.wasLocked, isLocked)
+        self.wasLocked = isLocked
+        if (target) focusLog.push(target)
+      },
+    )
     const panel = lockPanel({
       locked,
       canAdopt: Boolean(onAdopt),
       stage,
       adoption: props.adoption,
+      nowHere: props.nowHere,
     })
+    const button = (label: string, press: () => void, disabled = false) =>
+      out.push({ kind: 'button', label, name: label, disabled, press })
     if (panel) {
       for (const alert of panel.alerts)
         out.push({ kind: 'text', text: alert, role: 'alert', live: 'assertive' })
+      if (panel.nowHere) out.push({ kind: 'text', text: panel.nowHere })
       if (panel.note) out.push({ kind: 'text', text: panel.note })
       if (panel.busy) out.push({ kind: 'text', text: panel.busy, live: 'polite' })
+      if (panel.reload) button('Reload', props.onReload)
       if (panel.adopt && onAdopt)
         out.push({
           kind: 'button',
           label: 'Use this draft for the entry now here',
           name: 'Use this draft for the entry now here',
+          ...(panel.adopt.hint ? { hint: panel.adopt.hint } : {}),
           disabled: panel.adopt.disabled,
           press: onAdopt,
         })
     }
     const notice = draftNotice({ draftNote: props.draftNote, restored, locked })
-    const button = (label: string, press: () => void, disabled = false) =>
-      out.push({ kind: 'button', label, name: label, disabled, press })
 
     if (stage.kind === 'view') {
       const previous = previousTextOffer(self.backup, document, locked)
@@ -613,6 +663,18 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
         kind: 'text',
         text: `Read from ${document.source}. Version ${document.version.slice(0, 12)}.`,
       })
+      if (offered !== undefined && !locked) {
+        out.push({ kind: 'text', text: KEPT_OFFER, live: 'polite' })
+        out.push({ kind: 'text', text: offered })
+        button('Discard the draft', () => set(self, () => keptDrafts.delete(draftKey)))
+        if (canWrite)
+          button('Continue the draft', () =>
+            set(self, () => {
+              self.failure = undefined
+              self.stage = { kind: 'edit', draft: offered, keptAs: draftKey }
+            }),
+          )
+      }
       if (previous === 'restore' && backup) {
         out.push({
           kind: 'text',
@@ -641,15 +703,16 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
 
     if (stage.kind === 'edit') {
       if (notice) out.push({ kind: 'text', text: notice, live: 'polite' })
+      if (offered !== undefined && !locked) out.push({ kind: 'text', text: KEPT_BESIDE })
       out.push({
         kind: 'field',
         label: `Edit ${document.key}`,
         value: stage.draft,
         readOnly: Boolean(locked),
-        change: (draft) => setStage({ kind: 'edit', draft }),
+        change: (draft) => setStage({ kind: 'edit', draft, keptAs }),
       })
       button('Discard changes', () => {
-        keptDrafts.delete(draftKey)
+        if (keptAs !== undefined) keptDrafts.delete(keptAs)
         set(self, () => {
           self.failure = undefined
           self.stage = { kind: 'view' }
@@ -658,7 +721,7 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
       })
       button(
         'Review changes',
-        () => setStage(reviewStage(stage.draft, document)),
+        () => setStage(reviewStage(stage.draft, document, keptAs)),
         Boolean(locked) || stage.draft === document.content,
       )
       return
@@ -675,22 +738,23 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
       try {
         const previous = document.content
         const saved = await props.onSave(draft, base)
-        keptDrafts.delete(draftKey)
+        // Only this draft's kept copy; another kept draft for the document stays.
+        if (keptAs !== undefined) keptDrafts.delete(keptAs)
         set(self, () => {
           self.backup = { content: previous, version: saved.version }
           self.stage = { kind: 'view' }
         })
       } catch (error) {
         if (isCindlError(error) && error.code === 'conflict') {
-          keptDrafts.set(draftKey, draft)
-          set(
-            self,
-            () =>
-              (self.failure = {
-                message: `${error.message} Your draft is kept.`,
-                conflict: true,
-              }),
-          )
+          const key = keepKey(keptDrafts, draftKey, keptAs, draft)
+          keptDrafts.set(key, draft)
+          set(self, () => {
+            self.stage = { kind: 'review', draft, base, keptAs: key }
+            self.failure = {
+              message: `${error.message} Your draft is kept.`,
+              conflict: true,
+            }
+          })
         } else {
           const copy = describeFailure(error, SAVE_UNCERTAIN, NOT_APPLIED)
           set(
@@ -737,10 +801,14 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
         props.onReload()
         set(self, () => {
           self.failure = undefined
-          self.stage = { kind: 'edit', draft }
+          self.stage = { kind: 'edit', draft, keptAs }
         })
       })
-    button('Back to editing', () => setStage({ kind: 'edit', draft }), self.saving)
+    button(
+      'Back to editing',
+      () => setStage({ kind: 'edit', draft, keptAs }),
+      self.saving,
+    )
     button(
       self.saving ? 'Saving…' : 'Confirm and save',
       () => void save(),
@@ -934,6 +1002,8 @@ export function memoryScreen(api: { call: Call }, options: { canWrite?: boolean 
         .join('\n'),
     shown: () => texts().find((node) => node.tag === 'shown')?.text,
     changes: () => texts().find((node) => node.tag === 'changes')?.text,
+    /** Where TalkBack focus was sent, in order. */
+    focusLog: () => [...focusLog],
     /** The text of an open dialog, title first. */
     dialog: (title: string) => {
       const inside = texts().filter((node) => node.dialog === title)
@@ -967,17 +1037,28 @@ export const fixtureEntries: Entry[] = [
 ]
 export const fp = (content: string) => sha256Hex(content.trim()).slice(0, 12)
 
-/** Memory shaped like the fixture: ids resolve by store and fingerprint. */
-export function memoryBackend(initial: Entry[]) {
+/**
+ * Memory shaped like the fixture: ids resolve by store and fingerprint, first
+ * match. `adapterWrites` answers a write like the adapter does (the web's
+ * memory-drafts probes): the same index as the id written, with the new
+ * fingerprint, and the text trimmed.
+ */
+export function memoryBackend(
+  initial: Entry[],
+  options: { adapterWrites?: boolean } = {},
+) {
   const entries = initial.map((entry) => ({ ...entry }))
   const ordered = () => [
     ...entries.filter((e) => e.store === 'memory'),
     ...entries.filter((e) => e.store === 'profile'),
   ]
   const idOf = (e: Entry) => `memory:${e.store}:${ordered().indexOf(e)}:${fp(e.content)}`
-  const find = (id: string) => {
+  const resolve = (id: string) => {
     const [, store, , f] = id.split(':')
-    const e = entries.find((c) => c.store === store && fp(c.content) === f)
+    return entries.find((c) => c.store === store && fp(c.content) === f)
+  }
+  const find = (id: string) => {
+    const e = resolve(id)
     if (!e)
       throw new CindlError(
         'conflict',
@@ -1006,6 +1087,17 @@ export function memoryBackend(initial: Entry[]) {
     },
     'memory.write': ({ id, content }: { id: string; content: string }): MemoryEntry => {
       const e = find(id)
+      if (options.adapterWrites) {
+        e.content = content.trim()
+        const [, store, index] = id.split(':')
+        return {
+          id: `memory:${store}:${index}:${fp(e.content)}`,
+          store: e.store,
+          content: e.content,
+          readAt: now,
+          source: 'probe',
+        }
+      }
       e.content = content
       return { id: idOf(e), store: e.store, content, readAt: now, source: 'probe' }
     },
@@ -1016,6 +1108,7 @@ export function memoryBackend(initial: Entry[]) {
   }
   return {
     ops,
+    resolve,
     add: (store: Store, content: string) => void entries.push({ store, content }),
     remove: (re: RegExp) => void entries.splice(entries.indexOf(byText(re)), 1),
     replace: (re: RegExp, content: string) => void (byText(re).content = content),
@@ -1027,11 +1120,16 @@ export function memoryBackend(initial: Entry[]) {
 export type Gate = 'memory.entries' | 'memory.read' | 'memory.write'
 
 /** The Memory screen on the fixture, with calls that can be held or failed. */
-export function harness(initial: Entry[] = fixtureEntries) {
-  const mem = memoryBackend(initial)
+export function harness(
+  initial: Entry[] = fixtureEntries,
+  options: { adapterWrites?: boolean } = {},
+) {
+  const mem = memoryBackend(initial, options)
   const calls: Array<{ name: string; args: unknown }> = []
   const held = new Set<Gate>()
   const releases = new Map<Gate, () => void>()
+  const failNext = new Map<string, CindlError>()
+  const state = { refuseDeletes: false }
   let failRead = false
   const call = (async (name: string, args: unknown) => {
     calls.push({ name, args })
@@ -1039,10 +1137,17 @@ export function harness(initial: Entry[] = fixtureEntries) {
       held.delete(name as Gate)
       await new Promise<void>((resolve) => releases.set(name as Gate, resolve))
     }
+    const failure = failNext.get(name)
+    if (failure) {
+      failNext.delete(name)
+      throw failure
+    }
     if (name === 'memory.read' && failRead) {
       failRead = false
       throw new CindlError('unavailable', 'Hermes is not answering.')
     }
+    if (name === 'memory.delete' && state.refuseDeletes)
+      throw new CindlError('unavailable', 'Probe refused the delete.')
     const op = mem.ops[name]
     if (!op) throw new Error(`unexpected call ${name}`)
     return op(args as never)
@@ -1052,6 +1157,12 @@ export function harness(initial: Entry[] = fixtureEntries) {
     ...screen,
     mem,
     calls,
+    state,
+    reads: () =>
+      calls
+        .filter((c) => c.name === 'memory.read')
+        .map((c) => (c.args as { id: string }).id),
+    failNext: (name: string, error: CindlError) => void failNext.set(name, error),
     writes: () =>
       calls
         .filter((c) => c.name === 'memory.write')
@@ -1104,3 +1215,23 @@ export async function releaseList(h: Harness) {
   h.release('memory.entries')
   await h.settle()
 }
+
+/**
+ * AppShell's session-end effect (src/shell/AppShell.tsx): on a change of
+ * `sessionEnded(link)`, kept drafts are forgotten when it is true.
+ */
+export function shellSession() {
+  let last: boolean | undefined
+  return {
+    link: (link: Pick<LinkState, 'phase' | 'demo'>) => {
+      const ended = sessionEnded(link)
+      if (ended === last) return
+      last = ended
+      if (ended) forgetDrafts()
+    },
+  }
+}
+
+/** Kept memory drafts' keys, oldest first. */
+export const keptMemoryKeys = () =>
+  keptDocumentDrafts(MEMORY_DRAFT_PREFIX).map((d) => d.key)

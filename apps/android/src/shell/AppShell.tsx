@@ -1,5 +1,5 @@
 import { useLink, useOpenRequests } from '@cindl/client-react'
-import { useState, type ReactNode } from 'react'
+import { useEffect, useState, type ReactNode } from 'react'
 import { StatusBar, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AgentView } from '../agent/AgentView.tsx'
@@ -9,6 +9,7 @@ import { DestinationActiveProvider, useNav, useNavigate } from '../nav/NavProvid
 import { useOverlayCount } from '../overlay/Portal.tsx'
 import { TalkView } from '../talk/TalkView.tsx'
 import { useTheme } from '../theme/theme.tsx'
+import { forgetDrafts, sessionEnded } from '../views/drafts.ts'
 import { Layer } from '../views/Layer.tsx'
 import { WorkView } from '../work/WorkView.tsx'
 import { BottomNav } from './BottomNav.tsx'
@@ -50,6 +51,13 @@ export function AppShell() {
     () => new Set(['talk']),
   )
   if (!visited.has(nav.destination)) setVisited(new Set([...visited, nav.destination]))
+  // Nothing typed on this device outlives the session, however it ended: the
+  // sign-out button, or Hermes refusing the session (web parity). Kept drafts
+  // go too, so none comes back after another sign-in, to this Hermes or another.
+  const ended = sessionEnded(link)
+  useEffect(() => {
+    if (ended) forgetDrafts()
+  }, [ended])
   // From a sign-in until the client is online, the sign-in screen stays: while the
   // browser is open the link says "connecting", and a failed attempt shows its error.
   const [signingIn, setSigningIn] = useState(false)

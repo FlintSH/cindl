@@ -162,6 +162,28 @@ describe('adoption ("Use this draft for the entry now here") followed by a furth
     expect(h.hasText('Hermes is not answering.')).toBe(true)
   })
 
+  it('A3d: a failed adoption leaves the editor bound to its entry, so a renumbering after it does not unlock it', async () => {
+    // Android addition: the editor changes entry only when an adoption completes.
+    const h = harness()
+    await openEntry(h, /Prefers a short morning brief/)
+    await holdListAndReload(h)
+    editTo(h, 'Edit note about you 1', 'Brief draft (fictional).')
+    h.mem.remove(/morning brief/)
+    h.mem.replace(/Protects focus time/, 'Protects focus time before 11:30 on weekdays.')
+    await releaseList(h)
+    expect(lockedNow(h)).toBe(true)
+    h.failNextRead()
+    await adopt(h)
+    expect(h.hasText('Hermes is not answering.')).toBe(true)
+    // Elsewhere an agent note is removed: the note at this place gets a new number.
+    h.mem.remove(/Glaze supplier/)
+    h.press('Reload')
+    await h.settle()
+    expect(lockedNow(h)).toBe(true)
+    expect(h.field()).toMatchObject({ value: 'Brief draft (fictional).', readOnly: true })
+    expect(h.button('Delete entry…')).toBeUndefined()
+  })
+
   it('A4: adopting onto an entry that holds its own kept draft does not silently drop that draft', async () => {
     const h = harness([
       ...fixtureEntries.slice(0, 3),
@@ -299,7 +321,8 @@ describe('adoption keeps every draft until the owner saves or discards it', () =
     expect(h.alerts()).toContain(
       'The entry at this place changed again while Cindl read it.',
     )
-    expect(h.alerts().join(' ')).toMatch(
+    // The adopt button is described by the entry it would use the draft for.
+    expect(h.button('Use this draft for the entry now here')?.hint).toMatch(
       /Now at this place: “Zed note about the glaze order/,
     )
     expect(keptMemoryDrafts()).toContain(D_K)
@@ -348,7 +371,9 @@ describe('adoption keeps every draft until the owner saves or discards it', () =
     h.press('Reload and keep my draft')
     await h.settle()
     expect(lockedNow(h)).toBe(true)
-    expect(h.alerts().join(' ')).toMatch(/Now at this place: “Harbor Loft/)
+    expect(h.button('Use this draft for the entry now here')?.hint).toMatch(
+      /Now at this place: “Harbor Loft/,
+    )
     // Used for its own entry again, the draft is that entry's own kept draft.
     await adopt(h)
     expect(lockedNow(h)).toBe(false)
