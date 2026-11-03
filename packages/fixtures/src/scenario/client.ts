@@ -47,9 +47,10 @@ const realTimers: ScenarioTimers = {
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 }
 
+/** Hermes v0.22.5's default store limits (tools/memory_tool_store.py:186); profiles can change them. */
+const MEMORY_LIMITS = { memory: 2_200, profile: 1_375 } as const
+
 const unsupported: Partial<Record<CapabilityId, string>> = {
-  'memory.text':
-    'Not implemented in Cindl yet. Hermes v0.22.5 source exposes fingerprinted memory entries (GET/PUT/DELETE /api/learning/node); support is pending verification and has not been tested against a live instance.',
   'connections.accounts':
     'Hermes v0.22.5 has no safe account-coverage source for local browser or vault logins.',
   'artifacts.list':
@@ -138,6 +139,27 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
   }
   const later = (ms: number, callback: () => void) =>
     timers.setTimeout(callback, ms * speed)
+  // Memory entries behave like Hermes's learning routes: the id carries the
+  // entry's fingerprint, a changed entry is a conflict, and nothing is kept
+  // after a delete.
+  const memory = data.memoryEntries.map((entry) => ({ ...entry }))
+  const source = 'Synthetic fixture (GET /api/learning/node shape)'
+  const memoryId = (entry: { store: string; content: string }, index: number) =>
+    `memory:${entry.store}:${index}:${sha256Hex(entry.content.trim()).slice(0, 12)}`
+  const findMemory = (id: string) => {
+    const [, store, , fingerprint] = id.split(':')
+    const entry = memory.find(
+      (candidate) =>
+        candidate.store === store &&
+        sha256Hex(candidate.content.trim()).slice(0, 12) === fingerprint,
+    )
+    if (!entry)
+      throw new CindlError(
+        'conflict',
+        'This memory entry changed since you read it. Reload it and review again.',
+      )
+    return entry
+  }
 
   let started = false
   let link: LinkState = {
@@ -489,7 +511,50 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
       soul = content
       return doc('soul:default', soul, 'Synthetic fixture')
     },
-    'memory.overview': () => data.memoryOverview(iso()),
+    'memory.overview': () => data.memoryOverview(iso(), memory.length),
+    'memory.entries': () => {
+      const counts = { memory: 0, profile: 0 }
+      return memory.map((entry) => {
+        const id = memoryId(entry, counts[entry.store]++)
+        const firstLine = entry.content.split('\n')[0] ?? ''
+        return {
+          id,
+          store: entry.store,
+          title: firstLine.length > 60 ? `${firstLine.slice(0, 59)}…` : firstLine,
+          preview: entry.content.slice(0, 1200),
+          truncated: entry.content.length > 1200,
+        }
+      })
+    },
+    'memory.read': ({ id }) => {
+      const entry = findMemory(id)
+      return { id, store: entry.store, content: entry.content, readAt: iso(), source }
+    },
+    'memory.write': ({ id, content }) => {
+      const entry = findMemory(id)
+      const used = memory
+        .filter((other) => other.store === entry.store && other !== entry)
+        .reduce((sum, other) => sum + other.content.length, content.length)
+      const limit = MEMORY_LIMITS[entry.store]
+      if (used > limit)
+        throw new CindlError(
+          'invalid',
+          `That would put memory at ${used.toLocaleString('en-US')} of ${limit.toLocaleString('en-US')} characters. Shorten it.`,
+        )
+      entry.content = content
+      const index = memory.filter((other) => other.store === entry.store).indexOf(entry)
+      return {
+        id: memoryId(entry, index),
+        store: entry.store,
+        content,
+        readAt: iso(),
+        source,
+      }
+    },
+    'memory.delete': ({ id }) => {
+      memory.splice(memory.indexOf(findMemory(id)), 1)
+      return { deleted: true as const }
+    },
     'connections.mcp': () => data.mcpServers,
     'connections.accounts': () => {
       throw new CindlError('unsupported', unsupported['connections.accounts'] as string)

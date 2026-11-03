@@ -44,6 +44,32 @@ describe('client operation registry', () => {
     }
   })
 
+  it('edits and deletes memory entries only by current fingerprinted id, with confirmation', () => {
+    const id = 'memory:memory:3:0a1b2c3d4e5f'
+    for (const [name, base] of [
+      ['memory.write', { id, content: 'Glaze calls move to Thursdays.' }],
+      ['memory.delete', { id }],
+    ] as const) {
+      expect(() => parseOpArgs(name, base)).toThrow()
+      expect(() => parseOpArgs(name, { ...base, confirm: false })).toThrow()
+      expect(parseOpArgs(name, { ...base, confirm: true })).toMatchObject({
+        id,
+        confirm: true,
+      })
+    }
+    for (const bad of [
+      'memory:memory:3', // positional: may point at another entry after any change
+      'memory:memory:3:0A1B2C3D4E5F',
+      'memory:skills:3:0a1b2c3d4e5f',
+      'skill:calendar-triage',
+      '../memory:memory:3:0a1b2c3d4e5f',
+    ])
+      expect(() => parseOpArgs('memory.read', { id: bad })).toThrow(CindlError)
+    expect(() =>
+      parseOpArgs('memory.write', { id, content: '   ', confirm: true }),
+    ).toThrow(CindlError)
+  })
+
   it('rejects edits without the version that was reviewed', () => {
     expect(() =>
       parseOpArgs('soul.write', {

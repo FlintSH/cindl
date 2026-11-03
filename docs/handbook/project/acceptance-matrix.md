@@ -8,19 +8,19 @@ re-run or inspect.
 
 ## Product and UX
 
-| Requirement                                                              | Status      | Evidence / gap                                                                 |
-| ------------------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------------ |
-| Conversation-first Talk with main + side conversations                   | partial     | Web UI on synthetic demo; live sessions pending                                |
-| Non-blocking sends while Hermes works                                    | partial     | Composer + scenario; live `prompt.submit` dispositions pending                 |
-| Streaming text and tool activity, inspectable evidence                   | partial     | Reducer tests (`packages/client-core/test/state.test.ts`); live events pending |
-| Structured approvals and clarifications, answered once                   | partial     | Contract + reducer + scenario tests; live server requests pending              |
-| Work: needs you, running, routines, computer                             | partial     | Web UI on synthetic demo                                                       |
-| Library: skills, memory metadata, artifacts (honest unsupported)         | partial     | Web UI on synthetic demo                                                       |
-| Agent: SOUL edit with diff/confirm/version, connections, runtime, device | partial     | Web UI + scenario CAS tests                                                    |
-| Command palette, shortcuts, history popover                              | partial     | Implemented in web; browser QA pending                                         |
-| Responsive phone/tablet/desktop with 44px targets, reduced motion, focus | partial     | CSS implemented; screenshots and keyboard/touch QA pending                     |
-| Native Android app (not a WebView)                                       | not started | Android stream                                                                 |
-| Electron desktop with hardened IPC and native files                      | not started | Desktop stream                                                                 |
+| Requirement                                                              | Status      | Evidence / gap                                                                                                                              |
+| ------------------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
+| Conversation-first Talk with main + side conversations                   | partial     | Web UI on synthetic demo; live sessions pending                                                                                             |
+| Non-blocking sends while Hermes works                                    | partial     | Composer + scenario; live `prompt.submit` dispositions pending                                                                              |
+| Streaming text and tool activity, inspectable evidence                   | partial     | Reducer tests (`packages/client-core/test/state.test.ts`); live events pending                                                              |
+| Structured approvals and clarifications, answered once                   | partial     | Contract + reducer + scenario tests; live server requests pending                                                                           |
+| Work: needs you, running, routines, computer                             | partial     | Web UI on synthetic demo                                                                                                                    |
+| Library: skills, memory entries, artifacts (honest unsupported)          | partial     | Web UI on synthetic demo, including memory entries (list, reviewed edits, warned deletes); live transport for memory entries waits on PR #2 |
+| Agent: SOUL edit with diff/confirm/version, connections, runtime, device | partial     | Web UI + scenario CAS tests                                                                                                                 |
+| Command palette, shortcuts, history popover                              | partial     | Implemented in web; browser QA pending                                                                                                      |
+| Responsive phone/tablet/desktop with 44px targets, reduced motion, focus | partial     | CSS implemented; screenshots and keyboard/touch QA pending                                                                                  |
+| Native Android app (not a WebView)                                       | not started | Android stream                                                                                                                              |
+| Electron desktop with hardened IPC and native files                      | not started | Desktop stream                                                                                                                              |
 
 ## Integration
 

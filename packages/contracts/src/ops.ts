@@ -5,6 +5,9 @@ import {
   Conversation,
   DisplayState,
   McpServerStatus,
+  MemoryEntry,
+  MemoryEntryId,
+  MemoryEntrySummary,
   MemoryOverview,
   Message,
   PendingPrompt,
@@ -277,6 +280,41 @@ export const clientOps = {
     mutates: false,
     summary:
       'Memory provider metadata (GET /api/memory). Entries are a separate capability.',
+  }),
+  'memory.entries': op({
+    args: z.object({}),
+    result: z.array(MemoryEntrySummary),
+    capability: 'memory.text',
+    mutates: false,
+    summary: 'Memory entries (agent notes and the user profile) as Hermes lists them.',
+  }),
+  'memory.read': op({
+    args: z.object({ id: MemoryEntryId }),
+    result: MemoryEntry,
+    capability: 'memory.text',
+    mutates: false,
+    summary: 'One memory entry in full.',
+  }),
+  'memory.write': op({
+    args: z.object({
+      id: MemoryEntryId,
+      // A sanity bound only: Hermes enforces each profile's own limit
+      // (default 2,200 for agent notes, 1,375 for the profile).
+      content: z.string().trim().min(1).max(20_000),
+      confirm: confirmed,
+    }),
+    result: MemoryEntry,
+    capability: 'memory.text',
+    mutates: true,
+    summary:
+      'Replace one entry after a reviewed diff; refused if it changed since it was read (its id is its version).',
+  }),
+  'memory.delete': op({
+    args: z.object({ id: MemoryEntryId, confirm: confirmed }),
+    result: z.object({ deleted: z.literal(true) }),
+    capability: 'memory.text',
+    mutates: true,
+    summary: 'Delete one entry. Permanent: Hermes keeps no backup.',
   }),
   'connections.mcp': op({
     args: z.object({}),

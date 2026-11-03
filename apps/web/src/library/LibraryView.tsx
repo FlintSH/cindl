@@ -4,6 +4,7 @@ import { formatRoute, type LibrarySection } from '../router.ts'
 import { Badge, SectionTitle } from '../ui/primitives.tsx'
 import { RequireCapability } from '../views/Capability.tsx'
 import { DocumentEditor } from '../views/DocumentEditor.tsx'
+import { MemoryEntries } from './MemoryEntries.tsx'
 import { useResource } from '../views/useResource.ts'
 import styles from '../views/views.module.css'
 
@@ -115,7 +116,7 @@ function Memory() {
         </>
       ) : null}
       <RequireCapability id="memory.text" label="Memory entries">
-        <p className={styles.note}>Memory entries are available.</p>
+        <MemoryEntries />
       </RequireCapability>
     </div>
   )

@@ -335,6 +335,47 @@ export const MemoryOverview = z.object({
 })
 export type MemoryOverview = z.infer<typeof MemoryOverview>
 
+/** Hermes's two memory stores: agent notes (MEMORY.md) and the user profile (USER.md). */
+export const MemoryStore = z.enum(['memory', 'profile'])
+export type MemoryStore = z.infer<typeof MemoryStore>
+
+/**
+ * A memory entry reference, `memory:<store>:<index>:<fingerprint>`, where the
+ * fingerprint is the first 12 hex characters of `sha256(entry.trim())`
+ * (agent/learning_mutations.py at v0.22.5). Hermes resolves the entry by its
+ * fingerprint and refuses a write when the entry changed, so the id is also
+ * the entry's version. Positional ids (no fingerprint) are refused: after any
+ * change they can point at a different entry.
+ */
+export const MemoryEntryId = z
+  .string()
+  .regex(
+    /^memory:(memory|profile):\d{1,6}:[a-f0-9]{12}$/,
+    'Not a current memory entry reference',
+  )
+export type MemoryEntryId = z.infer<typeof MemoryEntryId>
+
+/** One entry as Hermes lists it (GET /api/learning/graph). */
+export const MemoryEntrySummary = z.object({
+  id: MemoryEntryId,
+  store: MemoryStore,
+  title: z.string(),
+  /** Hermes's card text: the entry, cut at 1,200 characters. */
+  preview: z.string(),
+  truncated: z.boolean(),
+})
+export type MemoryEntrySummary = z.infer<typeof MemoryEntrySummary>
+
+/** One entry in full (GET /api/learning/node). */
+export const MemoryEntry = z.object({
+  id: MemoryEntryId,
+  store: MemoryStore,
+  content: z.string(),
+  readAt: isoTime,
+  source: z.string(),
+})
+export type MemoryEntry = z.infer<typeof MemoryEntry>
+
 /** Cached MCP health. Server URLs and arguments are deliberately excluded. */
 export const McpServerStatus = z.object({
   name: z.string().min(1),

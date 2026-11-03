@@ -73,6 +73,9 @@ from the desktop app's custom protocol.
   card and sends nothing back, not even a decline, because any reply could
   become the password Hermes uses. Answer it in another Hermes surface, such as
   the Hermes terminal; it stays open until Hermes closes it.
+- **Memory edits are explicit:** each entry changes only after you review a
+  diff and confirm, and only if it has not changed in Hermes since you read it.
+  Deleting an entry warns first, because Hermes keeps no backup.
 - **Drafts stay on this device, briefly:** answers being written and document
   edits kept after a save conflict live in memory only. An answer's draft is
   dropped once its request closes, and every draft is forgotten on sign-out.

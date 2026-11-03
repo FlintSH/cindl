@@ -275,10 +275,28 @@ export const skillContent: Record<string, string> = {
 export const soul =
   "# Identity\n\nYou are the chief of staff for Lumen & Kiln, a small (fictional) ceramics studio.\n\n## Truths\n\n- Protect the owner's focus time before 11:00.\n- Ask before anything that sends, buys or deletes.\n\n## Voice\n\nCalm, brief, specific. No exclamation marks.\n"
 
-export const memoryOverview = (readAt: string): MemoryOverview => ({
+/** Synthetic memory entries: agent notes (MEMORY.md) and the user profile (USER.md). */
+export const memoryEntries: Array<{ store: 'memory' | 'profile'; content: string }> = [
+  {
+    store: 'memory',
+    content: 'Glaze supplier calls moved to Thursdays at 10:00 (fictional supplier).',
+  },
+  {
+    store: 'memory',
+    content: 'The kiln firing log lives in the studio inventory sheet, tab "Firings".',
+  },
+  {
+    store: 'memory',
+    content: 'Harbor Loft (fictional) holds the offsite date until Friday.',
+  },
+  { store: 'profile', content: 'Prefers a short morning brief, ready before 08:30.' },
+  { store: 'profile', content: 'Protects focus time before 11:00 on weekdays.' },
+]
+
+export const memoryOverview = (readAt: string, entries: number): MemoryOverview => ({
   items: [
     { key: 'provider', label: 'Memory provider', detail: 'Built-in files (synthetic)' },
-    { key: 'entries', label: 'Saved memories', detail: '18 entries' },
+    { key: 'entries', label: 'Saved memories', detail: `${entries} entries` },
     { key: 'updated', label: 'Last updated', detail: 'Yesterday, 17:42' },
   ],
   source: 'Synthetic fixture (GET /api/memory shape)',

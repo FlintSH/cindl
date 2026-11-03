@@ -121,10 +121,34 @@ test('SOUL edits require a reviewed diff and confirmation', async ({ page }) => 
 test('unsupported Hermes v0.22.5 capabilities are explained, not faked', async ({
   page,
 }) => {
-  await page.goto('/#/library/memory')
-  await expect(page.getByText('Memory entries: Not supported.')).toBeVisible()
   await page.goto('/#/agent/connections')
   await expect(page.getByText('Account coverage: Not supported.')).toBeVisible()
   await page.goto('/#/agent/runtime')
   await expect(page.getByRole('cell', { name: 'presence.unified' })).toBeVisible()
+})
+
+test('memory entries change only after a reviewed diff, and deletes warn first', async ({
+  page,
+}) => {
+  await page.goto('/#/library/memory')
+  await page
+    .getByRole('button', { name: /Open memory entry: Glaze supplier calls/ })
+    .click()
+  await page.getByRole('button', { name: 'Edit', exact: true }).click()
+  await page
+    .getByRole('textbox', { name: 'Edit agent note 1' })
+    .fill('Glaze supplier calls moved to Wednesdays at 10:00 (fictional supplier).')
+  await page.getByRole('button', { name: 'Review changes' }).click()
+  await page.getByRole('button', { name: 'Confirm and save' }).click()
+  await expect(page.getByText(/moved to Wednesdays/).first()).toBeVisible()
+
+  await page.getByRole('button', { name: 'Delete entry…' }).click()
+  await expect(
+    page.getByText(/Hermes keeps no backup, so this cannot be undone/),
+  ).toBeVisible()
+  await page.getByRole('button', { name: 'Delete permanently' }).click()
+  await expect(page.getByText(/moved to Wednesdays/)).toHaveCount(0)
+  await expect(
+    page.getByRole('button', { name: /Open memory entry: The kiln firing log/ }),
+  ).toBeVisible()
 })

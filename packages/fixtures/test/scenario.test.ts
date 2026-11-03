@@ -46,12 +46,53 @@ describe('synthetic scenario client', () => {
   it('reports unsupported Hermes v0.22.5 capabilities honestly', async () => {
     const { client } = harness()
     const capabilities = await client.call('capabilities.get', {})
-    expect(capabilities['memory.text']?.state).toBe('unsupported')
     expect(capabilities['connections.accounts']?.state).toBe('unsupported')
     expect(capabilities['presence.unified']?.state).toBe('unavailable')
     expect(capabilities['sessions.replay']?.state).toBe('limited')
     await expect(client.call('connections.accounts', {})).rejects.toMatchObject({
       code: 'unsupported',
+    })
+  })
+
+  it('edits memory entries like Hermes: the id is the version, deletes are final', async () => {
+    const { client } = harness()
+    const entries = await client.call('memory.entries', {})
+    expect(entries.map((e) => e.store)).toEqual([
+      'memory',
+      'memory',
+      'memory',
+      'profile',
+      'profile',
+    ])
+    const first = entries[0]!
+    expect(first.id).toMatch(/^memory:memory:0:[a-f0-9]{12}$/)
+    const read = await client.call('memory.read', { id: first.id })
+    expect(read.content).toContain('Thursdays')
+
+    const saved = await client.call('memory.write', {
+      id: first.id,
+      content: 'Glaze supplier calls moved to Wednesdays at 10:00 (fictional supplier).',
+      confirm: true,
+    })
+    expect(saved.id).not.toBe(first.id)
+    // The old id names content that no longer exists: Hermes refuses it.
+    await expect(
+      client.call('memory.write', { id: first.id, content: 'x', confirm: true }),
+    ).rejects.toMatchObject({ code: 'conflict' })
+    await expect(
+      client.call('memory.write', {
+        id: saved.id,
+        content: 'y'.repeat(2_201),
+        confirm: true,
+      }),
+    ).rejects.toMatchObject({ code: 'invalid' })
+
+    await client.call('memory.delete', { id: saved.id, confirm: true })
+    const after = await client.call('memory.entries', {})
+    expect(after).toHaveLength(4)
+    expect(after.some((e) => e.preview.includes('Wednesdays'))).toBe(false)
+    await expect(client.call('memory.read', { id: saved.id })).rejects.toMatchObject({
+      code: 'conflict',
     })
   })
 

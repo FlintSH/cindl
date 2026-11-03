@@ -37,6 +37,10 @@ when the table and the contract differ.
 | `soul.read`              | `soul.read`            | no            | The profile’s SOUL.md.                                                                                                    |
 | `soul.write`             | `soul.write`           | yes           | Replace SOUL.md after a reviewed diff; rejected if it changed since read.                                                 |
 | `memory.overview`        | `memory.overview`      | no            | Memory provider metadata (GET /api/memory). Entries are a separate capability.                                            |
+| `memory.entries`         | `memory.text`          | no            | Memory entries (agent notes and the user profile) as Hermes lists them.                                                   |
+| `memory.read`            | `memory.text`          | no            | One memory entry in full.                                                                                                 |
+| `memory.write`           | `memory.text`          | yes           | Replace one entry after a reviewed diff; refused if it changed since it was read (its id is its version).                 |
+| `memory.delete`          | `memory.text`          | yes           | Delete one entry. Permanent: Hermes keeps no backup.                                                                      |
 | `connections.mcp`        | `connections.mcp`      | no            | Cached MCP server health (read-only; does not probe).                                                                     |
 | `connections.accounts`   | `connections.accounts` | no            | Account coverage evidence, when a safe source exists.                                                                     |
 | `display.status`         | `computer.view`        | no            | State of the agent-owned screen. Never starts it.                                                                         |
@@ -52,9 +56,13 @@ this device's sign-in.
 
 Rules every implementation follows:
 
-- Owner edits (`skills.write`, `soul.write`, `routines.setEnabled`,
-  `display.acquireControl`) require `confirm: true`; document writes also
-  require the `expectedVersion` that was read.
+- Owner edits (`skills.write`, `soul.write`, `memory.write`, `memory.delete`,
+  `routines.setEnabled`, `display.acquireControl`) require `confirm: true`;
+  document writes also require the `expectedVersion` that was read.
+- Memory entries are addressed only by their current fingerprinted id
+  (`memory:<store>:<index>:<fingerprint>`): it is also the entry's version, so
+  Hermes refuses a write or delete once the entry changed. Positional ids are
+  refused. Hermes keeps no backup, so a delete is permanent.
 - `request.answer` takes the Hermes request id (`srq-…`) and either one offered
   approval choice (`once` or `deny`), one submission covering every open
   question of a clarify set (each answered or skipped; questions another client
