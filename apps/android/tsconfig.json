@@ -15,6 +15,7 @@
     "scripts",
     "e2e",
     "sdk",
+    "notices",
     "modules/*/index.ts",
     "vitest.config.ts"
   ],

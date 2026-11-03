@@ -82,9 +82,14 @@ holds:
 - `cindl-<flavour>-test.apk` and `SHA256SUMS`;
 - `apk-report.json`: package, label, SDK levels, ABIs, permissions, network
   security config, signer and the bundle gate's result;
-- `LICENSE.txt` (Cindl's MIT licence) and `THIRD-PARTY-NOTICES.txt` (fonts,
-  vendored material and every npm package in the build), which are also
-  inside the APK under `assets/licenses/`;
+- `LICENSE.txt` (Cindl's MIT licence), `THIRD-PARTY-NOTICES.txt` (fonts,
+  vendored material and every npm package in the build) and
+  `NATIVE-NOTICES.txt` (every library Gradle adds from Maven repositories,
+  with the licence its POM declares and the licence and notice files it ships,
+  which the Android build would otherwise leave out), all three also inside the
+  APK under `assets/licenses/`;
+- `native-dependencies.txt`: Gradle's release runtime classpath, the list the
+  native notices are made from;
 - `android-sdk-packages.json`: the SDK packages the build used, with their
   licence.
 
@@ -277,8 +282,9 @@ resolves pnpm's isolated `node_modules` and the TypeScript sources of
 - Not connected to a real Hermes yet (transport pending); sign-in not
   validated against a real Hermes server or on a phone.
 - Test APKs only: no store distribution, no production signing.
-- The APK's notices cover npm packages, fonts and vendored material; the
-  native libraries Gradle adds from Maven are not listed yet.
+- Native libraries are listed with the licence their POM declares; a library
+  whose POM declares none and that ships no licence file is flagged in the CI
+  log for review rather than resolved by hand.
 - No hardware-keyboard shortcuts or command palette; Enter does not send.
 - No notifications or background sync.
 - Artifacts, attachments and memory entries are shown as unsupported, as in

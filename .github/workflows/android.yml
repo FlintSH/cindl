@@ -213,11 +213,20 @@ jobs:
           keytool -genkeypair -noprompt -storetype PKCS12 -keystore "$CINDL_TEST_KEYSTORE" \
             -storepass "$password" -keypass "$password" -alias cindl-test -keyalg RSA -keysize 3072 \
             -validity 30 -dname "CN=Cindl CI test build (not for distribution), O=Cindl"
-          cd apps/android/android
-          ./gradlew --no-daemon --console=plain --stacktrace --warning-mode=summary \
-            -Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=1g" \
-            -PreactNativeArchitectures="$abis" \
-            :app:assembleRelease
+          gradle() {
+            (cd apps/android/android && ./gradlew --no-daemon --console=plain --stacktrace \
+              --warning-mode=summary -Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=1g" \
+              -PreactNativeArchitectures="$abis" "$@")
+          }
+          gradle :app:assembleRelease
+          # The Android Gradle plugin leaves the LICENSE and NOTICE files that libraries ship in
+          # META-INF out of the APK. List the release runtime classpath, collect each library's
+          # declared licence and licence files from the Gradle cache, and package them too.
+          gradle -q :app:dependencies --configuration releaseRuntimeClasspath > "$RUNNER_TEMP/native-dependencies.txt"
+          node apps/android/scripts/native-notices.ts "$RUNNER_TEMP/native-dependencies.txt" \
+            "$HOME/.gradle/caches/modules-2/files-2.1" \
+            apps/android/android/app/src/main/assets/licenses/NATIVE-NOTICES.txt
+          gradle :app:assembleRelease
           rm -f "$CINDL_TEST_KEYSTORE"
 
       - name: Check the APK and collect it with its notices
@@ -229,7 +238,8 @@ jobs:
           mkdir -p "$out"
           cp "$apk" "$out/cindl-${{ matrix.flavour }}-test.apk"
           cp "$RUNNER_TEMP/apk-check/apk-report.json" "$out/apk-report.json"
-          cp "$licenses/LICENSE.txt" "$licenses/THIRD-PARTY-NOTICES.txt" "$out/"
+          cp "$licenses/LICENSE.txt" "$licenses/THIRD-PARTY-NOTICES.txt" "$licenses/NATIVE-NOTICES.txt" "$out/"
+          cp "$RUNNER_TEMP/native-dependencies.txt" "$out/native-dependencies.txt"
           cp "$RUNNER_TEMP/android-sdk-build.json" "$out/android-sdk-packages.json"
           (cd "$out" && sha256sum "cindl-${{ matrix.flavour }}-test.apk" > SHA256SUMS && cat SHA256SUMS)
 

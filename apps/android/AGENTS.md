@@ -23,6 +23,11 @@ Native Android app on Expo SDK 58 / React Native 0.88 (ADR 0008). Read
   project keeps `android.builder.sdkDownload=false` (fail closed). Test APKs
   are signed with a throwaway per-run key, never the public debug key or a
   store key.
+- APKs carry Cindl's licence and every third-party notice in
+  `assets/licenses/`: npm packages (`scripts/third-party-notices.ts`) and the
+  native libraries Gradle adds (`scripts/native-notices.ts`, which keeps the
+  licence files the Android build would drop). `scripts/check-apk.ts` fails
+  without them; never trim or hand-edit them.
 
 Working here:
 
