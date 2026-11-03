@@ -72,6 +72,10 @@ export function DocumentEditor({
   writeNote,
   locked,
   onAdopt,
+  adoption,
+  draftNote,
+  keepDraft = false,
+  onDiscard,
   onSave,
   onReload,
 }: {
@@ -90,6 +94,14 @@ export function DocumentEditor({
    * shown. Without it, nothing written for one document reaches another.
    */
   onAdopt?: (() => void) | undefined
+  /** An adoption under way (`busy`) or refused (`error`); the draft stays kept either way. */
+  adoption?: { busy: boolean; error?: string | undefined } | undefined
+  /** Said above a draft in place of the kept-after-a-conflict note. */
+  draftNote?: string | undefined
+  /** Keep the draft under `draftKey` while it is edited, not only once locked. */
+  keepDraft?: boolean
+  /** The owner discarded the draft (it is forgotten under `draftKey` first). */
+  onDiscard?: (() => void) | undefined
   onSave: (content: string, expectedVersion: string) => Promise<VersionedDocument>
   onReload: () => void
 }) {
@@ -100,25 +112,42 @@ export function DocumentEditor({
   const restored = keptDrafts.has(draftKey) && stage.kind !== 'view'
   // A locked editor keeps its draft under the key it was written for, so
   // closing it loses nothing (the owner can copy it from the list of kept
-  // drafts) and it never returns to a different document.
-  const lockedDraft = locked && stage.kind !== 'view' ? stage.draft : undefined
+  // drafts) and it never returns to a different document. So does an editor
+  // asked to keep its draft (one written for another document).
+  const keptDraft =
+    (locked || keepDraft) && stage.kind !== 'view' ? stage.draft : undefined
   useEffect(() => {
-    if (lockedDraft !== undefined) keptDrafts.set(draftKey, lockedDraft)
-  }, [draftKey, lockedDraft])
+    if (keptDraft !== undefined) keptDrafts.set(draftKey, keptDraft)
+  }, [draftKey, keptDraft])
   const [error, setError] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
   // The text a save replaced, offered back only while the document is still
   // the version that save produced (not another entry, nor a later change).
   const [backup, setBackup] = useState<{ content: string; version: string }>()
   const lockNotice = locked ? (
-    <div className={styles.actions}>
+    <div className={styles.section}>
       <p className={styles.error} role="alert">
         {locked}
       </p>
+      {adoption?.error ? (
+        <>
+          <p className={styles.error} role="alert">
+            {adoption.error}
+          </p>
+          <p className={styles.note}>Your draft was not used, and it is still kept.</p>
+        </>
+      ) : null}
+      {adoption?.busy ? (
+        <p className={styles.note} role="status">
+          Reading the entry now here…
+        </p>
+      ) : null}
       {onAdopt && stage.kind !== 'view' ? (
-        <Button variant="quiet" onClick={onAdopt}>
-          Use this draft for the entry now here
-        </Button>
+        <div className={styles.actions}>
+          <Button variant="quiet" disabled={Boolean(adoption?.busy)} onClick={onAdopt}>
+            Use this draft for the entry now here
+          </Button>
+        </div>
       ) : null}
     </div>
   ) : null
@@ -171,7 +200,11 @@ export function DocumentEditor({
     return (
       <div className={styles.section}>
         {lockNotice}
-        {restored && !locked ? (
+        {draftNote && !locked ? (
+          <p className={styles.note} role="status">
+            {draftNote}
+          </p>
+        ) : restored && !locked ? (
           <p className={styles.note} role="status">
             Your unsaved draft was kept after the conflict. Review it against the current
             version before saving.
@@ -194,6 +227,7 @@ export function DocumentEditor({
             onClick={() => {
               keptDrafts.delete(draftKey)
               setStage({ kind: 'view' })
+              onDiscard?.()
             }}
           >
             Discard changes

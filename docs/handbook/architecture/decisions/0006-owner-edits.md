@@ -17,9 +17,18 @@ keeps the previous text for restore on that screen. Memory entries will be
 edited only through the fingerprinted learning-node API, with the exact id that
 was read; positional or unfingerprinted ids are refused for writes, memory reset
 is never a substitute, and undo is promised only where Hermes keeps a
-recoverable backup (not yet established). Until that support is implemented and
-tested, `memory.text` is unsupported in Cindl. Cindl never uses generic
-filesystem routes for memory or arbitrary paths.
+recoverable backup (not yet established). `memory.text` is available only once
+Hermes's learning routes answer. Cindl never uses generic filesystem routes for
+memory or arbitrary paths.
+
+Hermes renumbers memory entries when one is removed and gives them no other
+identity, so a memory editor is bound to the entry it was opened for, by store
+and text fingerprint, and locks (keeping the draft, saving and deleting
+nothing) whenever its place shows other text. A draft reaches another entry
+only through the owner's explicit choice, after that entry is read and found
+still in place, and stays kept for the entry it was written for until it is
+saved or discarded. A delete confirmation names the text read under the id the
+delete sends (see the [web client page](../../clients/web.md)).
 
 **Consequences.** Conflict detection narrows but cannot close a race window;
 the UI and docs say so.

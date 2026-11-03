@@ -105,21 +105,34 @@ from the desktop app's custom protocol.
   installs the screen.
 - **Memory edits are explicit:** each entry changes only after you review a
   diff and confirm, and only if it has not changed in Hermes since you read it.
-  An editor stays bound to the entry it read. It follows the entry when
-  Hermes only renumbers it (an earlier entry was removed). Other text at its
-  place may be the same entry changed elsewhere, or another entry removed,
-  merged or added there, and Hermes's list cannot tell which. So the editor
-  locks, keeps your text read-only, and saves or deletes nothing until you
-  choose "Use this draft for the entry now here" and review against that
-  entry's text. Drafts for entries Hermes no longer lists stay under "Unsaved
-  drafts", to copy or discard, and never attach to another entry. A delete
-  names the entry it removes. After a save, the text it replaced stays on
-  screen: ready to restore while the entry is still the one you saved, and
-  otherwise only to copy.
-  Deleting an entry warns first, because Hermes keeps no backup.
-- **Drafts stay on this device, briefly:** answers being written and document
-  edits kept after a save conflict live in memory only. An answer's draft is
-  dropped once its request closes, and every draft is forgotten on sign-out.
+  An editor is bound to the entry you opened, by its text, from the moment you
+  open it. It follows the entry when only its number changes (an entry in the
+  other store was removed). Any other text at its place, even before the first
+  read arrives, may be the same entry changed elsewhere, or another entry
+  removed, merged or added there, and Hermes's list cannot tell which. So the
+  editor locks, keeps your text read-only, and saves or deletes nothing. When
+  an entry before it in the same store was removed, the entry moved up a
+  place: the locked editor says where the same text is now, and your draft
+  comes back when you open it there.
+  - "Use this draft for the entry now here" reads that entry first. Nothing
+    changes unless the read succeeds and the entry is still at that place; a
+    failed read is shown, and you can try again. Then you review the draft
+    against that entry's text before saving.
+  - A draft stays kept for the entry it was written for until you save or
+    discard it, including while you edit it for another entry, so closing the
+    editor loses nothing and another entry's own draft is never replaced.
+    Drafts for entries Hermes no longer lists stay under "Unsaved drafts", to
+    copy or discard.
+  - A delete names the text it removes: the text Cindl read under the id the
+    delete sends. Deleting warns first, because Hermes keeps no backup.
+  - After a save, the text it replaced stays on screen: ready to restore while
+    the entry is still the one you saved, and otherwise only to copy.
+  - Known limit: entries with identical text in one store look the same to
+    Cindl, so they share one kept draft, and an editor may follow either.
+- **Drafts stay on this device, briefly:** answers being written, and document
+  drafts kept after a save conflict, a lock or while used for another memory
+  entry, live in memory only. An answer's draft is dropped once its request
+  closes, and every draft is forgotten on sign-out.
 
 ## Keyboard
 
