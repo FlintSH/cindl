@@ -11,6 +11,8 @@ interface ResourceState<T> {
 /**
  * Loads one Cindl read operation for `key`. State only changes in async
  * callbacks, results for a stale key are ignored, and `reload` re-runs it.
+ * A failed reload keeps what was last read for the same key beside the
+ * error, so an open editor and its draft survive it.
  */
 export function useResource<T>(
   load: () => Promise<T>,
@@ -24,9 +26,15 @@ export function useResource<T>(
     let alive = true
     run().then(
       (data) => alive && setState({ key, token, data }),
-      (err: unknown) =>
-        alive &&
-        setState({ key, token, error: isCindlError(err) ? err.message : fallbackError }),
+      (err: unknown) => {
+        if (!alive) return
+        const error = isCindlError(err) ? err.message : fallbackError
+        setState((previous) =>
+          previous?.key === key && previous.data !== undefined
+            ? { key, token, data: previous.data, error }
+            : { key, token, error },
+        )
+      },
     )
     return () => {
       alive = false

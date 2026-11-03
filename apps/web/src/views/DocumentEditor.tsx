@@ -53,12 +53,18 @@ export function DocumentEditor({
   document,
   canWrite,
   writeNote,
+  locked,
   onSave,
   onReload,
 }: {
   document: VersionedDocument
   canWrite: boolean
   writeNote?: string | undefined
+  /**
+   * Why this editor may no longer save (its document is gone or another took
+   * its place). The draft stays visible, read-only, to copy.
+   */
+  locked?: string | undefined
   onSave: (content: string, expectedVersion: string) => Promise<VersionedDocument>
   onReload: () => void
 }) {
@@ -72,16 +78,22 @@ export function DocumentEditor({
   // The text a save replaced, offered back only while the document is still
   // the version that save produced (not another entry, nor a later change).
   const [backup, setBackup] = useState<{ content: string; version: string }>()
+  const lockNotice = locked ? (
+    <p className={styles.error} role="alert">
+      {locked}
+    </p>
+  ) : null
 
   if (stage.kind === 'view')
     return (
       <div className={styles.section}>
+        {lockNotice}
         <pre className={styles.doc}>{document.content}</pre>
         <p className={styles.note}>
           Read {new Date(document.readAt).toLocaleString()} from {document.source}.
           Version <code>{document.version.slice(0, 12)}</code>.
         </p>
-        {backup?.version === document.version ? (
+        {!locked && backup?.version === document.version ? (
           <p className={styles.note}>
             The previous version is kept on this screen until you leave it.{' '}
             <Button
@@ -96,7 +108,7 @@ export function DocumentEditor({
           <Button variant="quiet" onClick={onReload}>
             Reload
           </Button>
-          {canWrite ? (
+          {canWrite && !locked ? (
             <Button onClick={() => setStage({ kind: 'edit', draft: document.content })}>
               Edit
             </Button>
@@ -109,7 +121,8 @@ export function DocumentEditor({
   if (stage.kind === 'edit')
     return (
       <div className={styles.section}>
-        {restored ? (
+        {lockNotice}
+        {restored && !locked ? (
           <p className={styles.note} role="status">
             Your unsaved draft was kept after the conflict. Review it against the current
             version before saving.
@@ -122,6 +135,7 @@ export function DocumentEditor({
           id="doc-editor"
           className={styles.editor}
           value={stage.draft}
+          readOnly={Boolean(locked)}
           spellCheck
           onChange={(event) => setStage({ kind: 'edit', draft: event.target.value })}
         />
@@ -137,7 +151,7 @@ export function DocumentEditor({
           </Button>
           <Button
             variant="primary"
-            disabled={stage.draft === document.content}
+            disabled={Boolean(locked) || stage.draft === document.content}
             onClick={() =>
               setStage({ kind: 'review', draft: stage.draft, base: document.version })
             }
@@ -184,8 +198,9 @@ export function DocumentEditor({
   }
   return (
     <div className={styles.section}>
+      {lockNotice}
       <Review before={document.content} draft={draft} />
-      {moved ? (
+      {moved && !locked ? (
         <p className={styles.error} role="alert">
           This text changed in Hermes while you were reviewing, so the changes above are
           against the new version. Go back to editing and review your draft again before
@@ -219,7 +234,7 @@ export function DocumentEditor({
         </Button>
         <Button
           variant="primary"
-          disabled={saving || moved || Boolean(error?.conflict)}
+          disabled={saving || moved || Boolean(locked) || Boolean(error?.conflict)}
           onClick={() => void save()}
         >
           {saving ? 'Saving…' : 'Confirm and save'}

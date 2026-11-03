@@ -1,5 +1,5 @@
 import { CindlProvider } from '@cindl/client-react'
-import type { CindlClientApi } from '@cindl/contracts'
+import { CindlError, type CindlClientApi } from '@cindl/contracts'
 import { createScenarioClient } from '@cindl/fixtures/scenario'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -128,10 +128,15 @@ describe('memory entries changed elsewhere', () => {
     const scenario = createScenarioClient({ speed: 0 })
     const calls: Array<{ name: string; args: unknown }> = []
     let holdNextList = false
+    let failNextRead = false
     let release: (() => void) | undefined
     const api: CindlClientApi = {
       call: async (name, args) => {
         calls.push({ name, args })
+        if (name === 'memory.read' && failNextRead) {
+          failNextRead = false
+          throw new CindlError('unavailable', 'Hermes is not answering.')
+        }
         if (name === 'memory.entries' && holdNextList) {
           holdNextList = false
           await new Promise<void>((resolve) => (release = resolve))
@@ -155,6 +160,7 @@ describe('memory entries changed elsewhere', () => {
       scenario,
       calls,
       holdNextList: () => (holdNextList = true),
+      failNextRead: () => (failNextRead = true),
       release: () => release?.(),
     }
   }
@@ -235,14 +241,10 @@ describe('memory entries changed elsewhere', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Confirm and save' }))
     await settle()
     await settle()
-    // The place now shows Harbor Loft; the kiln note's old text is not offered over it.
-    const shown = Array.from(document.querySelectorAll('pre')).map(
-      (p) => p.textContent ?? '',
-    )
-    if (shown.some((t) => /Harbor Loft/.test(t)))
-      expect(
-        screen.queryByRole('button', { name: 'Restore previous version' }),
-      ).toBeNull()
+    // Harbor Loft took this place: the editor locks, and the kiln note's old
+    // text is not offered over it.
+    expect(screen.getByRole('alert').textContent).toMatch(/removed or moved in Hermes/)
+    expect(screen.queryByRole('button', { name: 'Restore previous version' })).toBeNull()
     await harborStays(scenario)
   })
 
@@ -260,17 +262,168 @@ describe('memory entries changed elsewhere', () => {
     release()
     await settle()
     await settle()
-    expect(screen.getByRole('alert').textContent).toMatch(
-      /changed in Hermes while you were reviewing/,
-    )
+    expect(screen.getByRole('alert').textContent).toMatch(/removed or moved in Hermes/)
     const confirm = screen.getByRole('button', { name: 'Confirm and save' })
     expect((confirm as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(confirm)
     await settle()
     expect(calls.filter((c) => c.name === 'memory.write')).toHaveLength(0)
     await harborStays(scenario)
-    // The draft survives for a fresh review.
+    // The draft survives, read-only, to copy.
     fireEvent.click(screen.getByRole('button', { name: 'Back to editing' }))
+    const kept = screen.getByLabelText<HTMLTextAreaElement>('Edit agent note 2')
+    expect(kept.value).toBe(draft)
+    expect(kept.readOnly).toBe(true)
+  })
+
+  // Re-check f7f5925 SF-2 (probes P3, P4).
+  it('P3: locks instead of offering the draft to the entry that replaced a removed one', async () => {
+    const { scenario, calls } = harness()
+    await openKiln()
+    editTo(draft)
+    fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+    // The agent removes the very entry being reviewed.
+    const kiln = await findEntry(scenario, /kiln firing log/)
+    await scenario.call('memory.delete', { id: kiln.id, confirm: true })
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm and save' }))
+    await settle()
+    expect(screen.getByRole('alert').textContent).toMatch(/changed since you read it/)
+    fireEvent.click(screen.getByRole('button', { name: 'Reload and keep my draft' }))
+    await settle()
+    await settle()
+    expect(screen.getByRole('alert').textContent).toMatch(/removed or moved in Hermes/)
+    const kept = screen.getByLabelText<HTMLTextAreaElement>('Edit agent note 2')
+    expect(kept.value).toBe(draft)
+    expect(kept.readOnly).toBe(true)
+    expect(
+      screen.getByRole<HTMLButtonElement>('button', { name: 'Review changes' }).disabled,
+    ).toBe(true)
+    expect(calls.filter((c) => c.name === 'memory.write')).toHaveLength(1)
+    await harborStays(scenario)
+  })
+
+  it('P4: says so when another entry takes the place during editing', async () => {
+    const { scenario, holdNextList, release } = harness()
+    await openKiln()
+    holdNextList()
+    fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
+    await settle()
+    editTo(draft)
+    const glaze = await findEntry(scenario, /Glaze supplier/)
+    await scenario.call('memory.delete', { id: glaze.id, confirm: true })
+    release()
+    await settle()
+    await settle()
+    expect(screen.getByRole('alert').textContent).toMatch(/removed or moved in Hermes/)
+    expect(screen.getByLabelText<HTMLTextAreaElement>('Edit agent note 2').readOnly).toBe(
+      true,
+    )
+    expect(screen.queryByRole('button', { name: 'Delete entry…' })).toBeNull()
+  })
+
+  it('follows an entry that was only renumbered, and saves it under its new id', async () => {
+    const { scenario, calls, holdNextList, release } = harness()
+    await settle()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: /Open memory entry: Prefers a short morning brief/,
+      }),
+    )
+    await settle()
+    holdNextList()
+    fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
+    await settle()
+    // An agent note is removed elsewhere: every note about the owner is renumbered.
+    const glaze = await findEntry(scenario, /Glaze supplier/)
+    await scenario.call('memory.delete', { id: glaze.id, confirm: true })
+    release()
+    await settle()
+    await settle()
+    expect(screen.queryByRole('alert')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Edit note about you 1'), {
+      target: { value: 'Prefers a short morning brief, ready before 08:15.' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm and save' }))
+    await settle()
+    const write = calls.find((c) => c.name === 'memory.write')
+    expect(write?.args).toMatchObject({
+      id: expect.stringMatching(/^memory:profile:2:/) as unknown,
+    })
+  })
+
+  it('keeps the draft of an entry removed with nothing after it', async () => {
+    const { scenario, holdNextList, release } = harness()
+    await settle()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: /Open memory entry: Protects focus time/,
+      }),
+    )
+    await settle()
+    holdNextList()
+    fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Edit note about you 2'), {
+      target: { value: 'My unsaved note (fictional).' },
+    })
+    const focus = await findEntry(scenario, /Protects focus time/)
+    await scenario.call('memory.delete', { id: focus.id, confirm: true })
+    release()
+    await settle()
+    await settle()
+    expect(screen.getByText('Removed in Hermes')).toBeTruthy()
+    expect(
+      screen.getByLabelText<HTMLTextAreaElement>('Edit note about you 2').value,
+    ).toBe('My unsaved note (fictional).')
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Close the removed memory entry' }),
+    )
+    expect(screen.queryByText('Removed in Hermes')).toBeNull()
+  })
+
+  // Re-check f7f5925 SF-3 (probes P1, P2).
+  it('P1: Reload after a failed read reads the entry again', async () => {
+    const { calls, failNextRead } = harness()
+    await settle()
+    failNextRead()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: /Open memory entry: The kiln firing log/,
+      }),
+    )
+    await settle()
+    expect(screen.getByText('Hermes is not answering.')).toBeTruthy()
+    const reads = () => calls.filter((c) => c.name === 'memory.read').length
+    const before = reads()
+    fireEvent.click(screen.getByRole('button', { name: 'Reload' }))
+    await settle()
+    await settle()
+    expect(reads()).toBeGreaterThan(before)
+    expect(await screen.findByRole('button', { name: 'Edit' })).toBeTruthy()
+  })
+
+  it('P2: keeps the editor and the draft when a re-read fails', async () => {
+    const { scenario, holdNextList, release, failNextRead } = harness()
+    await openKiln()
+    holdNextList()
+    fireEvent.click(await screen.findByRole('button', { name: 'Reload' }))
+    await settle()
+    editTo(draft)
+    // The entry changes elsewhere, and reading its new version fails.
+    const kiln = await findEntry(scenario, /kiln firing log/)
+    await scenario.call('memory.write', {
+      id: kiln.id,
+      content: 'The kiln log changed elsewhere (fictional).',
+      confirm: true,
+    })
+    failNextRead()
+    release()
+    await settle()
+    await settle()
+    expect(screen.getByText('Hermes is not answering.')).toBeTruthy()
     expect(screen.getByLabelText<HTMLTextAreaElement>('Edit agent note 2').value).toBe(
       draft,
     )
