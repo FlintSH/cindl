@@ -551,6 +551,21 @@ describe('direct client: approvals and questions', () => {
     expect(h.rpcCalls('request.answer')).toBe(0)
   })
 
+  it('shows an app-level prompt another surface starts while connected, without a reconnect', async () => {
+    const h = await harness({ deps: { connection: { requestSyncMs: 40 } } })
+    await h.waitFor(() =>
+      h.events.some(
+        (e) => e.type === 'requests.synced' && e.conversationId === undefined,
+      ),
+    )
+    expect(selectOpenRequests(h.store.getState())).toEqual([])
+    // Started elsewhere after this client connected: its frame goes only there.
+    void h.fake.gateway.appRequest('display.install.sudo', { profile_key: 'default' })
+    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+    expect(request).toMatchObject({ kind: 'unsupported', unsupportedKind: 'sudo' })
+    expect(h.store.getState().link.connectionEpoch).toBe(1)
+  })
+
   it('keeps an app-level prompt whose frame arrived after the list call was sent (N4)', async () => {
     const h = await harness()
     let raised = false

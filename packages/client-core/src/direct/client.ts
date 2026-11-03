@@ -824,7 +824,10 @@ class DirectHermesClient implements DirectClient {
    */
   #scheduleRequestSync(): void {
     this.#deps.clock.clearTimeout(this.#requestSync)
-    if (!this.#requests.size || this.#requestSyncMs <= 0) return
+    // Runs while signed in even with nothing tracked: an app-level prompt that
+    // another surface starts reaches only that surface's socket, so only the
+    // app-level list shows it here.
+    if (!this.#started || !this.#signedIn || this.#requestSyncMs <= 0) return
     this.#requestSync = this.#deps.clock.setTimeout(() => {
       void this.#syncOpenRequests()
     }, this.#requestSyncMs)

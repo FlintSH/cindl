@@ -341,8 +341,9 @@ started the operation (Hermes writes the frame only there, and Cindl starts
 none), but `session.events.since` with `session_id: ""` lists every
 connection's open app-level prompts (`methods_session.py:2309-2323`,
 `server.py:797-810`). Cindl reads that list after every connect and in the
-15 s check, shows the ones it has not seen, and closes only what the list no
-longer holds. A disconnect cancels nothing app-level (Hermes waits out the
+15 s check, which runs whenever it is signed in, so a prompt another surface
+starts shows within 15 s. It shows the ones it has not seen and closes only
+what the list no longer holds. A disconnect cancels nothing app-level (Hermes waits out the
 prompt's own timeout), so if the list cannot be read nothing changes. When
 Hermes reclaims a session (`session.reclaimed`,
 `session_lifecycle.py:545-560`), its open requests close as `cancelled`.
