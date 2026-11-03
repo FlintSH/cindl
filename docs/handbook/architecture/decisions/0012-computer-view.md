@@ -31,6 +31,10 @@ React tree, for the same reason.
   and CopyRect encodings and the DesktopSize pseudo-encoding. Compressed
   encodings (Tight, ZRLE) come later, behind a zlib interface the platform
   supplies.
+- **The platform supplies the socket.** `BinaryWebSocketFactory`
+  (`packages/client-core/src/platform.ts`) opens a binary WebSocket whose
+  messages arrive as bytes. A platform without one leaves the live picture
+  unavailable instead of falling back to anything else.
 - **It runs where the ticket lives:** inside the `CindlClientApi`
   implementation. That is the desktop main process, the web page itself
   (same-origin with Hermes, already holding the session cookie, so the ticket

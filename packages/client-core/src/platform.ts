@@ -37,6 +37,27 @@ export interface WebSocketLike {
 
 export type WebSocketFactory = (url: string, protocols: string[]) => WebSocketLike
 
+/**
+ * A WebSocket carrying binary frames: the agent screen's raw RFB stream on
+ * Hermes's `/api/display/ws` (ADR 0012). Every message arrives as bytes.
+ */
+export interface BinaryWebSocketLike {
+  readonly readyState: number
+  send(data: Uint8Array): void
+  close(code?: number, reason?: string): void
+  onopen: ((event: unknown) => void) | null
+  onmessage: ((event: { data: Uint8Array }) => void) | null
+  onclose: ((event: { code: number; reason: string }) => void) | null
+  onerror: ((event: unknown) => void) | null
+}
+
+/**
+ * Opens a binary WebSocket. The URL carries Hermes's single-use display
+ * ticket (`?display_ticket=`), so an implementation never logs it unredacted.
+ * A platform without one leaves the live picture unavailable.
+ */
+export type BinaryWebSocketFactory = (url: string) => BinaryWebSocketLike
+
 /** Runs the RFC 8252 loopback leg: opens the system browser and resolves with the callback URL. */
 export interface LoopbackAuthorizer {
   authorize(buildUrl: (redirectUri: string) => string): Promise<string>
