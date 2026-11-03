@@ -83,7 +83,9 @@ holds:
 
 - `cindl-<flavour>-test.apk` and `SHA256SUMS`;
 - `apk-report.json`: package, label, SDK levels, ABIs, permissions, network
-  security config, signer and the bundle gate's result;
+  security config, signer, the bundle gate's result, the local Kotlin modules
+  found compiled into the dex (`kotlinModules`; the check fails without both)
+  and whether any dex refers to WebView (`refersToWebView`, reported only);
 - `LICENSE.txt` (Cindl's MIT licence), `THIRD-PARTY-NOTICES.txt` (fonts,
   vendored material and every npm package in the build) and
   `NATIVE-NOTICES.txt` (every library Gradle adds from Maven repositories,
@@ -150,19 +152,47 @@ until the owner decides about those terms.
   every touch target at least 48dp; 200% font size and dark theme; a draft
   surviving background, rotation, activity recreation; a cold start after the
   process is killed.
-- **Real APK:** the sign-in screen (no demo data); sign-in through the
+- **Production APK:** the sign-in screen (no demo data); sign-in through the
   emulator's browser (the AOSP image has no Chrome: run 41593367518 logged
   `org.chromium.webview_shell/.WebViewBrowserActivity`, which opens the page as
   a plain browser, not a Custom Tab) against the fixtures' fake `hermes serve`
-  on the runner (reached through
-  `adb reverse`, so the app sees `http://127.0.0.1`), which refuses an
-  authorize request without S256 PKCE or a loopback redirect and a code
-  exchange whose verifier does not match; the direct client connecting
-  (`/api/ws`) and a message answered by the fake; the sign-in surviving
-  process death; sign-out. Against a second stand-in whose authorize page can
-  be held open: the app process killed while the browser shows that page,
-  which must end in the "interrupted" notice with nothing exchanged, and
-  cancelling a sign-in in progress.
+  on the runner (reached through `adb reverse`, so the app sees
+  `http://127.0.0.1`), which refuses an authorize request without S256 PKCE or
+  a loopback redirect and a code exchange whose verifier does not match; the
+  direct client connecting (`/api/ws`). Then, against that fake:
+  - **Tokens:** the token set kept in expo-secure-store's
+    `shared_prefs/SecureStore.xml` as AES ciphertext from an Android Keystore
+    key alias, and neither a token value the fake issued nor a token field name
+    in plain text in any file of the app's storage. Every file in its
+    credential- and device-encrypted data directories is read with adbd as
+    root, which the AOSP image allows, and searched for each token the fake
+    issued. Only facts are kept, in `keystore-evidence.json`: the files
+    searched and any that held a token, never a value or the ciphertext.
+  - **Refresh:** the fake issues 90-second access tokens, so the app refreshes
+    one before it expires (`POST /auth/native/refresh`), reads Memory with it,
+    and stores the new set, encrypted again, with no token in plain text. A
+    cold start after process death then connects without the browser: the fake
+    stopped accepting the first token set when it rotated it, so the app read
+    the refreshed set back from its storage.
+  - **Sign-out:** the sign-in screen comes back, the token set is deleted from
+    the device, and no token issued during the run is in plain text in the
+    app's files.
+  - **Logs:** no token the fake issued is in the device log (logcat, saved
+    after every step).
+  - **The agent's screen:** the fake's synthetic screen, served over
+    `/api/display/ws`, drawn by the Kotlin painter (a pixel of its desktop
+    read back), and in control, a tap that reaches the fake through its lease
+    gate and draws the orange pointer marker where it landed.
+  - **Chat:** a message answered by the fake.
+
+  Against a second stand-in whose authorize page can be held open: the app
+  process killed while the browser shows that page, which must end in the
+  "interrupted" notice with nothing exchanged, and cancelling a sign-in in
+  progress.
+
+  What this does not prove: sign-in through Chrome or a Custom Tab (the
+  owner's decision 7), a real Hermes, a Keystore backed by phone hardware (the
+  emulator's is software), or Hermes's own token lifetimes.
 
 The memory editor's lock, adoption and kept-draft flows need memory changed
 elsewhere while an entry is open, which the demo cannot do. Node tests run
@@ -175,9 +205,10 @@ focus lands and what TalkBack reads are not covered by an emulator test yet.
 
 System animations are off during the tests so UI dumps are stable (the app then
 also reduces its own motion). The `cindl-android-emulator-evidence` artifact
-holds screenshots, UI dumps, logcat per step, `report.json` and `summary.md`.
-The fake auth server's log records only request shapes, never codes, verifiers
-or tokens.
+holds, per suite (`demo/`, `signin/`), screenshots, UI dumps, logcat per step,
+`report.json` (steps, device, the fake's request shapes) and `summary.md`, and
+for the production APK `keystore-evidence.json`. The fake auth server's log
+records only request shapes, never codes, verifiers or tokens.
 
 ## Demo and real builds
 
@@ -302,8 +333,9 @@ Hermes server, Chrome's Custom Tab, and a phone.
   autolinking. `@expo/log-box` is still autolinked and compiles an
   `android.webkit.WebView` wrapper, which only debug builds use, with
   `EXPO_UNSTABLE_LOG_BOX` set. The test APKs are release builds minified with
-  R8, which should remove it, but `check-apk.ts` does not check that an APK
-  has no WebView.
+  R8, which should remove it; `check-apk.ts` reports whether an APK's dex
+  refers to WebView (`refersToWebView` in `apk-report.json`) but does not fail
+  on it.
 
 ## How it behaves
 

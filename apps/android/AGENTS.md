@@ -63,6 +63,9 @@ Working here:
   tested in `test/lint-rules.test.ts`.
 - Emulator tests live in `e2e/` and run only in CI (`e2e/run.ts`); their pure
   parts (UI dump parsing, 48dp audit, fake Hermes auth server, the run's
-  outcome in `e2e/outcome.ts`, where a blocked step fails the job) are
-  unit-tested in `test/e2e.test.ts`. Use accessibility labels as selectors, so
-  a renamed label breaks a test rather than TalkBack silently.
+  outcome in `e2e/outcome.ts`, where a blocked step fails the job, and the
+  token-storage evidence in `e2e/keystore.ts`, which searches every file of
+  the app's storage and the device log for the tokens the fake issued and
+  keeps facts, never a value) are unit-tested in `test/e2e.test.ts`. Use
+  accessibility labels as selectors, so a renamed label breaks a test rather
+  than TalkBack silently.

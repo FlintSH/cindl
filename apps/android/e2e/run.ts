@@ -13,13 +13,21 @@
  * screen) is reported as blocked, never accepted, and a blocked step fails the
  * run (e2e/outcome.ts).
  */
-import { mkdirSync, writeFileSync } from 'node:fs'
+import { mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { SYNTHETIC_DEMO_LABEL } from '@cindl/contracts'
+import { nativeTokensKey } from '@cindl/hermes-adapter'
+import { secureStoreKey } from '../src/platform/secretStore.ts'
 import { createDevice, PACKAGE } from './device.ts'
 import { startFakeHermes, type FakeHermes } from '@cindl/fixtures/fake-hermes'
 import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
+import {
+  holdingTokens,
+  SECURE_STORE_FILE,
+  tokenStorage,
+  type TokenStorage,
+} from './keystore.ts'
 import { runExitCode, type StepStatus } from './outcome.ts'
 import {
   center,
@@ -212,6 +220,62 @@ function installApk(path: string) {
     // Not installed yet.
   }
   device.run(['install', path], 240_000)
+}
+
+/**
+ * Work, Computer: the synthetic screen (scenario/screen.ts, in the demo app or
+ * behind the fake Hermes's /api/display/ws) drawn by the Kotlin painter, read
+ * back as a pixel of its desktop; then, in control, a tap that the screen
+ * answers with its orange pointer marker where it landed.
+ */
+async function agentScreen({ note, shot, audit }: StepContext, source: string) {
+  await startOnTalk()
+  await openDestination('Work', named('Needs you'))
+  const live = await device.reveal(
+    (text) => text.startsWith('The agent’s screen, live.'),
+    'the live screen',
+  )
+  // The synthetic screen's desktop, left of its window.
+  const at = screenToDevice(live.node.bounds, DEMO_SCREEN, { x: 20, y: 200 })
+  let colour = device.pixel(at.x, at.y)
+  for (let tries = 0; tries < 20 && !near(colour, DESKTOP_TEAL); tries++) {
+    await sleep(500)
+    colour = device.pixel(at.x, at.y)
+  }
+  shot('agent-screen')
+  await audit('Agent screen', await device.dump())
+  if (!near(colour, DESKTOP_TEAL))
+    throw new Error(
+      `The picture of ${source} is not drawn: ${JSON.stringify(colour)} at device ${at.x},${at.y}`,
+    )
+  note(`the picture of ${source} is drawn: ${JSON.stringify(colour)} at screen (20, 200)`)
+
+  // In control, a tap draws the synthetic screen's pointer marker where it landed.
+  await tapRevealed('Take control…', 'Take control')
+  await device.tap('Take control now', 'Take control now')
+  const controlled = await device.reveal(
+    (text) => text.startsWith('The agent’s screen, live. You are in control'),
+    'the screen in control',
+  )
+  const target = screenToDevice(controlled.node.bounds, DEMO_SCREEN, { x: 320, y: 376 })
+  await device.tapAt(target)
+  let marked = device.pixel(target.x, target.y)
+  for (let tries = 0; tries < 20 && !near(marked, MARKER_ORANGE); tries++) {
+    await sleep(500)
+    marked = device.pixel(target.x, target.y)
+  }
+  shot('agent-screen-tap')
+  await audit('Agent screen in control', await device.dump())
+  if (!near(marked, MARKER_ORANGE))
+    throw new Error(
+      `A tap in control did not draw the marker of ${source}: ${JSON.stringify(marked)} at device ${target.x},${target.y}`,
+    )
+  note(`in control, a tap drew the orange marker of ${source} where it landed`)
+  await tapRevealed('Give control back', 'Give control back')
+  await device.reveal(
+    (text) => text.startsWith('The agent’s screen, live. Watching.'),
+    'the screen watched again',
+  )
 }
 
 async function demoSuite() {
@@ -497,62 +561,8 @@ async function demoSuite() {
     },
   )
 
-  await step(
-    'Work: the agent screen, live, and a tap in control',
-    async ({ note, shot, audit }) => {
-      await startOnTalk()
-      await openDestination('Work', named('Needs you'))
-      const live = await device.reveal(
-        (text) => text.startsWith('The agent’s screen, live.'),
-        'the live screen',
-      )
-      // The synthetic screen's desktop (packages/fixtures/src/scenario/screen.ts), left of its window.
-      const at = screenToDevice(live.node.bounds, DEMO_SCREEN, { x: 20, y: 200 })
-      let colour = device.pixel(at.x, at.y)
-      for (let tries = 0; tries < 20 && !near(colour, DESKTOP_TEAL); tries++) {
-        await sleep(500)
-        colour = device.pixel(at.x, at.y)
-      }
-      shot('agent-screen')
-      await audit('Agent screen', await device.dump())
-      if (!near(colour, DESKTOP_TEAL))
-        throw new Error(
-          `The synthetic picture is not drawn: ${JSON.stringify(colour)} at device ${at.x},${at.y}`,
-        )
-      note(
-        `the synthetic picture is drawn: ${JSON.stringify(colour)} at screen (20, 200)`,
-      )
-
-      // In control, a tap draws the synthetic screen's pointer marker where it landed.
-      await tapRevealed('Take control…', 'Take control')
-      await device.tap('Take control now', 'Take control now')
-      const controlled = await device.reveal(
-        (text) => text.startsWith('The agent’s screen, live. You are in control'),
-        'the screen in control',
-      )
-      const target = screenToDevice(controlled.node.bounds, DEMO_SCREEN, {
-        x: 320,
-        y: 376,
-      })
-      await device.tapAt(target)
-      let marked = device.pixel(target.x, target.y)
-      for (let tries = 0; tries < 20 && !near(marked, MARKER_ORANGE); tries++) {
-        await sleep(500)
-        marked = device.pixel(target.x, target.y)
-      }
-      shot('agent-screen-tap')
-      await audit('Agent screen in control', await device.dump())
-      if (!near(marked, MARKER_ORANGE))
-        throw new Error(
-          `A tap in control did not draw the marker: ${JSON.stringify(marked)} at device ${target.x},${target.y}`,
-        )
-      note('in control, a tap drew the synthetic screen’s orange marker where it landed')
-      await tapRevealed('Give control back', 'Give control back')
-      await device.reveal(
-        (text) => text.startsWith('The agent’s screen, live. Watching.'),
-        'the screen watched again',
-      )
-    },
+  await step('Work: the agent screen, live, and a tap in control', (context) =>
+    agentScreen(context, 'the demo’s synthetic screen'),
   )
 
   await step('Chat with the on-screen keyboard open', async ({ note, shot }) => {
@@ -701,9 +711,67 @@ async function tapRevealed(match: Match, what: string) {
  * connected), and the e2e auth stand-in, whose authorize page can be held open so the
  * app can be killed or the sign-in cancelled while the browser waits.
  */
+/** Access tokens the fake issues live this long, so the app refreshes one during the run. */
+const ACCESS_TTL_SECONDS = 90
+/** NativeAuth refreshes a token this long before it expires (refreshSkewMs). */
+const REFRESH_SKEW_MS = 60_000
+
 async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
   const restCalls = (name: string) =>
     hermes.calls.filter((call) => call.name === name).length
+  hermes.auth.accessTtlSeconds = ACCESS_TTL_SECONDS
+  // Every token value the fake issues (the code exchange and each refresh mint a
+  // session), kept here only to search the app's storage for it.
+  const issuedTokens: string[] = []
+  const mintSession = hermes.auth.mintSession.bind(hermes.auth)
+  hermes.auth.mintSession = () => {
+    const session = mintSession()
+    issuedTokens.push(session.accessToken, session.refreshToken)
+    return session
+  }
+  // Where the app keeps the tokens (read as root; facts only, never values): written
+  // to keystore-evidence.json after each step that reads it.
+  const tokenKey = secureStoreKey(nativeTokensKey(hermes.origin))
+  const keystoreEvidence: Record<string, unknown> = { tokenKey }
+  let rooted = false
+  const quote = (path: string) => `'${path.replaceAll("'", "'\\''")}'`
+  const readTokenStorage = (when: string): TokenStorage => {
+    if (!rooted)
+      throw new Blocked('adbd could not run as root, so app storage is unreadable')
+    // Every file of the app's private storage, credential- and device-encrypted.
+    const files = new Map<string, string>()
+    const unreadable: string[] = []
+    for (const dir of [`/data/data/${PACKAGE}/`, `/data/user_de/0/${PACKAGE}/`]) {
+      const paths = device
+        .shell(`find ${dir} -type f 2>/dev/null; true`, 30_000)
+        .split('\n')
+        .map((line) => line.trim())
+        .filter(Boolean)
+      for (const path of paths)
+        try {
+          files.set(path, device.run(['exec-out', `cat ${quote(path)}`], 30_000))
+        } catch {
+          // Gone since the listing (a database journal) or unreadable: listed in the evidence.
+          unreadable.push(path)
+        }
+    }
+    if (![...files.keys()].some((path) => path.endsWith(SECURE_STORE_FILE)))
+      throw new Error('SecureStore.xml could not be read from the app storage')
+    const facts = tokenStorage({ files, tokenKey, tokens: issuedTokens })
+    keystoreEvidence[when] = { ...facts, unreadable }
+    writeFileSync(
+      join(outDir as string, 'keystore-evidence.json'),
+      `${JSON.stringify(keystoreEvidence, null, 2)}\n`,
+    )
+    return facts
+  }
+  const noPlaintext = (facts: TokenStorage) => {
+    if (facts.plaintext)
+      throw new Error(
+        `A token value or a token field is in plain text in ${facts.plaintextIn.join(', ')}`,
+      )
+  }
+  let exchangedAt = 0
   const isAddressField: Match = (text, node) =>
     /EditText$/.test(node.className) && text === 'Hermes address'
   // Connected: Talk with its composer, or Talk with no conversation yet (the fake starts empty).
@@ -763,6 +831,16 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
   await step(
     'Install and launch the real (non-demo) APK',
     async ({ note, shot, audit }) => {
+      // adbd as root first (the AOSP image allows it), so the app's private storage can be
+      // read later; restarting adbd now drops no port forward and no connection of the app.
+      try {
+        device.run(['root'], 60_000)
+        device.run(['wait-for-device'], 60_000)
+        rooted = device.shell('id -u').trim() === '0'
+      } catch {
+        rooted = false
+      }
+      note(`adbd as root: ${rooted ? 'yes' : 'no'}`)
       installApk(apk as string)
       for (const port of [hermes.port, holding.port])
         device.run(['reverse', `tcp:${port}`, `tcp:${port}`])
@@ -838,12 +916,58 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
         throw new Error('The app never opened the Hermes gateway socket')
       if (restCalls('POST /auth/native/token') !== tokensBefore + 1)
         throw new Error('The code was exchanged more than once')
+      exchangedAt = Date.now()
       shot('connected')
       await audit('Connected', result.root)
       note(
         'callback received by the loopback listener; the adapter exchanged the code once and the direct client connected (/api/ws)',
       )
       signedInOnce = true
+    },
+  )
+
+  await step('Tokens kept encrypted with an Android Keystore key', async ({ note }) => {
+    needsSignIn()
+    // The app has written the token set by the time it is connected; read it once the
+    // connected screen has settled.
+    await sleep(1000)
+    const stored = readTokenStorage('afterSignIn')
+    if (!stored.stored)
+      throw new Error('No token set in SecureStore.xml after signing in')
+    if (!stored.encrypted)
+      throw new Error(
+        `The token set is not AES ciphertext from a Keystore key (scheme ${String(stored.scheme)})`,
+      )
+    if (stored.tokensSearched < 2)
+      throw new Error('The fake issued no token set to search the app storage for')
+    noPlaintext(stored)
+    note(
+      `SecureStore.xml holds the token set as ${String(stored.scheme)} ciphertext (keystore alias ${String(stored.keystoreAlias)}); none of the ${stored.tokensSearched} token values the fake issued, and no token field, is in plain text in any of the app's ${stored.searched.length} files`,
+    )
+  })
+
+  await step(
+    "Work: the fake Hermes's screen, live, and a tap in control",
+    async (context) => {
+      needsSignIn()
+      const viewersBefore = [...hermes.gateway.displayViewers]
+      await agentScreen(context, "the fake Hermes's synthetic screen")
+      if (
+        !hermes.calls.some(
+          (call) => call.kind === 'ws' && call.name === '/api/display/ws',
+        )
+      )
+        throw new Error('The app never opened the screen socket (/api/display/ws)')
+      const viewers = [...hermes.gateway.displayViewers].filter(
+        (viewer) => !viewersBefore.includes(viewer),
+      )
+      const held = viewers.find((viewer) => viewer.heldEver)
+      if (!held) throw new Error('No screen view held control on the fake Hermes')
+      if (held.filter.passedInput === 0)
+        throw new Error('No input reached the fake Hermes through its lease gate')
+      context.note(
+        `the fake Hermes served /api/display/ws; the view held control and ${held.filter.passedInput} input messages passed its lease gate`,
+      )
     },
   )
 
@@ -874,6 +998,50 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
     )
   })
 
+  await step(
+    'Access token refreshed before it expires, and kept encrypted',
+    async ({ note, shot }) => {
+      needsSignIn()
+      const before = keystoreEvidence.afterSignIn as TokenStorage | undefined
+      // NativeAuth refreshes once the token is within REFRESH_SKEW_MS of expiring.
+      const due = exchangedAt + ACCESS_TTL_SECONDS * 1000 - REFRESH_SKEW_MS + 2_000
+      if (Date.now() < due) await sleep(due - Date.now())
+      // Library, Memory reads entries over REST, which asks NativeAuth for a token.
+      await startOnTalk()
+      await openDestination('Library', named('Skills'))
+      await device.tap(
+        (text, node) => text === 'Memory' && node.clickable,
+        'the Memory tab',
+      )
+      if (!(await waitForCount(() => restCalls('POST /auth/native/refresh'), 1, 60_000)))
+        throw new Error('The app never refreshed its access token')
+      await device.waitFor(
+        (text) =>
+          text === 'Agent notes' ||
+          text === 'About you' ||
+          text === 'Hermes has no memory entries yet.',
+        'Memory read with the refreshed token',
+        30_000,
+      )
+      shot('memory-after-refresh')
+      const after = readTokenStorage('afterRefresh')
+      if (!after.stored || !after.encrypted)
+        throw new Error('After the refresh the token set is not kept encrypted')
+      if (after.tokensSearched < 4)
+        throw new Error(
+          'The fake issued no refreshed token set to search the app storage for',
+        )
+      noPlaintext(after)
+      if (before?.fingerprint === undefined)
+        throw new Error('No token set was read after signing in to compare with')
+      if (after.fingerprint === before.fingerprint)
+        throw new Error('The refreshed token set was not stored')
+      note(
+        `POST /auth/native/refresh ${restCalls('POST /auth/native/refresh')} time(s); Memory loaded with the new token; the new token set is stored, encrypted again, and none of the ${after.tokensSearched} token values issued so far is in plain text in the app's ${after.searched.length} files`,
+      )
+    },
+  )
+
   await step('Sign-in survives process death', async ({ note, shot }) => {
     needsSignIn()
     const authorizeBefore = restCalls('GET /auth/native/authorize')
@@ -888,7 +1056,9 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
       throw new Error('A cold start asked to sign in again')
     shot('connected-after-restart')
     note(
-      'tokens read back from Keystore-backed storage after a cold start; connected again',
+      restCalls('POST /auth/native/refresh') > 0
+        ? 'connected again after a cold start without signing in: the fake stopped accepting the first token set when it rotated it, so the app read the refreshed set back from its storage'
+        : 'connected again after a cold start without signing in, on the token set read back from its storage (no refresh happened in this run)',
     )
   })
 
@@ -901,7 +1071,12 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
     if (!find(root, named('Signed out')))
       throw new Error('After signing out, the screen does not say so')
     shot('signed-out')
-    note('signed out on this device; the sign-in screen is back')
+    const gone = readTokenStorage('afterSignOut')
+    if (gone.stored) throw new Error('The token set is still stored after signing out')
+    noPlaintext(gone)
+    note(
+      `signed out on this device; the sign-in screen is back, the token set is deleted, and none of the ${gone.tokensSearched} token values issued during the run is in plain text in the app's ${gone.searched.length} files`,
+    )
   })
 
   await step('Process death while the browser is open', async ({ note, shot }) => {
@@ -931,11 +1106,13 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
     await sleep(2000)
     let method = 'am kill (background process)'
     if (device.pid()) {
-      device.run(['root'], 60_000)
-      device.run(['wait-for-device'], 60_000)
-      // adbd restarted as root, which drops the reverse port forwards.
-      for (const port of [hermes.port, holding.port])
-        device.run(['reverse', `tcp:${port}`, `tcp:${port}`])
+      if (!rooted) {
+        device.run(['root'], 60_000)
+        device.run(['wait-for-device'], 60_000)
+        // adbd restarted as root, which drops the reverse port forwards.
+        for (const port of [hermes.port, holding.port])
+          device.run(['reverse', `tcp:${port}`, `tcp:${port}`])
+      }
       device.shell(`kill -9 ${device.pid()}`)
       await sleep(1500)
       method = 'kill -9 as root (am kill left it running)'
@@ -986,6 +1163,29 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
     note(
       'cancel stopped the listener; the sign-in reported "Sign-in was cancelled" and saved nothing',
     )
+  })
+
+  await step('No issued token in the device log', ({ note }) => {
+    needsSignIn()
+    // Every step before this one saved the device log (logcat-NN-….txt), then cleared it.
+    const logs = new Map(
+      readdirSync(outDir as string)
+        .filter((file) => /^logcat-\d+-.+\.txt$/.test(file))
+        .map(
+          (file) => [file, readFileSync(join(outDir as string, file), 'utf8')] as const,
+        ),
+    )
+    if (issuedTokens.length === 0)
+      throw new Error('The fake issued no token to search the device log for')
+    const leaked = holdingTokens(logs, issuedTokens)
+    if (leaked.length > 0)
+      throw new Error(
+        `A token the fake issued is in the device log: ${leaked.join(', ')}`,
+      )
+    note(
+      `none of the ${issuedTokens.length} token values the fake issued is in the device log saved after each of the ${logs.size} steps before this one`,
+    )
+    return Promise.resolve()
   })
 }
 

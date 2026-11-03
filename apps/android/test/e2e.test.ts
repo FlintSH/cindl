@@ -4,6 +4,7 @@ import { base64Url } from '@cindl/hermes-adapter'
 import { afterEach, describe, expect, it } from 'vitest'
 import { startFakeHermesAuth, type FakeHermesAuth } from '../e2e/fakeHermesAuth.ts'
 import { runExitCode } from '../e2e/outcome.ts'
+import { holdingTokens, sharedPreferences, tokenStorage } from '../e2e/keystore.ts'
 import {
   auditTargets,
   center,
@@ -478,5 +479,121 @@ describe('how a run ends (review of 636a2dd, S2)', () => {
     expect(
       runExitCode([{ status: 'passed' }, { status: 'blocked' }, { status: 'blocked' }]),
     ).toBe(1)
+  })
+})
+
+describe('where the app keeps the Hermes tokens (read as root on the emulator)', () => {
+  // SecureStore.xml as expo-secure-store writes it, with synthetic ciphertext.
+  const tokenKey = 'cindl.s.636c'
+  const item = (ct: string) =>
+    JSON.stringify({
+      ct,
+      iv: 'c3ludGhldGljLWl2',
+      tlen: 128,
+      scheme: 'aes',
+      usesKeystoreSuffix: true,
+      keystoreAlias: 'key_v1',
+      requireAuthentication: false,
+    }).replace(/"/g, '&quot;')
+  const xml = (ct?: string) =>
+    [
+      "<?xml version='1.0' encoding='utf-8' standalone='yes' ?>",
+      '<map>',
+      ...(ct === undefined
+        ? []
+        : [`    <string name="key_v1-${tokenKey}">${item(ct)}</string>`]),
+      '    <string name="key_v1-cindl.s.6f74686572">&quot;x&quot;</string>',
+      '</map>',
+    ].join('\n')
+
+  it('reads SharedPreferences strings with XML entities', () => {
+    const prefs = sharedPreferences(xml('YWJj'))
+    expect(JSON.parse(prefs.get(`key_v1-${tokenKey}`) ?? '{}')).toMatchObject({
+      scheme: 'aes',
+      keystoreAlias: 'key_v1',
+    })
+  })
+
+  const app = '/data/data/dev.fl1nt.cindl'
+  const ACCESS = 'synthetic-access-token-0001'
+  const REFRESH = 'synthetic-refresh-token-0001'
+  const files = (entries: Record<string, string>) =>
+    new Map(Object.entries(entries).map(([path, text]) => [`${app}${path}`, text]))
+
+  it('says the token set is stored as Keystore AES ciphertext, without the value', () => {
+    const before = tokenStorage({
+      files: files({
+        '/shared_prefs/SecureStore.xml': xml('YWJj'),
+        '/databases/RKStorage': 'SQLite format 3 drafts and settings',
+      }),
+      tokenKey,
+      tokens: [ACCESS, REFRESH],
+    })
+    expect(before).toMatchObject({
+      stored: true,
+      encrypted: true,
+      scheme: 'aes',
+      keystoreAlias: 'key_v1',
+      searched: [`${app}/shared_prefs/SecureStore.xml`, `${app}/databases/RKStorage`],
+      tokensSearched: 2,
+      plaintextIn: [],
+      plaintext: false,
+    })
+    expect(before.fingerprint).toMatch(/^[0-9a-f]{12}$/)
+    // Facts only: neither the ciphertext nor a token leaves the device.
+    const evidence = JSON.stringify(before)
+    for (const value of ['YWJj', ACCESS, REFRESH]) expect(evidence).not.toContain(value)
+    // A refreshed token set is encrypted again: another ciphertext.
+    const after = tokenStorage({
+      files: files({ '/shared_prefs/SecureStore.xml': xml('ZGVm') }),
+      tokenKey,
+      tokens: [ACCESS, REFRESH],
+    })
+    expect(after.fingerprint).not.toBe(before.fingerprint)
+  })
+
+  it('finds an issued token in plain text in any file, with or without field names', () => {
+    const found = tokenStorage({
+      files: files({
+        '/shared_prefs/SecureStore.xml': xml('YWJj'),
+        // A bare token in a database journal: no field name to give it away.
+        '/databases/RKStorage-wal': `\u0000\u0001${REFRESH}\u0000`,
+        '/files/settings.json': '{"access_token":"x"}',
+        '/cache/notes.txt': 'nothing here',
+      }),
+      tokenKey,
+      tokens: [ACCESS, REFRESH],
+    })
+    expect(found.plaintext).toBe(true)
+    expect(found.plaintextIn).toEqual([
+      `${app}/databases/RKStorage-wal`,
+      `${app}/files/settings.json`,
+    ])
+    expect(JSON.stringify(found)).not.toContain(REFRESH)
+  })
+
+  it('finds the device logs that hold an issued token', () => {
+    const logs = new Map([
+      ['logcat-01-install.txt', 'I ReactNativeJS: connected to Hermes'],
+      ['logcat-02-sign-in.txt', `D ReactNativeJS: tokens ${ACCESS}`],
+      ['logcat-03-refresh.txt', 'I ReactNativeJS: refreshed'],
+    ])
+    expect(holdingTokens(logs, [ACCESS, REFRESH])).toEqual(['logcat-02-sign-in.txt'])
+    expect(holdingTokens(logs, [''])).toEqual([])
+  })
+
+  it('says a signed-out device keeps no token set', () => {
+    expect(
+      tokenStorage({
+        files: files({ '/shared_prefs/SecureStore.xml': xml() }),
+        tokenKey,
+        tokens: [ACCESS, REFRESH],
+      }),
+    ).toMatchObject({
+      stored: false,
+      encrypted: false,
+      plaintext: false,
+      fingerprint: undefined,
+    })
   })
 })

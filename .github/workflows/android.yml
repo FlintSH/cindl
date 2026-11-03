@@ -339,7 +339,7 @@ jobs:
           ADB="$CINDL_TEST_SDK/platform-tools/adb" node apps/android/e2e/run.ts demo \
             "$(find "$RUNNER_TEMP/apks" -name cindl-demo-test.apk)" "$RUNNER_TEMP/e2e/demo"
 
-      - name: Emulator tests, real APK sign-in (fake Hermes auth server, synthetic)
+      - name: Emulator tests, production APK (sign-in lifecycle and the agent's screen against a fake Hermes, synthetic)
         if: ${{ !cancelled() && steps.boot.outcome == 'success' }}
         run: |
           ADB="$CINDL_TEST_SDK/platform-tools/adb" node apps/android/e2e/run.ts signin \

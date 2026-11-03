@@ -7,8 +7,9 @@
  * Fails unless the APK is Cindl's (right label per flavour, not debuggable,
  * both test ABIs), asks for INTERNET only, keeps backups off, allows cleartext
  * only to the device itself, carries the licence notices, is signed with a
- * throwaway CI key (never the public React Native debug key) and its
- * JavaScript bundle passes the fixture gate for its flavour (ADR 0011).
+ * throwaway CI key (never the public React Native debug key), its
+ * JavaScript bundle passes the fixture gate for its flavour (ADR 0011) and
+ * both local Kotlin modules are compiled into it.
  * Writes apk-report.json and the extracted bundle to <out-dir>.
  */
 import { execFileSync, spawnSync } from 'node:child_process'
@@ -28,6 +29,12 @@ const ALLOWED_PERMISSIONS = [
   // AndroidX core declares this app-private, signature-level permission for its own receivers.
   `${PACKAGE}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`,
 ]
+/**
+ * The local Kotlin modules (apps/android/modules), by the module names they
+ * register: R8 may rename their classes, but these names are what JavaScript
+ * asks for, so they stay in the dex.
+ */
+export const KOTLIN_MODULES = ['CindlLoopback', 'CindlScreen'] as const
 const NOTICES = [
   'assets/licenses/LICENSE.txt',
   'assets/licenses/THIRD-PARTY-NOTICES.txt',
@@ -157,6 +164,19 @@ const entries = execFileSync('unzip', ['-Z1', apk], {
   .filter(Boolean)
 for (const notice of NOTICES) check(entries.includes(notice), `missing ${notice}`)
 
+const dex = Buffer.concat(
+  entries
+    .filter((entry) => /^classes\d*\.dex$/.test(entry))
+    .map((entry) =>
+      execFileSync('unzip', ['-p', apk, entry], { maxBuffer: 512 * 1024 * 1024 }),
+    ),
+)
+const kotlinModules = KOTLIN_MODULES.filter((name) => dex.includes(Buffer.from(name)))
+for (const name of KOTLIN_MODULES)
+  check(kotlinModules.includes(name), `the ${name} Kotlin module is not in the APK's dex`)
+// Reported, not a gate (android.md, "No WebView"): whether any dex refers to WebView.
+const refersToWebView = dex.includes(Buffer.from('Landroid/webkit/WebView;'))
+
 const bundlePath = join(outDir, 'index.android.bundle')
 check(entries.includes('assets/index.android.bundle'), 'no embedded JavaScript bundle')
 let bundleGate = 'not run'
@@ -196,6 +216,8 @@ const report = {
   signerSha256: certSha256,
   signing: signingLines,
   bundleGate,
+  kotlinModules,
+  refersToWebView,
   notices: NOTICES.filter((notice) => entries.includes(notice)),
   problems,
 }
