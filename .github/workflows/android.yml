@@ -1,0 +1,130 @@
+# Android checks that need no Android SDK.
+#
+# Building an APK (Gradle and the Android Gradle plugin) or running an
+# emulator uses Android SDK packages under Google's licence terms. Accepting
+# those terms is the owner's decision and has not been made, so this workflow
+# has no APK, Gradle, emulator or sdkmanager step, and the generated project
+# sets android.builder.sdkDownload=false so a build can never fetch SDK
+# packages on its own. See docs/handbook/clients/android.md.
+name: Android
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/android/**'
+      - 'packages/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - 'tsconfig.base.json'
+      - 'eslint.config.mjs'
+      - 'vitest.config.ts'
+      - '.node-version'
+      - '.github/workflows/android.yml'
+  pull_request:
+    paths:
+      - 'apps/android/**'
+      - 'packages/**'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - 'package.json'
+      - 'tsconfig.base.json'
+      - 'eslint.config.mjs'
+      - 'vitest.config.ts'
+      - '.node-version'
+      - '.github/workflows/android.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: android-${{ github.ref }}
+  # Superseded pull request runs are cancelled; every main commit keeps its run.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  EXPO_NO_TELEMETRY: '1'
+  # Nothing here may use the runner's preinstalled Android SDK.
+  ANDROID_HOME: ''
+  ANDROID_SDK_ROOT: ''
+
+jobs:
+  checks:
+    name: Android checks (no Android SDK)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck, lint and unit-test the Android app
+        run: |
+          pnpm --filter @cindl/android typecheck
+          pnpm exec eslint --max-warnings=0 apps/android
+          pnpm exec vitest run --project android
+
+      - name: Bundle a production build and check it has no fixture records (ADR 0011)
+        working-directory: apps/android
+        env:
+          EXPO_PUBLIC_CINDL_DEMO: ''
+        run: |
+          pnpm exec expo export --platform android --output-dir dist-production --clear
+          node scripts/check-bundle.ts production "$(find dist-production -name '*.hbc' | head -1)"
+
+      - name: Bundle the demo build and check it carries the demo notice
+        working-directory: apps/android
+        env:
+          EXPO_PUBLIC_CINDL_DEMO: '1'
+        run: |
+          pnpm exec expo export --platform android --output-dir dist-demo --clear
+          node scripts/check-bundle.ts demo "$(find dist-demo -name '*.hbc' | head -1)"
+
+      - name: Generate the native projects and check them (expo prebuild, no SDK)
+        working-directory: apps/android
+        run: |
+          EXPO_PUBLIC_CINDL_DEMO=1 pnpm exec expo prebuild --platform android --no-install --clean
+          node scripts/check-native-project.ts android demo
+          EXPO_PUBLIC_CINDL_DEMO= pnpm exec expo prebuild --platform android --no-install --clean
+          node scripts/check-native-project.ts android production
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Unit-test the Kotlin loopback listener on the JVM (no Android SDK)
+        run: |
+          tools="$RUNNER_TEMP/jvm-tools"
+          mkdir -p "$tools"
+          fetch() {
+            curl -fsSL "$1" -o "$2"
+            echo "$3  $2" | sha256sum -c -
+          }
+          fetch https://github.com/JetBrains/kotlin/releases/download/v2.1.20/kotlin-compiler-2.1.20.zip \
+            "$tools/kotlinc.zip" a118197b0de55ffab2bc8d5cd03a5e39033cfb53383d6931bc761dec0784891a
+          fetch https://repo1.maven.org/maven2/junit/junit/4.13.2/junit-4.13.2.jar \
+            "$tools/junit.jar" 8e495b634469d64fb8acfa3495a065cbacc8a0fff55ce1e31007be4c16dc57d3
+          fetch https://repo1.maven.org/maven2/org/hamcrest/hamcrest-core/1.3/hamcrest-core-1.3.jar \
+            "$tools/hamcrest.jar" 66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9
+          unzip -q "$tools/kotlinc.zip" -d "$tools"
+          src=apps/android/modules/cindl-loopback/android/src
+          "$tools/kotlinc/bin/kotlinc" -jvm-target 17 -cp "$tools/junit.jar:$tools/hamcrest.jar" \
+            -d "$tools/out" \
+            "$src/main/java/dev/fl1nt/cindl/loopback/HttpHead.kt" \
+            "$src/main/java/dev/fl1nt/cindl/loopback/LoopbackListener.kt" \
+            "$src/test/java/dev/fl1nt/cindl/loopback/LoopbackListenerTest.kt"
+          java -cp "$tools/out:$tools/junit.jar:$tools/hamcrest.jar:$tools/kotlinc/lib/kotlin-stdlib.jar" \
+            org.junit.runner.JUnitCore dev.fl1nt.cindl.loopback.LoopbackListenerTest

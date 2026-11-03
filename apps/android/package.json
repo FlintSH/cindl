@@ -1,0 +1,50 @@
+{
+  "name": "@cindl/android",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Native Cindl Android app (Expo / React Native, not a WebView).",
+  "license": "MIT",
+  "type": "module",
+  "main": "index.ts",
+  "scripts": {
+    "start": "expo start",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cindl/client-core": "workspace:*",
+    "@cindl/client-react": "workspace:*",
+    "@cindl/contracts": "workspace:*",
+    "@cindl/hermes-adapter": "workspace:*",
+    "@cindl/tokens": "workspace:*",
+    "@react-native-async-storage/async-storage": "2.2.0",
+    "expo": "58.0.22",
+    "expo-crypto": "58.0.7",
+    "expo-font": "58.0.11",
+    "expo-secure-store": "58.0.2",
+    "expo-splash-screen": "58.0.12",
+    "expo-system-ui": "58.0.7",
+    "expo-web-browser": "58.0.7",
+    "lucide-react-native": "1.66.0",
+    "mdast-util-from-markdown": "2.1.0",
+    "mdast-util-gfm": "3.1.0",
+    "micromark-extension-gfm": "3.0.0",
+    "react": "catalog:",
+    "react-native": "0.88.1",
+    "react-native-safe-area-context": "5.10.1",
+    "react-native-svg": "15.16.0"
+  },
+  "devDependencies": {
+    "@cindl/fixtures": "workspace:*",
+    "@types/mdast": "4.0.4",
+    "@types/node": "catalog:",
+    "@types/react": "catalog:",
+    "typescript": "catalog:"
+  },
+  "expo": {
+    "autolinking": {
+      "exclude": [
+        "@expo/dom-webview"
+      ]
+    }
+  }
+}
