@@ -5,35 +5,42 @@ import {
   type MemoryEntrySummary,
   type MemoryStore,
 } from '@cindl/contracts'
-import { useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { Text, View } from 'react-native'
 import { Dialog } from '../overlay/Sheet.tsx'
 import { describeFailure } from '../talk/failures.ts'
 import { useTheme } from '../theme/theme.tsx'
 import { Button, Empty, ErrorText, Note, Txt } from '../ui/primitives.tsx'
 import { DocumentEditor } from '../views/DocumentEditor.tsx'
-import { forgetDocumentDraft, keptDocumentDrafts } from '../views/drafts.ts'
+import { forgetDocumentDraft, keptDocumentDrafts, keptDrafts } from '../views/drafts.ts'
 import { useResource } from '../views/useResource.ts'
 import {
-  bindingLocked,
+  bindingAfterSave,
+  CLOSE_NO_LONGER_HERE,
   DELETE_REFUSED,
   DELETE_UNCERTAIN,
   deleteWarning,
+  discardDraftLabel,
   entryAt,
+  entryEditorView,
   followList,
   guardMemorySave,
+  identityOf,
   keepsVanishedRow,
-  LOCKED_NOTICE,
   MEMORY_DRAFT_PREFIX,
   memoryDelete,
   memoryDocument,
-  memoryDraftKey,
   memoryEntryName,
   memoryStores,
   memoryWrite,
+  NO_LONGER_HERE,
   orphanDrafts,
+  placeNow,
   placeOf,
-  type Binding,
+  readForAdoption,
+  readRequest,
+  rowIsEntry,
+  type EditorBinding,
   type MemoryPlace,
 } from './memory.ts'
 
@@ -71,6 +78,7 @@ export function MemoryEntries() {
       store={store}
       summary={summary}
       place={place}
+      placeNow={(identity) => placeNow(entries, identity)}
       onChanged={list.reload}
       onDeleted={() => {
         setOpen(undefined)
@@ -99,6 +107,7 @@ export function MemoryEntries() {
               </Text>
               <Button
                 label="Discard draft"
+                accessibilityLabel={discardDraftLabel(draft)}
                 variant="quiet"
                 style={{ alignSelf: 'flex-end' }}
                 onPress={() => {
@@ -166,10 +175,10 @@ export function MemoryEntries() {
                           gap: theme.space[2],
                         }}
                       >
-                        <Txt style={{ flex: 1 }}>Removed in Hermes</Txt>
+                        <Txt style={{ flex: 1 }}>{NO_LONGER_HERE}</Txt>
                         <Button
                           label="Close"
-                          accessibilityLabel="Close the removed memory entry"
+                          accessibilityLabel={CLOSE_NO_LONGER_HERE}
                           variant="quiet"
                           onPress={() => setOpen(undefined)}
                         />
@@ -218,6 +227,7 @@ function EntryEditor({
   store,
   summary,
   place,
+  placeNow: whereNow,
   onChanged,
   onDeleted,
 }: {
@@ -226,6 +236,8 @@ function EntryEditor({
   summary: MemoryEntrySummary | undefined
   /** 1-based position in its store, as the row shows it. */
   place: number
+  /** Where an identity is listed now, if exactly one entry has that text. */
+  placeNow: (identity: string | undefined) => number | undefined
   onChanged: () => void
   onDeleted: () => void
 }) {
@@ -233,39 +245,100 @@ function EntryEditor({
   const theme = useTheme()
   const canWrite = useCan('memory.text')
   const write = useCapability('memory.text')
+  // The entry this editor is for (memory.ts EditorBinding): the one the owner
+  // opened, then the text a save here gave it, or the entry the owner chose to
+  // use a draft for. It never changes otherwise.
+  const [binding, setBinding] = useState<EditorBinding>(() => ({
+    identity: summary && identityOf(summary.id),
+    savedFrom: undefined,
+  }))
+  // A draft used for this entry ("Use this draft for the entry now here") stays
+  // filed under the entry it was written for until it is saved here or
+  // discarded, so this entry's own kept draft (if any) is never replaced.
+  const [adoptedFrom, setAdoptedFrom] = useState<string>()
   // Keyed by place: a save gives the entry a new id, and a new key would drop the
-  // editor (and its "Restore previous version") until the read finished.
+  // editor (and its "Restore previous version") until the read finished. Only this
+  // entry is ever read here; another entry at the place is not.
   const entry = useResource(
-    () =>
-      summary
-        ? api.call('memory.read', { id: summary.id })
-        : Promise.reject(
-            new CindlError('not-found', 'This entry was removed in Hermes.'),
-          ),
+    () => {
+      const request = readRequest(summary?.id, rowIsEntry(summary?.id, binding))
+      return request instanceof CindlError
+        ? Promise.reject(request)
+        : api.call('memory.read', request)
+    },
     `memory:${store}:${place}`,
     'This entry could not be loaded. It may have changed; reload the list.',
   )
-  // The editor stays bound to the entry it read (memory.ts followList): it
-  // follows the same text under a new number and locks on anything else, until
-  // the owner explicitly uses the draft for the entry now here.
-  const [binding, setBinding] = useState<Binding>('following')
-  const adopting = typeof binding === 'object' ? binding.adopting : undefined
-  const locked = bindingLocked(binding, entry.data?.id)
-  // Once per change of the entry listed here (adjusted while rendering, as React
-  // advises for state that follows a prop): deriving the lock from the list on
-  // every render would let a later reload unlock it onto a different entry.
-  const [listed, setListed] = useState(summary?.id)
-  if (listed !== summary?.id) {
-    setListed(summary?.id)
-    const next = followList(binding, entry.data?.id, summary?.id, Boolean(entry.error))
-    if (next.binding !== binding) setBinding(next.binding)
+  const data = entry.data
+  const view = entryEditorView({
+    binding,
+    adoptedFrom,
+    row: summary,
+    read: data,
+    store,
+    place,
+    placeNow: whereNow,
+    kept: (key) => keptDrafts.has(key),
+  })
+  const { locked, draftKey } = view
+  // Once per change of the row or the read (adjusted while rendering, as React
+  // advises for state that follows a prop): clear the save marker once the list
+  // moved on, and read the same entry again under a new number.
+  const [followed, setFollowed] = useState<[string | undefined, string | undefined]>([
+    summary?.id,
+    data?.id,
+  ])
+  if (followed[0] !== summary?.id || followed[1] !== data?.id) {
+    setFollowed([summary?.id, data?.id])
+    const next = followList({
+      rowId: summary?.id,
+      savedFrom: binding.savedFrom,
+      rowIsIt: view.rowIsIt,
+      readId: data?.id,
+      readFailed: entry.error !== undefined,
+    })
+    if (next.clearSavedFrom) setBinding({ ...binding, savedFrom: undefined })
     if (next.reread) entry.reload()
   }
-  const data = entry.data
-  const draftKey = data ? memoryDraftKey(data.id) : undefined
+
+  // "Use this draft for the entry now here" reads that entry first (memory.ts
+  // readForAdoption). Until it succeeds, and if it fails or the editor closes,
+  // the draft stays kept under the entry it was written for.
+  const [adoption, setAdoption] = useState<{ busy: boolean; error?: string }>()
+  const row = useRef(summary)
+  const mounted = useRef(true)
+  useLayoutEffect(() => {
+    row.current = summary
+  })
+  useEffect(() => {
+    mounted.current = true
+    return () => {
+      mounted.current = false
+    }
+  }, [])
+  const adopt = (target: MemoryEntrySummary, from: string) => {
+    setAdoption({ busy: true })
+    void readForAdoption({
+      read: (args) => api.call('memory.read', args),
+      target,
+      from,
+      rowNow: () => row.current,
+    }).then((outcome) => {
+      if (!mounted.current) return
+      if (!outcome.ok) {
+        setAdoption({ busy: false, error: outcome.error })
+        return
+      }
+      entry.replace(outcome.read)
+      setAdoptedFrom(outcome.adoptedFrom)
+      setBinding({ identity: outcome.identity, savedFrom: undefined })
+      setAdoption(undefined)
+    })
+  }
+  const target = view.adoptTarget
   return (
     <View style={{ gap: theme.space[3] }}>
-      {entry.error && !locked ? (
+      {entry.error && (!data || !locked) ? (
         <View style={{ gap: theme.space[2] }}>
           <ErrorText>{entry.error}</ErrorText>
           <Button
@@ -288,18 +361,12 @@ function EntryEditor({
             draftKey={draftKey}
             canWrite={canWrite}
             writeNote={write?.reason}
-            locked={locked ? LOCKED_NOTICE : undefined}
-            onAdopt={
-              summary && !adopting
-                ? () => {
-                    // The owner chose the entry now here: the draft moves to it, and
-                    // the editor stays locked until that entry is read.
-                    forgetDocumentDraft(draftKey)
-                    setBinding({ adopting: summary.id })
-                    entry.reload()
-                  }
-                : undefined
-            }
+            locked={view.lockNotice}
+            onAdopt={target ? () => adopt(target, draftKey) : undefined}
+            adoption={adoption}
+            draftNote={view.draftNote}
+            keepDraft={view.keepDraft}
+            onDiscard={() => setAdoptedFrom(undefined)}
             // The list names the entry's current id; the read follows it.
             onReload={onChanged}
             onSave={async (content, reviewed) => {
@@ -307,17 +374,20 @@ function EntryEditor({
               // The id of the entry that was read and reviewed, never the list's.
               const saved = await api.call('memory.write', memoryWrite(data, content))
               entry.replace(saved)
+              setBinding(bindingAfterSave(saved.id, summary?.id))
+              setAdoptedFrom(undefined)
               onChanged()
               return memoryDocument(saved, place)
             }}
           />
-          {canWrite && !locked ? (
+          {canWrite && view.deletes ? (
             // Keyed by id: if the entry here changes, an open confirmation closes
-            // instead of deleting another entry.
+            // instead of deleting another entry. It names the text read under that
+            // id, the entry the delete names.
             <DeleteEntry
-              key={data.id}
-              entry={data}
-              title={summary?.title ?? data.content.split('\n')[0] ?? ''}
+              key={view.deletes.entry.id}
+              entry={view.deletes.entry}
+              title={view.deletes.title}
               onDeleted={onDeleted}
             />
           ) : null}

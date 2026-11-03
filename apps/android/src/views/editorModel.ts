@@ -29,14 +29,64 @@ export function reviewMoved(base: string, document: VersionedDocument): boolean 
 }
 
 /**
- * A locked editor keeps its draft under the key it was written for, so closing
- * it loses nothing and the draft never returns to a different document.
+ * The draft kept under the editor's draft key. A locked editor keeps its draft
+ * under the key it was written for, so closing it loses nothing and the draft
+ * never returns to a different document. So does an editor asked to keep its
+ * draft while it is edited (one written for another document).
  */
-export function lockedDraft(
+export function keptDraft(
   locked: string | undefined,
+  keepDraft: boolean,
   stage: Stage,
 ): string | undefined {
-  return locked && stage.kind !== 'view' ? stage.draft : undefined
+  return (locked || keepDraft) && stage.kind !== 'view' ? stage.draft : undefined
+}
+
+export const RESTORED_DRAFT =
+  'Your unsaved draft was kept. Review it against the current version before saving.'
+export const ADOPTION_BUSY = 'Reading the entry now here…'
+export const ADOPTION_NOT_USED = 'Your draft was not used, and it is still kept.'
+
+/**
+ * What a locked editor says and offers: why it is locked, an adoption that
+ * failed or is under way, and "Use this draft for the entry now here" while
+ * there is a draft (disabled while its read is out).
+ */
+export function lockPanel(input: {
+  locked: string | undefined
+  canAdopt: boolean
+  stage: Stage
+  adoption: { busy: boolean; error?: string | undefined } | undefined
+}):
+  | {
+      alerts: string[]
+      note: string | undefined
+      busy: string | undefined
+      adopt: { disabled: boolean } | undefined
+    }
+  | undefined {
+  if (!input.locked) return undefined
+  const error = input.adoption?.error
+  return {
+    alerts: error ? [input.locked, error] : [input.locked],
+    note: error ? ADOPTION_NOT_USED : undefined,
+    busy: input.adoption?.busy ? ADOPTION_BUSY : undefined,
+    adopt:
+      input.canAdopt && input.stage.kind !== 'view'
+        ? { disabled: Boolean(input.adoption?.busy) }
+        : undefined,
+  }
+}
+
+/** What is said above a draft being edited: the caller's note, else that a kept draft came back. */
+export function draftNotice(input: {
+  draftNote: string | undefined
+  restored: boolean
+  locked: string | undefined
+}): string | undefined {
+  if (input.locked) return undefined
+  if (input.draftNote) return input.draftNote
+  return input.restored ? RESTORED_DRAFT : undefined
 }
 
 /**

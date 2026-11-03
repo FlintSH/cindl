@@ -147,6 +147,15 @@ until the owner decides about those terms.
   which must end in the "interrupted" notice with nothing exchanged, and
   cancelling a sign-in in progress.
 
+The memory editor's lock, adoption and kept-draft flows need memory changed
+elsewhere while an entry is open, which the demo cannot do. Node tests run
+them instead (`apps/android/test/memory-identity.test.ts` and
+`memory-adoption.test.ts`, the web client's probes with their assertions) on
+`apps/android/test/memoryScreen.ts`, which keeps the editor's state and wiring
+and calls the same functions the components call. How those states render
+in React Native, and what TalkBack reads, is not covered by an emulator test
+yet.
+
 System animations are off during the tests so UI dumps are stable (the app then
 also reduces its own motion). The `cindl-android-emulator-evidence` artifact
 holds screenshots, UI dumps, logcat per step, `report.json` and `summary.md`.
@@ -207,8 +216,8 @@ during sign-in). Nothing was saved. Start again." The same happens if only the
 JavaScript runtime restarted: the verifier was in its memory. **Signing out**
 deletes this device's tokens only: Hermes v0.22.5 cannot revoke tokens it
 already issued. It also forgets drafts the app kept in memory (an edit kept
-after a conflict, unsent answers to questions). The address stays, ready to
-sign in again.
+after a conflict, a lock or while used for another memory entry, and unsent
+answers to questions). The address stays, ready to sign in again.
 
 A device that signed in with an earlier build (which ran its own PKCE before
 the direct client existed) keeps its sign-in: on the first start, its tokens
@@ -278,19 +287,37 @@ phone.
   the entry Hermes listed (its id includes a fingerprint of its text), so
   Hermes refuses it if the entry changed after it was read. Deleting asks
   first, names the entry and cannot be undone: Hermes keeps no backup.
-- **An open memory entry stays bound to the entry that was read.** If the
-  list later shows the same text under a new number (an earlier entry was
-  removed), the editor follows it. Any other text at its place could be the
-  entry changed elsewhere, or another entry removed, merged or added there,
-  and Hermes's list cannot tell which, so the editor locks: the draft stays,
-  read-only, and nothing is saved or deleted until you choose **Use this
-  draft for the entry now here** (and that entry has been read). Drafts are
-  kept under the entry they were written for, never its place; one whose entry
-  Hermes no longer lists appears under **Unsaved drafts**, to copy or discard,
-  and never moves to another entry. An entry removed while open keeps its row
-  and draft until you close it. After a save, the text it replaced stays on
-  screen: restorable only onto the version that save produced, otherwise shown
-  to copy.
+- **An open memory entry stays bound to the entry you opened**, by its text,
+  from the moment you open it; only a save there (to the saved text) or
+  **Use this draft for the entry now here** changes which entry it is. It
+  follows the entry when only its number changes (an entry in the other store
+  was removed) and reads it again under its new id. Any other text at its
+  place, even before the first read arrives, may be the same entry changed
+  elsewhere, or another entry removed, merged or added there, and Hermes's
+  list cannot tell which. So the editor locks, keeps your text read-only,
+  names the entry now at its place, and saves or deletes nothing; it never
+  reads that other entry on its own. When an entry before it in the same
+  store was removed, the entry moved up a place: the locked editor says where
+  the same text is now (its row reads "No longer at this place" when nothing
+  took its place), and your draft comes back when you open it there.
+  - **Use this draft for the entry now here** reads that entry first, saying
+    so while it does. Nothing changes unless the read succeeds and the entry
+    is still at that place; a failed or refused read is shown, your draft is
+    kept, and you can try again. Then you review the draft against that
+    entry's text before saving.
+  - A draft stays kept for the entry it was written for until you save or
+    discard it, including while you edit it for another entry, so closing the
+    editor loses nothing and another entry's own kept draft is never replaced
+    (the editor says when that entry has one). Drafts for entries Hermes no
+    longer lists stay under **Unsaved drafts**, to copy or discard; TalkBack
+    names each discard button by its draft.
+  - A delete names the text it removes: the first line of the text Cindl read
+    under the id the delete sends. The confirmation closes if the entry read
+    there changes. Deleting warns first, because Hermes keeps no backup.
+  - After a save, the text it replaced stays on screen: restorable only onto
+    the version that save produced, otherwise shown to copy.
+  - Known limit: entries with identical text in one store look the same to
+    Cindl, so they share one kept draft, and an editor may follow either.
 - **The agent's screen** (Work, Computer) shows the agent-owned screen live
   when Hermes's screen is running and the client has negotiated the picture
   (the labelled demo streams a synthetic screen), with its state, who

@@ -9,8 +9,10 @@ import { useTheme } from '../theme/theme.tsx'
 import { Button, Note, Txt } from '../ui/primitives.tsx'
 import { keptDrafts } from './drafts.ts'
 import {
+  draftNotice,
   initialStage,
-  lockedDraft,
+  keptDraft,
+  lockPanel,
   previousTextOffer,
   reviewMoved,
   reviewStage,
@@ -33,6 +35,10 @@ export function DocumentEditor({
   writeNote,
   locked,
   onAdopt,
+  adoption,
+  draftNote,
+  keepDraft = false,
+  onDiscard,
   onSave,
   onReload,
 }: {
@@ -52,6 +58,14 @@ export function DocumentEditor({
    * shown. Without it, nothing written for one document reaches another.
    */
   onAdopt?: (() => void) | undefined
+  /** An adoption under way (`busy`) or refused (`error`); the draft stays kept either way. */
+  adoption?: { busy: boolean; error?: string | undefined } | undefined
+  /** Said above a draft in place of the kept-draft note. */
+  draftNote?: string | undefined
+  /** Keep the draft under `draftKey` while it is edited, not only once locked. */
+  keepDraft?: boolean
+  /** The owner discarded the draft (it is forgotten under `draftKey` first). */
+  onDiscard?: (() => void) | undefined
   onSave: (content: string, expectedVersion: string) => Promise<VersionedDocument>
   onReload: () => void
 }) {
@@ -60,8 +74,9 @@ export function DocumentEditor({
   const [stage, setStage] = useState<Stage>(() => initialStage(keptDrafts.get(draftKey)))
   const restored = keptDrafts.has(draftKey) && stage.kind !== 'view'
   // A locked editor keeps its draft under the key it was written for, so closing
-  // it loses nothing (it is listed to copy) and it never returns to another document.
-  const keep = lockedDraft(locked, stage)
+  // it loses nothing (it is listed to copy) and it never returns to another
+  // document. So does an editor asked to keep its draft (one written for another).
+  const keep = keptDraft(locked, keepDraft, stage)
   useEffect(() => {
     if (keep !== undefined) keptDrafts.set(draftKey, keep)
   }, [draftKey, keep])
@@ -71,21 +86,37 @@ export function DocumentEditor({
   const [backup, setBackup] = useState<{ content: string; version: string }>()
   const [discarding, setDiscarding] = useState(false)
   const dirty = stage.kind !== 'view' && stage.draft !== document.content
-  const lockNotice = locked ? (
+  const panel = lockPanel({ locked, canAdopt: Boolean(onAdopt), stage, adoption })
+  const lockNotice = panel ? (
     <View style={{ gap: theme.space[2] }}>
-      <Txt tone="danger" accessibilityRole="alert" accessibilityLiveRegion="assertive">
-        {locked}
-      </Txt>
-      {onAdopt && stage.kind !== 'view' ? (
+      {panel.alerts.map((alert) => (
+        <Txt
+          key={alert}
+          tone="danger"
+          accessibilityRole="alert"
+          accessibilityLiveRegion="assertive"
+        >
+          {alert}
+        </Txt>
+      ))}
+      {panel.note ? <Note>{panel.note}</Note> : null}
+      {panel.busy ? (
+        <Txt variant="label" tone="tertiary" accessibilityLiveRegion="polite">
+          {panel.busy}
+        </Txt>
+      ) : null}
+      {panel.adopt && onAdopt ? (
         <Button
           label="Use this draft for the entry now here"
           variant="quiet"
+          disabled={panel.adopt.disabled}
           style={{ alignSelf: 'flex-start' }}
           onPress={onAdopt}
         />
       ) : null}
     </View>
   ) : null
+  const notice = draftNotice({ draftNote, restored, locked })
 
   const leaveEditing = () => {
     if (dirty) setDiscarding(true)
@@ -121,6 +152,7 @@ export function DocumentEditor({
               keptDrafts.delete(draftKey)
               setFailure(undefined)
               setStage({ kind: 'view' })
+              onDiscard?.()
             }}
           />
         </>
@@ -206,10 +238,9 @@ export function DocumentEditor({
     return (
       <View style={{ gap: theme.space[3] }}>
         {lockNotice}
-        {restored && !locked ? (
+        {notice ? (
           <Txt variant="label" tone="secondary" accessibilityLiveRegion="polite">
-            Your unsaved draft was kept after the conflict. Review it against the current
-            version before saving.
+            {notice}
           </Txt>
         ) : null}
         <TextInput
@@ -243,6 +274,7 @@ export function DocumentEditor({
                 keptDrafts.delete(draftKey)
                 setFailure(undefined)
                 setStage({ kind: 'view' })
+                onDiscard?.()
               }}
             />
             <Button

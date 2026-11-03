@@ -1,6 +1,7 @@
 import { sha256Hex } from '@cindl/client-core'
 import {
   CindlError,
+  isCindlError,
   type ErrorCode,
   type MemoryEntry,
   type MemoryEntrySummary,
@@ -89,47 +90,304 @@ export const MEMORY_DRAFT_PREFIX = 'memory-draft:'
 export const memoryDraftKey = (id: string) => `${MEMORY_DRAFT_PREFIX}${identityOf(id)}`
 
 /**
- * How an open editor relates to the entry the list shows at its place.
- * `following`: bound to the entry it read. `locked`: the place may now hold
- * another entry, so nothing is saved or deleted. `adopting`: the owner chose
- * to use the draft for the entry now here (that id); the editor stays locked
- * until that entry has been read.
+ * How the delete confirmation names an entry, and a discard control its
+ * draft: the first line of the text, cut as Hermes cuts its card titles
+ * (`agent/learning_graph.py`). The lock notice uses the list's own title.
  */
-export type Binding = 'following' | 'locked' | { adopting: string }
+export function titleOf(content: string): string {
+  const first = (content.trim().split('\n')[0] ?? '').replace(/^[#\s]+/, '').trim()
+  return first.length > 80 ? `${first.slice(0, 80)}…` : first
+}
 
-export function bindingLocked(binding: Binding, readId: string | undefined): boolean {
+/**
+ * The entry an open editor is for (web parity: apps/web/src/library/MemoryEntries.tsx).
+ * `identity` is its store and text fingerprint: the entry the owner opened,
+ * then the text a save here gave it, or the entry the owner chose to use a
+ * draft for. It never changes otherwise. `savedFrom` is the row's id when a
+ * save here landed: until the list catches up, the row still shows the text
+ * that save replaced, and it is still this entry.
+ */
+export interface EditorBinding {
+  identity: string | undefined
+  savedFrom: string | undefined
+}
+
+/** True when the row listed at the editor's place is this entry. */
+export function rowIsEntry(rowId: string | undefined, binding: EditorBinding): boolean {
   return (
-    binding === 'locked' || (typeof binding === 'object' && readId !== binding.adopting)
+    rowId !== undefined &&
+    (identityOf(rowId) === binding.identity || rowId === binding.savedFrom)
+  )
+}
+
+/** True when the text read is this entry's. */
+export function readIsEntry(
+  readId: string | undefined,
+  identity: string | undefined,
+): boolean {
+  return readId !== undefined && identityOf(readId) === identity
+}
+
+export const ANOTHER_ENTRY = 'Another entry is at this place now.'
+export const REMOVED_ENTRY = 'This entry was removed in Hermes.'
+
+/**
+ * What an editor reads: only this entry, never another one at its place. A
+ * refusal is the error the read reports.
+ */
+export function readRequest(
+  rowId: string | undefined,
+  rowIsIt: boolean,
+): { id: string } | CindlError {
+  if (rowId !== undefined && rowIsIt) return { id: rowId }
+  return rowId !== undefined
+    ? new CindlError('conflict', ANOTHER_ENTRY)
+    : new CindlError('not-found', REMOVED_ENTRY)
+}
+
+/**
+ * After the list or the read changed. The save marker is cleared once the
+ * list has moved past the pre-save row. The same entry under a new number (an
+ * entry was removed from the other store) is read again for its current id,
+ * and a failed read is retried. Another entry at the place is never read: the
+ * editor is locked instead (see `editorLocked`).
+ */
+export function followList(input: {
+  rowId: string | undefined
+  savedFrom: string | undefined
+  rowIsIt: boolean
+  readId: string | undefined
+  readFailed: boolean
+}): { clearSavedFrom: boolean; reread: boolean } {
+  const clearSavedFrom = input.savedFrom !== undefined && input.rowId !== input.savedFrom
+  if (input.rowId === undefined || !input.rowIsIt || input.rowId === input.savedFrom)
+    return { clearSavedFrom, reread: false }
+  return {
+    clearSavedFrom,
+    reread:
+      input.readFailed || (input.readId !== undefined && input.readId !== input.rowId),
+  }
+}
+
+/**
+ * Locked while the list shows another entry (or none) at the place, even
+ * before the first read lands, or while the text read is not this entry's.
+ * Other text at the place may be this entry changed elsewhere, or another
+ * entry removed, merged or added there; Hermes's list cannot tell them apart.
+ * A locked editor keeps its draft, read-only, and saves or deletes nothing.
+ */
+export function editorLocked(rowIsIt: boolean, readIsIt: boolean): boolean {
+  return !rowIsIt || !readIsIt
+}
+
+export const ADOPTION_MOVED = 'The entry at this place changed again while Cindl read it.'
+export const ADOPTION_READ_FAILED = 'Cindl could not read the entry now here.'
+
+/**
+ * "Use this draft for the entry now here" reads that entry first. It completes
+ * only if the text read is the target's and the target is still at the place;
+ * otherwise nothing changes. The draft stays kept under the key of the entry
+ * it was written for (`adoptedFrom`) until it is saved here or discarded, so
+ * the target's own kept draft is never replaced. Using a draft for the entry it
+ * was written for is not an adoption.
+ */
+export function completeAdoption(input: {
+  targetId: string
+  readId: string
+  rowNowId: string | undefined
+  from: string
+}):
+  | { ok: true; identity: string; adoptedFrom: string | undefined }
+  | { ok: false; error: string } {
+  const wanted = identityOf(input.targetId)
+  if (
+    identityOf(input.readId) !== wanted ||
+    input.rowNowId === undefined ||
+    identityOf(input.rowNowId) !== wanted
+  )
+    return { ok: false, error: ADOPTION_MOVED }
+  return {
+    ok: true,
+    identity: wanted,
+    adoptedFrom:
+      input.from === `${MEMORY_DRAFT_PREFIX}${wanted}` ? undefined : input.from,
+  }
+}
+
+/**
+ * The adoption's read and its check. `rowNow` is asked once the read has
+ * answered: the place may have changed while it was out. A failed read is
+ * reported; nothing changes either way until the caller applies an `ok`.
+ */
+export async function readForAdoption(input: {
+  read: (args: { id: string }) => Promise<MemoryEntry>
+  target: MemoryEntrySummary
+  from: string
+  rowNow: () => MemoryEntrySummary | undefined
+}): Promise<
+  | { ok: true; read: MemoryEntry; identity: string; adoptedFrom: string | undefined }
+  | { ok: false; error: string }
+> {
+  let read: MemoryEntry
+  try {
+    read = await input.read({ id: input.target.id })
+  } catch (failure) {
+    return {
+      ok: false,
+      error: isCindlError(failure) ? failure.message : ADOPTION_READ_FAILED,
+    }
+  }
+  const outcome = completeAdoption({
+    targetId: input.target.id,
+    readId: read.id,
+    rowNowId: input.rowNow()?.id,
+    from: input.from,
+  })
+  return outcome.ok ? { ...outcome, read } : outcome
+}
+
+/**
+ * After a save here: the saved text is this entry, and the row it was saved
+ * from still counts as this entry until the list catches up.
+ */
+export function bindingAfterSave(
+  savedId: string,
+  rowId: string | undefined,
+): EditorBinding {
+  return { identity: identityOf(savedId), savedFrom: rowId }
+}
+
+/** Where kept drafts of this editor go: a used draft's own key, else this entry's. */
+export function editorDraftKey(
+  adoptedFrom: string | undefined,
+  identity: string | undefined,
+): string | undefined {
+  return (
+    adoptedFrom ??
+    (identity === undefined ? undefined : `${MEMORY_DRAFT_PREFIX}${identity}`)
   )
 }
 
 /**
- * The list now shows `listedId` at the open editor's place (undefined: the
- * entry vanished). Only the same text under a new number (an earlier entry
- * was removed) is the same entry for certain: it is read again. Any other text
- * may be this entry changed elsewhere, or another entry removed, merged or
- * added in its place, and Hermes's list cannot tell which, so the editor
- * locks. A lock is never undone here; only the owner's adoption ends it.
+ * Where the entry with this identity is listed now (1-based in its store),
+ * when exactly one entry has that text.
  */
-export function followList(
-  binding: Binding,
-  readId: string | undefined,
-  listedId: string | undefined,
-  readFailed: boolean,
-): { binding: Binding; reread: boolean } {
-  if (bindingLocked(binding, readId)) return { binding, reread: false }
-  // An adoption is complete once its entry was read; from then on it is followed.
-  const current: Binding = typeof binding === 'object' ? 'following' : binding
-  if (listedId === undefined) return { binding: 'locked', reread: false }
-  if (readId === undefined || readId === listedId)
-    return { binding: current, reread: readFailed }
-  if (identityOf(readId) === identityOf(listedId))
-    return { binding: current, reread: true }
-  return { binding: 'locked', reread: false }
+export function placeNow(
+  entries: readonly MemoryEntrySummary[],
+  identity: string | undefined,
+): number | undefined {
+  if (identity === undefined) return undefined
+  const [store] = identity.split(':')
+  const places = entries
+    .filter((entry) => entry.store === store)
+    .flatMap((entry, index) => (identityOf(entry.id) === identity ? [index + 1] : []))
+  return places.length === 1 ? places[0] : undefined
 }
 
 export const LOCKED_NOTICE =
   'The entry this editor showed was changed, removed or moved in Hermes, and Cindl cannot tell which, so nothing here can be saved or deleted. Your text is kept below to copy.'
+
+/** The lock notice: where the same text is now, and which entry is at this place. */
+export function lockNotice(input: {
+  /** "agent note" or "note about you". */
+  noun: string
+  place: number
+  movedTo: number | undefined
+  nowTitle: string | undefined
+}): string {
+  const moved =
+    input.movedTo !== undefined && input.movedTo !== input.place
+      ? ` The same text is now ${input.noun} ${input.movedTo}; close this and open it there to keep editing it.`
+      : ''
+  const now =
+    input.nowTitle !== undefined ? ` Now at this place: “${input.nowTitle}”.` : ''
+  return `${LOCKED_NOTICE}${moved}${now}`
+}
+
+/** Said above a draft used for the entry now here. */
+export function adoptedDraftNote(ownDraftKept: boolean): string {
+  return `This draft was written for the entry that was here before. Review it against this entry's text before saving; until you save or discard it, it stays kept for that entry.${
+    ownDraftKept
+      ? ' This entry also has an unsaved draft of its own, which stays kept.'
+      : ''
+  }`
+}
+
+/** Each discard control names its draft, so TalkBack users can tell them apart. */
+export const discardDraftLabel = (draft: string) => `Discard draft: ${titleOf(draft)}`
+
+/** The row of an open entry that is no longer listed at its place. */
+export const NO_LONGER_HERE = 'No longer at this place'
+export const CLOSE_NO_LONGER_HERE = 'Close the entry no longer at this place'
+
+/** What an open memory editor shows and allows (`entryEditorView`). */
+export interface EntryEditorView {
+  /** The row listed at the place is this entry. */
+  rowIsIt: boolean
+  /** Nothing can be saved or deleted (`editorLocked`). */
+  locked: boolean
+  /** Where this entry's own drafts are kept. */
+  ownKey: string | undefined
+  /** Where the draft being edited is kept: a used draft's own key, else `ownKey`. */
+  draftKey: string | undefined
+  /** Why nothing can be saved, when locked. */
+  lockNotice: string | undefined
+  /** The entry "Use this draft for the entry now here" would use the draft for. */
+  adoptTarget: MemoryEntrySummary | undefined
+  /** Said above a used draft. */
+  draftNote: string | undefined
+  /** Keep the draft while it is edited: a used draft stays kept for its own entry. */
+  keepDraft: boolean
+  /** What "Delete entry…" deletes, named by the text read under that id. */
+  deletes: { entry: MemoryEntry; title: string } | undefined
+}
+
+/**
+ * An open editor, from the entry it is bound to, the row listed at its place
+ * and the text it read (MemoryEntries.tsx renders it as it is; tests drive it
+ * without React Native).
+ */
+export function entryEditorView(input: {
+  binding: EditorBinding
+  adoptedFrom: string | undefined
+  row: MemoryEntrySummary | undefined
+  read: MemoryEntry | undefined
+  store: MemoryStore
+  /** 1-based place in its store. */
+  place: number
+  /** Where an identity is listed now (`placeNow`). */
+  placeNow: (identity: string | undefined) => number | undefined
+  /** Whether a draft is kept under a key. */
+  kept: (key: string) => boolean
+}): EntryEditorView {
+  const { binding, adoptedFrom, row, read } = input
+  const rowIsIt = rowIsEntry(row?.id, binding)
+  const locked = editorLocked(rowIsIt, readIsEntry(read?.id, binding.identity))
+  const ownKey = editorDraftKey(undefined, binding.identity)
+  const store = read?.store ?? row?.store ?? input.store
+  const noun = memoryStores.find((entry) => entry.store === store)?.noun ?? 'entry'
+  return {
+    rowIsIt,
+    locked,
+    ownKey,
+    draftKey: editorDraftKey(adoptedFrom, binding.identity),
+    lockNotice: locked
+      ? lockNotice({
+          noun,
+          place: input.place,
+          movedTo: input.placeNow(binding.identity),
+          nowTitle: row?.title,
+        })
+      : undefined,
+    adoptTarget: locked ? row : undefined,
+    draftNote:
+      adoptedFrom === undefined
+        ? undefined
+        : adoptedDraftNote(ownKey !== undefined && input.kept(ownKey)),
+    keepDraft: adoptedFrom !== undefined,
+    deletes: !locked && read ? { entry: read, title: titleOf(read.content) } : undefined,
+  }
+}
 
 /**
  * The last check before a write: the editor is not locked and the entry read
