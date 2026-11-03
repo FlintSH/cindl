@@ -6,6 +6,7 @@ import { asCindlError, NotSentError, protocolError } from './errors.ts'
 import type { SocketFactory, SocketLike, Timers } from './platform.ts'
 import type { RestClient } from './rest.ts'
 import {
+  RESTART_CLOSE_CODE,
   RpcChannel,
   type HermesEventParams,
   type InboundServerRequest,
@@ -140,6 +141,8 @@ export class HermesConnection {
   #epoch: number
   #replayEpoch: string | undefined
   #attempt = 0
+  /** Consecutive restarts since the link was last online; grows their backoff. */
+  #stalls = 0
   #retryTimer: unknown
   #running = false
   #generation = 0
@@ -173,6 +176,20 @@ export class HermesConnection {
     this.#running = true
     this.#attempt = 0
     void this.#connect()
+  }
+
+  /**
+   * Drop a live socket and reconnect with a fresh ticket. For a consumer that
+   * could not finish reconciling on it (a re-attach timed out): going online
+   * would leave conversations unattached, with their events and requests going
+   * nowhere. The link never reports online for that socket.
+   */
+  restart(detail: string): void {
+    const channel = this.#live
+    if (!this.#running || !channel || channel.closed) return
+    this.#stalls++
+    this.#log.log('warn', 'connection.restart', { detail: safeText(detail, 120) })
+    channel.close(RESTART_CLOSE_CODE, 'reconnecting', 'restart')
   }
 
   stop(): void {
@@ -226,6 +243,7 @@ export class HermesConnection {
         })
       }
       if (generation !== this.#generation || channel.closed) return
+      this.#stalls = 0
       this.#setState({ phase: 'online', handshake })
       // `ping` is on the v0.22.5 contract and answered cheaply; any inbound
       // frame counts as liveness, so a streaming turn never trips the deadline.
@@ -540,6 +558,17 @@ export class HermesConnection {
           'protocol',
           'This Hermes version closed the connection in a way v0.22.5 never does.',
           'close code 4000',
+        ),
+      )
+      return
+    }
+    if (info.initiatedBy === 'restart') {
+      this.#attempt = this.#stalls
+      this.#scheduleRetry(
+        new CindlError(
+          'timeout',
+          'Hermes was slow to restore conversations. Reconnecting.',
+          'reconciliation incomplete',
         ),
       )
       return

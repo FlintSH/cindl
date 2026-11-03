@@ -99,7 +99,8 @@ export interface InboundServerRequest {
 export interface RpcCloseInfo {
   code: number
   reason: string
-  initiatedBy: 'remote' | 'heartbeat' | 'local'
+  /** `restart`: the consumer could not finish reconciling on this socket (connection.ts `restart`). */
+  initiatedBy: 'remote' | 'heartbeat' | 'local' | 'restart'
 }
 
 export interface RpcChannelOptions {
@@ -130,6 +131,8 @@ const decoder = new TextDecoder()
 
 /** Close code Cindl uses when it gives up on a silent socket (any 4xxx is private use). */
 export const HEARTBEAT_CLOSE_CODE = 4100
+/** Close code for a socket the consumer could not finish reconciling on. */
+export const RESTART_CLOSE_CODE = 4101
 
 function frameText(data: unknown): string | undefined {
   if (typeof data === 'string') return data

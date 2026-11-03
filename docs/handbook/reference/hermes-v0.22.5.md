@@ -298,6 +298,15 @@ binds its session (`session.resume` attaches before it answers) is shown once
 the binding lands. While a card is open Cindl repeats the check every 15 s,
 because the sidecar does not report answers from other clients.
 
+The link goes online only once every conversation is re-attached. If Hermes
+answers a conversation's `session.resume` with an error (not found, or a
+failure on its side), that session counts as gone on this socket: it is
+detached, its requests close, the other conversations still re-attach, and
+opening it later tries again. If a re-attach times out while the socket is
+still up, Cindl drops that socket and reconnects with a fresh ticket instead
+of going online with conversations left unattached, whose events and requests
+would reach no one; repeated stalls back off like failed connects.
+
 ### Skipping a clarify set
 
 Cindl never sends an empty `{}` result. Hermes reads it as cancel-all: locked

@@ -152,6 +152,36 @@ describe('handshake refusals', () => {
   })
 })
 
+describe('restarting a stalled socket', () => {
+  it('drops a live socket and reconnects with a fresh ticket without reporting it online', async () => {
+    const fake = await fakeHermes()
+    let restartOnce = true
+    const rec = recorder({
+      onReady: (handshake) => {
+        // The consumer cannot finish reconciling on the first socket.
+        if (restartOnce && handshake.connectionEpoch === 1) {
+          restartOnce = false
+          conn.restart('reconciliation stalled (fixture)')
+        }
+        return Promise.resolve()
+      },
+    })
+    const conn = connection(fake, bearerRest(fake, fake.signIn()), rec)
+    conn.start()
+    const online = await rec.waitFor((s) => s.phase === 'online')
+    if (online.phase !== 'online') throw new Error('not online')
+    expect(online.handshake.connectionEpoch).toBe(2)
+    // Epoch 1 never reported online; the retry said why.
+    expect(rec.states.filter((s) => s.phase === 'online')).toHaveLength(1)
+    const retry = rec.states.find((s) => s.phase === 'reconnecting')
+    expect(retry?.phase === 'reconnecting' && retry.lastError?.code).toBe('timeout')
+    expect(fake.calls.filter((c) => c.name === 'POST /api/auth/ws-ticket')).toHaveLength(
+      2,
+    )
+    conn.stop()
+  })
+})
+
 describe('authority selection and version skew', () => {
   it('negotiates runtime.describe on a session-authority handshake and never sends sidecar methods', async () => {
     const fake = await fakeHermes({ sessionAuthority: true })

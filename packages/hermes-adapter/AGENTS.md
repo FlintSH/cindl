@@ -37,4 +37,6 @@ steer and process operations.
 - No telemetry, no external calls other than the configured Hermes origin.
 - Tests run against the fake Hermes server (`@cindl/fixtures/fake-hermes`)
   whose frames are validated against the vendored schemas. A test that only
-  checks a mock it wrote proves nothing.
+  checks a mock it wrote proves nothing. Drive interleavings and failures with
+  the fake's own controls (`beforeHandle`, `afterHandle`, `respondError`,
+  `failNext`, `frozen`, `dropConnections`) rather than mocks.

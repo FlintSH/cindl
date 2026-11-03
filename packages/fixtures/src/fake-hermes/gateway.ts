@@ -182,6 +182,10 @@ export class FakeGateway {
    * writes a frame while a handler finishes.
    */
   afterHandle: ((method: string, params: Json) => void) | undefined
+  /** Test hook: answer a request with this JSON-RPC error instead of handling it. */
+  respondError:
+    | ((method: string, params: Json) => { code: number; message: string } | undefined)
+    | undefined
   script: TurnScript = defaultScript
   readonly connections = new Set<FakeConnection>()
   readonly live = new Map<string, LiveSession>()
@@ -735,6 +739,11 @@ export class FakeGateway {
     }
     if (this.beforeHandle) await this.beforeHandle(method, params)
     if (!connection.open) return
+    const refused = this.respondError?.(method, params)
+    if (refused) {
+      connection.send(err(id, refused.code, refused.message))
+      return
+    }
     const fail = this.failNext.get(method)
     if (fail) this.failNext.delete(method)
     if (fail === 'error-5000') {

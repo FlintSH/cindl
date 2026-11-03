@@ -565,7 +565,7 @@ class DirectHermesClient implements DirectClient {
         if (
           (await this.#reattach(storedId, oldSid, epochChanged, handshake)) === 'abort'
         ) {
-          // The new socket failed too; keep every binding for the next attempt.
+          // The new socket failed or stalled; keep every binding for the next attempt.
           aborted = true
           break
         }
@@ -576,7 +576,13 @@ class DirectHermesClient implements DirectClient {
       this.#held = []
       for (const params of held) this.#dispatchEvent(params)
     }
-    if (aborted) return
+    if (aborted) {
+      // A re-attach timed out on a socket that is still up: going online now
+      // would leave the rest of the conversations unattached, their events and
+      // requests reaching no one. Reconnect and reconcile again instead.
+      if (this.#connection?.channel) this.#connection.restart('re-attach did not finish')
+      return
+    }
     void this.#flushOutbox()
     this.#scheduleListRefresh(0)
     void this.#probeDisplay()
@@ -604,15 +610,15 @@ class DirectHermesClient implements DirectClient {
       snapshot = await this.#resume(storedId, true)
     } catch (error) {
       if (isTransient(error)) return 'abort'
+      // Hermes answered, with an error: this session is gone for this socket
+      // (not found, or a resume that fails on its side). The rest still
+      // re-attach; opening the conversation later tries again.
       this.#log.log('warn', 'direct.reattach-failed', {
         code: asCindlError(error, 'resume').code,
       })
-      if (asCindlError(error, 'resume').code === 'not-found') {
-        this.#detachRuntime(storedId)
-        this.#syncRequests(storedId, [])
-        return 'gone'
-      }
-      return 'abort'
+      this.#detachRuntime(storedId)
+      this.#syncRequests(storedId, [])
+      return 'gone'
     }
     const newSid = snapshot.session_id
     const watermark = this.#watermark.get(oldSid)

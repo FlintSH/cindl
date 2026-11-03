@@ -917,38 +917,59 @@ describe('direct client: answer identity across reconnects', () => {
     expect(h.rpcCalls('request.answer')).toBe(1)
   })
 
-  it('fails an answer back to open when its request was last seen on an older connection', async () => {
-    // Reachable today: a re-attach that times out on a live socket ends reconciliation
-    // early and the link still goes online, so a request in a conversation that was not
-    // re-attached keeps its epoch-1 record while answers go out on epoch 2.
+  it('reconnects instead of going online when a re-attach stalls on a live socket', async () => {
+    // A re-attach that times out on a socket that is still up used to end
+    // reconciliation early and still go online, leaving later conversations
+    // unattached (their requests kept an older epoch and their events went nowhere).
     const h = await harness({ deps: { connection: { requestTimeoutMs: 300 } } })
-    await conversation(h, 'A')
+    const a = await conversation(h, 'A')
     approvalScript(h)
     const { c: b, request } = await openRequest(h, await conversation(h, 'B'))
     h.fake.gateway.failNext.set('session.resume', 'no-response')
     h.fake.gateway.dropConnections()
-    await online(h, 2)
-    expect(requestOf(h, request.requestId)?.lastSeenEpoch).toBe(1)
-    h.fake.gateway.failNext.set('request.answer', 'error-5000')
-    expect(await codeOf(approve(h, request.requestId, 'deny'))).toBe('unavailable')
-    // The failure belongs to the attempt in flight, so it unlocks the card.
+    await online(h, 3)
+    expect(h.store.getState().link.connectionEpoch).toBe(3)
+    // Every conversation is attached to the socket that went online.
+    for (const c of [a, b])
+      expect(h.fake.gateway.live.get(c.session.runtimeId ?? '')?.connections.size).toBe(1)
     expect(requestOf(h, request.requestId)).toMatchObject({
       status: 'open',
-      lastSeenEpoch: 2,
+      lastSeenEpoch: 3,
     })
-    expect(requestOf(h, request.requestId)?.answer).toBeUndefined()
-    // request.answer needs no attachment, so answering again still reaches Hermes.
     await approve(h, request.requestId, 'once')
-    expect(lifecycle(h, request.requestId, b.id)).toEqual([
-      ['opened', 'open', 1, null],
-      ['opened', 'answering', 2, 'deny'],
-      ['failed', 2],
-      ['opened', 'answering', 2, 'once'],
-      ['closed', 'answered', 2, 'once'],
+    expect(lifecycle(h, request.requestId, b.id).slice(-2)).toEqual([
+      ['opened', 'answering', 3, 'once'],
+      ['closed', 'answered', 3, 'once'],
     ])
-    expect(requestOf(h, request.requestId)).toMatchObject({
-      status: 'answered',
-      answer: { kind: 'approval', choice: 'once' },
+  })
+
+  it('skips a session whose resume fails and re-attaches the others', async () => {
+    const h = await harness()
+    const a = await conversation(h, 'A')
+    approvalScript(h)
+    const { c: b, request: bad } = await openRequest(h, await conversation(h, 'B'))
+    const { c, request: good } = await openRequest(h, await conversation(h, 'C'))
+    // Hermes answers B's resume with an error every time.
+    h.fake.gateway.respondError = (method, params) =>
+      method === 'session.resume' && params.session_id === b.id
+        ? { code: 5000, message: 'resume failed (fixture)' }
+        : undefined
+    h.fake.gateway.dropConnections()
+    await online(h, 2)
+    expect(h.store.getState().link.connectionEpoch).toBe(2)
+    // B counts as gone here: detached, its request closed on this client.
+    expect(
+      entry(h.store.getState().conversations, b.id)?.session.runtimeId,
+    ).toBeUndefined()
+    expect(requestOf(h, bad.requestId)?.status).toBe('resolved-elsewhere')
+    // The loop went on: A and C are attached and C's request is re-listed.
+    for (const conv of [a, c])
+      expect(
+        h.fake.gateway.live.get(conv.session.runtimeId ?? '')?.connections.size,
+      ).toBe(1)
+    expect(requestOf(h, good.requestId)).toMatchObject({
+      status: 'open',
+      lastSeenEpoch: 2,
     })
   })
 })
