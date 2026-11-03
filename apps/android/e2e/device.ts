@@ -7,10 +7,12 @@ import {
   auditTargets,
   find,
   findTappable,
+  imeWindow,
   keepCapture,
   label,
   onlyApp,
   onlyAppInFront,
+  parseDisplaySize,
   parseKeyboard,
   parseUi,
   rawPixel,
@@ -19,6 +21,8 @@ import {
   type Match,
   type TargetAudit,
   type UiNode,
+  visibleKeyboard,
+  type VisibleKeyboard,
 } from './ui.ts'
 
 export const PACKAGE = 'dev.fl1nt.cindl'
@@ -258,6 +262,27 @@ export function createDevice(options: {
   const keyboard = (): KeyboardState =>
     parseKeyboard(shell('dumpsys window InputMethod'), shell('dumpsys input_method'))
 
+  /** The display's size (`wm size`), read once; undefined when the device does not say. */
+  let displaySize: { width: number; height: number } | undefined
+  const display = () => {
+    try {
+      return (displaySize ??= parseDisplaySize(shell('wm size')))
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Whether the keyboard is on screen, from its window's geometry in
+   * `dumpsys window windows` (ui.ts visibleKeyboard), not from flags.
+   */
+  const keyboardOnScreen = (): VisibleKeyboard =>
+    visibleKeyboard(
+      imeWindow(shell('dumpsys window windows')),
+      shell('dumpsys input_method'),
+      display(),
+    )
+
   const launch = () => {
     shell(`am start -W -n ${PACKAGE}/.MainActivity`, 90_000)
   }
@@ -300,6 +325,7 @@ export function createDevice(options: {
     density,
     audit,
     keyboard,
+    keyboardOnScreen,
     launch,
     health,
     lastXml: () => lastXml,

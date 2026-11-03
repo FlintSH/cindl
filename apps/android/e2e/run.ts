@@ -24,6 +24,7 @@ import { startFakeHermes, type FakeHermes } from '@cindl/fixtures/fake-hermes'
 import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
 import { SECURE_STORE_FILE, tokenStorage, type TokenStorage } from './keystore.ts'
 import { runExitCode, type StepStatus } from './outcome.ts'
+import { keyboardMoment, settledKeyboard } from './keyboard.ts'
 import { heldControl, inControl } from './screenControl.ts'
 import { DeviceLogs, RunSecrets, watchFakeHermes } from './secrets.ts'
 import {
@@ -217,6 +218,13 @@ const DESTINATIONS: Array<[string, Match]> = [
 function ensureApp() {
   const focus = device.shell('dumpsys window | grep -E "mCurrentFocus" || true')
   if (!focus.includes(`${PACKAGE}/`)) device.launch()
+}
+
+/** The keyboard step reads the device through this (e2e/keyboard.ts). */
+const keyboardReader = {
+  onScreen: () => device.keyboardOnScreen(),
+  sleep: (ms: number) => sleep(ms),
+  now: () => Date.now(),
 }
 
 /**
@@ -698,33 +706,38 @@ async function demoSuite() {
   await step('Chat with the on-screen keyboard open', async ({ note, shot }) => {
     await startOnTalk()
     await device.tap(isComposer, 'the composer')
-    await sleep(1500)
-    let keyboard = device.keyboard()
-    if (!keyboard.shown) {
+    // On screen, not only "shown": its window's geometry (ui.ts visibleKeyboard). CI run
+    // 41681122382 passed on a keyboard Android called shown, its top at the display's
+    // bottom edge, with nothing on screen.
+    let keyboard = await settledKeyboard(keyboardReader, 8_000)
+    if (!keyboard) {
+      // Once more: closed first if Android holds it shown but not on screen.
+      if (device.keyboard().shown) await device.key('KEYCODE_BACK')
       await device.tap(isComposer, 'the composer')
-      await sleep(1500)
-      keyboard = device.keyboard()
+      keyboard = await settledKeyboard(keyboardReader, 8_000)
     }
-    if (!keyboard.shown)
-      throw new Error('The on-screen keyboard did not open for the composer')
-    const { root, node } = await device.waitFor(
-      isComposer,
-      'the composer above the keyboard',
-    )
-    shot('keyboard')
-    if (keyboard.top === undefined) {
-      note(
-        'keyboard open; its top edge was not reported by dumpsys, so overlap was not measured (see screenshot)',
-      )
-    } else if (node.bounds.bottom > keyboard.top + 2) {
+    if (!keyboard)
       throw new Error(
-        `The keyboard covers the composer (composer bottom ${node.bounds.bottom}px, keyboard top ${keyboard.top}px)`,
+        `No on-screen keyboard appeared for the composer (two taps, 8 s each): ${device.keyboardOnScreen().geometry}`,
       )
-    } else {
-      note(
-        `composer bottom ${node.bounds.bottom}px is above the keyboard top ${keyboard.top}px`,
+    const moment = await keyboardMoment(keyboardReader, async (attempt) => {
+      const found = await device.waitFor(isComposer, 'the composer above the keyboard')
+      shot(attempt === 1 ? 'keyboard' : `keyboard-try-${attempt}`)
+      return found
+    })
+    if (!moment)
+      throw new Error(
+        `The keyboard did not hold still across the composer's dump and screenshot (3 tries): ${device.keyboardOnScreen().geometry}`,
       )
-    }
+    const { root, node } = moment.at
+    note(`keyboard, read with the composer's bounds: ${moment.keyboard.geometry}`)
+    if (node.bounds.bottom > moment.keyboard.top)
+      throw new Error(
+        `The keyboard covers the composer (composer bottom ${node.bounds.bottom}px, keyboard top ${moment.keyboard.top}px)`,
+      )
+    note(
+      `composer bottom ${node.bounds.bottom}px is at or above the keyboard's top ${moment.keyboard.top}px (${moment.keyboard.height}px of it on screen)`,
+    )
     if (navItem(root, 'Library'))
       throw new Error('The bottom navigation stayed visible over the keyboard')
     note('bottom navigation hidden while the keyboard is open')

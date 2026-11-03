@@ -526,10 +526,15 @@ export function touchTargetsRow(
   return { status: 'passed', detail: [`${measured} targets on ${audits.length} screens`] }
 }
 
+/**
+ * Whether Android says the on-screen keyboard is shown: a flag, or its window
+ * visible with a surface. It may not be on screen (CI run 41681122382: shown,
+ * its frame's top at the display's bottom edge), so steps use it only to
+ * close the keyboard with system back; `visibleKeyboard` says whether it is
+ * on screen.
+ */
 export interface KeyboardState {
   shown: boolean
-  /** Screen y of the keyboard's top edge, when the window dump reports it. */
-  top?: number
 }
 
 /**
@@ -584,30 +589,127 @@ export function keepCapture(before: string, after: string, pkg: string): boolean
   )
 }
 
-/**
- * Reads `dumpsys window InputMethod` (plus `dumpsys input_method` for the
- * shown flag). The visible keyboard starts at the window frame's top plus its
- * given content inset.
- */
+/** The input_method dump says the keyboard is shown (older releases print the flag there). */
+const saysShown = (inputMethodDump: string) =>
+  /\bm?InputShown=true\b|\bisInputViewShown=true\b|\bmIsInputViewShown=true\b/.test(
+    inputMethodDump,
+  )
+
+/** Reads `dumpsys window InputMethod` and `dumpsys input_method` (`KeyboardState`). */
 export function parseKeyboard(
   windowDump: string,
   inputMethodDump: string,
 ): KeyboardState {
-  // Older releases report the flag in input_method; newer ones may only show the window as visible.
-  const shown =
-    /\bm?InputShown=true\b|\bisInputViewShown=true\b|\bmIsInputViewShown=true\b/.test(
-      inputMethodDump,
-    ) ||
-    (/\bmViewVisibility=0x0\b/.test(windowDump) &&
-      /\bmHasSurface=true\b/.test(windowDump))
-  const frame = /\b(?:mFrame|frame)=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]/.exec(
-    windowDump,
+  return {
+    shown:
+      saysShown(inputMethodDump) ||
+      (/\bmViewVisibility=0x0\b/.test(windowDump) &&
+        /\bmHasSurface=true\b/.test(windowDump)),
+  }
+}
+
+/** The display's size from `wm size` (an override wins), or undefined. */
+export function parseDisplaySize(
+  wmSize: string,
+): { width: number; height: number } | undefined {
+  const size =
+    /Override size: (\d+)x(\d+)/.exec(wmSize) ?? /Physical size: (\d+)x(\d+)/.exec(wmSize)
+  return size ? { width: Number(size[1]), height: Number(size[2]) } : undefined
+}
+
+/**
+ * The input method's window in `dumpsys window windows` (which prints every
+ * window in full, its visibility and insets too): from its `Window #n
+ * Window{… InputMethod}:` line to the next window's. Undefined without one.
+ */
+export function imeWindow(windowsDump: string): string | undefined {
+  const lines = windowsDump.split('\n')
+  const start = lines.findIndex((line) =>
+    /^\s*Window #\d+ Window\{\S+ \S+ InputMethod\}:/.test(line),
   )
-  if (!shown || !frame) return { shown }
-  const inset = /mGivenContentInsets=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]/.exec(
-    windowDump,
+  if (start < 0) return undefined
+  const end = lines.findIndex(
+    (line, index) => index > start && /^\s*Window #\d+ /.test(line),
   )
-  return { shown, top: Number(frame[2]) + Number(inset?.[2] ?? 0) }
+  return lines.slice(start, end < 0 ? undefined : end).join('\n')
+}
+
+export interface VisibleKeyboard {
+  /**
+   * On screen: its window visible, with a surface, and the area from its top
+   * to its frame's bottom not empty and inside the display.
+   */
+  visible: boolean
+  /** Screen y of its top edge: the frame's top plus the smaller of the insets it gives. */
+  top?: number
+  /** Its height on screen, in pixels. */
+  height?: number
+  /** What was read, numbers and flags only (nothing typed or shown), for the report. */
+  geometry: string
+}
+
+const insetTop = (block: string, name: string) => {
+  const inset = new RegExp(`\\b${name}=\\[-?\\d+,(-?\\d+)\\]\\[-?\\d+,-?\\d+\\]`).exec(
+    block,
+  )
+  return inset ? Number(inset[1]) : undefined
+}
+
+/**
+ * Whether the on-screen keyboard is on screen, from its window's geometry
+ * (`imeWindow`) and the display's size, not from flags: a keyboard Android
+ * says is shown can be off the screen, empty, or gone (CI run 41681122382:
+ * its top at the display's bottom edge, nothing on screen).
+ */
+export function visibleKeyboard(
+  window: string | undefined,
+  inputMethodDump: string,
+  display: { width: number; height: number } | undefined,
+): VisibleKeyboard {
+  const said = `input_method ${saysShown(inputMethodDump) ? 'says shown' : 'does not say shown'}`
+  const screen = display
+    ? `display ${display.width}x${display.height}`
+    : 'display size unknown'
+  if (window === undefined)
+    return { visible: false, geometry: `no input method window; ${said}; ${screen}` }
+  const flag = (pattern: RegExp) => pattern.exec(window)?.[1]
+  const view = flag(/\bmViewVisibility=(0x[0-9a-f]+)\b/)
+  const surface = flag(/\bmHasSurface=(true|false)\b/)
+  const isVisible = flag(/\bisVisible=(true|false)\b/)
+  const frame = /\b(?:frame|mFrame)=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]/.exec(window)
+  const content = insetTop(window, 'mGivenContentInsets')
+  const seen = insetTop(window, 'mGivenVisibleInsets')
+  const [left, frameTop, right, bottom] = frame
+    ? frame.slice(1, 5).map(Number)
+    : [undefined, undefined, undefined, undefined]
+  const insets = [content, seen].filter((value) => value !== undefined)
+  const inset = insets.length > 0 ? Math.min(...insets) : 0
+  const top = frameTop === undefined ? undefined : frameTop + inset
+  const height =
+    top === undefined || bottom === undefined || display === undefined
+      ? undefined
+      : Math.min(bottom, display.height) - top
+  const geometry = [
+    `window view ${view ?? 'unreported'}, surface ${surface ?? 'unreported'}, isVisible ${isVisible ?? 'unreported'}`,
+    frame ? `frame [${left},${frameTop}][${right},${bottom}]` : 'no frame',
+    `content inset top ${content ?? 'unreported'}, visible inset top ${seen ?? 'unreported'}`,
+    said,
+    screen,
+  ].join('; ')
+  const visible =
+    view === '0x0' &&
+    surface === 'true' &&
+    isVisible !== 'false' &&
+    display !== undefined &&
+    top !== undefined &&
+    height !== undefined &&
+    left !== undefined &&
+    right !== undefined &&
+    right > left &&
+    top >= 0 &&
+    top < display.height &&
+    height > 0
+  return visible ? { visible, top, height, geometry } : { visible, geometry }
 }
 
 /** Words that mean a screen asks to accept terms; the tests must stop there, never accept. */

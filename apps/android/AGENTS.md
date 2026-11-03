@@ -66,7 +66,9 @@ Working here:
   outcome in `e2e/outcome.ts`, where a blocked step fails the job, and the
   token-storage evidence in `e2e/keystore.ts`, which searches every file of
   the app's storage and the device log for the tokens the fake issued and
-  keeps facts, never a value) are unit-tested in `test/e2e.test.ts`; the
+  keeps facts, never a value) are unit-tested in `test/e2e.test.ts`, and the
+  keyboard step's settle and one-moment reads (`e2e/keyboard.ts`) in
+  `test/e2e-keyboard.test.ts`; the
   in-control order of `e2e/screenControl.ts` (check, then give control back)
   runs on loopback against the fake Hermes in `test/e2e-screen.test.ts`. Use
   accessibility labels as selectors, so a renamed label breaks a test rather
@@ -77,3 +79,6 @@ Working here:
   placeholder; tested in `test/e2e-secrets.test.ts`), and the browser is
   never captured (`device.screenshot` keeps a capture only when Cindl alone is
   in front, and none when unsure).
+- Parse device output from a real run's lines, and judge what is on screen by
+  its geometry, never a flag: logcat's UID column and a "shown" keyboard
+  both differed on the device from what the code assumed (run 41681122382).

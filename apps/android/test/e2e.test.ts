@@ -14,6 +14,7 @@ import {
   findAll,
   findTappable,
   hiddenBeneath,
+  imeWindow,
   interactiveWithin,
   label,
   linkTapPoints,
@@ -24,6 +25,7 @@ import {
   reachable,
   screenToDevice,
   wholeView,
+  parseDisplaySize,
   parseKeyboard,
   parseUi,
   TERMS_PROMPT,
@@ -31,6 +33,7 @@ import {
   tapTarget,
   touchTargetsRow,
   type TargetAudit,
+  visibleKeyboard,
 } from '../e2e/ui.ts'
 
 const PKG = 'dev.fl1nt.cindl'
@@ -190,12 +193,11 @@ describe('UI Automator dumps', () => {
     ).toEqual(['Retry'])
   })
 
-  it('reads whether the keyboard is shown and where its top edge is', () => {
+  it('reads whether Android says the keyboard is shown (used only to close it)', () => {
     const window =
-      'Window #5 Window{1 u0 InputMethod}:\n    mFrame=[0,1500][1080,2400] last=[0,1500][1080,2400]\n    mGivenContentInsets=[0,120][0,0] mGivenVisibleInsets=[0,120][0,0]'
+      'Window #5 Window{1 u0 InputMethod}:\n    mFrame=[0,1500][1080,2400] last=[0,1500][1080,2400]'
     expect(parseKeyboard(window, 'mInputShown=true mShowRequested=true')).toEqual({
       shown: true,
-      top: 1620,
     })
     expect(parseKeyboard(window, 'mInputShown=false')).toEqual({ shown: false })
     expect(parseKeyboard('no frame here', 'isInputViewShown=true')).toEqual({
@@ -207,7 +209,7 @@ describe('UI Automator dumps', () => {
         `${window}\n    mViewVisibility=0x0 mHaveFrame=true\n    mHasSurface=true`,
         '',
       ),
-    ).toEqual({ shown: true, top: 1620 })
+    ).toEqual({ shown: true })
     expect(
       parseKeyboard(`${window}\n    mViewVisibility=0x8\n    mHasSurface=false`, ''),
     ).toEqual({ shown: false })
@@ -959,5 +961,136 @@ describe('the 48dp row (delta check of c6ce4d3)', () => {
         { screen: '03-work', ...audit(4) },
       ]),
     ).toEqual({ status: 'passed', detail: ['9 targets on 2 screens'] })
+  })
+})
+
+describe('a keyboard on screen, not only shown (CI run 41681122382)', () => {
+  // That run's "Chat with the on-screen keyboard open" passed on a keyboard Android
+  // called shown, with its top at 2400 px on a 1080x2400 display, while
+  // 23-keyboard.png shows none. Its artifact holds no dumpsys text, so these blocks
+  // follow AOSP's full window dump (`dumpsys window windows`) with that run's
+  // display and keyboard (LatinIME, uid 10113); the values are illustrative.
+  const DISPLAY = { width: 1080, height: 2400 }
+  const ime = (
+    options: {
+      view?: string
+      surface?: string
+      isVisible?: string
+      frame?: string
+      content?: number
+      seen?: number
+    } = {},
+  ) => {
+    const {
+      view = '0x0',
+      surface = 'true',
+      isVisible = 'true',
+      frame = '[0,1377][1080,2400]',
+      content = 0,
+      seen = content,
+    } = options
+    return [
+      '  Window #7 Window{8c1f2e3 u0 InputMethod}:',
+      '    mDisplayId=0 rootTaskId=1 mSession=Session{4ad2b1c 1290:u0a10113} mClient=android.os.BinderProxy@6e1f2a7',
+      '    mOwnerUid=10113 showForAllUsers=true package=com.android.inputmethod.latin appop=NONE',
+      '    mAttrs={(0,0)(fillxwrap) gr=BOTTOM CENTER_VERTICAL sim={adjust=pan} ty=INPUT_METHOD fmt=TRANSPARENT wanim=0x1030056',
+      '      fl=NOT_FOCUSABLE LAYOUT_IN_SCREEN SPLIT_TOUCH HARDWARE_ACCELERATED DRAWS_SYSTEM_BAR_BACKGROUNDS}',
+      '    Requested w=1080 h=1023 mLayoutSeq=412',
+      '    mIsImWindow=true mIsWallpaper=false mIsFloatingLayer=true',
+      `    mViewVisibility=${view} mHaveFrame=true mObscured=false`,
+      `    mGivenContentInsets=[0,${content}][0,0] mGivenVisibleInsets=[0,${seen}][0,0]`,
+      '    mTouchableInsets=3 mGivenInsetsPending=false',
+      `    mHasSurface=${surface} isReadyForDisplay()=${surface} mWindowRemovalAllowed=false`,
+      `    Frames: parent=[0,0][1080,2400] display=[0,0][1080,2400] frame=${frame} last=${frame} insetsChanged=false`,
+      '     surface=[0,0][0,0]',
+      '    isOnScreen=true',
+      `    isVisible=${isVisible}`,
+    ].join('\n')
+  }
+  // The app's own window around it, visible, over the whole display.
+  const APP = [
+    '  Window #6 Window{623897a u0 dev.fl1nt.cindl/dev.fl1nt.cindl.MainActivity}:',
+    '    mViewVisibility=0x0 mHaveFrame=true mObscured=false',
+    '    mGivenContentInsets=[0,0][0,0] mGivenVisibleInsets=[0,0][0,0]',
+    '    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false',
+    '    Frames: parent=[0,0][1080,2400] display=[0,0][1080,2400] frame=[0,0][1080,2400] last=[0,0][1080,2400] insetsChanged=false',
+    '    isVisible=true',
+  ].join('\n')
+  const NAV = '  Window #8 Window{3b1d9e4 u0 NavigationBar0}:\n    mViewVisibility=0x0'
+  const windows = (block: string) =>
+    `WINDOW MANAGER WINDOWS (dumpsys window windows)\n${APP}\n${block}\n${NAV}\n`
+  const read = (block: string, inputMethod = 'mInputShown=true') =>
+    visibleKeyboard(imeWindow(windows(block)), inputMethod, DISPLAY)
+
+  it('finds a keyboard on screen: its top inside the display and some height below it', () => {
+    expect(read(ime())).toEqual({
+      visible: true,
+      top: 1377,
+      height: 1023,
+      geometry:
+        'window view 0x0, surface true, isVisible true; frame [0,1377][1080,2400]; content inset top 0, visible inset top 0; input_method says shown; display 1080x2400',
+    })
+    // The insets it gives move its top down; the smaller of them counts.
+    expect(read(ime({ content: 120, seen: 60 }))).toMatchObject({
+      top: 1437,
+      height: 963,
+    })
+    // Without any flag in input_method: the window decides.
+    expect(read(ime(), '')).toMatchObject({ visible: true, top: 1377 })
+  })
+
+  it('finds none where Android says shown but nothing is on screen', () => {
+    // That run's case: its input view hidden, so its insets reach the frame's bottom.
+    expect(read(ime({ content: 1023 }))).toEqual({
+      visible: false,
+      geometry:
+        'window view 0x0, surface true, isVisible true; frame [0,1377][1080,2400]; content inset top 1023, visible inset top 1023; input_method says shown; display 1080x2400',
+    })
+    // Off the screen: laid out below the display.
+    expect(read(ime({ frame: '[0,2400][1080,3423]' })).visible).toBe(false)
+    // No height.
+    expect(read(ime({ frame: '[0,2400][1080,2400]' })).visible).toBe(false)
+    expect(read(ime({ frame: '[0,1377][1080,1377]' })).visible).toBe(false)
+    // Stale "shown": the window gone, its last frame still printed.
+    expect(read(ime({ view: '0x8', surface: 'false', isVisible: 'false' })).visible).toBe(
+      false,
+    )
+    expect(read(ime({ isVisible: 'false' })).visible).toBe(false)
+    expect(read(ime({ surface: 'false' })).visible).toBe(false)
+  })
+
+  it("reads only the keyboard's own window, and fails closed without it or the display", () => {
+    // The app's window is visible over the whole display; it is not the keyboard.
+    expect(
+      visibleKeyboard(imeWindow(`${APP}\n${NAV}\n`), 'mInputShown=true', DISPLAY),
+    ).toEqual({
+      visible: false,
+      geometry: 'no input method window; input_method says shown; display 1080x2400',
+    })
+    expect(imeWindow(windows(ime()))).not.toContain('MainActivity')
+    expect(imeWindow(windows(ime()))).not.toContain('NavigationBar0')
+    expect(visibleKeyboard(imeWindow(windows(ime())), '', undefined).visible).toBe(false)
+    // An older release's frame line.
+    expect(
+      visibleKeyboard(
+        ime().replace(
+          /Frames: .*/,
+          'mFrame=[0,1377][1080,2400] last=[0,1377][1080,2400]',
+        ),
+        '',
+        DISPLAY,
+      ),
+    ).toMatchObject({ visible: true, top: 1377, height: 1023 })
+  })
+
+  it('reads the display size, an override first', () => {
+    expect(parseDisplaySize('Physical size: 1080x2400\n')).toEqual(DISPLAY)
+    expect(
+      parseDisplaySize('Physical size: 1080x2400\nOverride size: 720x1600\n'),
+    ).toEqual({
+      width: 720,
+      height: 1600,
+    })
+    expect(parseDisplaySize('')).toBeUndefined()
   })
 })

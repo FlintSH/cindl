@@ -390,6 +390,10 @@ else if (verb === 'exec-out' && command === 'screencap') {
 }
 else if (verb === 'shell' && command === 'logcat -d -b crash') say('')
 else if (verb === 'shell' && command.startsWith('logcat -d -s')) say((env.FAKE_ADB_LOG ?? '') + '\\n')
+else if (verb === 'shell' && command === 'dumpsys window windows') say(env.FAKE_ADB_WINDOWS ?? '')
+else if (verb === 'shell' && command === 'dumpsys window InputMethod') say(env.FAKE_ADB_IME_WINDOW ?? '')
+else if (verb === 'shell' && command === 'dumpsys input_method') say('mInputShown=true\\n')
+else if (verb === 'shell' && command === 'wm size') say('Physical size: 1080x2400\\n')
 else {
   process.stderr.write('fake adb: unexpected ' + process.argv.slice(2).join(' ') + '\\n')
   process.exit(1)
@@ -545,6 +549,40 @@ describe('what the device helper keeps', () => {
         'FAKE_ADB_MARK',
         'FAKE_ADB_AFTER',
       ])
+        Reflect.deleteProperty(process.env, key)
+    }
+  })
+
+  it("reads the keyboard's geometry from every window in full, not the short window dump", () => {
+    const dir = scratch()
+    const adb = join(dir, 'adb')
+    writeFileSync(adb, FAKE_ADB, { mode: 0o755 })
+    const device = createDevice({ adb, out: dir })
+    // `dumpsys window InputMethod` leaves out the window's visibility and insets;
+    // `dumpsys window windows` prints them (CI run 41681122382's keyboard: "shown",
+    // its top at the display's bottom edge).
+    const block = (insetTop: number) =>
+      [
+        '  Window #7 Window{8c1f2e3 u0 InputMethod}:',
+        '    mViewVisibility=0x0 mHaveFrame=true mObscured=false',
+        `    mGivenContentInsets=[0,${insetTop}][0,0] mGivenVisibleInsets=[0,${insetTop}][0,0]`,
+        '    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false',
+        '    Frames: parent=[0,0][1080,2400] display=[0,0][1080,2400] frame=[0,1377][1080,2400] last=[0,1377][1080,2400] insetsChanged=false',
+        '    isVisible=true',
+      ].join('\n')
+    try {
+      process.env.FAKE_ADB_IME_WINDOW = block(0)
+      process.env.FAKE_ADB_WINDOWS = `WINDOW MANAGER WINDOWS (dumpsys window windows)\n${block(1023)}\n`
+      expect(device.keyboard().shown).toBe(true)
+      expect(device.keyboardOnScreen()).toMatchObject({ visible: false })
+      process.env.FAKE_ADB_WINDOWS = `WINDOW MANAGER WINDOWS (dumpsys window windows)\n${block(0)}\n`
+      expect(device.keyboardOnScreen()).toMatchObject({
+        visible: true,
+        top: 1377,
+        height: 1023,
+      })
+    } finally {
+      for (const key of ['FAKE_ADB_IME_WINDOW', 'FAKE_ADB_WINDOWS'])
         Reflect.deleteProperty(process.env, key)
     }
   })

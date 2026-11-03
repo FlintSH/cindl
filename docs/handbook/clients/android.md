@@ -151,10 +151,22 @@ until the owner decides about those terms.
   edit; the demo's synthetic screen drawn live in Work, Computer (a pixel
   of its desktop read back from the screen) and, after taking control, a tap
   drawing its orange pointer marker where it landed; sending a message with the
-  on-screen keyboard open (composer above the keyboard, navigation hidden);
-  every touch target at least 48dp; 200% font size and dark theme; a draft
+  on-screen keyboard open, navigation hidden: the keyboard on screen, not only
+  shown (its window visible, with its top inside the display and some height
+  below it, read in full from `dumpsys window windows`), and the composer's
+  bottom at or above that top, both read at one moment (the keyboard read
+  before and after the composer's dump and screenshot, unchanged; the step
+  notes that geometry, numbers and flags only, and fails if no keyboard
+  appears on screen); every touch target at least 48dp; 200% font size and dark theme; a draft
   surviving background, rotation, activity recreation; a cold start after the
   process is killed.
+
+  Not shown on the runners yet: the on-screen keyboard. Run 41681122382
+  passed that step on a keyboard Android called shown, with its top at the
+  display's bottom edge and none on screen; the step now fails on that. That
+  run's ImeTracker lines point to the cause: the keyboard's show animation
+  and the window manager's control of it both timed out.
+
 - **Production APK:** the sign-in screen (no demo data); sign-in through the
   emulator's browser (the AOSP image has no Chrome: run 41593367518 logged
   `org.chromium.webview_shell/.WebViewBrowserActivity`, which opens the page as
