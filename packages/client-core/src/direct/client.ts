@@ -255,6 +255,8 @@ class DirectHermesClient implements DirectClient {
   #run = 0
   #discoveryRetry: unknown
   #discoveryAttempt = 0
+  /** A link was reported: from then on a new subscriber is told the state so far. */
+  #reported = false
   /** Cookie mode: the session check in flight, so a tick and a cue share one request. */
   #sessionCheck: Promise<void> | undefined
   #unwatchSession: (() => void) | undefined
@@ -299,7 +301,28 @@ class DirectHermesClient implements DirectClient {
 
   subscribe(listener: (event: CindlEvent) => void): () => void {
     this.#listeners.add(listener)
+    // A subscriber that joins late, such as a renderer an error boundary
+    // remounted with a new store, is told what the others already know.
+    // Before the first link there is nothing to tell.
+    if (this.#reported) for (const event of this.#known()) this.#deliver(listener, event)
     return () => this.#listeners.delete(listener)
+  }
+
+  /** This client's state so far, as the events that build it in a new store. */
+  #known(): CindlEvent[] {
+    const known: CindlEvent[] = [
+      { type: 'link.changed', link: this.#link },
+      { type: 'capabilities.changed', capabilities: this.#capabilities },
+    ]
+    for (const conversation of this.#conversations.values())
+      known.push({ type: 'conversation.upserted', conversation })
+    for (const prompt of this.#prompts.values())
+      known.push({ type: 'prompt.updated', prompt })
+    for (const { request } of this.#requests.values())
+      known.push({ type: 'request.opened', request })
+    if (this.#display.status)
+      known.push({ type: 'display.changed', display: this.#displayState() })
+    return known
   }
 
   async call<K extends OpName>(name: K, args: OpArgs<K>): Promise<OpResult<K>> {
@@ -1187,6 +1210,7 @@ class DirectHermesClient implements DirectClient {
   }
 
   #emit(event: CindlEvent): void {
+    if (event.type === 'link.changed') this.#reported = true
     if (event.type === 'session.status') {
       const conversation = this.#conversations.get(event.conversationId)
       if (conversation && conversation.status !== event.status)
@@ -1195,14 +1219,16 @@ class DirectHermesClient implements DirectClient {
           status: event.status,
         })
     }
-    for (const listener of [...this.#listeners]) {
-      try {
-        listener(event)
-      } catch (error) {
-        this.#log.log('error', 'direct.listener-failed', {
-          error: error instanceof Error ? error.name : 'unknown',
-        })
-      }
+    for (const listener of [...this.#listeners]) this.#deliver(listener, event)
+  }
+
+  #deliver(listener: (event: CindlEvent) => void, event: CindlEvent): void {
+    try {
+      listener(event)
+    } catch (error) {
+      this.#log.log('error', 'direct.listener-failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      })
     }
   }
 

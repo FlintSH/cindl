@@ -7,6 +7,13 @@ The adapter normalizes Hermes wire notifications into these events, so
 name. `client-core` reduces each event into one state tree with a pure
 reducer; UI code never writes to that state directly.
 
+The direct client tells a subscriber that joins after its first link what it
+already knows, as the events that build it: the link, the capabilities, its
+conversations, pending prompts, open requests and the screen. A renderer
+remounted with a new store, after an error boundary, so never waits on a link
+that has already settled. A subscriber that joins before the first link hears
+only what comes next.
+
 The Hermes-to-Cindl mapping belongs to the live transport, which is not built
 yet (see the [acceptance matrix](../project/acceptance-matrix.md)). Today the
 events that describe Hermes's state come only from the synthetic demo scenario

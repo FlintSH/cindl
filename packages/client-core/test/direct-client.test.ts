@@ -9,6 +9,7 @@ import { describe, expect, it } from 'vitest'
 import { nativeTokensKey, webCryptoProvider } from '@cindl/hermes-adapter'
 import {
   createDirectClient,
+  createStore,
   entry,
   selectOpenRequests,
   sha256Hex,
@@ -1856,5 +1857,45 @@ describe('direct client: refusals', () => {
     await expect(h.client.call('auth.signOut', {})).resolves.toEqual({ localOnly: true })
     expect(h.store.getState().link.phase).toBe('signed-out')
     expect(h.secrets.map.size).toBe(0)
+  })
+})
+
+describe('direct client: a subscriber that joins late', () => {
+  it('is told the link, capabilities, conversations and open requests so far', async () => {
+    const h = await harness()
+    approvalScript(h)
+    const { c, request } = await openRequest(h)
+    // An error boundary remounts the renderer, whose new store subscribes now.
+    const late = createStore({
+      phase: 'connecting',
+      since: '2026-01-01T00:00:00.000Z',
+      connectionEpoch: 0,
+    })
+    h.client.subscribe((event) => late.dispatch(event))
+    const state = late.getState()
+    expect(state.link).toEqual(h.store.getState().link)
+    expect(state.link.phase).toBe('online')
+    expect(state.capabilities).toEqual(h.store.getState().capabilities)
+    expect(entry(state.conversations, c.id)?.title).toBe(c.title)
+    expect(entry(state.requests, request.requestId)?.status).toBe('open')
+  })
+
+  it('hears nothing before the client has reported a link', async () => {
+    const fake = await fakeHermes()
+    const client = createDirectClient({
+      origin: fake.origin,
+      auth: 'native-pkce',
+      fetch: (url, init) => fetch(url, init),
+      socketFactory: () => {
+        throw new Error('not used (fixture)')
+      },
+      clock: systemClock,
+      kv: memoryKv(),
+      secrets: memorySecrets(),
+      crypto: webCryptoProvider(),
+    })
+    const events: CindlEvent[] = []
+    client.subscribe((event) => events.push(event))
+    expect(events).toEqual([])
   })
 })
