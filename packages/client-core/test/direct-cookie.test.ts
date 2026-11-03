@@ -504,3 +504,35 @@ describe('direct client in cookie mode: open request cards when the session ends
     expect(requestStatus(b, request.requestId)).toBe('cancelled')
   })
 })
+
+describe('direct client in cookie mode: confirming a sign-out', () => {
+  const notices = (h: Harness) =>
+    h.events.filter((e) => e.type === 'notice' && /did not confirm/.test(e.message))
+      .length
+
+  it('posts /auth/logout again on a second sign-out after Hermes did not confirm', async () => {
+    const { fake, jar, h } = await signedIn()
+    fake.failNextRest('POST /auth/logout', 500)
+    await h.client.call('auth.signOut', {})
+    expect(jar.jar.size).toBe(3)
+    expect(notices(h)).toBe(1)
+    // Signed out here already, the second sign-out still asks Hermes.
+    expect(await h.client.call('auth.signOut', {})).toEqual({ localOnly: true })
+    expect(requests(fake, 'POST /auth/logout')).toBe(2)
+    expect(jar.jar.size).toBe(0)
+    expect(notices(h)).toBe(1)
+  })
+
+  it('does not take a redirect that never reached Hermes for a sign-out', async () => {
+    const { fake, jar, h } = await signedIn()
+    // A proxy in front of Hermes answers the redirect; Hermes clears nothing.
+    const held = fake.holdNextRest('POST /auth/logout')
+    const signingOut = h.client.call('auth.signOut', {})
+    await held.arrived
+    held.release({ status: 302, body: {} })
+    expect(await signingOut).toEqual({ localOnly: true })
+    expect(h.store.getState().link.phase).toBe('signed-out')
+    expect(jar.jar.size).toBe(3)
+    expect(notices(h)).toBe(1)
+  })
+})

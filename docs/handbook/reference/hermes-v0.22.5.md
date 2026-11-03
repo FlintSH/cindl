@@ -171,7 +171,9 @@ same-origin requests, and it keeps nothing in browser storage.
 - `auth.signOut` posts `POST /auth/logout` (`routes.py:496-512`). Hermes clears
   the cookies, which only it can do since they are HttpOnly, and answers a 302
   to `/login`, an opaque redirect to a browser under `redirect: 'manual'`.
-  Cindl takes only that as confirmation. A failure never blocks the local
+  A proxy in front of Hermes can answer one too, so Cindl counts the sign-out
+  as confirmed only when `GET /api/auth/me` then answers the gate's 401; a
+  second `auth.signOut` posts `/auth/logout` again. A failure never blocks the local
   sign-out: the link still goes `signed-out`, with a warning notice to sign
   out again. The result stays `{localOnly: true}`, since Hermes v0.22.5 cannot
   end the session on its side. Every bundled provider's revoke is a no-op

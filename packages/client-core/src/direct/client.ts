@@ -349,27 +349,46 @@ class DirectHermesClient implements DirectClient {
 
   /**
    * Cookie mode: POST /auth/logout, so Hermes clears the HttpOnly cookies,
-   * which nothing else can. Whether a copy of them stops working depends on
-   * the provider: basic and Nous Portal revoke nothing, and self-hosted OIDC
-   * revokes the refresh token only when its IdP has a revocation endpoint
-   * (self_hosted/__init__.py:124-145); an access cookie lasts until it
-   * expires. A failure never blocks the local sign-out; it is shown.
+   * which nothing else can. Its redirect alone proves little, since a proxy
+   * in front of Hermes can answer one just the same, so GET /api/auth/me must
+   * then answer the gate's 401. Whether a copy of the cookies stops working
+   * depends on the provider: basic and Nous Portal revoke nothing, and
+   * self-hosted OIDC revokes the refresh token only when its IdP has a
+   * revocation endpoint (self_hosted/__init__.py:124-145); an access cookie
+   * lasts until it expires. A failure never blocks the local sign-out; it is
+   * shown. Resolves whether Hermes confirmed it.
    */
-  async #endCookieSession(): Promise<void> {
+  async #endCookieSession(): Promise<boolean> {
     const rest = this.#rest
-    if (!rest) return
+    if (!rest) return false
+    let confirmed = false
     try {
       await rest.logout()
+      confirmed = await this.#sessionGone(rest)
+      if (!confirmed) this.#log.log('warn', 'direct.logout-unconfirmed', {})
     } catch (error) {
       this.#log.log('warn', 'direct.logout-failed', {
         code: asCindlError(error, 'auth.logout').code,
       })
+    }
+    if (!confirmed)
       this.#emit({
         type: 'notice',
         level: 'warning',
         message:
           'Hermes did not confirm the sign-out, so its session cookie may still sign this browser in. Sign out again.',
       })
+    return confirmed
+  }
+
+  /** GET /api/auth/me answers the gate's 401: this browser has no Hermes session. */
+  async #sessionGone(rest: RestClient): Promise<boolean> {
+    try {
+      await rest.me()
+      return false
+    } catch (error) {
+      const cause = asCindlError(error, 'auth.me')
+      return cause.code === 'unauthenticated' && SESSION_OVER.has(hermesReasonOf(cause))
     }
   }
 

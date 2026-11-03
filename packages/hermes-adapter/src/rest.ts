@@ -92,6 +92,8 @@ export class RestClient {
    * POST /auth/logout for a cookie session. Hermes answers only a 302 to
    * /login (routes.py:496-512), which a browser shows as an opaque redirect
    * under `redirect: 'manual'`; anything else is not Hermes confirming it.
+   * A proxy in front of Hermes can answer a redirect too, so the direct
+   * client then checks that GET /api/auth/me answers 401.
    */
   async logout(): Promise<void> {
     const label = 'POST /auth/logout'
