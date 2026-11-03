@@ -27,7 +27,7 @@ const codeOf = (promise: Promise<unknown>) =>
     (error: unknown) => (error instanceof CindlError ? error.code : 'not-a-cindl-error'),
   )
 
-describe('memory entries (adapter level, pending the memory.text contract change)', () => {
+describe('memory entries (backing the memory.* operations)', () => {
   it('lists entries with fingerprinted ids and reads one by its id', async () => {
     const { memory } = await setup()
     const entries = await memory.list()
@@ -38,12 +38,12 @@ describe('memory entries (adapter level, pending the memory.text contract change
     ])
     const first = entries[0]
     if (!first) throw new Error('no entries')
-    expect(first.fingerprint).toBe(fixtureFingerprint(first.preview))
+    // The fingerprint lives in the id: memory:<store>:<index>:<fingerprint>.
+    expect(first.id.split(':')[3]).toBe(fixtureFingerprint(first.preview))
     const doc = await memory.read(first.id)
     expect(doc).toEqual({
       id: first.id,
       store: 'memory',
-      fingerprint: first.fingerprint,
       content: first.preview,
       readAt: NOW,
       source: 'GET /api/learning/node',
@@ -139,14 +139,13 @@ describe('memory entries (adapter level, pending the memory.text contract change
     expect(writes()).toEqual([])
   })
 
-  it('deletes permanently and says so', async () => {
+  it('deletes permanently (Hermes keeps no backup)', async () => {
     const { fake, memory } = await setup()
     const entries = await memory.list()
     const last = entries.at(-1)
     if (!last) throw new Error('no entries')
     await expect(memory.delete(last.id, { confirm: true })).resolves.toEqual({
       deleted: true,
-      recoverable: false,
     })
     expect(fake.store.profile('default').memory.profile).toEqual([])
     expect(await codeOf(memory.delete(last.id, { confirm: true }))).toBe('conflict')

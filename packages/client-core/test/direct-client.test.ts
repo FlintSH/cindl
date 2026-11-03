@@ -97,7 +97,10 @@ describe('direct client: sign-in, capabilities and conversations', () => {
     expect(caps['chat.stream']?.state).toBe('available')
     expect(caps['sessions.replay']?.state).toBe('limited')
     expect(caps['soul.write']?.state).toBe('limited')
-    expect(caps['memory.text']?.state).toBe('unsupported')
+    // Memory entries need the learning routes, which the read-only probe found.
+    await h.waitFor(
+      () => h.store.getState().capabilities['memory.text']?.state === 'available',
+    )
     expect(caps['connections.accounts']?.state).toBe('unsupported')
     expect(caps['presence.unified']?.state).toBe('unavailable')
     await h.waitFor(
@@ -1218,9 +1221,13 @@ describe('direct client: owner edits, routines, connections, screen', () => {
     expect(await codeOf(h.client.call('connections.accounts', {}))).toBe('unsupported')
     const memory = await h.client.call('memory.overview', {})
     expect(memory.items.map((i) => i.key)).toContain('builtin:memory')
-    expect(h.fake.calls.some((c) => /connectors|\/api\/fs|learning/.test(c.name))).toBe(
-      false,
-    )
+    expect(h.fake.calls.some((c) => /connectors|\/api\/fs/.test(c.name))).toBe(false)
+    // The only learning call is the read-only probe that establishes memory.text.
+    expect(
+      h.fake.calls.filter(
+        (c) => /learning/.test(c.name) && c.name !== 'GET /api/learning/graph',
+      ),
+    ).toEqual([])
   })
 
   it('reports the agent screen and takes and returns control with its own viewer id', async () => {
@@ -1238,6 +1245,120 @@ describe('direct client: owner edits, routines, connections, screen', () => {
     expect(h.fake.calls.some((c) => /display\.(start|stop|install)/.test(c.name))).toBe(
       false,
     )
+  })
+})
+
+describe('direct client: memory entries', () => {
+  const memoryCalls = (h: Harness) =>
+    h.fake.calls
+      .filter((c) => /learning|memory|\/api\/fs|files/i.test(c.name))
+      .map((c) => c.name)
+
+  it('negotiates memory entries from the learning routes and never reads memory files', async () => {
+    const h = await harness()
+    await h.waitFor(
+      () => h.store.getState().capabilities['memory.text']?.state === 'available',
+    )
+    expect(memoryCalls(h)).toEqual(['GET /api/learning/graph'])
+    // A Hermes without the routes: unsupported, with no fallback of any kind.
+    const bare = await harness({ fake: await fakeHermes({ learningRoutes: false }) })
+    const missing = await bare.waitFor(
+      () => bare.store.getState().capabilities['memory.text']?.state === 'unsupported',
+    )
+    expect(missing).toBe(true)
+    expect(bare.store.getState().capabilities['memory.text']?.reason).toMatch(
+      /does not expose single memory entries/,
+    )
+    expect(await codeOf(bare.client.call('memory.entries', {}))).toBe('unsupported')
+    expect(memoryCalls(bare)).toEqual(['GET /api/learning/graph'])
+  })
+
+  it('lists, reads, edits and deletes entries by their fingerprinted ids', async () => {
+    const h = await harness()
+    await h.waitFor(
+      () => h.store.getState().capabilities['memory.text']?.state === 'available',
+    )
+    const entries = await h.client.call('memory.entries', {})
+    expect(entries.map((e) => e.store)).toEqual(['memory', 'memory', 'profile'])
+    for (const e of entries)
+      expect(e.id).toMatch(/^memory:(memory|profile):\d+:[a-f0-9]{12}$/)
+    const [first] = entries
+    if (!first) throw new Error('no entries')
+    const read = await h.client.call('memory.read', { id: first.id })
+    expect(read).toMatchObject({ id: first.id, store: 'memory', content: first.preview })
+    // The id is the version: an edit returns the entry under its new id.
+    const written = await h.client.call('memory.write', {
+      id: first.id,
+      content: 'Studio calendar moved to Thursdays (fixture).',
+      confirm: true,
+    })
+    expect(written.id).not.toBe(first.id)
+    expect(written).toMatchObject({
+      store: 'memory',
+      content: 'Studio calendar moved to Thursdays (fixture).',
+    })
+    expect(h.fake.store.profile('default').memory.memory[0]).toBe(
+      'Studio calendar moved to Thursdays (fixture).',
+    )
+    await expect(
+      h.client.call('memory.delete', { id: written.id, confirm: true }),
+    ).resolves.toEqual({ deleted: true })
+    const after = await h.client.call('memory.entries', {})
+    expect(after.map((e) => e.id)).not.toContain(written.id)
+    expect(after).toHaveLength(2)
+  })
+
+  it('refuses stale ids, text over the store limit, positional ids and unconfirmed changes', async () => {
+    const h = await harness()
+    await h.waitFor(
+      () => h.store.getState().capabilities['memory.text']?.state === 'available',
+    )
+    const [entry] = await h.client.call('memory.entries', {})
+    if (!entry) throw new Error('no entries')
+    const writes = () =>
+      h.fake.calls.filter((c) => c.name === 'PUT /api/learning/node').length
+    // Changed on the host after it was listed: Hermes refuses the old id.
+    h.fake.store.profile('default').memory.memory[0] = 'Changed by the agent (fixture).'
+    expect(
+      await codeOf(
+        h.client.call('memory.write', {
+          id: entry.id,
+          content: 'Mine (fixture).',
+          confirm: true,
+        }),
+      ),
+    ).toBe('conflict')
+    expect(h.fake.store.profile('default').memory.memory[0]).toBe(
+      'Changed by the agent (fixture).',
+    )
+    const [fresh] = await h.client.call('memory.entries', {})
+    if (!fresh) throw new Error('no entries')
+    // Longer than the agent-notes limit (2,200 by default).
+    expect(
+      await codeOf(
+        h.client.call('memory.write', {
+          id: fresh.id,
+          content: 'x'.repeat(2_300),
+          confirm: true,
+        }),
+      ),
+    ).toBe('invalid')
+    const sent = writes()
+    // Refused before anything is sent: a positional id and a missing confirmation.
+    const positional = await h.client
+      .call('memory.read', { id: 'memory:memory:0' })
+      .catch((e: unknown) => e as CindlError)
+    expect(positional).toMatchObject({ code: 'invalid' })
+    expect((positional as CindlError).message).toMatch(/^Not sent:/)
+    expect(
+      await codeOf(
+        h.client.call('memory.write', {
+          id: fresh.id,
+          content: 'Unconfirmed (fixture).',
+        } as unknown as { id: string; content: string; confirm: true }),
+      ),
+    ).toBe('invalid')
+    expect(writes()).toBe(sent)
   })
 })
 

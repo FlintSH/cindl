@@ -7,11 +7,10 @@ What exists: `rest.ts` (REST client), `native-auth.ts` (RFC 8252 sign-in),
 `rpc.ts` + `connection.ts` (JSON-RPC channel, ticketed connect, reconnect),
 `requests.ts` (approval/clarify), `normalize.ts` (events), `mappers.ts`,
 `negotiate.ts` (capabilities), `wire.ts` (every upstream shape Cindl reads),
-`memory-entries.ts` (adapter-level only), `redact.ts`, and the read-only
+`memory-entries.ts` (memory entries by fingerprinted id), `redact.ts`, and the read-only
 `scripts/live-probe.ts`. The direct client that uses them is in
 `packages/client-core/src/direct`. Planned, not built: canonical sessions,
-the RFB screen viewer, memory-entry operations (contract change pending),
-steer and process operations.
+the RFB screen viewer, steer and process operations.
 
 - Use only names in `src/upstream-surface.ts` and paths in `src/compat.ts`.
   Adding one is a contract change: cite the upstream file at the pinned commit,

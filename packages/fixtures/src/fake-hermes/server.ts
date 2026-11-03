@@ -47,6 +47,8 @@ export interface FakeHermesOptions {
   /** What the synthetic browser leg of native sign-in does. */
   nativeSignIn?: 'approve' | 'deny'
   version?: string
+  /** Serve the per-entry memory routes (/api/learning/*). Default true; false answers 404. */
+  learningRoutes?: boolean
 }
 
 export interface FakeHermes {
@@ -586,6 +588,8 @@ export async function startFakeHermes(
         },
       }
     }
+    if (path.startsWith('/api/learning/') && options.learningRoutes === false)
+      throw detail(404, 'Not Found')
     if (path === '/api/learning/graph' && method === 'GET') {
       const profile = scopedProfile(url.searchParams.get('profile'))
       const memory = cards(profile).map(({ source, entry }, index) => {

@@ -123,6 +123,21 @@ describe('capability negotiation', () => {
     expect(state(map, 'skills.read')).toBe('available')
   })
 
+  it('offers memory entries only when the learning routes answered', () => {
+    const base = { checkedAt, signedIn: true, handshake: sidecar }
+    expect(
+      state(negotiateCapabilities({ checkedAt, signedIn: false }), 'memory.text'),
+    ).toBe('unavailable')
+    // Not probed yet (or the probe failed): left out, which reads as unknown.
+    expect(state(negotiateCapabilities(base), 'memory.text')).toBeUndefined()
+    expect(
+      state(negotiateCapabilities({ ...base, memory: 'responds' }), 'memory.text'),
+    ).toBe('available')
+    const missing = negotiateCapabilities({ ...base, memory: 'missing' })['memory.text']
+    expect(missing?.state).toBe('unsupported')
+    expect(missing?.reason).toMatch(/never reads memory files through filesystem routes/)
+  })
+
   it('only uses known capability ids', () => {
     const map = negotiateCapabilities({
       checkedAt,

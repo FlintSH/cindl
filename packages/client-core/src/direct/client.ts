@@ -32,6 +32,7 @@ import {
   isBaselineVersion,
   mapServerRequest,
   mapUnsupportedRequest,
+  MemoryEntries,
   mcpFromStatus,
   memoryOverviewFrom,
   NativeAuth,
@@ -181,6 +182,8 @@ class DirectHermesClient implements DirectClient {
   #main: string | undefined
   #holding = false
   #held: HermesEventParams[] = []
+  /** The learning-route probe for memory.text: once per sign-in; undefined until it answers. */
+  #memoryProbe: 'responds' | 'missing' | undefined
   #display: {
     status?: Pick<wire.DisplayStatus, 'supported' | 'installed' | 'running'>
     lease?: wire.DisplayLease
@@ -457,6 +460,7 @@ class DirectHermesClient implements DirectClient {
       ...(online && this.#handshake ? { handshake: this.#handshake } : {}),
       ...(online ? {} : { offlineReason: this.#offlineReason() }),
       ...(online && this.#display.status ? { display: this.#display.status } : {}),
+      ...(this.#memoryProbe ? { memory: this.#memoryProbe } : {}),
     })
     const json = JSON.stringify(map)
     if (json === this.#capabilitiesJson) return
@@ -586,6 +590,7 @@ class DirectHermesClient implements DirectClient {
     void this.#flushOutbox()
     this.#scheduleListRefresh(0)
     void this.#probeDisplay()
+    void this.#probeMemory()
     this.#scheduleRequestSync()
   }
 
@@ -1236,6 +1241,31 @@ class DirectHermesClient implements DirectClient {
     return display
   }
 
+  /**
+   * memory.text needs Hermes's learning routes; a read-only GET of the entry
+   * list proves them. A 404 means this Hermes has none. Anything else leaves it
+   * unknown until the next reconnect tries again.
+   */
+  async #probeMemory(): Promise<void> {
+    if (this.#memoryProbe || !this.#signedIn) return
+    try {
+      await this.#restOrThrow().learningGraph(this.#profile)
+      this.#memoryProbe = 'responds'
+    } catch (error) {
+      if (asCindlError(error, 'learning graph').code !== 'not-found') return
+      this.#memoryProbe = 'missing'
+    }
+    this.#refreshCapabilities()
+  }
+
+  #memoryEntries(): MemoryEntries {
+    return new MemoryEntries({
+      rest: this.#restOrThrow(),
+      sha256Hex,
+      now: () => this.#now(),
+    })
+  }
+
   async #probeDisplay(): Promise<void> {
     try {
       await this.#readDisplay()
@@ -1316,6 +1346,7 @@ class DirectHermesClient implements DirectClient {
       this.stop()
       await this.#native?.signOut()
       this.#signedIn = false
+      this.#memoryProbe = undefined
       for (const requestId of [...this.#requests.keys()])
         this.#closeRequest(requestId, 'cancelled')
       this.#setLink('signed-out')
@@ -1604,20 +1635,15 @@ class DirectHermesClient implements DirectClient {
     'connections.accounts': () => {
       throw new CindlError('unsupported', unsupportedReasons['connections.accounts'])
     },
-    // memory.text is negotiated as unsupported here, so the capability gate in
-    // call() refuses these first; they are wired once the operations are reviewed.
-    'memory.entries': () => {
-      throw new CindlError('unsupported', unsupportedReasons['memory.text'])
-    },
-    'memory.read': () => {
-      throw new CindlError('unsupported', unsupportedReasons['memory.text'])
-    },
-    'memory.write': () => {
-      throw new CindlError('unsupported', unsupportedReasons['memory.text'])
-    },
-    'memory.delete': () => {
-      throw new CindlError('unsupported', unsupportedReasons['memory.text'])
-    },
+    // Gated on memory.text: available only once the learning routes answered.
+    // The fingerprint in each id is the entry's version; Hermes refuses a stale
+    // one (conflict) and text over its store limit (invalid). No undo.
+    'memory.entries': () => this.#memoryEntries().list(this.#profile),
+    'memory.read': ({ id }) => this.#memoryEntries().read(id, this.#profile),
+    'memory.write': ({ id, content }) =>
+      this.#memoryEntries().write(id, content, { confirm: true, profile: this.#profile }),
+    'memory.delete': ({ id }) =>
+      this.#memoryEntries().delete(id, { confirm: true, profile: this.#profile }),
     'display.status': () => this.#readDisplay(),
     // The live picture (ADR 0012) is not wired in this client yet.
     'display.watch': () => {
@@ -1713,6 +1739,7 @@ class DirectHermesClient implements DirectClient {
     this.#deviceLoaded = false
     this.#epoch = 0
     this.#display = { previous: new Set() }
+    this.#memoryProbe = undefined
     this.#normalizer = this.#newNormalizer()
   }
 }

@@ -30,12 +30,16 @@ export interface NegotiationInput {
   offlineReason?: string
   /** `display.status` result; undefined when not probed or the probe failed. */
   display?: Pick<DisplayStatus, 'supported' | 'installed' | 'running'>
+  /**
+   * The read-only `GET /api/learning/graph` probe: `responds` when Hermes
+   * answered it, `missing` when the route does not exist (404). Undefined when
+   * not probed or the probe failed for another reason.
+   */
+  memory?: 'responds' | 'missing'
 }
 
 /** Fixed v0.22.5 facts, independent of the connection. */
 export const unsupportedReasons = {
-  'memory.text':
-    'Hermes v0.22.5 exposes single memory entries through /api/learning/*, but Cindl has no reviewed operation for them yet (contract change pending). Cindl never reads memory files through filesystem routes.',
   'connections.accounts':
     'Hermes v0.22.5 has no safe account-coverage source. Its connectors.* calls can create guest identities, so Cindl does not use them.',
   'artifacts.list':
@@ -106,6 +110,17 @@ export function negotiateCapabilities(input: NegotiationInput): CapabilityMap {
   restGate('soul.read', 'GET /api/profiles/{name}/soul')
   restGate('soul.write', 'PUT /api/profiles/{name}/soul', noCas)
   restGate('memory.overview', 'GET /api/memory')
+  // Single entries only when the learning routes answered; never through filesystem routes.
+  const learning = rest('GET /api/learning/graph', version)
+  if (!input.signedIn) set('memory.text', 'unavailable', learning, offline)
+  else if (input.memory === 'responds') set('memory.text', 'available', learning)
+  else if (input.memory === 'missing')
+    set(
+      'memory.text',
+      'unsupported',
+      learning,
+      'This Hermes did not answer GET /api/learning/graph, so it does not expose single memory entries. Cindl never reads memory files through filesystem routes.',
+    )
   restGate('sessions.rename', 'PATCH /api/sessions/{id}', undefined)
 
   const rpcIds: CapabilityId[] = [

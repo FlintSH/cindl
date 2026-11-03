@@ -1,4 +1,9 @@
-import { CindlError } from '@cindl/contracts'
+import {
+  CindlError,
+  type MemoryEntry,
+  type MemoryEntrySummary,
+  type MemoryStore,
+} from '@cindl/contracts'
 import { hermesReasonOf } from './errors.ts'
 import type { RestClient } from './rest.ts'
 
@@ -23,30 +28,10 @@ import type { RestClient } from './rest.ts'
  * `_write_file` replaces the file atomically; a `.bak` snapshot is written only
  * when it refuses a drifted file). Deletion is permanent.
  *
- * Not exposed through `CindlClientApi` yet: the operations await a contract
- * change (memory.text). Never use filesystem routes as a substitute.
+ * These back the memory.* operations (capability memory.text). The
+ * fingerprint lives only in the id. Never use filesystem routes as a
+ * substitute.
  */
-
-export type MemoryStoreName = 'memory' | 'profile'
-
-export interface MemoryEntrySummary {
-  id: string
-  store: MemoryStoreName
-  fingerprint: string
-  title: string
-  /** Hermes's card body: the entry text, truncated to 1200 characters. */
-  preview: string
-  truncated: boolean
-}
-
-export interface MemoryEntryDocument {
-  id: string
-  store: MemoryStoreName
-  fingerprint: string
-  content: string
-  readAt: string
-  source: string
-}
 
 export interface MemoryEntriesOptions {
   rest: RestClient
@@ -59,7 +44,7 @@ const ENTRY_ID = /^memory:(memory|profile):(\d+):([a-f0-9]{12})$/
 const PREVIEW_LIMIT = 1200
 
 export interface ParsedMemoryEntryId {
-  store: MemoryStoreName
+  store: MemoryStore
   index: number
   fingerprint: string
 }
@@ -78,7 +63,7 @@ export function parseMemoryEntryId(id: string): ParsedMemoryEntryId {
     )
   }
   return {
-    store: match[1] as MemoryStoreName,
+    store: match[1] as MemoryStore,
     index: Number(match[2]),
     fingerprint: match[3] as string,
   }
@@ -157,14 +142,13 @@ export class MemoryEntries {
     return (graph.memory ?? []).map((card, index) => ({
       id: `memory:${card.source}:${index}:${card.fingerprint}`,
       store: card.source,
-      fingerprint: card.fingerprint,
       title: card.title,
       preview: card.body,
       truncated: card.body.length >= PREVIEW_LIMIT,
     }))
   }
 
-  async read(id: string, profile?: string): Promise<MemoryEntryDocument> {
+  async read(id: string, profile?: string): Promise<MemoryEntry> {
     const parsed = parseMemoryEntryId(id)
     let node
     try {
@@ -181,7 +165,6 @@ export class MemoryEntries {
     return {
       id,
       store: parsed.store,
-      fingerprint: parsed.fingerprint,
       content: node.content,
       readAt: this.#options.now(),
       source: 'GET /api/learning/node',
@@ -197,7 +180,7 @@ export class MemoryEntries {
     id: string,
     content: string,
     options: { confirm: true; profile?: string },
-  ): Promise<MemoryEntryDocument> {
+  ): Promise<MemoryEntry> {
     if (options.confirm !== true)
       throw new CindlError('invalid', 'Confirm the reviewed change before saving.')
     const parsed = parseMemoryEntryId(id)
@@ -216,7 +199,6 @@ export class MemoryEntries {
     return {
       id: `memory:${parsed.store}:${parsed.index}:${fingerprint}`,
       store: parsed.store,
-      fingerprint,
       content: body,
       readAt: this.#options.now(),
       source: 'PUT /api/learning/node',
@@ -227,7 +209,7 @@ export class MemoryEntries {
   async delete(
     id: string,
     options: { confirm: true; profile?: string },
-  ): Promise<{ deleted: true; recoverable: false }> {
+  ): Promise<{ deleted: true }> {
     if (options.confirm !== true)
       throw new CindlError('invalid', 'Confirm the deletion first.')
     parseMemoryEntryId(id)
@@ -236,6 +218,6 @@ export class MemoryEntries {
     } catch (error) {
       throw classify(error, 'DELETE /api/learning/node')
     }
-    return { deleted: true, recoverable: false }
+    return { deleted: true }
   }
 }

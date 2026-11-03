@@ -400,11 +400,16 @@ separate surface (`web_routers/status.py:693-743`,
 - Wrong profile: 400 for an invalid name, 404 for an unknown one
   (`web_server_profiles.py:190-199`).
 
-Status in Cindl: adapter-level functions (`memory-entries.ts`) and tests exist;
-no client operation exposes them until the `memory.text` contract change is
-applied, so the capability stays `unsupported`. Cindl never reads memory
-through `/api/fs/*` or any other filesystem route, and never uses
-`POST /api/memory/reset`.
+In Cindl: `memory.entries` lists the cards, `memory.read` reads one entry,
+`memory.write` replaces it (after a reviewed diff, with `confirm: true`) and
+returns it under its new id, and `memory.delete` removes it (with
+`confirm: true`, permanently). They take the exact fingerprinted id and refuse
+positional ones before anything is sent. A stale id answers `conflict`, text
+over the store's limit `invalid`, and Hermes's own messages, which can hold
+host paths, are never shown. The capability `memory.text` is `available` only
+once a read-only `GET /api/learning/graph` answered (probed once per sign-in);
+a 404 makes it `unsupported`. Cindl never reads memory through `/api/fs/*` or
+any other filesystem route, and never uses `POST /api/memory/reset`.
 
 ## Routines
 
@@ -459,8 +464,7 @@ sections above.
 - Server requests Cindl answers: `approval`, `clarify`.
 - Notifications Cindl maps: `gateway.ready`, `message.start`, `message.delta`, `message.interim`, `message.complete`, `reasoning.delta`, `reasoning.available`, `thinking.delta`, `tool.generating`, `tool.start`, `tool.progress`, `tool.complete`, `tool.output_risk`, `status.update`, `session.info`, `session.usage`, `session.title`, `sessions.changed`, `error`, `notice`, `request.cancel`, `approval.cancelled`, `background.complete`, `cron.changed`, `display.status`, `display.lease`, `subagent.start`, `subagent.progress`, `subagent.complete`, `skills.changed`, `session.reclaimed`.
 - REST endpoints: `GET /api/status`, `GET /api/auth/providers`, `GET /api/auth/me`, `POST /api/auth/ws-ticket`, `GET /auth/native/authorize`, `POST /auth/native/token`, `POST /auth/native/refresh`, `GET /api/sessions/{id}/mutation-snapshot`, `PATCH /api/sessions/{id}`, `GET /api/skills`, `GET /api/skills/content`, `PUT /api/skills/content`, `GET /api/profiles/{name}/soul`, `PUT /api/profiles/{name}/soul`, `GET /api/memory`. The memory-entry routes
-  `GET /api/learning/graph`, `GET /api/learning/node`, `PUT /api/learning/node`, `DELETE /api/learning/node` are used only by adapter-level functions until the
-  `memory.text` operations exist.
+  `GET /api/learning/graph`, `GET /api/learning/node`, `PUT /api/learning/node`, `DELETE /api/learning/node` back the `memory.*` operations.
 
 ## Not used at v0.22.5
 
