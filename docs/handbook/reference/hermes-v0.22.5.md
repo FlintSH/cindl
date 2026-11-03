@@ -264,6 +264,14 @@ Each answer ends Cindl's `answering` state with exactly one event:
   `request.answer-failed`, and the request is answerable again. Answering
   again is safe: if the first answer did land, Hermes says `expired`.
 
+Each attempt is identified by the connection it is sent on. Cindl re-emits
+the request as `answering` with that connection's epoch as `lastSeenEpoch`,
+and every outcome carries the same `connectionEpoch`; an `answered` close also
+carries the answer Hermes acknowledged. A history load can re-list a request
+while an answer is in flight, because `session.resume` runs in Hermes's worker
+pool (`server.py:180-199`) and its snapshot can predate an answer handled
+meanwhile; once Hermes acknowledges, that copy is dropped.
+
 The session owner (canonical) surface works differently and Cindl does not
 use it: approvals arrive as `approval.request` events and clarify questions
 as `clarify.request` events, one per question, each keyed by a `prompt_id`
@@ -272,8 +280,9 @@ as `clarify.request` events, one per question, each keyed by a `prompt_id`
 `gateway/run_turn_runner.py:606`). They are answered with
 `approval.respond` / `clarify.respond {session_id, execution_generation,
 prompt_id, choice | answer}`, which return `resolved` or `already_resolved`
-(`gateway/session_controls.py:840-850`, `session_pending_controls.py:65-101`,
-`contracts/canonical.py:356-369`).
+(`gateway/session_controls.py:840-850`, `session_pending_controls.py:65-101`;
+contracts `tui_gateway/contracts/canonical.py:356-369` for `clarify.respond`
+and `canonical_sessions.py:286-288, 328` for `approval.respond`).
 
 ### Tracking after a reconnect
 

@@ -1454,7 +1454,17 @@ class DirectHermesClient implements DirectClient {
         tracked.request.kind === 'approval' ? 'requests.approval' : 'requests.clarify',
       )
       const result = answerResult(tracked.request, answer)
-      const answering: ServerRequest = { ...tracked.request, status: 'answering', answer }
+      // The attempt is identified by the connection it goes out on (the live
+      // channel and #epoch change together): the answering record and every
+      // outcome carry that epoch, so the reducer can tell this attempt apart
+      // from an older one.
+      const epoch = this.#epoch
+      const answering: ServerRequest = {
+        ...tracked.request,
+        lastSeenEpoch: epoch,
+        status: 'answering',
+        answer,
+      }
       // No second answer from this device while this one is on its way.
       this.#requests.delete(requestId)
       this.#emit({ type: 'request.opened', request: answering })
@@ -1465,8 +1475,17 @@ class DirectHermesClient implements DirectClient {
       )
       // Exactly one event ends `answering`.
       if (outcome.kind === 'answered') {
-        // Hermes's request registry took it; not proof that a command or tool succeeded.
-        this.#emit({ type: 'request.closed', requestId, status: 'answered' })
+        // Hermes's request registry took it; not proof that a command or tool
+        // succeeded. A history load may have re-listed it meanwhile from an older
+        // snapshot; that copy is not answerable any more.
+        this.#requests.delete(requestId)
+        this.#emit({
+          type: 'request.closed',
+          requestId,
+          status: 'answered',
+          connectionEpoch: epoch,
+          answer,
+        })
         this.#emit({
           type: 'session.status',
           conversationId: tracked.conversationId,
@@ -1475,13 +1494,19 @@ class DirectHermesClient implements DirectClient {
         return { ...answering, status: 'answered' as const }
       }
       if (outcome.kind === 'no-longer-pending') {
-        this.#emit({ type: 'request.closed', requestId, status: 'resolved-elsewhere' })
+        this.#requests.delete(requestId)
+        this.#emit({
+          type: 'request.closed',
+          requestId,
+          status: 'resolved-elsewhere',
+          connectionEpoch: epoch,
+        })
         return { ...answering, status: 'resolved-elsewhere' as const }
       }
-      // Answerable again (unless a reconnect already re-delivered it). If the
-      // answer did land, a second one is told the request already ended.
+      // Answerable again (unless Hermes re-listed it meanwhile). If the answer
+      // did land, a second one is told the request already ended.
       if (!this.#requests.has(requestId)) this.#requests.set(requestId, tracked)
-      this.#emit({ type: 'request.answer-failed', requestId })
+      this.#emit({ type: 'request.answer-failed', requestId, connectionEpoch: epoch })
       if (!outcome.delivered)
         throw new CindlError(
           'offline',

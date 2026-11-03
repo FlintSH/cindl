@@ -1,4 +1,9 @@
-import { CindlError, type Conversation, type ServerRequest } from '@cindl/contracts'
+import {
+  CindlError,
+  type CindlEvent,
+  type Conversation,
+  type ServerRequest,
+} from '@cindl/contracts'
 import { connectRawClient } from '@cindl/fixtures/fake-hermes'
 import { describe, expect, it } from 'vitest'
 import { entry, selectOpenRequests, sha256Hex, type KeyValueStore } from '../src/index.ts'
@@ -513,6 +518,7 @@ describe('direct client: approvals and questions', () => {
         type: 'request.closed',
         requestId: request.requestId,
         status: 'resolved-elsewhere',
+        connectionEpoch: 1,
       },
     ])
     // The answer this client sent is kept for display (contract v4).
@@ -770,6 +776,144 @@ describe('direct client: reconnect and replay', () => {
     await pause(30)
     expect(requestOf(h, request.requestId)?.status).toBe('expired')
     expect(await codeOf(approve(h, request.requestId, 'once'))).toBe('not-found')
+  })
+})
+
+type Row = Array<string | number | boolean | null>
+
+/** One request's lifecycle as compact rows, plus its conversation's syncs, in order. */
+function lifecycle(h: Harness, requestId: string, conversationId: string): Row[] {
+  const choice = (answer: unknown) =>
+    (answer as { choice?: string } | undefined)?.choice ?? null
+  return h.events.flatMap((e: CindlEvent): Row[] => {
+    if (e.type === 'request.opened' && e.request.requestId === requestId)
+      return [
+        ['opened', e.request.status, e.request.lastSeenEpoch, choice(e.request.answer)],
+      ]
+    if (e.type === 'request.closed' && e.requestId === requestId)
+      return [['closed', e.status, e.connectionEpoch ?? null, choice(e.answer)]]
+    if (e.type === 'request.answer-failed' && e.requestId === requestId)
+      return [['failed', e.connectionEpoch ?? null]]
+    if (e.type === 'requests.synced' && e.conversationId === conversationId)
+      return [['synced', e.openRequestIds.includes(requestId)]]
+    return []
+  })
+}
+
+describe('direct client: answer identity across reconnects', () => {
+  it('ties each answer outcome to the connection it was sent on (drop mid-answer, answer again)', async () => {
+    const h = await harness()
+    const outcome = approvalScript(h)
+    const { c, request } = await openRequest(h)
+    // The first answer is written to a silently dead socket: Hermes never reads it.
+    h.fake.gateway.frozen = true
+    const first = approve(h, request.requestId, 'deny')
+    await h.waitFor(() => requestOf(h, request.requestId)?.status === 'answering')
+    h.fake.gateway.frozen = false
+    h.fake.gateway.dropConnections()
+    expect(await codeOf(first)).toBe('offline')
+    // Reconnect: Hermes still holds the request and re-lists it on the new connection.
+    await online(h, 2)
+    await h.waitFor(() => requestOf(h, request.requestId)?.lastSeenEpoch === 2)
+    const second = await approve(h, request.requestId, 'once')
+    expect(second.status).toBe('answered')
+    await h.waitFor(() => outcome.done)
+    expect(outcome.result).toEqual({ choice: 'once' })
+    expect(lifecycle(h, request.requestId, c.id)).toEqual([
+      ['opened', 'open', 1, null],
+      ['opened', 'answering', 1, 'deny'],
+      ['failed', 1],
+      ['opened', 'open', 2, null],
+      ['synced', true],
+      ['opened', 'answering', 2, 'once'],
+      ['closed', 'answered', 2, 'once'],
+    ])
+    expect(requestOf(h, request.requestId)).toMatchObject({
+      status: 'answered',
+      lastSeenEpoch: 2,
+      answer: { kind: 'approval', choice: 'once' },
+    })
+    expect(h.fake.gateway.settled).toEqual([
+      expect.objectContaining({
+        id: request.requestId,
+        outcome: 'answered',
+        result: { choice: 'once' },
+      }),
+    ])
+  })
+
+  it('keeps one answer when a history load re-lists the request while the answer is in flight', async () => {
+    const h = await harness()
+    const outcome = approvalScript(h)
+    const { c, request } = await openRequest(h)
+    // Upstream session.resume runs in the worker pool (tui_gateway/server.py:180-199), so
+    // its open-request snapshot can be older than an answer Hermes handles meanwhile.
+    let release: () => void = () => undefined
+    h.fake.gateway.beforeHandle = (method) =>
+      method === 'request.answer'
+        ? new Promise<void>((resolve) => {
+            release = resolve
+          })
+        : undefined
+    const answered = approve(h, request.requestId, 'deny')
+    await h.waitFor(() => h.rpcCalls('request.answer') === 1)
+    await h.client.call('conversations.history', { conversationId: c.id })
+    expect(requestOf(h, request.requestId)).toMatchObject({
+      status: 'answering',
+      answer: { kind: 'approval', choice: 'deny' },
+    })
+    release()
+    await expect(answered).resolves.toMatchObject({ status: 'answered' })
+    await h.waitFor(() => outcome.done)
+    expect(lifecycle(h, request.requestId, c.id)).toEqual([
+      ['opened', 'open', 1, null],
+      ['opened', 'answering', 1, 'deny'],
+      ['opened', 'open', 1, null],
+      ['synced', true],
+      ['closed', 'answered', 1, 'deny'],
+    ])
+    expect(requestOf(h, request.requestId)).toMatchObject({
+      status: 'answered',
+      answer: { kind: 'approval', choice: 'deny' },
+    })
+    // The re-listed copy is not answerable again: nothing more is sent.
+    expect(await codeOf(approve(h, request.requestId, 'once'))).toBe('not-found')
+    expect(h.rpcCalls('request.answer')).toBe(1)
+  })
+
+  it('fails an answer back to open when its request was last seen on an older connection', async () => {
+    // Reachable today: a re-attach that times out on a live socket ends reconciliation
+    // early and the link still goes online, so a request in a conversation that was not
+    // re-attached keeps its epoch-1 record while answers go out on epoch 2.
+    const h = await harness({ deps: { connection: { requestTimeoutMs: 300 } } })
+    await conversation(h, 'A')
+    approvalScript(h)
+    const { c: b, request } = await openRequest(h, await conversation(h, 'B'))
+    h.fake.gateway.failNext.set('session.resume', 'no-response')
+    h.fake.gateway.dropConnections()
+    await online(h, 2)
+    expect(requestOf(h, request.requestId)?.lastSeenEpoch).toBe(1)
+    h.fake.gateway.failNext.set('request.answer', 'error-5000')
+    expect(await codeOf(approve(h, request.requestId, 'deny'))).toBe('unavailable')
+    // The failure belongs to the attempt in flight, so it unlocks the card.
+    expect(requestOf(h, request.requestId)).toMatchObject({
+      status: 'open',
+      lastSeenEpoch: 2,
+    })
+    expect(requestOf(h, request.requestId)?.answer).toBeUndefined()
+    // request.answer needs no attachment, so answering again still reaches Hermes.
+    await approve(h, request.requestId, 'once')
+    expect(lifecycle(h, request.requestId, b.id)).toEqual([
+      ['opened', 'open', 1, null],
+      ['opened', 'answering', 2, 'deny'],
+      ['failed', 2],
+      ['opened', 'answering', 2, 'once'],
+      ['closed', 'answered', 2, 'once'],
+    ])
+    expect(requestOf(h, request.requestId)).toMatchObject({
+      status: 'answered',
+      answer: { kind: 'approval', choice: 'once' },
+    })
   })
 })
 
