@@ -73,14 +73,21 @@ export function parseUi(xml: string): UiNode {
     children: [],
   }
   const stack: UiNode[] = [root]
-  for (const match of xml.matchAll(/<(\/?)node\b([^>]*?)(\/?)>/g)) {
+  // A quoted value may hold `>`, so a tag ends only outside quotes.
+  for (const match of xml.matchAll(/<(\/?)node\b((?:[^>"']|"[^"]*"|'[^']*')*?)(\/?)>/g)) {
     const [, closing, attrs = '', selfClosing] = match
     if (closing) {
       if (stack.length > 1) stack.pop()
       continue
     }
-    const get = (name: string) =>
-      decode(new RegExp(`\\b${name}="([^"]*)"`).exec(attrs)?.[1] ?? '')
+    // uiautomator quotes a value with ' when it holds a " (and writes ' as &apos;),
+    // so both quote styles occur; attributes are read in order, one after another.
+    const values = new Map<string, string>()
+    for (const [, name = '', double, single] of attrs.matchAll(
+      /([\w-]+)=(?:"([^"]*)"|'([^']*)')/g,
+    ))
+      values.set(name, decode(double ?? single ?? ''))
+    const get = (name: string) => values.get(name) ?? ''
     const flag = (name: string) => get(name) === 'true'
     const parent = stack[stack.length - 1] as UiNode
     const node: UiNode = {

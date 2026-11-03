@@ -92,6 +92,39 @@ const screen = dump(
 )
 
 describe('UI Automator dumps', () => {
+  it('reads a value uiautomator quotes with \' because it holds a " (CI run 41656607631)', () => {
+    // The delete warning as the run's 17-memory-…-failed.xml has it (synthetic entry).
+    const root = parseUi(
+      dump(
+        `<node index="1" text='Delete “The kiln firing log lives in the studio inventory sheet, tab "Firings".” from Hermes&apos;s memory? Hermes keeps no backup, so this cannot be undone.' resource-id="" class="android.widget.TextView" package="dev.fl1nt.cindl" content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[108,1033][974,1245]" drawing-order="2" hint="" />`,
+      ),
+    )
+    const warning = find(root, (text) => text.startsWith('Delete “The kiln'))
+    expect(warning?.text).toBe(
+      'Delete “The kiln firing log lives in the studio inventory sheet, tab "Firings".” from Hermes\'s memory? Hermes keeps no backup, so this cannot be undone.',
+    )
+    expect(warning?.className).toBe('android.widget.TextView')
+    expect(warning?.bounds).toEqual({ left: 108, top: 1033, right: 974, bottom: 1245 })
+  })
+
+  it('reads each attribute in order, whatever another value holds', () => {
+    const root = parseUi(
+      dump(
+        node(
+          { text: 'a &gt; b, and text=&quot;x&quot; ', 'content-desc': "it's > 1" },
+          '',
+        ) +
+          `<node text='quoted "twice"' content-desc="plain" class="android.widget.TextView" package="${PKG}" bounds="[1,2][3,4]" />`,
+      ),
+    )
+    const [first, second] = root.children
+    expect(first?.text).toBe('a > b, and text="x" ')
+    expect(first?.desc).toBe("it's > 1")
+    expect(second?.text).toBe('quoted "twice"')
+    expect(second?.desc).toBe('plain')
+    expect(second?.bounds).toEqual({ left: 1, top: 2, right: 3, bottom: 4 })
+  })
+
   it('parses the tree, decodes entities and finds by label', () => {
     const root = parseUi(screen)
     const composer = find(root, (text) => text.startsWith('Message '))
