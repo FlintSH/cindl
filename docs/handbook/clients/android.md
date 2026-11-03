@@ -153,8 +153,9 @@ until the owner decides about those terms.
   of its desktop read back from the screen) and, after taking control, a tap
   drawing its orange pointer marker where it landed; sending a message with the
   on-screen keyboard open, navigation hidden: the keyboard on screen, not only
-  shown (its window visible, with its top inside the display and some height
-  below it, read in full from `dumpsys window windows`), and the composer's
+  shown (its window visible and on screen, within the display's width, its
+  top inside the display and at least 15% of the display's height below it,
+  read in full from `dumpsys window windows`), and the composer's
   bottom at or above that top, both read at one moment (the keyboard read
   before and after the composer's dump and screenshot, unchanged; the step
   notes that geometry, numbers and flags only, and fails if no keyboard

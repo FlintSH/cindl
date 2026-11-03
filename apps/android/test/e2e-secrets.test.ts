@@ -568,6 +568,7 @@ describe('what the device helper keeps', () => {
         `    mGivenContentInsets=[0,${insetTop}][0,0] mGivenVisibleInsets=[0,${insetTop}][0,0]`,
         '    mHasSurface=true isReadyForDisplay()=true mWindowRemovalAllowed=false',
         '    Frames: parent=[0,0][1080,2400] display=[0,0][1080,2400] frame=[0,1377][1080,2400] last=[0,1377][1080,2400] insetsChanged=false',
+        '    isOnScreen=true',
         '    isVisible=true',
       ].join('\n')
     try {

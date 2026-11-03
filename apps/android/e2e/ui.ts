@@ -649,10 +649,19 @@ export function imeWindow(windowsDump: string): string | undefined {
   return lines.slice(start, end < 0 ? undefined : end).join('\n')
 }
 
+/**
+ * The least share of the display's height a keyboard on screen takes. A
+ * phone's takes about 40% (LatinIME's would be about 1023 of that run's 2400
+ * px); the 126 px navigation strip Android's keyboard shows without its keys
+ * (5%) is no keyboard.
+ */
+export const MIN_KEYBOARD_SHARE = 0.15
+
 export interface VisibleKeyboard {
   /**
-   * On screen: its window visible, with a surface, and the area from its top
-   * to its frame's bottom not empty and inside the display.
+   * On screen: its window visible and on screen, with a surface, its frame
+   * inside the display's width, and the area from its top to its frame's
+   * bottom inside the display and at least `MIN_KEYBOARD_SHARE` of its height.
    */
   visible: boolean
   /** Screen y of its top edge: the frame's top plus the smaller of the insets it gives. */
@@ -691,6 +700,7 @@ export function visibleKeyboard(
   const view = flag(/\bmViewVisibility=(0x[0-9a-f]+)\b/)
   const surface = flag(/\bmHasSurface=(true|false)\b/)
   const isVisible = flag(/\bisVisible=(true|false)\b/)
+  const onScreen = flag(/\bisOnScreen=(true|false)\b/)
   const frame = /\b(?:frame|mFrame)=\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]/.exec(window)
   const content = insetTop(window, 'mGivenContentInsets')
   const seen = insetTop(window, 'mGivenVisibleInsets')
@@ -705,7 +715,7 @@ export function visibleKeyboard(
       ? undefined
       : Math.min(bottom, display.height) - top
   const geometry = [
-    `window view ${view ?? 'unreported'}, surface ${surface ?? 'unreported'}, isVisible ${isVisible ?? 'unreported'}`,
+    `window view ${view ?? 'unreported'}, surface ${surface ?? 'unreported'}, isVisible ${isVisible ?? 'unreported'}, isOnScreen ${onScreen ?? 'unreported'}`,
     frame ? `frame [${left},${frameTop}][${right},${bottom}]` : 'no frame',
     `content inset top ${content ?? 'unreported'}, visible inset top ${seen ?? 'unreported'}`,
     said,
@@ -715,15 +725,18 @@ export function visibleKeyboard(
     view === '0x0' &&
     surface === 'true' &&
     isVisible !== 'false' &&
+    onScreen === 'true' &&
     display !== undefined &&
     top !== undefined &&
     height !== undefined &&
     left !== undefined &&
     right !== undefined &&
+    left >= 0 &&
+    right <= display.width &&
     right > left &&
     top >= 0 &&
     top < display.height &&
-    height > 0
+    height >= display.height * MIN_KEYBOARD_SHARE
   return visible ? { visible, top, height, geometry } : { visible, geometry }
 }
 

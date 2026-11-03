@@ -1001,6 +1001,7 @@ describe('a keyboard on screen, not only shown (CI run 41681122382)', () => {
       view?: string
       surface?: string
       isVisible?: string
+      onScreen?: string
       frame?: string
       content?: number
       seen?: number
@@ -1010,6 +1011,7 @@ describe('a keyboard on screen, not only shown (CI run 41681122382)', () => {
       view = '0x0',
       surface = 'true',
       isVisible = 'true',
+      onScreen = 'true',
       frame = '[0,1377][1080,2400]',
       content = 0,
       seen = content,
@@ -1028,7 +1030,7 @@ describe('a keyboard on screen, not only shown (CI run 41681122382)', () => {
       `    mHasSurface=${surface} isReadyForDisplay()=${surface} mWindowRemovalAllowed=false`,
       `    Frames: parent=[0,0][1080,2400] display=[0,0][1080,2400] frame=${frame} last=${frame} insetsChanged=false`,
       '     surface=[0,0][0,0]',
-      '    isOnScreen=true',
+      `    isOnScreen=${onScreen}`,
       `    isVisible=${isVisible}`,
     ].join('\n')
   }
@@ -1053,7 +1055,7 @@ describe('a keyboard on screen, not only shown (CI run 41681122382)', () => {
       top: 1377,
       height: 1023,
       geometry:
-        'window view 0x0, surface true, isVisible true; frame [0,1377][1080,2400]; content inset top 0, visible inset top 0; input_method says shown; display 1080x2400',
+        'window view 0x0, surface true, isVisible true, isOnScreen true; frame [0,1377][1080,2400]; content inset top 0, visible inset top 0; input_method says shown; display 1080x2400',
     })
     // The insets it gives move its top down; the smaller of them counts.
     expect(read(ime({ content: 120, seen: 60 }))).toMatchObject({
@@ -1069,7 +1071,7 @@ describe('a keyboard on screen, not only shown (CI run 41681122382)', () => {
     expect(read(ime({ content: 1023 }))).toEqual({
       visible: false,
       geometry:
-        'window view 0x0, surface true, isVisible true; frame [0,1377][1080,2400]; content inset top 1023, visible inset top 1023; input_method says shown; display 1080x2400',
+        'window view 0x0, surface true, isVisible true, isOnScreen true; frame [0,1377][1080,2400]; content inset top 1023, visible inset top 1023; input_method says shown; display 1080x2400',
     })
     // Off the screen: laid out below the display.
     expect(read(ime({ frame: '[0,2400][1080,3423]' })).visible).toBe(false)
@@ -1082,6 +1084,25 @@ describe('a keyboard on screen, not only shown (CI run 41681122382)', () => {
     )
     expect(read(ime({ isVisible: 'false' })).visible).toBe(false)
     expect(read(ime({ surface: 'false' })).visible).toBe(false)
+  })
+
+  it('finds none in a strip, off to the side, or not on screen (delta check of 1eef0c9, note 1)', () => {
+    // A 1 px strip at the bottom, and the 126 px navigation strip Android's
+    // keyboard shows without its keys: under 15% of the display's height.
+    expect(read(ime({ frame: '[0,2399][1080,2400]' })).visible).toBe(false)
+    expect(read(ime({ frame: '[0,2274][1080,2400]' })).visible).toBe(false)
+    // The same height, off to the right of the display.
+    expect(read(ime({ frame: '[2000,1377][3080,2400]' })).visible).toBe(false)
+    expect(read(ime({ frame: '[-200,1377][880,2400]' })).visible).toBe(false)
+    // Laid out, but Android says it is not on screen; or does not say.
+    expect(read(ime({ onScreen: 'false' })).visible).toBe(false)
+    expect(read(ime().replace('    isOnScreen=true\n', '')).visible).toBe(false)
+    // At the floor, 15% of 2400 px, it counts; just under, it does not.
+    expect(read(ime({ frame: '[0,2040][1080,2400]' }))).toMatchObject({
+      visible: true,
+      height: 360,
+    })
+    expect(read(ime({ frame: '[0,2041][1080,2400]' })).visible).toBe(false)
   })
 
   it("reads only the keyboard's own window, and fails closed without it or the display", () => {
