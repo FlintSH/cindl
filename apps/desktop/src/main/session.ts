@@ -36,7 +36,7 @@ import {
   type OpName,
   type OpResult,
 } from '@cindl/contracts'
-import { NativeAuth, redactText, type DiagnosticSink } from '@cindl/hermes-adapter'
+import { nativeTokensKey, redactText, type DiagnosticSink } from '@cindl/hermes-adapter'
 import type { Logger } from './log.ts'
 import {
   keyringRefusedNotice,
@@ -177,14 +177,10 @@ export function createRealClient(
     for (const origin of await readForget()) {
       if (origin === committed) continue
       try {
-        // A throwaway instance: its sign-out only deletes the stored record.
-        await new NativeAuth({
-          origin,
-          fetch: platform.fetch,
-          timers: platform.clock,
-          secrets: platform.secrets,
-          crypto: platform.crypto,
-        }).signOut()
+        // Delete the stored record directly: the adapter's sign-out logs a
+        // failed delete instead of throwing, and this must know, to warn and
+        // try again at the next start.
+        await platform.secrets.delete(nativeTokensKey(origin))
       } catch (error) {
         log.warn('Could not remove the tokens of a previous Hermes yet', error)
         left.push(origin)
