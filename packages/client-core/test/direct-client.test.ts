@@ -1492,6 +1492,37 @@ describe('direct client: the profile Hermes serves', () => {
     expect(fake.store.otherProfileScopes).toEqual([])
   })
 
+  it('reads, edits and sizes memory on the served profile when a clone shares its ids', async () => {
+    const fake = await fakeHermes()
+    // `hermes profile create --clone` copies MEMORY.md and USER.md, so both
+    // profiles hold the same entries under the same fingerprinted ids and the
+    // id alone cannot tell them apart.
+    const fallback = fake.store.profile('default')
+    const work = fake.store.serveAs('work')
+    work.memory.memory = [...fallback.memory.memory]
+    work.memory.profile = [...fallback.memory.profile]
+    const untouched = [...fallback.memory.memory]
+    const h = await harness({ fake })
+    await h.waitFor(
+      () => h.store.getState().capabilities['memory.text']?.state === 'available',
+    )
+    await h.client.call('memory.overview', {})
+    const [first] = await h.client.call('memory.entries', {})
+    const id = first?.id ?? ''
+    expect((await h.client.call('memory.read', { id })).content).toBe(
+      work.memory.memory[0],
+    )
+    await h.client.call('memory.write', {
+      id,
+      content: 'Edited on the served profile (fixture).',
+      confirm: true,
+    })
+    expect(work.memory.memory[0]).toBe('Edited on the served profile (fixture).')
+    expect(fallback.memory.memory).toEqual(untouched)
+    // No request, the read and the overview included, named another profile.
+    expect(fake.store.otherProfileScopes).toEqual([])
+  })
+
   it('refuses SOUL.md when Hermes serves a home no profile name addresses', async () => {
     const fake = await fakeHermes()
     fake.store.serveAs('custom')
