@@ -286,3 +286,23 @@ describe('synthetic screen', () => {
     })
   })
 })
+
+describe('untrusted Markdown in the scenario', () => {
+  it('has agent output with an external link and a remote image', async () => {
+    const { client, flush } = harness()
+    flush()
+    const history = await client.call('conversations.history', {
+      conversationId: 'demo-offsite',
+    })
+    const text = history.messages
+      .flatMap((m) => m.parts)
+      .map((p) => ('text' in p ? p.text : ''))
+      .join('\n')
+    expect(text).toMatch(
+      /\[the venue page\]\(https:\/\/harbor-loft\.example\.test\/visit\)/,
+    )
+    expect(text).toMatch(
+      /!\[Harbor Loft floor plan\]\(https:\/\/harbor-loft\.example\.test\/floor-plan\.png\)/,
+    )
+  })
+})

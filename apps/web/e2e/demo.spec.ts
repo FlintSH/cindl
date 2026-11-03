@@ -152,3 +152,19 @@ test('memory entries change only after a reviewed diff, and deletes warn first',
     page.getByRole('button', { name: /Open memory entry: The kiln firing log/ }),
   ).toBeVisible()
 })
+
+test('shows where agent links go and never loads images from messages', async ({
+  page,
+}) => {
+  const requested: string[] = []
+  page.on('request', (request) => requested.push(request.url()))
+  await page.goto('/#/talk/demo-offsite')
+  const link = page.getByRole('link', { name: 'the venue page' })
+  await expect(link).toHaveAttribute('href', 'https://harbor-loft.example.test/visit')
+  await expect(link).toHaveAttribute('target', '_blank')
+  await expect(page.getByText('(harbor-loft.example.test)')).toBeVisible()
+  await expect(
+    page.getByRole('img', { name: 'Image not shown: Harbor Loft floor plan' }),
+  ).toBeVisible()
+  expect(requested.filter((url) => url.includes('harbor-loft.example.test'))).toEqual([])
+})

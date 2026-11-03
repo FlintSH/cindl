@@ -165,6 +165,31 @@ export const messages: Message[] = [
     createdAt: at(-30),
     origin: 'reply',
   },
+  // Agent output with a link and a remote image, so every client's handling of
+  // untrusted Markdown is exercised: the link opens externally with its host
+  // shown (and, on Android, a confirmation), and the image is never loaded.
+  {
+    id: 'm-off-1',
+    conversationId: 'demo-offsite',
+    role: 'user',
+    parts: [text('Where is Harbor Loft, and what does the room look like?')],
+    status: 'complete',
+    createdAt: at(-20),
+    origin: 'reply',
+  },
+  {
+    id: 'm-off-2',
+    conversationId: 'demo-offsite',
+    role: 'assistant',
+    parts: [
+      text(
+        'Harbor Loft (fictional) has its directions on [the venue page](https://harbor-loft.example.test/visit). They also sent a floor plan:\n\n![Harbor Loft floor plan](https://harbor-loft.example.test/floor-plan.png)',
+      ),
+    ],
+    status: 'complete',
+    createdAt: at(-19),
+    origin: 'reply',
+  },
 ]
 
 export const requests: ServerRequest[] = [
