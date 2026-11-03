@@ -648,6 +648,45 @@ test.describe('Cindl (real flavour)', () => {
   })
 })
 
+/** One op through `window.cindlDesktop`, as the renderer calls it. */
+const bridgeCall = (page: Page, name: string, args: unknown) =>
+  page.evaluate(
+    ([op, input]) => (globalThis as unknown as BridgeWindow).cindlDesktop.call(op, input),
+    [name, args] as const,
+  )
+
+const linkPhase = async (page: Page) =>
+  ((await bridgeCall(page, 'link.get', {})) as { phase: string }).phase
+
+/**
+ * Signs in to the fake: the owner confirms main's dialog, and the "system
+ * browser" follows Hermes's authorize redirect to the app's 127.0.0.1
+ * listener, as a browser would.
+ */
+async function signInToFake({ app, page }: Launched, hermes: FakeHermes) {
+  await app.evaluate(({ dialog, shell }: typeof Electron) => {
+    dialog.showMessageBox = () => Promise.resolve({ response: 1, checkboxChecked: false })
+    shell.openExternal = async (url: string) => {
+      const authorize = await fetch(url, { redirect: 'manual' })
+      const location = authorize.headers.get('location')
+      if (location) await fetch(location)
+    }
+  })
+  await bridgeCall(page, 'auth.signIn', { origin: hermes.origin })
+  await expect.poll(() => linkPhase(page)).toBe('online')
+}
+
+/** One pixel of the live screen's canvas, in screen coordinates (RGBA). */
+const screenPixel = (page: Page, x: number, y: number) =>
+  page
+    .getByRole('img', { name: 'The agent’s screen, live.' })
+    .evaluate(
+      (canvas: HTMLCanvasElement, [px, py]) => [
+        ...(canvas.getContext('2d')?.getImageData(px, py, 1, 1).data ?? []),
+      ],
+      [x, y] as const,
+    )
+
 test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
   let launched: Launched | undefined
   let fake: FakeHermes | undefined
@@ -664,29 +703,9 @@ test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
   })
 
   test('signs in through main, connects, answers an approval and signs out', async () => {
-    const { app, page } = launched as Launched
+    const { page } = launched as Launched
     const hermes = fake as FakeHermes
-    // The owner confirms main's dialog; the "system browser" follows Hermes's
-    // authorize redirect to the app's 127.0.0.1 listener, as a browser would.
-    await app.evaluate(({ dialog, shell }: typeof Electron) => {
-      dialog.showMessageBox = () =>
-        Promise.resolve({ response: 1, checkboxChecked: false })
-      shell.openExternal = async (url: string) => {
-        const authorize = await fetch(url, { redirect: 'manual' })
-        const location = authorize.headers.get('location')
-        if (location) await fetch(location)
-      }
-    })
-    const bridgeCall = (name: string, args: unknown) =>
-      page.evaluate(
-        ([op, input]) =>
-          (globalThis as unknown as BridgeWindow).cindlDesktop.call(op, input),
-        [name, args] as const,
-      )
-    await bridgeCall('auth.signIn', { origin: hermes.origin })
-    await expect
-      .poll(async () => ((await bridgeCall('link.get', {})) as { phase: string }).phase)
-      .toBe('online')
+    await signInToFake(launched as Launched, hermes)
     expect(hermes.calls).toEqual(
       expect.arrayContaining([
         { kind: 'rest', name: 'GET /auth/native/authorize' },
@@ -694,33 +713,197 @@ test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
         { kind: 'ws', name: '/api/ws' },
       ]),
     )
-    expect(Array.isArray(await bridgeCall('conversations.list', {}))).toBe(true)
+    expect(Array.isArray(await bridgeCall(page, 'conversations.list', {}))).toBe(true)
 
     const outcome: { result?: unknown } = {}
     hermes.gateway.script = async (turn) => {
       outcome.result = await turn.approval({ choices: ['once', 'deny'] })
     }
-    const conversation = (await bridgeCall('conversations.create', {
+    const conversation = (await bridgeCall(page, 'conversations.create', {
       title: 'Smoke approval (fixture)',
     })) as { id: string }
-    await bridgeCall('prompt.submit', {
+    await bridgeCall(page, 'prompt.submit', {
       conversationId: conversation.id,
       clientId: 'smoke-approval-1',
       text: 'export it',
     })
     await expect.poll(() => hermes.gateway.open.size).toBe(1)
     const [requestId] = [...hermes.gateway.open.keys()]
-    const answered = (await bridgeCall('request.answer', {
+    const answered = (await bridgeCall(page, 'request.answer', {
       requestId,
       answer: { kind: 'approval', choice: 'once' },
     })) as { status: string }
     expect(answered.status).toBe('answered')
     await expect.poll(() => outcome.result !== undefined).toBe(true)
 
-    expect(await bridgeCall('auth.signOut', {})).toEqual({ localOnly: true })
-    expect(((await bridgeCall('link.get', {})) as { phase: string }).phase).toBe(
-      'signed-out',
+    expect(await bridgeCall(page, 'auth.signOut', {})).toEqual({ localOnly: true })
+    expect(await linkPhase(page)).toBe('signed-out')
+  })
+
+  test('shows the agent screen live, painted from frames main sends over IPC', async () => {
+    const { app, page, packaged } = launched as Launched
+    const hermes = fake as FakeHermes
+    // Every display ticket the fake mints: none may reach the renderer.
+    const tickets: string[] = []
+    const mint = hermes.auth.mintTicket.bind(hermes.auth)
+    hermes.auth.mintTicket = (info) => {
+      const ticket = mint(info)
+      if (info.provider === 'bot-desktop') tickets.push(ticket)
+      return ticket
+    }
+    // Every event main sends the window from here on, as it leaves main.
+    await app.evaluate(({ BrowserWindow }: typeof Electron) => {
+      const contents = BrowserWindow.getAllWindows()[0]?.webContents
+      if (!contents) throw new Error('no window')
+      const sent: string[] = []
+      Object.assign(globalThis, { smokeSent: sent })
+      const send = contents.send.bind(contents)
+      contents.send = (channel: string, ...args: unknown[]) => {
+        sent.push(JSON.stringify([channel, args]))
+        send(channel, ...args)
+      }
+    })
+    await signInToFake(launched as Launched, hermes)
+    await expect
+      .poll(async () => {
+        const capabilities = (await bridgeCall(page, 'capabilities.get', {})) as Record<
+          string,
+          { state: string } | undefined
+        >
+        return capabilities['computer.view']?.state
+      })
+      .toBe('available')
+
+    // Frames as the page receives them, timed on Talk (no viewer running there).
+    const nav = page.getByRole('navigation', { name: 'Primary' }).first()
+    await nav.getByRole('link', { name: 'Talk', exact: true }).click()
+    const measured = await page.evaluate(async () => {
+      interface Frame {
+        regions: Array<{
+          x: number
+          y: number
+          width: number
+          height: number
+          rgba: Uint8Array
+        }>
+      }
+      const bridge = (globalThis as unknown as BridgeWindow).cindlDesktop
+      const settle = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+      const frameOf = (viewId: string) =>
+        bridge.call('display.frame', { viewId }) as Promise<Frame>
+      const describe = (frame: Frame) =>
+        frame.regions.map(({ x, y, width, height, rgba }) => ({
+          x,
+          y,
+          width,
+          height,
+          uint8Array: rgba instanceof Uint8Array,
+          plain: Object.getPrototypeOf(rgba) === Uint8Array.prototype,
+          bytes: rgba.byteLength,
+          bufferBytes: rgba.buffer.byteLength,
+        }))
+      const trivial: number[] = []
+      for (let call = 0; call < 20; call++) {
+        const started = performance.now()
+        await bridge.call('display.unwatch', { viewId: 'view-00000000' })
+        trivial.push(performance.now() - started)
+      }
+      const full: number[] = []
+      const small: number[] = []
+      const fullRegions: unknown[] = []
+      const smallRegions: unknown[] = []
+      const corners: number[][] = []
+      for (let round = 0; round < 5; round++) {
+        const view = (await bridge.call('display.watch', {})) as { viewId: string }
+        // Main holds the decoded screen before the timed call, so this times
+        // main's copy, IPC and contextBridge rather than Hermes.
+        await settle(300)
+        let started = performance.now()
+        const first = await frameOf(view.viewId)
+        full.push(performance.now() - started)
+        fullRegions.push(describe(first))
+        corners.push([...(first.regions[0]?.rgba.subarray(0, 4) ?? [])])
+        for (let step = 0; step < 4; step++) {
+          await settle(100)
+          started = performance.now()
+          const next = await frameOf(view.viewId)
+          small.push(performance.now() - started)
+          smallRegions.push(describe(next))
+        }
+        await bridge.call('display.unwatch', { viewId: view.viewId })
+      }
+      return { trivial, full, small, fullRegions, smallRegions, corners }
+    })
+    // Uint8Array survives contextBridge: a plain Uint8Array in the page's own
+    // realm, whose buffer holds exactly the region (640 x 400 x RGBA).
+    const whole = {
+      x: 0,
+      y: 0,
+      width: 640,
+      height: 400,
+      uint8Array: true,
+      plain: true,
+      bytes: 1_024_000,
+      bufferBytes: 1_024_000,
+    }
+    expect(measured.fullRegions).toEqual(Array.from({ length: 5 }, () => [whole]))
+    expect(measured.corners).toEqual(Array.from({ length: 5 }, () => [31, 42, 48, 255]))
+    const median = (values: number[]) =>
+      [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)] ?? Number.NaN
+    const directory = env.CINDL_SMOKE_ARTIFACTS ?? test.info().outputPath()
+    mkdirSync(directory, { recursive: true })
+    writeFileSync(
+      path.join(directory, 'ipc-frame-measurement.json'),
+      `${JSON.stringify(
+        {
+          packaged,
+          fullFrameBytes: 1_024_000,
+          medianMs: {
+            fullFrame: median(measured.full),
+            smallFrame: median(measured.small),
+            emptyCall: median(measured.trivial),
+          },
+          ...measured,
+        },
+        null,
+        2,
+      )}\n`,
     )
+
+    // The Work view's viewer paints the synthetic screen.
+    await nav.getByRole('link', { name: 'Work', exact: true }).click()
+    const screen = page.getByRole('img', { name: 'The agent’s screen, live.' })
+    await expect(screen).toBeVisible()
+    await expect.poll(() => screenPixel(page, 2, 2)).toEqual([31, 42, 48, 255])
+    // The first stroke of the "S" of "SYNTHETIC DEMO SCREEN", the bar beside
+    // it and the desktop below.
+    expect(await screenPixel(page, 14, 7)).toEqual([236, 228, 214, 255])
+    expect(await screenPixel(page, 12, 7)).toEqual([31, 42, 48, 255])
+    expect(await screenPixel(page, 10, 300)).toEqual([47, 93, 98, 255])
+    await expect(
+      page.getByText('Watching. Take control to use the pointer and keyboard.'),
+    ).toBeVisible()
+    await screen.scrollIntoViewIfNeeded()
+    await page.screenshot({ path: path.join(directory, 'desktop-real-screen.png') })
+
+    // Leaving the view closes its screen socket.
+    await nav.getByRole('link', { name: 'Talk', exact: true }).click()
+    await expect.poll(() => hermes.gateway.displayViewers.size).toBe(0)
+    expect(await bridgeCall(page, 'auth.signOut', {})).toEqual({ localOnly: true })
+
+    // A ticket for each watch (five timed, one for the viewer); none reached
+    // the renderer: not in an event main sent, a reply or the page.
+    expect(tickets.length).toBeGreaterThanOrEqual(6)
+    const sent = await app.evaluate(() =>
+      (globalThis as unknown as { smokeSent: string[] }).smokeSent.join('\n'),
+    )
+    expect(sent).toContain('display.changed')
+    const shown = await page.evaluate(
+      () => `${document.documentElement.outerHTML}\n${location.href}`,
+    )
+    for (const ticket of tickets)
+      for (const text of [sent, shown, JSON.stringify(measured)])
+        expect(text).not.toContain(ticket)
   })
 })
 

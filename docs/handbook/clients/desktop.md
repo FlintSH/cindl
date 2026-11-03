@@ -26,6 +26,7 @@ renderer lacks the demo notice copy.
 | Hardened shell, `app://` renderer, bridge, CSP    | Done; launch smoke-tested on both packaged AppImages                                                                                                                                     |
 | Linux x64 AppImages (Cindl, Cindl Demo)           | Built by CI (`.github/workflows/desktop.yml`); unsigned                                                                                                                                  |
 | Sign-in and the live Hermes connection            | Native PKCE sign-in and the direct Hermes client run in main; tested end to end against the fake `hermes serve` (also in the packaged app); not validated against a live Hermes instance |
+| The agent's screen, live                          | Main opens the screen socket and decodes it; the renderer paints `display.frame` pixels; tested against the fake's synthetic screen (also in the packaged app); not validated live       |
 | macOS, Windows, `.deb`, auto-update, code signing | Not provided                                                                                                                                                                             |
 
 With no Hermes stored, Cindl opens **Not set up** and shows its sign-in screen;
@@ -100,10 +101,12 @@ mode, or one without native sign-in, is refused with that reason.
    forgets the tokens and asks you to sign in again. A refresh that was in
    flight when you signed out never writes the old session back.
 
-Tokens never reach the renderer. Main sends requests and opens the WebSocket
-only to the origin you confirmed: the fetch and socket it hands the client are
-pinned to it, and the single-use WebSocket ticket travels in the
-`hermes-gateway-ticket.<ticket>` subprotocol, never in the URL. The stored
+Tokens never reach the renderer. Main sends requests and opens WebSockets
+only to the origin you confirmed: the fetch and sockets it hands the client are
+pinned to it, and the single-use gateway ticket travels in the
+`hermes-gateway-ticket.<ticket>` subprotocol, never in the URL (the screen
+socket is the one exception Hermes imposes; see
+[The agent's screen](#the-agent-s-screen)). The stored
 origin is re-checked against the same rules before every use, and each
 encrypted token record names its origin, so an edited settings file cannot send
 a token somewhere else or over plain http. Signing in to a different Hermes
@@ -112,6 +115,32 @@ forgets the previous one's tokens.
 **Sign-out is local.** It deletes this device's tokens. Hermes v0.22.5 cannot
 revoke native tokens it has issued, so sign-out does not end sessions anywhere
 else, and the app says so.
+
+## The agent's screen
+
+When Hermes reports that the profile's agent-owned screen is running, **Work**
+shows it live under **Computer** (ADR 0012). Cindl never starts, stops or
+installs that screen; when it is stopped, Work says so.
+
+- **The ticket stays in main.** Main asks Hermes for a single-use ticket
+  (`display.observe`) and opens the screen's WebSocket itself. Hermes accepts
+  that ticket only in the URL (`/api/display/ws?display_ticket=…`), so main
+  opens that socket only to `/api/display/ws` on the origin you confirmed, with
+  the ticket as its only query parameter, and never puts the URL in a log line
+  or an error. The ticket, the viewer id and the RFB stream never reach the
+  renderer.
+- **Pixels, not the stream.** The direct client decodes the RFB stream in
+  main. After painting, the renderer asks for what changed (`display.frame`)
+  and receives only the changed regions' pixels, as `Uint8Array`s that the
+  bridge copies across. When nothing changes, the call returns no regions
+  after two seconds. A full 640x400 picture is 1,024,000 bytes. In the smoke
+  test on a 4-vCPU Linux VM it reached the page in a median of about 7 ms,
+  and a small update in about 1 ms.
+- **Input only in control.** Pointer and keyboard input go to the screen only
+  while this device holds control (**Take control…**, then confirm). Main
+  refuses input otherwise, and Hermes filters it as well. Leaving Work closes
+  the socket, which hands control back. Input and frames are never logged or
+  stored.
 
 ## Token storage
 
@@ -238,11 +267,14 @@ uses `~/.config/Cindl Demo` and stores no tokens.
 - A compromised renderer can still call allowlisted operations, including owner
   edits with `confirm: true` and approval answers; only sign-in has a
   main-owned confirmation so far.
-- Sign-in and the live connection have been exercised only against the fake
-  `hermes serve` in `@cindl/fixtures`, which follows Hermes v0.22.5's rules
-  (integration tests in `apps/desktop/test/transport.test.ts` and the packaged
-  smoke test). They have not been validated against a live, authenticated
-  Hermes instance.
+- Sign-in, the live connection and the agent's screen have been exercised
+  only against the fake `hermes serve` in `@cindl/fixtures`, which follows
+  Hermes v0.22.5's rules (integration tests in
+  `apps/desktop/test/transport.test.ts` and the packaged smoke test). They
+  have not been validated against a live, authenticated Hermes instance.
+- The screen uses uncompressed (Raw) RFB updates: a full 1920x1080 picture is
+  about 8 MB on the socket and again across the bridge. Each screen socket
+  message may be at most 16 MiB.
 
 ## Troubleshooting
 
@@ -274,6 +306,7 @@ by Cindl's CI.
 | "Hermes is running in loopback-token mode"     | Configure a sign-in provider (password or OAuth) on Hermes; Cindl never reads that token.      |
 | "does not offer native sign-in"                | That Hermes has no `native_pkce` flow in `auth_flows`; update or configure it.                 |
 | Warning that tokens stay in memory only        | No usable keyring. Install and unlock GNOME Keyring or KWallet, or accept signing in again.    |
+| Work says the agent screen is not running      | Start it on Hermes (the agent or the Hermes CLI). Cindl never starts, stops or installs it.    |
 | A link does nothing                            | Only `https://` links open, right after a click. The terminal shows "Refused to open a link".  |
 | Window opens off screen after a monitor change | Cindl drops saved positions that are no longer on a screen; delete `window-state.json` if not. |
 | Start from a clean state                       | Quit Cindl and delete `~/.config/Cindl`. This also forgets tokens (local sign-out).            |

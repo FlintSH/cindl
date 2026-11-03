@@ -6,12 +6,14 @@
  * - sign-in starts only after the owner confirms the origin in a native
  *   dialog, before anything is sent to it or the browser opens;
  * - requests and sockets reach only that confirmed origin (pinned fetch and
- *   WebSocket factory);
+ *   WebSocket factories);
  * - the origin is stored only after a sign-in succeeded, and signing in
  *   elsewhere forgets the previous origin's tokens.
  *
  * PKCE, token refresh and sign-out are the adapter's NativeAuth, through the
- * direct client: one implementation for every native platform.
+ * direct client: one implementation for every native platform. So is the live
+ * screen: the direct client speaks RFB over main's screen socket, and the
+ * renderer only receives `display.frame` results (pixels), never the ticket.
  */
 import { createDirectClient, type DirectClientDeps } from '@cindl/client-core'
 import {
@@ -56,6 +58,7 @@ export function createRealClient(
     auth: 'native-pkce',
     fetch: platform.fetch,
     socketFactory: platform.webSocket,
+    displaySocketFactory: platform.displaySocket,
     clock: platform.clock,
     kv: platform.kv,
     secrets: platform.secrets,

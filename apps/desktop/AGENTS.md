@@ -27,6 +27,9 @@ documentation: `docs/handbook/clients/desktop.md`. Non-negotiable:
   `safeStorage` and only after the keyring probe passes (`basic_text` or a
   `v10` probe means memory only). Never log a token, ticket, code, verifier or
   cookie: log through `src/main/log.ts`.
+- The screen socket's URL carries the display ticket: only main opens it,
+  through `checkDisplaySocketRequest`, and the renderer gets `display.frame`
+  pixels only.
 - Hermes origins: the contract's `HermesOrigin` rule
   (`src/main/platform/origin-policy.ts`), re-checked on every stored read.
 - Native sign-in: a main-owned confirmation of the origin first; PKCE with a
@@ -40,13 +43,14 @@ documentation: `docs/handbook/clients/desktop.md`. Non-negotiable:
 | Path                   | What                                                                     |
 | ---------------------- | ------------------------------------------------------------------------ |
 | `src/main/app.ts`      | Shared main process: lifecycle, window, wiring (`runCindl(flavour)`)     |
-| `src/main/index.ts`    | Real flavour entry (signed-out client until `createDirectClient`)        |
+| `src/main/index.ts`    | Real flavour entry                                                       |
+| `src/main/session.ts`  | The direct Hermes client on the platform pieces, sign-in confirmation    |
 | `src/main/demo.ts`     | Cindl Demo entry (synthetic scenario)                                    |
 | `src/main/ipc.ts`      | Channel handlers, sender checks, `BridgeReply` envelopes                 |
 | `src/main/host.ts`     | Owns the main-process `CindlClientApi`; mirror store and snapshot replay |
 | `src/main/security.ts` | Session and webContents hardening                                        |
 | `src/main/guards.ts`   | Sandbox check, user-gesture tracker                                      |
-| `src/main/platform/`   | Secret store, settings store, ws factory, loopback, native auth          |
+| `src/main/platform/`   | Secret store, settings store, gateway and screen sockets, loopback       |
 | `src/preload/index.ts` | The bridge                                                               |
 | `scripts/`             | Flavoured esbuild build, gates, licences, electron-builder packaging     |
 | `e2e/smoke.spec.ts`    | Playwright launch smoke of both flavours (unpacked or packaged)          |

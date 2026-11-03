@@ -1,5 +1,6 @@
 import {
   systemClock,
+  type BinaryWebSocketFactory,
   type Clock,
   type KeyValueStore,
   type WebSocketFactory,
@@ -21,7 +22,7 @@ import {
   type DesktopSecretStore,
   type SafeStorageLike,
 } from './secret-store.ts'
-import { createWebSocketFactory } from './websocket.ts'
+import { createBinaryWebSocketFactory, createWebSocketFactory } from './websocket.ts'
 
 /** Settings key for the Hermes origin this device signed in to (kept after sign-out). */
 export const ORIGIN_KEY = 'hermes.origin'
@@ -81,13 +82,15 @@ export function pinnedFetch(
  * Everything the main-process Hermes client needs from Electron, built once
  * at startup and handed to `createDirectClient` (see session.ts). The
  * pinned origin is the stored one until you confirm another for sign-in;
- * fetch and the WebSocket only ever reach it.
+ * fetch and both sockets only ever reach it.
  */
 export interface DesktopPlatform {
   secrets: DesktopSecretStore
   kv: KeyValueStore
   authorizer: LoopbackAuthorizerHandle
   webSocket: WebSocketFactory
+  /** The agent screen's RFB socket; its URL carries the display ticket. */
+  displaySocket: BinaryWebSocketFactory
   crypto: CryptoProvider
   clock: Clock
   fetch: FetchLike
@@ -134,6 +137,7 @@ export async function createDesktopPlatform(options: {
     kv,
     authorizer,
     webSocket: createWebSocketFactory({ hermesOrigin: current }),
+    displaySocket: createBinaryWebSocketFactory({ hermesOrigin: current }),
     crypto: webCryptoProvider(),
     clock: systemClock,
     fetch: pinnedFetch(options.fetch ?? ((url, init) => fetch(url, init)), current),

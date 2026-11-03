@@ -2,10 +2,10 @@
  * The real desktop wiring (platform/index.ts + session.ts) against the
  * shared fake `hermes serve` from @cindl/fixtures: the direct client, the
  * safeStorage secret store (with a fake keyring), the settings store, the
- * ticket-subprotocol WebSocket factory and the 127.0.0.1 loopback listener.
- * Only the OS edges are simulated: the keyring and the system browser,
- * which follows Hermes's redirect to the loopback listener. Nothing here
- * contacts anything but the fake on 127.0.0.1.
+ * ticket-subprotocol WebSocket factory, the screen socket and the 127.0.0.1
+ * loopback listener. Only the OS edges are simulated: the keyring and the
+ * system browser, which follows Hermes's redirect to the loopback listener.
+ * Nothing here contacts anything but the fake on 127.0.0.1.
  */
 import {
   createStore,
@@ -15,8 +15,13 @@ import {
 } from '@cindl/client-core'
 import {
   CindlError,
+  type CapabilityId,
   type CindlEvent,
+  type DisplayFrame,
   type LinkState,
+  type OpArgs,
+  type OpName,
+  type OpResult,
   type ServerRequest,
 } from '@cindl/contracts'
 import { startFakeHermes, type FakeHermes } from '@cindl/fixtures/fake-hermes'
@@ -25,7 +30,8 @@ import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'no
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { createLogger } from '../src/main/log.ts'
+import { createIpcHandlers, type IpcEventLike } from '../src/main/ipc.ts'
+import { createLogger, type Logger } from '../src/main/log.ts'
 import {
   createDesktopPlatform,
   ORIGIN_KEY,
@@ -92,6 +98,7 @@ interface Desktop {
   store: ClientStore
   /** Every event the client emitted: what main forwards to the renderer. */
   events: CindlEvent[]
+  log: Logger
   lines: string[]
   confirmSignIn: ReturnType<typeof vi.fn<(origin: string) => Promise<boolean>>>
   openBrowser: ReturnType<typeof vi.fn<(url: string) => Promise<void>>>
@@ -107,6 +114,8 @@ async function desktop(
     safeStorage?: SafeStorageLike
     confirm?: boolean
     fetch?: FetchLike
+    /** Sees each screen socket URL main opens (it carries the display ticket). */
+    onDisplaySocket?: (url: string) => void
   } = {},
 ): Promise<Desktop> {
   const lines: string[] = []
@@ -120,6 +129,14 @@ async function desktop(
     log,
     ...(options.fetch ? { fetch: options.fetch } : {}),
   })
+  const { onDisplaySocket } = options
+  if (onDisplaySocket) {
+    const open = platform.displaySocket
+    platform.displaySocket = (url) => {
+      onDisplaySocket(url)
+      return open(url)
+    }
+  }
   const confirmSignIn = vi.fn(() => Promise.resolve(options.confirm ?? true))
   const real = createRealClient(platform, {
     confirmSignIn,
@@ -156,6 +173,7 @@ async function desktop(
     real,
     store,
     events,
+    log,
     lines,
     confirmSignIn,
     openBrowser,
@@ -181,6 +199,81 @@ const codeOf = (promise: Promise<unknown>) =>
     () => 'resolved',
     (error: unknown) => (error instanceof CindlError ? error.code : String(error)),
   )
+
+const capability = (d: Desktop, id: CapabilityId) =>
+  d.store.getState().capabilities[id]?.state
+
+/** The synthetic screen (packages/fixtures/src/scenario/screen.ts). */
+const SCREEN = { width: 640, height: 400 }
+const BAR = [31, 42, 48]
+const LABEL = [236, 228, 214]
+const WINDOW = [244, 239, 230]
+const POINTER = [230, 120, 40]
+
+/** The colour at (x, y), from whichever region of the frame covers it. */
+function pixel(frame: DisplayFrame, x: number, y: number): number[] | undefined {
+  for (const region of frame.regions) {
+    if (x < region.x || y < region.y) continue
+    if (x >= region.x + region.width || y >= region.y + region.height) continue
+    const at = ((y - region.y) * region.width + (x - region.x)) * 4
+    return [...region.rgba.subarray(at, at + 3)]
+  }
+  return undefined
+}
+
+/** The top frame of the app window, as main's sender check expects it. */
+const WINDOW_ID = 1
+const fromApp: IpcEventLike = {
+  sender: { id: WINDOW_ID },
+  senderFrame: {
+    url: 'app://cindl/index.html#/work',
+    origin: 'app://cindl',
+    parent: null,
+  },
+}
+
+/**
+ * The renderer's side of main's IPC handlers. Electron copies every reply
+ * with V8's structured clone, as `structuredClone` does, so what a call
+ * returns here is what arrives in the renderer.
+ */
+function rendererBridge(d: Desktop) {
+  const handlers = createIpcHandlers({
+    trustedContentsId: () => WINDOW_ID,
+    client: d.real.client,
+    saveText: () => Promise.resolve({ saved: false }),
+    consumeGesture: () => false,
+    openExternal: () => Promise.resolve({ opened: false }),
+    onEventSignal: () => undefined,
+    log: d.log,
+  })
+  /** Every reply that crossed to the renderer. */
+  const received: unknown[] = []
+  return {
+    received,
+    async call<K extends OpName>(name: K, args: OpArgs<K>): Promise<OpResult<K>> {
+      const reply = structuredClone(await handlers.call(fromApp, name, args))
+      received.push(reply)
+      if (!reply.ok) throw new CindlError(reply.error.code, reply.error.message)
+      return reply.value as OpResult<K>
+    },
+  }
+}
+type RendererBridge = ReturnType<typeof rendererBridge>
+
+/** Pull frames, as the viewer does after each paint, until (x, y) shows `colour`. */
+async function frameShowing(
+  renderer: RendererBridge,
+  viewId: string,
+  at: { x: number; y: number },
+  colour: number[],
+): Promise<DisplayFrame> {
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const frame = await renderer.call('display.frame', { viewId })
+    if (JSON.stringify(pixel(frame, at.x, at.y)) === JSON.stringify(colour)) return frame
+  }
+  throw new Error(`no frame showed ${colour.join(',')} at ${at.x},${at.y}`)
+}
 
 describe('desktop wiring against a fake hermes serve', { timeout: 30_000 }, () => {
   it('signs in through the loopback leg, connects, answers an approval and signs out locally', async () => {
@@ -260,6 +353,78 @@ describe('desktop wiring against a fake hermes serve', { timeout: 30_000 }, () =
     expect(
       d.events.filter((event) => event.type === 'capabilities.changed'),
     ).toHaveLength(1)
+  })
+
+  it('shows the agent screen through IPC, sends input only in control and keeps the ticket in main', async () => {
+    const fake = await fakeHermes()
+    const urls: string[] = []
+    const d = await desktop(userData(), { onDisplaySocket: (url) => urls.push(url) })
+    await signIn(d, fake.origin)
+    // The screen runs and main can open its socket, so the live picture is offered.
+    await d.waitFor(() => capability(d, 'computer.view') === 'available')
+    expect(capability(d, 'computer.control')).toBe('available')
+    const renderer = rendererBridge(d)
+
+    const view = await renderer.call('display.watch', {})
+    expect(view).toMatchObject(SCREEN)
+    // The first frame is the whole screen: one region whose array holds exactly its pixels.
+    const first = await renderer.call('display.frame', { viewId: view.viewId })
+    expect(first.regions).toHaveLength(1)
+    const rgba = first.regions[0]?.rgba
+    expect(rgba).toBeInstanceOf(Uint8Array)
+    expect(rgba?.byteLength).toBe(SCREEN.width * SCREEN.height * 4)
+    expect(rgba?.buffer.byteLength).toBe(rgba?.byteLength)
+    expect(pixel(first, 2, 2)).toEqual(BAR)
+    // The first stroke of the "S" of "SYNTHETIC DEMO SCREEN", and the bar beside it.
+    expect(pixel(first, 14, 7)).toEqual(LABEL)
+    expect(pixel(first, 12, 7)).toEqual(BAR)
+    expect(pixel(first, 300, 200)).toEqual(WINDOW)
+
+    // Watching only: main refuses input, and nothing reaches Hermes.
+    const press = { type: 'pointer', x: 300, y: 200, buttons: 0 } as const
+    expect(
+      await codeOf(
+        renderer.call('display.input', { viewId: view.viewId, events: [press] }),
+      ),
+    ).toBe('forbidden')
+    const [viewer] = fake.gateway.displayViewers
+    expect(viewer?.filter).toMatchObject({ passedInput: 0, droppedInput: 0 })
+
+    const control = await renderer.call('display.acquireControl', { confirm: true })
+    expect(control.leaseHeldByThisDevice).toBe(true)
+    expect(
+      await renderer.call('display.input', { viewId: view.viewId, events: [press] }),
+    ).toEqual({ sent: 1 })
+    // The synthetic screen draws an orange marker where the pointer is.
+    await frameShowing(renderer, view.viewId, press, POINTER)
+    expect(viewer?.filter).toMatchObject({ passedInput: 1, droppedInput: 0 })
+
+    expect(await renderer.call('display.unwatch', { viewId: view.viewId })).toEqual({
+      stopped: true,
+    })
+    await d.waitFor(() => viewer?.closedWith)
+    expect(viewer?.closedWith).toBe(1000)
+    // Closing the view hands control back, as closing Hermes's own viewer does.
+    await d.waitFor(() => fake.store.display.holder === 'agent')
+    expect(await codeOf(renderer.call('display.frame', { viewId: view.viewId }))).toBe(
+      'not-found',
+    )
+
+    // The ticket and the viewer id stayed in main: in no reply, event or log line.
+    expect(urls).toHaveLength(1)
+    const url = new URL(urls[0] ?? '')
+    expect(url.pathname).toBe('/api/display/ws')
+    const ticket = url.searchParams.get('display_ticket') ?? ''
+    const crossed = JSON.stringify(
+      [renderer.received, d.events],
+      (_key, value: unknown) =>
+        value instanceof Uint8Array ? Buffer.from(value).toString('latin1') : value,
+    )
+    for (const secret of [ticket, viewer?.viewerId ?? '']) {
+      expect(secret).not.toBe('')
+      expect(crossed).not.toContain(secret)
+      expect(d.lines.join('\n')).not.toContain(secret)
+    }
   })
 
   it('never answers a sudo prompt', async () => {

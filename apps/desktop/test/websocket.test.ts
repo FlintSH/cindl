@@ -1,15 +1,20 @@
-import type { WebSocketLike } from '@cindl/client-core'
+import type { BinaryWebSocketLike, WebSocketLike } from '@cindl/client-core'
+import type { IncomingHttpHeaders } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { afterEach, describe, expect, it } from 'vitest'
 import { WebSocketServer } from 'ws'
 import {
+  checkDisplaySocketRequest,
   checkSocketRequest,
+  createBinaryWebSocketFactory,
   createWebSocketFactory,
 } from '../src/main/platform/websocket.ts'
 
 // Assembled at runtime so no ticket-shaped value is committed.
 const TICKET = ['hermes-gateway-ticket', 'synthetic-ticket-0123456789'].join('.')
+const DISPLAY = ['synthetic', 'display', '0123'].join('-')
 const HERMES = 'https://hermes.example.test'
+const SCREEN = `wss://hermes.example.test/api/display/ws?display_ticket=${DISPLAY}`
 
 describe('WebSocket request policy', () => {
   it('accepts the gateway URL with the ticket only as a subprotocol', () => {
@@ -203,5 +208,152 @@ describe('ws-based WebSocketFactory', () => {
     expect(() => factory('wss://hermes.example.test/api/ws', ['x'])).toThrow(
       /subprotocol/,
     )
+  })
+})
+
+describe('screen socket request policy', () => {
+  it('accepts the screen socket on the signed-in origin with the ticket as its only query', () => {
+    expect(checkDisplaySocketRequest(SCREEN, HERMES)).toEqual({ ok: true, url: SCREEN })
+    const local = `ws://127.0.0.1:9119/api/display/ws?display_ticket=${DISPLAY}`
+    expect(checkDisplaySocketRequest(local, 'http://127.0.0.1:9119')).toEqual({
+      ok: true,
+      url: local,
+    })
+  })
+
+  it.each([
+    ['not signed in', SCREEN, undefined, 'not-signed-in'],
+    ['another host', SCREEN.replace('hermes.', 'evil.'), HERMES, 'origin'],
+    ['another port', SCREEN.replace('.test/', '.test:8443/'), HERMES, 'origin'],
+    ['plain ws for an https origin', SCREEN.replace('wss:', 'ws:'), HERMES, 'scheme'],
+    [
+      'plain ws off-device',
+      SCREEN.replace('wss:', 'ws:'),
+      'http://hermes.example.test',
+      'scheme',
+    ],
+    ['an https URL', SCREEN.replace('wss:', 'https:'), HERMES, 'scheme'],
+    ['credentials', SCREEN.replace('//', '//user:pw@'), HERMES, 'credentials'],
+    ['a fragment', `${SCREEN}#x`, HERMES, 'fragment'],
+    ['the gateway path', SCREEN.replace('/display/ws', '/ws'), HERMES, 'path'],
+    ['a longer path', SCREEN.replace('/ws?', '/ws/x?'), HERMES, 'path'],
+    ['no ticket', 'wss://hermes.example.test/api/display/ws', HERMES, 'ticket'],
+    ['an empty ticket', SCREEN.replace(DISPLAY, ''), HERMES, 'ticket'],
+    ['a malformed ticket', SCREEN.replace(DISPLAY, 'a%20b%20c%20d'), HERMES, 'ticket'],
+    ['two tickets', `${SCREEN}&display_ticket=${DISPLAY}`, HERMES, 'ticket'],
+    ['another query parameter', `${SCREEN}&token=${DISPLAY}`, HERMES, 'ticket'],
+    [
+      'the ticket under another name',
+      SCREEN.replace('display_ticket', 'ticket'),
+      HERMES,
+      'ticket',
+    ],
+  ])('refuses %s', (_label, url, origin, reason) => {
+    expect(checkDisplaySocketRequest(url, origin)).toEqual({ ok: false, reason })
+  })
+})
+
+describe('ws-based BinaryWebSocketFactory', () => {
+  let server: WebSocketServer | undefined
+  afterEach(
+    () =>
+      new Promise<void>((resolve) => {
+        if (!server) return resolve()
+        for (const client of server.clients) client.terminate()
+        server.close(() => resolve())
+        server = undefined
+      }),
+  )
+
+  const listening = async (target: WebSocketServer) => {
+    await new Promise<void>((resolve) => target.once('listening', resolve))
+    return (target.address() as AddressInfo).port
+  }
+
+  it('delivers every message as a plain Uint8Array and sends bytes', async () => {
+    const seen: { url?: string; headers?: IncomingHttpHeaders } = {}
+    server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+    server.on('connection', (socket, request) => {
+      if (request.url) seen.url = request.url
+      seen.headers = request.headers
+      socket.send(Uint8Array.of(1, 2, 3), { binary: true })
+      socket.send('RFB 003.008\n')
+      socket.on('message', (data: Buffer) => socket.send(data, { binary: true }))
+    })
+    const port = await listening(server)
+    const factory = createBinaryWebSocketFactory({
+      hermesOrigin: () => `http://127.0.0.1:${port}`,
+    })
+    const socket: BinaryWebSocketLike = factory(
+      `ws://127.0.0.1:${port}/api/display/ws?display_ticket=${DISPLAY}`,
+    )
+    const messages: Uint8Array[] = []
+    await new Promise<void>((resolve, reject) => {
+      socket.onerror = () => reject(new Error('socket error'))
+      socket.onopen = () => socket.send(Uint8Array.of(9, 8, 7))
+      socket.onmessage = ({ data }) => {
+        messages.push(data)
+        if (messages.length === 3) resolve()
+      }
+    })
+    // Not Buffers: the RFB client and IPC see plain bytes.
+    for (const data of messages)
+      expect(Object.getPrototypeOf(data)).toBe(Uint8Array.prototype)
+    expect(messages.map((data) => [...data])).toEqual([
+      [1, 2, 3],
+      [...Buffer.from('RFB 003.008\n')],
+      [9, 8, 7],
+    ])
+    // A native client: no subprotocol and no Origin header, the ticket only in the URL.
+    expect(seen.url).toBe(`/api/display/ws?display_ticket=${DISPLAY}`)
+    expect(seen.headers?.['sec-websocket-protocol']).toBeUndefined()
+    expect(seen.headers?.origin).toBeUndefined()
+    const closed = new Promise<{ code: number }>((resolve) => {
+      socket.onclose = resolve
+    })
+    socket.close(1000, 'unwatch')
+    expect((await closed).code).toBe(1000)
+  })
+
+  it('reports a failed connection without its URL', async () => {
+    server = new WebSocketServer({ host: '127.0.0.1', port: 0 })
+    const port = await listening(server)
+    await new Promise<void>((resolve) => server?.close(() => resolve()))
+    server = undefined
+    const factory = createBinaryWebSocketFactory({
+      hermesOrigin: () => `http://127.0.0.1:${port}`,
+    })
+    const socket = factory(
+      `ws://127.0.0.1:${port}/api/display/ws?display_ticket=${DISPLAY}`,
+    )
+    const reported: unknown[] = []
+    await new Promise<void>((resolve) => {
+      socket.onerror = (event) => reported.push(event)
+      socket.onclose = (event) => {
+        reported.push(event)
+        resolve()
+      }
+    })
+    expect(reported).toEqual([{ type: 'error' }, expect.objectContaining({ code: 1006 })])
+    expect(JSON.stringify(reported)).not.toContain(DISPLAY)
+  })
+
+  it('throws before connecting, without the ticket, when the request breaks the policy', () => {
+    const factory = createBinaryWebSocketFactory({ hermesOrigin: () => HERMES })
+    const attempt = (url: string) => {
+      try {
+        factory(url)
+        return 'opened'
+      } catch (error) {
+        return (error as Error).message
+      }
+    }
+    const refused = attempt(SCREEN.replace('hermes.', 'evil.'))
+    expect(refused).toMatch(/origin/)
+    expect(refused).not.toContain(DISPLAY)
+    expect(attempt(SCREEN.replace('/display/ws', '/ws'))).toMatch(/path/)
+    expect(() =>
+      createBinaryWebSocketFactory({ hermesOrigin: () => undefined })(SCREEN),
+    ).toThrow(/not-signed-in/)
   })
 })
