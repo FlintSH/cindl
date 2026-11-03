@@ -127,7 +127,8 @@ until the owner decides about those terms.
   sheet and a side conversation before leaving the app; the approval card
   (Allow once and Deny only) and the question set; the sudo prompt's card
   offering nothing to send; a memory entry's delete warning and a reviewed
-  edit; sending a message with the
+  edit; Work, Computer saying there is no live picture; sending a message
+  with the
   on-screen keyboard open (composer above the keyboard, navigation hidden);
   every touch target at least 48dp; 200% font size and dark theme; a draft
   surviving background, rotation, activity recreation; a cold start after the
@@ -251,6 +252,12 @@ Hermes server and on a phone.
   Hermes refuses it if the entry changed after it was read; the draft is kept
   to review again. Deleting asks first and cannot be undone: Hermes keeps no
   backup.
+- **The agent's screen** (Work, Computer) shows the screen's state and who
+  controls it, with Take control and Give control back. The live picture is
+  not in the Android app yet, and the card says so, even in the demo, which
+  streams a synthetic screen to the other clients. Taking control from Android
+  pauses Hermes's input on its screen and sends nothing: the app has no
+  picture or input yet. Cindl never starts, stops or installs the screen.
 - **System back** closes an open sheet or dialog first, then steps out of an
   editor review, then a skill detail, then returns to Talk, then from a side
   conversation to the main one, and only then leaves the app.

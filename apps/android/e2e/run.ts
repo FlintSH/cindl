@@ -16,6 +16,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { SYNTHETIC_DEMO_LABEL } from '@cindl/contracts'
+import { NO_LIVE_PICTURE } from '../src/work/screen.ts'
 import { createDevice, PACKAGE } from './device.ts'
 import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
 import {
@@ -416,6 +417,20 @@ async function demoSuite() {
       await device.reveal('Restore previous version', 'the saved entry')
       shot('memory-saved')
       note('the edit was reviewed as a diff (1 line added, 1 removed), then saved')
+    },
+  )
+
+  await step(
+    'Work: the screen state and control, no live picture',
+    async ({ note, shot }) => {
+      await startOnTalk()
+      await openDestination('Work', named('Needs you'))
+      // The demo offers computer.view; the app still says it shows no picture.
+      await device.reveal(NO_LIVE_PICTURE, 'the computer card')
+      shot('work-computer')
+      note(
+        'Work, Computer shows the state and who controls it, and says there is no live picture',
+      )
     },
   )
 

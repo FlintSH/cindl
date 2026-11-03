@@ -18,6 +18,7 @@ import {
 } from '../talk/failures.ts'
 import { relativeDay } from '../talk/format.ts'
 import { RequestCard } from '../talk/RequestCard.tsx'
+import { NO_LIVE_PICTURE, TAKE_CONTROL_WARNING } from './screen.ts'
 import { requestKeyOf } from '../talk/requests.ts'
 import { useTheme } from '../theme/theme.tsx'
 import {
@@ -234,6 +235,7 @@ function Computer() {
           },
         ]}
       />
+      <Note>{NO_LIVE_PICTURE}</Note>
       {canControl ? (
         <View
           style={{
@@ -279,10 +281,7 @@ function Computer() {
           </>
         }
       >
-        <Txt tone="secondary">
-          Taking control pauses Hermes's input on its screen and evicts any other
-          controller. Your keystrokes go to the agent's computer.
-        </Txt>
+        <Txt tone="secondary">{TAKE_CONTROL_WARNING}</Txt>
       </Dialog>
     </View>
   )
