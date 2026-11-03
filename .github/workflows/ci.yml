@@ -34,7 +34,9 @@ jobs:
           cache: pnpm
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-      - name: Verify (format, lint, typecheck, unit tests, tokens)
+      # verify includes the privacy, licence and docs gates, the gate tests, and
+      # both web builds with the build-output gate (pnpm check:dist).
+      - name: Verify (format, lint, types, tests, tokens, gates, web builds)
         run: pnpm verify
       - name: Privacy and secret scan
         run: node scripts/check-privacy.mjs
@@ -52,13 +54,6 @@ jobs:
         env:
           BASE_SHA: ${{ github.event.before }}
         run: node scripts/check-docs-impact.mjs --base "$BASE_SHA"
-      - name: Build the production web client
-        run: pnpm --filter @cindl/web build
-      - name: Build the labelled web demo
-        run: pnpm --filter @cindl/web build:demo
-      # ADR 0011: real builds hold no fixture records; demo builds carry the label.
-      - name: Check both build flavours
-        run: node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo
 
   web-e2e:
     name: Web end-to-end on the synthetic demo

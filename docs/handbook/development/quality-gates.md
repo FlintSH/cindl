@@ -12,18 +12,20 @@ They cannot judge whether prose is complete or true. The review that the
 
 ## Where each gate runs
 
-| Gate                    | Command                                                                      | CI workflow and job                            |
-| ----------------------- | ---------------------------------------------------------------------------- | ---------------------------------------------- |
-| Verify                  | `pnpm verify`                                                                | `ci.yml`, Verify and repository gates          |
-| Privacy and secret scan | `node scripts/check-privacy.mjs`                                             | `ci.yml`                                       |
-| Licence check           | `node scripts/check-license.mjs`                                             | `ci.yml`                                       |
-| Gate tests              | `node --test "scripts/test/*.test.mjs"`                                      | `ci.yml`                                       |
-| Docs impact             | `node scripts/check-docs-impact.mjs --base <commit>`                         | `ci.yml` (pull requests and pushes)            |
-| Web builds              | `pnpm --filter @cindl/web build` and `build:demo`                            | `ci.yml`                                       |
-| Build outputs           | `node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo` | `ci.yml`, after both web builds                |
-| Web end-to-end          | `pnpm test:e2e`                                                              | `ci.yml`, Web end-to-end on the synthetic demo |
-| Docs coverage           | `node scripts/check-docs-coverage.mjs`                                       | `docs.yml`                                     |
-| Docs build and links    | `pnpm --dir docs/handbook build`                                             | `docs.yml`, at `/` and at `/cindl/`            |
+`pnpm verify` runs most gates in one command; each also has its own alias in
+the root `package.json`.
+
+| Gate                    | Command                                                | Where CI runs it                               |
+| ----------------------- | ------------------------------------------------------ | ---------------------------------------------- |
+| Verify                  | `pnpm verify`                                          | `ci.yml`, Verify and repository gates          |
+| Privacy and secret scan | `pnpm check:privacy`                                   | In `pnpm verify`, and as its own `ci.yml` step |
+| Licence check           | `pnpm check:license`                                   | In `pnpm verify`, and as its own `ci.yml` step |
+| Docs coverage           | `pnpm check:docs` (with the generated-table check)     | In `pnpm verify`, and in `docs.yml`            |
+| Gate tests              | `pnpm test:gates`                                      | In `pnpm verify`, and as its own `ci.yml` step |
+| Web builds and outputs  | `pnpm check:dist` (both web builds, then `check-dist`) | In `pnpm verify`                               |
+| Docs impact             | `pnpm check:docs-impact --base <commit>`               | `ci.yml`, on pull requests and pushes          |
+| Web end-to-end          | `pnpm test:e2e`                                        | `ci.yml`, Web end-to-end on the synthetic demo |
+| Docs build and links    | `pnpm docs:build`                                      | `docs.yml`, at `/` and at `/cindl/`            |
 
 Both workflows run on every pull request and on pushes to `main`, with
 read-only permissions and actions pinned to full commit SHAs. `docs.yml`
@@ -191,6 +193,9 @@ as a desktop `app.asar`:
 ```sh
 node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo
 ```
+
+`pnpm check:dist` builds both web flavours and then runs this command, and
+`pnpm verify` includes it.
 
 - **Real flavours** (web `build`; later the desktop real package and the
   Android release bundle) fail if any file contains a synthetic fixture record:

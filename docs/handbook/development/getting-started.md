@@ -78,7 +78,8 @@ node scripts/check-docs-impact.mjs --base origin/main   # per-commit docs impact
 ```
 
 After building both web flavours (`pnpm --filter @cindl/web build` and
-`pnpm --filter @cindl/web build:demo`), check them:
+`pnpm --filter @cindl/web build:demo`), check them, or run `pnpm check:dist`
+to build and check in one step:
 
 ```sh
 node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo
