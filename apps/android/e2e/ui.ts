@@ -330,13 +330,6 @@ export function interactiveWithin(node: UiNode): UiNode[] {
   return [node, ...flatten(node)].filter(isInteractive)
 }
 
-/**
- * Inline links inside a paragraph are exempt (as in WCAG 2.5.8): React Native
- * renders them as spans of one TextView, which then reports as clickable.
- */
-const isInlineText = (node: UiNode) =>
-  node.className === 'android.widget.TextView' && node.desc === '' && node.text !== ''
-
 const boxInside = (inner: Rect, outer: Rect) =>
   inner.left >= outer.left &&
   inner.top >= outer.top &&
@@ -365,6 +358,18 @@ const isInlineLink = (node: UiNode) => {
     boxInside(node.bounds, paragraph.bounds)
   )
 }
+
+/**
+ * A paragraph that reports itself clickable because of the inline links in
+ * it (React Native renders them as spans of its TextView), exempt with them:
+ * it holds at least one (`isInlineLink`). A clickable TextView with no inline
+ * link in it is a target like the rest.
+ */
+const isInlineText = (node: UiNode) =>
+  node.className === 'android.widget.TextView' &&
+  node.desc === '' &&
+  node.text !== '' &&
+  node.children.some(isInlineLink)
 
 function nearestScrollable(node: UiNode): UiNode | undefined {
   for (let current = node.parent; current; current = current.parent)

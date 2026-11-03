@@ -71,11 +71,25 @@ const screen = dump(
         text: 'Draft &amp; more',
         bounds: '[0,2200][880,2296]',
       }),
+      node(
+        {
+          class: 'android.widget.TextView',
+          text: 'A paragraph with a link',
+          clickable: 'true',
+          bounds: '[0,400][1000,440]',
+        },
+        node({
+          class: 'android.widget.Button',
+          'content-desc': 'a link',
+          clickable: 'true',
+          bounds: '[700,400][1000,440]',
+        }),
+      ),
       node({
         class: 'android.widget.TextView',
-        text: 'A paragraph with a link',
+        text: 'Retry',
         clickable: 'true',
-        bounds: '[0,400][1000,440]',
+        bounds: '[0,600][120,640]',
       }),
       node(
         {
@@ -148,9 +162,9 @@ describe('UI Automator dumps', () => {
     })
   })
 
-  it('flags app targets under 48dp, skipping inline text, clipped rows and other apps', () => {
+  it('flags app targets under 48dp, skipping inline links and their paragraph, clipped rows and other apps', () => {
     const audit = auditTargets(parseUi(screen), { pkg: PKG, density: 320 })
-    expect(audit).toMatchObject({ checked: 3, skippedClipped: 1, exemptInline: 1 })
+    expect(audit).toMatchObject({ checked: 4, skippedClipped: 1, exemptInline: 2 })
     expect(audit.issues).toEqual([
       {
         label: 'Tiny',
@@ -159,10 +173,20 @@ describe('UI Automator dumps', () => {
         heightDp: 43,
         bounds: { left: 10, top: 10, right: 90, bottom: 96 },
       },
+      // A clickable TextView with no link in it (delta check of c6ce4d3, N2).
+      {
+        label: 'Retry',
+        className: 'android.widget.TextView',
+        widthDp: 60,
+        heightDp: 20,
+        bounds: { left: 0, top: 600, right: 120, bottom: 640 },
+      },
     ])
     expect(
-      auditTargets(parseUi(screen), { pkg: PKG, density: 320, minDp: 40 }).issues,
-    ).toEqual([])
+      auditTargets(parseUi(screen), { pkg: PKG, density: 320, minDp: 40 }).issues.map(
+        (issue) => issue.label,
+      ),
+    ).toEqual(['Retry'])
   })
 
   it('reads whether the keyboard is shown and where its top edge is', () => {
