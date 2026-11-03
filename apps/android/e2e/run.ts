@@ -555,6 +555,8 @@ async function demoSuite() {
         (text) => text.includes('the venue page (harbor-loft.example.test)'),
         'the reply with a link',
       )
+      // The reply itself, with nothing open over it (its link is inline, ui.ts isInlineLink).
+      await audit('Agent output reply', reply.root)
       // A link is a span of the paragraph; React Native gives it an accessibility node
       // of its own (what TalkBack activates). Its box runs to the end of the line, so
       // a finger lands on its text, at the start of the box (ui.ts linkTapPoints).

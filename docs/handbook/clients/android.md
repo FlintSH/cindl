@@ -463,7 +463,15 @@ Hermes server, Chrome's Custom Tab, and a phone.
   shared tokens' 44px is the floor for every client), TalkBack labels match the
   web labels, and the system font size, dark theme and "Remove animations"
   setting are followed. A destination keeps its scroll position when you come
-  back to it.
+  back to it. While a dialog or sheet is open, everything beneath it is hidden
+  from TalkBack (the app's content is marked "no-hide-descendants") and its
+  scrim takes every touch there; focus moves to the overlay's title when it
+  opens. The emulator tests audit touch targets the same way: only what the
+  owner can reach, so while an overlay is open only the overlay (uiautomator's
+  dump still lists the hidden nodes beneath it). A link inside a sentence is
+  exempt, as WCAG 2.5.8's inline exception allows: a span whose label is part
+  of its paragraph's text and whose box lies within the paragraph. Any other
+  link or button must be 48dp.
 
 ## Live screen
 

@@ -19,6 +19,7 @@ import {
   onDestination,
   overlayOpen,
   rawPixel,
+  reachable,
   screenToDevice,
   wholeView,
   parseKeyboard,
@@ -214,6 +215,84 @@ describe('the screen each step starts from (CI run 41656607631)', () => {
     expect(overlayOpen(parseUi(dump(`${WINDOW}${EMPTY}${TALK}${WORK}</node>`)))).toBe(
       false,
     )
+  })
+})
+
+describe('the touch targets the owner can reach (CI run 41668168848)', () => {
+  // Nodes from that run's demo/16-link-confirmation.xml (password="false" as
+  // Android writes it). React Native flattened the dialog's frame, so under one
+  // container sit the app's content (drawing order 2), the scrim's branch (3)
+  // and the dialog's card (4); the reply's paragraph and its link span are in
+  // the content, beneath the scrim.
+  const attrs = (more: string) =>
+    `resource-id="" package="${PKG}" checkable="false" checked="false" enabled="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" hint="" ${more}`
+  const WINDOW = `<node index="0" text="" class="android.widget.FrameLayout" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="0"')}>`
+  const CONTAINER = `<node index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="1"')}>`
+  const EMPTY = `<node index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="1"')} />`
+  const SCRIM_BRANCH = `<node index="1" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="3"')}>`
+  const SCRIM = `<node NAF="true" index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="true" focusable="true" ${attrs('bounds="[0,0][1080,2400]" drawing-order="1"')} />`
+  const CONTENT = `<node index="2" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="2"')}>`
+  const PARAGRAPH = `<node index="2" text="Harbor Loft (fictional) has its directions on the venue page (harbor-loft.example.test). They also sent a floor plan:" class="android.widget.TextView" content-desc="" clickable="false" focusable="true" ${attrs('bounds="[42,784][1038,991]" drawing-order="3"')}>`
+  const SPAN = `<node index="0" text="" class="android.widget.Button" content-desc="the venue page" clickable="true" focusable="true" ${attrs('bounds="[854,784][1038,853]" drawing-order="0"')} />`
+  const CARD = `<node index="3" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[53,894][1028,1443]" drawing-order="4"')}>`
+  const TITLE = `<node index="0" text="Open this link?" class="android.view.View" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[108,949][974,1018]" drawing-order="1"')} />`
+  const CANCEL = `<node index="3" text="" class="android.widget.Button" content-desc="Cancel" clickable="true" focusable="true" ${attrs('bounds="[412,1261][600,1387]" drawing-order="4"')}></node>`
+  const OPEN = `<node index="4" text="" class="android.widget.Button" content-desc="Open in browser" clickable="true" focusable="true" ${attrs('bounds="[622,1261][973,1387]" drawing-order="5"')}></node>`
+  const DENSITY = { pkg: PKG, density: 420 }
+  const issues = (root: ReturnType<typeof parseUi>) =>
+    auditTargets(root, DENSITY).issues.map(
+      (issue) => `${issue.label} ${issue.widthDp}x${issue.heightDp}dp`,
+    )
+
+  it('measures only the open dialog, not the reply beneath its scrim, which TalkBack cannot reach', () => {
+    const root = parseUi(
+      dump(
+        `${WINDOW}${CONTAINER}${EMPTY}${SCRIM_BRANCH}${SCRIM}</node>${CONTENT}${PARAGRAPH}${SPAN}</node></node>${CARD}${TITLE}${CANCEL}${OPEN}</node></node></node>`,
+      ),
+    )
+    expect(issues(root)).toEqual([])
+    expect(auditTargets(root, DENSITY).checked).toBe(2)
+    expect(reachable(root).map(label)).toEqual([
+      '',
+      'Open this link?',
+      'Cancel',
+      'Open in browser',
+    ])
+  })
+
+  it('exempts a link inside a sentence (WCAG 2.5.8), and nothing that only looks like one', () => {
+    // The reply with no dialog open, as 17-image-withheld.xml has it.
+    const reply = parseUi(
+      dump(`${WINDOW}${CONTENT}${PARAGRAPH}${SPAN}</node></node></node>`),
+    )
+    expect(auditTargets(reply, DENSITY)).toMatchObject({
+      checked: 0,
+      exemptInline: 1,
+      issues: [],
+    })
+    // The same box as a button on its own: a target, and too small.
+    expect(issues(parseUi(dump(`${WINDOW}${CONTENT}${SPAN}</node></node>`)))).toEqual([
+      'the venue page 70.1x26.3dp',
+    ])
+    // A label the paragraph does not say, or a box outside it: targets.
+    const unsaid = SPAN.replace(
+      'content-desc="the venue page"',
+      'content-desc="Floor plan"',
+    )
+    expect(
+      issues(
+        parseUi(dump(`${WINDOW}${CONTENT}${PARAGRAPH}${unsaid}</node></node></node>`)),
+      ),
+    ).toEqual(['Floor plan 70.1x26.3dp'])
+    const outside = SPAN.replace(
+      'bounds="[854,784][1038,853]"',
+      'bounds="[854,960][1038,1029]"',
+    )
+    expect(
+      issues(
+        parseUi(dump(`${WINDOW}${CONTENT}${PARAGRAPH}${outside}</node></node></node>`)),
+      ),
+    ).toEqual(['the venue page 70.1x26.3dp'])
   })
 })
 

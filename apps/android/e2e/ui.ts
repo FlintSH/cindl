@@ -25,6 +25,8 @@ export interface UiNode {
   scrollable: boolean
   /** Selected, as a bottom navigation item or a tab is (accessibilityState). */
   selected: boolean
+  /** Where it is drawn among its siblings (a higher one is on top). */
+  drawingOrder: number
   bounds: Rect
   parent?: UiNode
   children: UiNode[]
@@ -72,6 +74,7 @@ export function parseUi(xml: string): UiNode {
     focused: false,
     scrollable: false,
     selected: false,
+    drawingOrder: 0,
     bounds: { left: 0, top: 0, right: 0, bottom: 0 },
     children: [],
   }
@@ -106,6 +109,7 @@ export function parseUi(xml: string): UiNode {
       focused: flag('focused'),
       scrollable: flag('scrollable'),
       selected: flag('selected'),
+      drawingOrder: Number(get('drawing-order')) || 0,
       bounds: parseBounds(get('bounds')),
       parent,
       children: [],
@@ -150,9 +154,14 @@ export const onDestination = (root: UiNode, name: string) =>
  * bottom navigation closed the delete dialog left open instead).
  */
 export function overlayOpen(root: UiNode): boolean {
+  return scrimOf(root) !== undefined
+}
+
+/** An open dialog's or sheet's scrim: a clickable node over the whole window. */
+function scrimOf(root: UiNode): UiNode | undefined {
   const window = root.children[0]?.bounds
-  if (!window) return false
-  return flatten(root).some(
+  if (!window) return undefined
+  return flatten(root).find(
     (node) =>
       node.clickable &&
       node.bounds.left <= window.left &&
@@ -160,6 +169,29 @@ export function overlayOpen(root: UiNode): boolean {
       node.bounds.right >= window.right &&
       node.bounds.bottom >= window.bottom,
   )
+}
+
+/**
+ * The nodes the owner can reach: all of them, or, while a dialog or sheet is
+ * open, only those drawn above its scrim. The app hides everything beneath an
+ * overlay from TalkBack (AppShell sets importantForAccessibility
+ * "no-hide-descendants" on its content) and the scrim takes every touch
+ * there, but uiautomator's dump still lists those nodes, because it includes
+ * views that are not important for accessibility (CI run 41668168848,
+ * 16-link-confirmation: the reply's link behind "Open this link?").
+ */
+export function reachable(root: UiNode): UiNode[] {
+  const all = flatten(root)
+  const scrim = scrimOf(root)
+  if (!scrim) return all
+  for (let branch = scrim; branch.parent; branch = branch.parent) {
+    const level = branch.drawingOrder
+    const above = branch.parent.children.filter(
+      (sibling) => sibling !== branch && sibling.drawingOrder > level,
+    )
+    if (above.length) return above.flatMap((node) => [node, ...flatten(node)])
+  }
+  return []
 }
 
 export type Match = string | RegExp | ((label: string, node: UiNode) => boolean)
@@ -298,6 +330,33 @@ export function interactiveWithin(node: UiNode): UiNode[] {
 const isInlineText = (node: UiNode) =>
   node.className === 'android.widget.TextView' && node.desc === '' && node.text !== ''
 
+const boxInside = (inner: Rect, outer: Rect) =>
+  inner.left >= outer.left &&
+  inner.top >= outer.top &&
+  inner.right <= outer.right &&
+  inner.bottom <= outer.bottom
+
+/**
+ * A link inside a sentence, as WCAG 2.5.8's inline exception means it: React
+ * Native gives a link span an accessibility node of its own, a child of its
+ * paragraph's TextView, with no text of its own, its label part of the
+ * paragraph's text and its box within the paragraph's (CI run 41668168848:
+ * "the venue page" [854,784][1038,853] in [42,784][1038,991]). Any other
+ * link or button is a target like the rest.
+ */
+const isInlineLink = (node: UiNode) => {
+  const paragraph = node.parent
+  const name = label(node)
+  return (
+    paragraph !== undefined &&
+    paragraph.className === 'android.widget.TextView' &&
+    node.text === '' &&
+    name !== '' &&
+    paragraph.text.includes(name) &&
+    boxInside(node.bounds, paragraph.bounds)
+  )
+}
+
 function nearestScrollable(node: UiNode): UiNode | undefined {
   for (let current = node.parent; current; current = current.parent)
     if (current.scrollable) return current
@@ -328,7 +387,10 @@ export interface TargetAudit {
   issues: TargetIssue[]
 }
 
-/** Every interactive node of `pkg` must be at least `minDp` in both directions. */
+/**
+ * Every interactive node of `pkg` the owner can reach (`reachable`) must be at
+ * least `minDp` in both directions; inline text and inline links are exempt.
+ */
 export function auditTargets(
   root: UiNode,
   options: { pkg: string; density: number; minDp?: number },
@@ -341,10 +403,10 @@ export function auditTargets(
     exemptInline: 0,
     issues: [],
   }
-  for (const node of flatten(root)) {
+  for (const node of reachable(root)) {
     if (node.pkg !== options.pkg || !isInteractive(node)) continue
     if (width(node.bounds) <= 0 || height(node.bounds) <= 0) continue
-    if (isInlineText(node)) {
+    if (isInlineText(node) || isInlineLink(node)) {
       audit.exemptInline += 1
       continue
     }
