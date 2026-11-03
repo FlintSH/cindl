@@ -101,8 +101,9 @@ from the desktop app's custom protocol.
   labelled demo streams a synthetic one). Watching sends no input. After "Take
   control" the screen takes pointer and keyboard input; Tab is never
   forwarded, so focus can always leave it. Input is never logged. Leaving the
-  screen closes its view, even one still opening. Cindl never starts, stops or
-  installs the screen.
+  screen closes its view, even one still opening. While the view is open,
+  Hermes counts the screen as in use, so its idle stop waits. Cindl never
+  starts, stops or installs the screen.
 - **Memory edits are explicit:** each entry changes only after you review a
   diff and confirm, and only if it has not changed in Hermes since you read it.
   An editor is bound to the entry you opened, by its text, from the moment you

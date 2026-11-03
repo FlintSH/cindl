@@ -373,7 +373,8 @@ export const clientOps = {
   'display.unwatch': op({
     args: z.object({ viewId: DisplayViewId }),
     result: z.object({ stopped: z.boolean() }),
-    capability: 'computer.view',
+    // No capability: closing a view must work while computer.view is gone
+    // (a dropped link), and only closes this device's own view.
     mutates: true,
     summary:
       'Stop showing the screen. While online, a lease this device holds returns to the agent; with the link down it stays with the owner.',

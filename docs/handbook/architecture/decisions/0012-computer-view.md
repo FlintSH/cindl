@@ -81,5 +81,9 @@ React tree, for the same reason.
   ticket, so the ticket adds nothing it lacks. The
   [threat model](../../security/threat-model.md) records this under "Ticket
   leakage via logs or URLs".
+- An open view counts as use: Hermes's bridge stamps the screen's activity on
+  each relayed chunk, and its runtime treats an attached viewer as use, so
+  the 30-minute idle stop does not fire while a view is open. Leaving Work >
+  Computer open keeps the agent's screen running.
 - Nothing here is validated against a live Hermes until the owner authorises
   a live run.
