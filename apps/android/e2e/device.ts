@@ -13,11 +13,9 @@ import {
   onlyApp,
   onlyAppInFront,
   parseDisplaySize,
-  parseKeyboard,
   parseUi,
   rawPixel,
   tapPoint,
-  type KeyboardState,
   type Match,
   type TargetAudit,
   type UiNode,
@@ -276,9 +274,6 @@ export function createDevice(options: {
   const audit = async (root?: UiNode): Promise<TargetAudit> =>
     auditTargets(root ?? (await dump()), { pkg: PACKAGE, density: density() })
 
-  const keyboard = (): KeyboardState =>
-    parseKeyboard(shell('dumpsys window InputMethod'), shell('dumpsys input_method'))
-
   /** The display's size (`wm size`), read once; undefined when the device does not say. */
   let displaySize: { width: number; height: number } | undefined
   const display = () => {
@@ -341,7 +336,6 @@ export function createDevice(options: {
     pid,
     density,
     audit,
-    keyboard,
     keyboardOnScreen,
     launch,
     health,

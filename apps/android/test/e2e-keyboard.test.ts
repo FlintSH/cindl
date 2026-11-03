@@ -8,6 +8,7 @@ import type { VisibleKeyboard } from '../e2e/ui.ts'
 // the composer's dump and screenshot, not with them).
 
 const on = (top: number, height: number): VisibleKeyboard => ({
+  windowUp: true,
   visible: true,
   top,
   height,
@@ -15,6 +16,7 @@ const on = (top: number, height: number): VisibleKeyboard => ({
 })
 /** Shown by Android's flags, but its top at the display's bottom edge: not on screen. */
 const OFF: VisibleKeyboard = {
+  windowUp: true,
   visible: false,
   geometry: 'frame [0,1377][1080,2400]; content inset top 1023',
 }

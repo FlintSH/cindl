@@ -23,10 +23,10 @@ import {
   overlayOpen,
   rawPixel,
   reachable,
+  resetMove,
   screenToDevice,
   wholeView,
   parseDisplaySize,
-  parseKeyboard,
   parseUi,
   TERMS_PROMPT,
   tapPoint,
@@ -191,28 +191,6 @@ describe('UI Automator dumps', () => {
         (issue) => issue.label,
       ),
     ).toEqual(['Retry'])
-  })
-
-  it('reads whether Android says the keyboard is shown (used only to close it)', () => {
-    const window =
-      'Window #5 Window{1 u0 InputMethod}:\n    mFrame=[0,1500][1080,2400] last=[0,1500][1080,2400]'
-    expect(parseKeyboard(window, 'mInputShown=true mShowRequested=true')).toEqual({
-      shown: true,
-    })
-    expect(parseKeyboard(window, 'mInputShown=false')).toEqual({ shown: false })
-    expect(parseKeyboard('no frame here', 'isInputViewShown=true')).toEqual({
-      shown: true,
-    })
-    // Newer releases: no flag in input_method, but the keyboard window is visible.
-    expect(
-      parseKeyboard(
-        `${window}\n    mViewVisibility=0x0 mHaveFrame=true\n    mHasSurface=true`,
-        '',
-      ),
-    ).toEqual({ shown: true })
-    expect(
-      parseKeyboard(`${window}\n    mViewVisibility=0x8\n    mHasSurface=false`, ''),
-    ).toEqual({ shown: false })
   })
 
   it('recognises terms prompts so the tests stop instead of accepting', () => {
@@ -1051,6 +1029,7 @@ describe('a keyboard on screen, not only shown (CI run 41681122382)', () => {
 
   it('finds a keyboard on screen: its top inside the display and some height below it', () => {
     expect(read(ime())).toEqual({
+      windowUp: true,
       visible: true,
       top: 1377,
       height: 1023,
@@ -1069,6 +1048,7 @@ describe('a keyboard on screen, not only shown (CI run 41681122382)', () => {
   it('finds none where Android says shown but nothing is on screen', () => {
     // That run's case: its input view hidden, so its insets reach the frame's bottom.
     expect(read(ime({ content: 1023 }))).toEqual({
+      windowUp: true,
       visible: false,
       geometry:
         'window view 0x0, surface true, isVisible true, isOnScreen true; frame [0,1377][1080,2400]; content inset top 1023, visible inset top 1023; input_method says shown; display 1080x2400',
@@ -1110,6 +1090,7 @@ describe('a keyboard on screen, not only shown (CI run 41681122382)', () => {
     expect(
       visibleKeyboard(imeWindow(`${APP}\n${NAV}\n`), 'mInputShown=true', DISPLAY),
     ).toEqual({
+      windowUp: false,
       visible: false,
       geometry: 'no input method window; input_method says shown; display 1080x2400',
     })
@@ -1138,5 +1119,127 @@ describe('a keyboard on screen, not only shown (CI run 41681122382)', () => {
       height: 1600,
     })
     expect(parseDisplaySize('')).toBeUndefined()
+  })
+})
+
+describe("the reset at each step's start (CI run 41696032323)", () => {
+  // That run's demo steps 1-3 passed. Step 3 typed in the conversation search
+  // (the keyboard shown at 18:55:02, hidden by back at 18:55:03) and ended on
+  // a relaunched Talk (11-relaunched.xml, whose nodes these are: the composer
+  // not focused, nothing open). Step 4's reset then pressed back on that bare
+  // Talk (Cindl's activity closed at 18:55:24, no keyboard shown in the step),
+  // kept pressing it over the launcher, and every later step failed the same
+  // way: the input method's own flag still said shown. (password="false" as
+  // Android writes it; the run's artifact has it masked by its own scrub.)
+  const attrs = (more: string) =>
+    `resource-id="" package="${PKG}" checkable="false" checked="false" enabled="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" hint="" ${more}`
+  const TALK_AFTER_RELAUNCH = dump(
+    [
+      `<node index="0" text="" class="android.widget.FrameLayout" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="0"')}>`,
+      `<node index="1" text="" class="android.widget.Button" content-desc="Today, Main. Switch conversation" clickable="true" focusable="true" ${attrs('bounds="[21,201][390,327]" drawing-order="2"')} />`,
+      `<node index="8" text="Message Hermes" class="android.widget.EditText" content-desc="Message Hermes" clickable="true" focusable="true" ${attrs('bounds="[76,1837][742,1963]" drawing-order="9"')} />`,
+      `<node index="5" text="" class="android.view.View" content-desc="Talk" clickable="true" focusable="true" ${attrs('bounds="[0,2127][270,2274]" drawing-order="5"').replace('selected="false"', 'selected="true"')} />`,
+      `<node index="7" text="" class="android.view.View" content-desc="Library" clickable="true" focusable="true" ${attrs('bounds="[540,2127][810,2274]" drawing-order="7"')} />`,
+      `<node index="8" text="" class="android.view.View" content-desc="Agent" clickable="true" focusable="true" ${attrs('bounds="[810,2127][1080,2274]" drawing-order="8"')} />`,
+      '</node>',
+    ].join(''),
+  )
+  // The keyboard hidden after use: its window gone, but the input method's own
+  // dump still holds mIsInputViewShown=true (InputMethodService updates it
+  // only while its window is visible).
+  const HIDDEN_KEYBOARD = [
+    'WINDOW MANAGER WINDOWS (dumpsys window windows)',
+    '  Window #7 Window{8c1f2e3 u0 InputMethod}:',
+    '    mViewVisibility=0x8 mHaveFrame=true mObscured=false',
+    '    mGivenContentInsets=[0,0][0,0] mGivenVisibleInsets=[0,0][0,0]',
+    '    mHasSurface=false isReadyForDisplay()=false mWindowRemovalAllowed=false',
+    '    Frames: parent=[0,0][1080,2400] display=[0,0][1080,2400] frame=[0,1377][1080,2400] last=[0,1377][1080,2400] insetsChanged=false',
+    '    isOnScreen=false',
+    '    isVisible=false',
+  ].join('\n')
+  const STALE_FLAG = '  mShowInputRequested=false\n  mIsInputViewShown=true mStatusIcon=0'
+  const DISPLAY = { width: 1080, height: 2400 }
+
+  it('takes no decision on the input method flag left set after the keyboard hid', () => {
+    expect(
+      visibleKeyboard(imeWindow(HIDDEN_KEYBOARD), STALE_FLAG, DISPLAY),
+    ).toMatchObject({ windowUp: false, visible: false })
+    expect(overlayOpen(parseUi(TALK_AFTER_RELAUNCH))).toBe(false)
+  })
+
+  it('leaves a bare Talk alone, relaunches Cindl over another app, and presses back only in Cindl', () => {
+    const keyboardUp = visibleKeyboard(
+      imeWindow(HIDDEN_KEYBOARD),
+      STALE_FLAG,
+      DISPLAY,
+    ).windowUp
+    const overlay = overlayOpen(parseUi(TALK_AFTER_RELAUNCH))
+    expect(resetMove({ cindlInFront: true, overlay, keyboardUp })).toBe('done')
+    // The launcher in front: Cindl comes back; system back there does nothing useful.
+    for (const left of [
+      { overlay: false, keyboardUp: false },
+      { overlay: true, keyboardUp: true },
+    ])
+      expect(resetMove({ cindlInFront: false, ...left })).toBe('relaunch')
+    // A sheet or dialog left open, or the keyboard's window up, in Cindl: back.
+    expect(resetMove({ cindlInFront: true, overlay: true, keyboardUp: false })).toBe(
+      'back',
+    )
+    expect(resetMove({ cindlInFront: true, overlay: false, keyboardUp: true })).toBe(
+      'back',
+    )
+  })
+
+  it('brings every step of that order back to Cindl with nothing open, where the old reset left the app', () => {
+    // Android as the reset sees it: back on a bare Talk leaves the app; back on
+    // the launcher does nothing; relaunching brings Cindl back as it was.
+    type Device = { front: 'cindl' | 'launcher'; overlay: boolean; keyboardUp: boolean }
+    const press = (device: Device, move: 'relaunch' | 'back' | 'done'): Device => {
+      if (move === 'relaunch') return { ...device, front: 'cindl' }
+      if (move !== 'back' || device.front !== 'cindl') return device
+      if (device.keyboardUp) return { ...device, keyboardUp: false }
+      if (device.overlay) return { ...device, overlay: false }
+      return { ...device, front: 'launcher' }
+    }
+    const reset = (
+      start: Device,
+      decide: (device: Device) => 'relaunch' | 'back' | 'done',
+    ) => {
+      let device = start
+      for (let tries = 0; tries < 6; tries++) {
+        const move = decide(device)
+        if (move === 'done') return device
+        device = press(device, move)
+      }
+      return undefined
+    }
+    const now = (device: Device) =>
+      resetMove({
+        cindlInFront: device.front === 'cindl',
+        overlay: device.front === 'cindl' && device.overlay,
+        keyboardUp: device.front === 'cindl' && device.keyboardUp,
+      })
+    // c6ce4d3..1eef0c9: back while a dump or the flag says something is open,
+    // whatever is in front; the flag is the input method's (stale after use).
+    const before = (stale: boolean) => (device: Device) =>
+      device.overlay || device.keyboardUp || stale ? 'back' : 'done'
+    const starts: Device[] = [
+      // After step 3: a relaunched bare Talk, the keyboard hidden after use.
+      { front: 'cindl', overlay: false, keyboardUp: false },
+      // A step left a sheet open, or the keyboard up.
+      { front: 'cindl', overlay: true, keyboardUp: false },
+      { front: 'cindl', overlay: false, keyboardUp: true },
+      // A step left the app: the launcher in front.
+      { front: 'launcher', overlay: false, keyboardUp: false },
+    ]
+    for (const start of starts)
+      expect(reset(start, now)).toEqual({
+        front: 'cindl',
+        overlay: false,
+        keyboardUp: false,
+      })
+    // The old reset, after the keyboard was used once: the app left at every start.
+    expect(reset(starts[0] as Device, before(true))).toBeUndefined()
+    expect(reset(starts[3] as Device, before(false))).toEqual(starts[3])
   })
 })

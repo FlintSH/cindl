@@ -589,8 +589,8 @@ describe('what the device helper keeps', () => {
     try {
       process.env.FAKE_ADB_IME_WINDOW = block(0)
       process.env.FAKE_ADB_WINDOWS = `WINDOW MANAGER WINDOWS (dumpsys window windows)\n${block(1023)}\n`
-      expect(device.keyboard().shown).toBe(true)
-      expect(device.keyboardOnScreen()).toMatchObject({ visible: false })
+      // Its window is up (system back would close it), but no keyboard is on screen.
+      expect(device.keyboardOnScreen()).toMatchObject({ windowUp: true, visible: false })
       process.env.FAKE_ADB_WINDOWS = `WINDOW MANAGER WINDOWS (dumpsys window windows)\n${block(0)}\n`
       expect(device.keyboardOnScreen()).toMatchObject({
         visible: true,

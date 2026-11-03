@@ -542,14 +542,19 @@ export function touchTargetsRow(
 }
 
 /**
- * Whether Android says the on-screen keyboard is shown: a flag, or its window
- * visible with a surface. It may not be on screen (CI run 41681122382: shown,
- * its frame's top at the display's bottom edge), so steps use it only to
- * close the keyboard with system back; `visibleKeyboard` says whether it is
- * on screen.
+ * What the reset at each step's start does next: bring Cindl back when
+ * another app is in front (the launcher after a step left the app), never
+ * system back there; system back while Cindl is in front with a dialog, a
+ * sheet or the keyboard's window up; else nothing (CI run 41696032323: back
+ * on a bare Talk, on a keyboard flag left set, left the app at every step).
  */
-export interface KeyboardState {
-  shown: boolean
+export function resetMove(screen: {
+  cindlInFront: boolean
+  overlay: boolean
+  keyboardUp: boolean
+}): 'relaunch' | 'back' | 'done' {
+  if (!screen.cindlInFront) return 'relaunch'
+  return screen.overlay || screen.keyboardUp ? 'back' : 'done'
 }
 
 /**
@@ -604,24 +609,16 @@ export function keepCapture(before: string, after: string, pkg: string): boolean
   )
 }
 
-/** The input_method dump says the keyboard is shown (older releases print the flag there). */
+/**
+ * The input_method dump says the keyboard is shown, for the report only: the
+ * input method's own `mIsInputViewShown` stays true after it hides (AOSP's
+ * InputMethodService updates it only while its window is visible), so no
+ * decision is taken on it (CI run 41696032323).
+ */
 const saysShown = (inputMethodDump: string) =>
   /\bm?InputShown=true\b|\bisInputViewShown=true\b|\bmIsInputViewShown=true\b/.test(
     inputMethodDump,
   )
-
-/** Reads `dumpsys window InputMethod` and `dumpsys input_method` (`KeyboardState`). */
-export function parseKeyboard(
-  windowDump: string,
-  inputMethodDump: string,
-): KeyboardState {
-  return {
-    shown:
-      saysShown(inputMethodDump) ||
-      (/\bmViewVisibility=0x0\b/.test(windowDump) &&
-        /\bmHasSurface=true\b/.test(windowDump)),
-  }
-}
 
 /** The display's size from `wm size` (an override wins), or undefined. */
 export function parseDisplaySize(
@@ -659,6 +656,12 @@ export const MIN_KEYBOARD_SHARE = 0.15
 
 export interface VisibleKeyboard {
   /**
+   * Android shows the keyboard's window (visible, with a surface): system
+   * back would close it. A hidden keyboard's window is gone, whatever flag
+   * the input method still holds.
+   */
+  windowUp: boolean
+  /**
    * On screen: its window visible and on screen, with a surface, its frame
    * inside the display's width, and the area from its top to its frame's
    * bottom inside the display and at least `MIN_KEYBOARD_SHARE` of its height.
@@ -695,7 +698,11 @@ export function visibleKeyboard(
     ? `display ${display.width}x${display.height}`
     : 'display size unknown'
   if (window === undefined)
-    return { visible: false, geometry: `no input method window; ${said}; ${screen}` }
+    return {
+      windowUp: false,
+      visible: false,
+      geometry: `no input method window; ${said}; ${screen}`,
+    }
   const flag = (pattern: RegExp) => pattern.exec(window)?.[1]
   const view = flag(/\bmViewVisibility=(0x[0-9a-f]+)\b/)
   const surface = flag(/\bmHasSurface=(true|false)\b/)
@@ -721,10 +728,9 @@ export function visibleKeyboard(
     said,
     screen,
   ].join('; ')
+  const windowUp = view === '0x0' && surface === 'true' && isVisible !== 'false'
   const visible =
-    view === '0x0' &&
-    surface === 'true' &&
-    isVisible !== 'false' &&
+    windowUp &&
     onScreen === 'true' &&
     display !== undefined &&
     top !== undefined &&
@@ -737,7 +743,9 @@ export function visibleKeyboard(
     top >= 0 &&
     top < display.height &&
     height >= display.height * MIN_KEYBOARD_SHARE
-  return visible ? { visible, top, height, geometry } : { visible, geometry }
+  return visible
+    ? { windowUp, visible, top, height, geometry }
+    : { windowUp, visible, geometry }
 }
 
 /** Words that mean a screen asks to accept terms; the tests must stop there, never accept. */

@@ -33,6 +33,7 @@ import {
   find,
   findAll,
   flatten,
+  focusedPackage,
   height,
   hiddenBeneath,
   interactiveWithin,
@@ -43,6 +44,7 @@ import {
   near,
   onDestination,
   overlayOpen,
+  resetMove,
   screenToDevice,
   TERMS_PROMPT,
   touchTargetsRow,
@@ -227,16 +229,44 @@ const keyboardReader = {
   now: () => Date.now(),
 }
 
+/** Cindl's window has focus (`mCurrentFocus`); false when the device does not say. */
+function cindlInFront(): boolean {
+  try {
+    return (
+      focusedPackage(device.shell('dumpsys window | grep -E "mCurrentFocus" || true')) ===
+      PACKAGE
+    )
+  } catch {
+    return false
+  }
+}
+
 /**
- * Closes what a step left over the screen (a dialog, a sheet, the keyboard)
- * with system back, which closes the top one first.
+ * Brings the screen back to Cindl with nothing over it (ui.ts resetMove):
+ * Cindl relaunched while another app is in front, never system back there;
+ * system back for a dialog, a sheet or the keyboard's window a step left,
+ * which closes the top one first. CI run 41696032323 pressed back on a bare
+ * Talk, on a keyboard flag left set, and so left the app at every step.
  */
 async function closeOverlays() {
-  for (let tries = 0; tries < 4; tries++) {
-    if (!overlayOpen(await device.dump()) && !device.keyboard().shown) return
-    await device.key('KEYCODE_BACK')
+  let stayed = ''
+  for (let tries = 0; tries < 6; tries++) {
+    const inFront = cindlInFront()
+    const overlay = inFront && overlayOpen(await device.dump())
+    const keyboardUp = inFront && device.keyboardOnScreen().windowUp
+    const move = resetMove({ cindlInFront: inFront, overlay, keyboardUp })
+    if (move === 'done') return
+    stayed = !inFront
+      ? 'another app stayed in front'
+      : overlay
+        ? 'a dialog or sheet stayed open'
+        : "the keyboard's window stayed up"
+    if (move === 'relaunch') {
+      device.launch()
+      await sleep(1500)
+    } else await device.key('KEYCODE_BACK')
   }
-  throw new Error('A dialog or sheet stayed open after system back')
+  throw new Error(`The screen did not come back to Cindl with nothing over it: ${stayed}`)
 }
 
 /**
@@ -442,7 +472,7 @@ async function demoSuite() {
       await audit('Conversations', history.root)
       await device.tap('Search conversations', 'the conversation search')
       await device.type('kiln')
-      if (device.keyboard().shown) await device.key('KEYCODE_BACK')
+      if (device.keyboardOnScreen().windowUp) await device.key('KEYCODE_BACK')
       await device.tap(
         (text) => text.startsWith('Kiln inventory sheet'),
         'the side conversation',
@@ -551,7 +581,7 @@ async function demoSuite() {
       )
       await device.tap('Search conversations', 'the conversation search')
       await device.type('offsite')
-      if (device.keyboard().shown) await device.key('KEYCODE_BACK')
+      if (device.keyboardOnScreen().windowUp) await device.key('KEYCODE_BACK')
       await device.tap(
         (text) => text.startsWith('Studio offsite planning'),
         'the offsite conversation',
@@ -678,7 +708,7 @@ async function demoSuite() {
       await device.tapNode(field.node)
       await device.key('KEYCODE_MOVE_END')
       await device.type(' Checked on Monday.')
-      if (device.keyboard().shown) await device.key('KEYCODE_BACK')
+      if (device.keyboardOnScreen().windowUp) await device.key('KEYCODE_BACK')
       await tapRevealed('Review changes', 'Review changes')
       await device.waitFor(
         (text) => text.startsWith('Review before saving: 1 line added, 1 removed.'),
@@ -705,7 +735,7 @@ async function demoSuite() {
     let keyboard = await settledKeyboard(keyboardReader, 8_000)
     if (!keyboard) {
       // Once more: closed first if Android holds it shown but not on screen.
-      if (device.keyboard().shown) await device.key('KEYCODE_BACK')
+      if (device.keyboardOnScreen().windowUp) await device.key('KEYCODE_BACK')
       await device.tap(isComposer, 'the composer')
       keyboard = await settledKeyboard(keyboardReader, 8_000)
     }
@@ -748,7 +778,7 @@ async function demoSuite() {
     )
     shot('chat-reply')
     note('message sent and the synthetic reply arrived')
-    if (device.keyboard().shown) await device.key('KEYCODE_BACK')
+    if (device.keyboardOnScreen().windowUp) await device.key('KEYCODE_BACK')
   })
 
   await step('Large font (200%) and dark theme', async ({ note, shot, audit }) => {
@@ -779,7 +809,7 @@ async function demoSuite() {
       await startOnTalk()
       await device.tap(isComposer, 'the composer')
       await device.type('Draft kept')
-      if (device.keyboard().shown) await device.key('KEYCODE_BACK')
+      if (device.keyboardOnScreen().windowUp) await device.key('KEYCODE_BACK')
       await device.key('KEYCODE_HOME')
       await sleep(2000)
       device.launch()
@@ -931,7 +961,7 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
       await device.clearText(Math.max(field.node.text.length, 64))
       await device.type(origin)
     }
-    if (device.keyboard().shown) await device.key('KEYCODE_BACK')
+    if (device.keyboardOnScreen().windowUp) await device.key('KEYCODE_BACK')
     await tapRevealed((text, node) => text === 'Sign in' && node.clickable, 'Sign in')
   }
 
@@ -1129,7 +1159,7 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
     }
     await device.tap(isComposer, 'the composer')
     await device.type('Hello from the emulator')
-    if (device.keyboard().shown) await device.key('KEYCODE_BACK')
+    if (device.keyboardOnScreen().windowUp) await device.key('KEYCODE_BACK')
     await device.tap((text, node) => text === 'Send' && node.clickable, 'Send')
     await device.waitFor(
       (text) => text.includes('Synthetic reply (fixture) to: Hello from the emulator'),
