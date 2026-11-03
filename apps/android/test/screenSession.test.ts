@@ -4,6 +4,7 @@ import type { CindlScreenNative } from '../modules/cindl-screen/index.ts'
 import {
   createScreenPainter,
   SCREEN_TOO_LARGE,
+  screenSurfaceId,
   startScreenSession,
 } from '../src/work/screenSession.ts'
 
@@ -22,7 +23,10 @@ const frame = (n: number): DisplayFrame => ({
 /** A client whose watch and frames resolve when the test says so. */
 function client() {
   let openWatch: ((opened: DisplayView) => void) | undefined
-  const frames: Array<(next: DisplayFrame) => void> = []
+  const frames: Array<{
+    resolve: (next: DisplayFrame) => void
+    reject: (error: unknown) => void
+  }> = []
   const calls: Array<{ name: string; args: unknown }> = []
   const api = {
     call: (name: string, args: unknown) => {
@@ -30,7 +34,9 @@ function client() {
       if (name === 'display.watch')
         return new Promise<DisplayView>((resolve) => (openWatch = resolve))
       if (name === 'display.frame')
-        return new Promise<DisplayFrame>((resolve) => frames.push(resolve))
+        return new Promise<DisplayFrame>((resolve, reject) =>
+          frames.push({ resolve, reject }),
+        )
       if (name === 'display.unwatch') return Promise.resolve({ stopped: true })
       return Promise.reject(new Error(`unexpected ${name}`))
     },
@@ -40,7 +46,8 @@ function client() {
     calls,
     named: (name: string) => calls.filter((c) => c.name === name),
     open: () => openWatch?.(view),
-    sendFrame: (n: number) => frames.shift()?.(frame(n)),
+    sendFrame: (n: number) => frames.shift()?.resolve(frame(n)),
+    failFrame: (error: unknown) => frames.shift()?.reject(error),
   }
 }
 
@@ -124,6 +131,63 @@ describe('watching the agent screen (web parity)', () => {
     expect(s.errors).toEqual([SCREEN_TOO_LARGE])
     expect(c.named('display.frame')).toHaveLength(1)
   })
+
+  // Review of 636a2dd, N4: a session that ended on its own kept its view open
+  // (the socket, idle probes, and control if this device held it) until unmount.
+  it('ends the view when the screen is too large to show, and only once', async () => {
+    const c = client()
+    const s = session(c, false)
+    c.open()
+    await settle()
+    c.sendFrame(1)
+    await settle()
+    expect(c.named('display.unwatch').map((call) => call.args)).toEqual([
+      { viewId: 'view-test0001' },
+    ])
+    s.handle.stop()
+    await settle()
+    expect(c.named('display.unwatch')).toHaveLength(1)
+  })
+
+  it('ends the view when a frame fails, says why, and asks for nothing more', async () => {
+    const c = client()
+    const s = session(c)
+    c.open()
+    await settle()
+    c.failFrame(new Error('the socket closed (fixture)'))
+    await settle()
+    expect(s.errors).toEqual(['Cindl could not show the screen.'])
+    expect(c.named('display.unwatch').map((call) => call.args)).toEqual([
+      { viewId: 'view-test0001' },
+    ])
+    expect(c.named('display.frame')).toHaveLength(1)
+    s.handle.stop()
+    await settle()
+    expect(c.named('display.unwatch')).toHaveLength(1)
+  })
+
+  it('has nothing to end when the watch itself fails', async () => {
+    const c = client()
+    const failing = {
+      call: (name: string, args: unknown) => {
+        c.calls.push({ name, args })
+        return name === 'display.watch'
+          ? Promise.reject(new Error('refused (fixture)'))
+          : Promise.resolve({ stopped: true })
+      },
+    } as unknown as Pick<CindlClientApi, 'call'>
+    const errors: string[] = []
+    startScreenSession({
+      call: failing.call,
+      paint: () => true,
+      nextPaint: () => Promise.resolve(),
+      onView: () => undefined,
+      onError: (message) => errors.push(message),
+    })
+    await settle()
+    expect(errors).toEqual(['Cindl could not show the screen.'])
+    expect(c.named('display.unwatch')).toEqual([])
+  })
 })
 
 describe('painting regions into the native picture', () => {
@@ -180,5 +244,108 @@ describe('painting regions into the native picture', () => {
     const { fake, calls } = native(false)
     expect(createScreenPainter(fake, 'screen-1').paint(frame(1))).toBe(false)
     expect(calls).toEqual([['resize', 'screen-1', 4, 3]])
+  })
+})
+
+/**
+ * The Kotlin side as written (modules/cindl-screen: ScreenSurface.kt,
+ * CindlScreenView.kt, CindlScreenModule.kt), in JavaScript: surfaces by id,
+ * created on first use (`getOrPut`) and removed by `release`; a view attaches
+ * to a surface when its `surface` prop is set, which Expo does only when the
+ * prop changes. (The review's probe-try-again.mjs models the same.)
+ */
+function kotlinScreen() {
+  interface Surface {
+    serial: number
+    bitmap: { width: number; height: number } | undefined
+    painted: number
+  }
+  let made = 0
+  const surfaces = new Map<string, Surface>()
+  const get = (id: string) => {
+    let surface = surfaces.get(id)
+    if (!surface) {
+      surface = { serial: ++made, bitmap: undefined, painted: 0 }
+      surfaces.set(id, surface)
+    }
+    return surface
+  }
+  const native: CindlScreenNative = {
+    resize: (id, width, height) => {
+      get(id).bitmap = { width, height }
+      return true
+    },
+    paint: (id) => {
+      const surface = get(id)
+      if (!surface.bitmap) return false
+      surface.painted += 1
+      return true
+    },
+    release: (id) => {
+      const surface = surfaces.get(id)
+      surfaces.delete(id)
+      if (surface) surface.bitmap = undefined
+    },
+  }
+  let prop: string | undefined
+  let drawn: Surface | undefined
+  return {
+    native,
+    /** React commits the view's props before the effects run. */
+    setProp: (id: string) => {
+      if (id === prop) return
+      prop = id
+      drawn = get(id)
+    },
+    /** The surface the view draws. */
+    drawn: () => drawn,
+  }
+}
+
+describe('Try again on the agent screen (review of 636a2dd, S1)', () => {
+  it('draws the new session: the view moves to a new surface for each attempt', async () => {
+    const kotlin = kotlinScreen()
+    const component = '«r1»'
+    // ScreenView's screen effect, on [api, surface, attempt].
+    const effect = (surface: string) => {
+      const painter = createScreenPainter(kotlin.native, surface)
+      const c = client()
+      const s = startScreenSession({
+        call: c.call,
+        paint: (next) => painter.paint(next),
+        nextPaint: () => Promise.resolve(),
+        onView: () => undefined,
+        onError: () => undefined,
+      })
+      return {
+        c,
+        cleanup: () => {
+          s.stop()
+          painter.release()
+        },
+      }
+    }
+    let attempt = 0
+    kotlin.setProp(screenSurfaceId(component, attempt))
+    const first = effect(screenSurfaceId(component, attempt))
+    first.c.open()
+    await settle()
+    first.c.sendFrame(1)
+    await settle()
+    expect(kotlin.drawn()?.painted).toBe(1)
+    // The stream stalls; the owner presses Try again (attempt + 1).
+    attempt += 1
+    kotlin.setProp(screenSurfaceId(component, attempt))
+    first.cleanup()
+    const second = effect(screenSurfaceId(component, attempt))
+    second.c.open()
+    await settle()
+    second.c.sendFrame(2)
+    await settle()
+    // The view draws the surface the new session paints, not the released one.
+    const drawn = kotlin.drawn()
+    expect(drawn?.bitmap).toEqual({ width: 4, height: 3 })
+    expect(drawn?.painted).toBe(1)
+    second.cleanup()
   })
 })

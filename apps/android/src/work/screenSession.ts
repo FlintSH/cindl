@@ -9,6 +9,17 @@ import type { CindlScreenNative } from '../../modules/cindl-screen/index.ts'
 export const SCREEN_TOO_LARGE = 'This screen is too large to show on this device.'
 
 /**
+ * The Kotlin surface a screen view paints and draws, new for each attempt.
+ * Ending a session releases its surface, and the native view attaches to a
+ * surface only when its `surface` prop changes: with one id for every attempt,
+ * "Try again" would paint a new surface while the view kept drawing the
+ * released one (review of 636a2dd, S1).
+ */
+export function screenSurfaceId(componentId: string, attempt: number): string {
+  return `screen${componentId}-${attempt}`
+}
+
+/**
  * Turns frames into calls on the Kotlin surface: the picture is resized only
  * when the screen's size changes, and each changed region is painted from the
  * bytes the client returned (no copy here). False when the size is refused.
@@ -50,14 +61,22 @@ export interface ScreenSessionDeps {
  * One watch of the agent's screen (web parity: apps/web/src/work/ScreenView.tsx).
  * `display.watch`, then `display.frame` again only after the last frame was
  * painted, so frames never queue up; `display.unwatch` when it stops,
- * including for a watch that resolves after it stopped. It never starts,
- * stops or installs the screen, and it never logs frames.
+ * including for a watch that resolves after it stopped, and when it ends on
+ * its own (a screen too large to show, a failed frame), so the view's socket
+ * and any control this device held do not outlive it. It never starts, stops
+ * or installs the screen, and it never logs frames.
  */
 export function startScreenSession(deps: ScreenSessionDeps): { stop: () => void } {
   let alive = true
   let viewId: string | undefined
   const unwatch = (id: string) => {
     void deps.call('display.unwatch', { viewId: id }).catch(() => undefined)
+  }
+  /** Ends the session once: no more frames, and the view it opened is closed. */
+  const end = () => {
+    if (!alive) return
+    alive = false
+    if (viewId !== undefined) unwatch(viewId)
   }
   const run = async () => {
     try {
@@ -74,23 +93,19 @@ export function startScreenSession(deps: ScreenSessionDeps): { stop: () => void 
         if (!alive) return
         if (!deps.paint(frame)) {
           deps.onError(SCREEN_TOO_LARGE)
+          end()
           return
         }
         await deps.nextPaint()
       }
     } catch (error) {
-      if (alive)
-        deps.onError(
-          isCindlError(error) ? error.message : 'Cindl could not show the screen.',
-        )
+      if (!alive) return
+      deps.onError(
+        isCindlError(error) ? error.message : 'Cindl could not show the screen.',
+      )
+      end()
     }
   }
   void run()
-  return {
-    stop: () => {
-      if (!alive) return
-      alive = false
-      if (viewId !== undefined) unwatch(viewId)
-    },
-  }
+  return { stop: end }
 }

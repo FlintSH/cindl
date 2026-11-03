@@ -21,7 +21,11 @@ import {
   textToKeys,
   type TouchPoint,
 } from './screenInput.ts'
-import { createScreenPainter, startScreenSession } from './screenSession.ts'
+import {
+  createScreenPainter,
+  screenSurfaceId,
+  startScreenSession,
+} from './screenSession.ts'
 
 export const SCREEN_MODULE_MISSING =
   'This build cannot draw the screen: its screen module is missing.'
@@ -59,10 +63,11 @@ const ARROWS = [
 export function ScreenView({ controlling }: { controlling: boolean }) {
   const api = useCindlApi()
   const theme = useTheme()
-  const surface = `screen${useId()}`
+  const id = useId()
   const [view, setView] = useState<DisplayView>()
   const [error, setError] = useState<string>()
   const [attempt, setAttempt] = useState(0)
+  const surface = screenSurfaceId(id, attempt)
   const [typing, setTyping] = useState(false)
   const keyboard = useRef<TextInputInstance>(null)
   // Read by the input callbacks between renders.

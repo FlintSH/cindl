@@ -365,15 +365,28 @@ client opens it through the app's screen socket (see
 RFB and hands back only the regions that changed since the last frame, as
 RGBA bytes. Work, Computer asks for the next frame only after the last one
 was painted, so frames never queue up, and it ends the view when it closes,
-also when a watch answers after that.
+also when a watch answers after that. A view that ends on its own (a screen
+too large to show, a failed frame) is ended too, so its socket and any control
+this device held do not outlive it. **Try again** paints a new surface for the
+new view, which the picture then draws.
 
 The picture is drawn by a local Expo module (`apps/android/modules/cindl-screen`):
 one Android bitmap of the screen's size, painted region by region and drawn
 centred with its aspect kept. Each region reaches Kotlin as a typed array read
-in place through JSI, so the pixels are not copied or base64-encoded on their
-way to the bitmap. Only the newest pixels are kept: the client's framebuffer
-and the bitmap, each width x height x 4 bytes (4.1 MB at 1280x800), capped
-like the client at 4096x4096 in area.
+in place through JSI, so the pixels are not copied or base64-encoded across
+the bridge. In Kotlin each region is converted once into a scratch array of
+ARGB ints and copied from there into the bitmap (`Bitmap.setPixels`). Only the
+newest pixels are kept: the client's framebuffer and the bitmap, each width x
+height x 4 bytes (4.1 MB at 1280x800), and that scratch array on the Java heap,
+which grows to the largest region painted so far and is kept for the
+surface's life (up to the bitmap's size). All are capped like the client at
+4096x4096 in area, where each takes 64 MiB, which a phone with a small heap may
+not have.
+
+Painting and drawing share one lock, but Android's renderer uploads the bitmap
+later, on its own thread, possibly while the next region is being painted. A
+frame can then show part old and part new pixels (tearing) until the next
+paint; only a phone can show how often.
 
 What it costs is the way in: React Native's WebSocket carries binary frames
 between Kotlin and JavaScript as base64. A full 1280x800 Raw repaint is
@@ -396,7 +409,9 @@ never keeps the text; Tab and other control characters are not sent.
 
 Only an emulator or a phone can show: the frame rate and the Kotlin side's
 cost (OkHttp's base64 encode, the ARGB conversion, `Bitmap.setPixels`, drawing),
-memory use on a device, that the picture is drawn where the tests expect it,
+memory use on a device (the scratch array included), tearing, that **Try
+again** brings the picture back (Node tests model the Kotlin surfaces), that
+the picture is drawn where the tests expect it,
 how gestures feel and whether a scroll view or the system takes them first,
 how real keyboards (Gboard, Samsung, hardware) deliver keys to the hidden
 field, TalkBack in control, and how it behaves on a slow network or after the

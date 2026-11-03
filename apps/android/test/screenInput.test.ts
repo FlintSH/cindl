@@ -168,6 +168,20 @@ describe('the input queue', () => {
     expect(sent).toEqual([[p(2, 2, LEFT)]])
   })
 
+  // Review of 636a2dd, N5: control given back with an event still waiting, then taken
+  // again before the next paint. Only what was sent after taking control again goes.
+  it('sends nothing from before control was given back when control is taken again', () => {
+    const { q, sent, paint } = queue()
+    q.setEnabled(true)
+    q.push([p(1, 1, LEFT)])
+    q.setEnabled(false)
+    q.setEnabled(true)
+    q.push([p(2, 2, LEFT), p(2, 2, 0)])
+    paint()
+    paint()
+    expect(sent).toEqual([[p(2, 2, LEFT), p(2, 2, 0)]])
+  })
+
   it('keeps only the newest position of a move, never merging a press or release', () => {
     const { q, sent, paint } = queue()
     q.setEnabled(true)
