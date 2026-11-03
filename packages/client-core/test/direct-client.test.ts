@@ -1,13 +1,27 @@
 import {
   CindlError,
-  type CindlEvent,
+  CindlEvent,
   type Conversation,
   type ServerRequest,
 } from '@cindl/contracts'
 import { connectRawClient } from '@cindl/fixtures/fake-hermes'
 import { describe, expect, it } from 'vitest'
-import { entry, selectOpenRequests, sha256Hex, type KeyValueStore } from '../src/index.ts'
-import { fakeHermes, harness, memoryKv, type Harness } from './direct-harness.ts'
+import { webCryptoProvider } from '@cindl/hermes-adapter'
+import {
+  createDirectClient,
+  entry,
+  selectOpenRequests,
+  sha256Hex,
+  systemClock,
+  type KeyValueStore,
+} from '../src/index.ts'
+import {
+  fakeHermes,
+  harness,
+  memoryKv,
+  memorySecrets,
+  type Harness,
+} from './direct-harness.ts'
 
 const codeOf = (promise: Promise<unknown>) =>
   promise.then(
@@ -77,6 +91,33 @@ const approve = (h: Harness, requestId: string, choice: 'once' | 'deny') =>
     requestId,
     answer: { kind: 'approval', choice },
   })
+
+describe('direct client: start', () => {
+  it('tells its subscriber the link and capabilities when no Hermes is configured', async () => {
+    const unreachable = () => Promise.reject(new Error('not used (fixture)'))
+    const client = createDirectClient({
+      auth: 'native-pkce',
+      fetch: unreachable,
+      socketFactory: () => {
+        throw new Error('not used (fixture)')
+      },
+      clock: systemClock,
+      kv: memoryKv(),
+      secrets: memorySecrets(),
+      crypto: webCryptoProvider(),
+      authorizer: { authorize: unreachable },
+      random: () => 0.5,
+    })
+    const events: CindlEvent[] = []
+    client.subscribe((event) => events.push(event))
+    await client.start()
+    // The link starts out unconfigured; a renderer still needs to hear it once.
+    expect(events.map((e) => e.type)).toEqual(['link.changed', 'capabilities.changed'])
+    expect(events[0]).toMatchObject({ link: { phase: 'unconfigured' } })
+    for (const event of events) CindlEvent.parse(event)
+    client.stop()
+  })
+})
 
 describe('direct client: sign-in, capabilities and conversations', () => {
   it('signs in, goes online and negotiates honest capabilities', async () => {

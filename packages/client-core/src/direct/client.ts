@@ -240,7 +240,12 @@ class DirectHermesClient implements DirectClient {
     if (this.#started) return
     this.#started = true
     if (!this.#origin) {
+      // The link starts out unconfigured, so #setLink stays silent here and a
+      // renderer waiting for its first link would wait forever: say it once.
       this.#setLink('unconfigured')
+      this.#emit({ type: 'link.changed', link: this.#link })
+      this.#capabilitiesJson = ''
+      this.#refreshCapabilities()
       return
     }
     if (!this.#deviceLoaded) await this.#loadDevice()
