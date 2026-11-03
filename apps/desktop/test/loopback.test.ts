@@ -7,7 +7,7 @@ import {
   createLoopbackAuthorizer,
   LOOPBACK_HOST,
 } from '../src/main/platform/loopback.ts'
-import { rawGet } from './support/fake-hermes.ts'
+import { rawGet } from './support/http.ts'
 
 const STATE = 'state-0123456789abcdef-synthetic'
 const HERMES = 'https://hermes.example.test'

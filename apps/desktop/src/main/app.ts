@@ -62,6 +62,8 @@ export interface FlavourContext {
   log: Logger
   /** Electron-backed secret store, settings, sign-in and WebSocket pieces. */
   createPlatform: () => Promise<DesktopPlatform>
+  /** The native "Sign in to <origin>?" dialog, owned by main. */
+  confirmSignIn: (origin: string) => Promise<boolean>
 }
 
 export interface Flavour {
@@ -73,6 +75,9 @@ export interface Flavour {
     client: CindlClientApi
     /** Events every new subscriber receives after the snapshot. */
     notices?: () => CindlEvent[]
+    /** Called once main's host is subscribed, so no early event is lost. */
+    start?: () => Promise<void>
+    stop?: () => void
   }>
 }
 
@@ -134,6 +139,7 @@ export function runCindl(flavour: Flavour): void {
 
   let mainWindow: BrowserWindow | undefined
   let host: ClientHost | undefined
+  let stopClient: (() => void) | undefined
 
   app.on('web-contents-created', (_event, contents) =>
     hardenWebContents(contents, { external, gestures, log }),
@@ -257,20 +263,26 @@ export function runCindl(flavour: Flavour): void {
     )
 
     const userData = app.getPath('userData')
-    const { client, notices } = await flavour.createClient({
+    const created = await flavour.createClient({
       log,
+      confirmSignIn,
       createPlatform: () =>
         createDesktopPlatform({
           safeStorage,
           userDataDir: userData,
           platform: process.platform,
           openExternal: (url) => shell.openExternal(url),
-          confirmSignIn,
           log,
         }),
     })
+    const { client, notices } = created
     const clientHost = createClientHost({ client, ...(notices ? { notices } : {}) })
     host = clientHost
+    stopClient = created.stop
+    // Discovery can take a while (or time out offline); the window does not wait.
+    created
+      .start?.()
+      .catch((error: unknown) => log.error('The Hermes client stopped', error))
 
     const saveText = createTextSaver({
       showSaveDialog: async (defaultPath) => {
@@ -326,7 +338,10 @@ export function runCindl(flavour: Flavour): void {
     mainWindow.focus()
   })
   app.on('window-all-closed', () => app.quit())
-  app.on('will-quit', () => host?.dispose())
+  app.on('will-quit', () => {
+    stopClient?.()
+    host?.dispose()
+  })
   process.on('unhandledRejection', (reason) => log.error('Unhandled rejection', reason))
   app
     .whenReady()

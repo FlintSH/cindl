@@ -203,6 +203,30 @@ describe('secret store with OS encryption', () => {
     expect(JSON.parse(disk) as unknown).toEqual({ version: 1, entries: {} })
   })
 
+  it('binds each record to its key, so a copy under another key reads as nothing', async () => {
+    const store = await createSecretStore({
+      safeStorage: fakeSafeStorage(),
+      file,
+      platform: 'linux',
+    })
+    const key = 'cindl.hermes.native-tokens.v1|https://hermes.example.test'
+    await store.set(key, TOKEN)
+    const data = JSON.parse(readFileSync(file, 'utf8')) as {
+      entries: Record<string, string>
+    }
+    const other = 'cindl.hermes.native-tokens.v1|https://evil.example.test'
+    writeFileSync(
+      file,
+      JSON.stringify({ version: 1, entries: { [other]: data.entries[key] } }),
+    )
+    const reopened = await createSecretStore({
+      safeStorage: fakeSafeStorage(),
+      file,
+      platform: 'linux',
+    })
+    expect(await reopened.get(other)).toBeUndefined()
+  })
+
   it('ignores a corrupt or tampered file instead of crashing', async () => {
     writeFileSync(file, '{not json')
     const store = await createSecretStore({

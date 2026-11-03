@@ -178,7 +178,11 @@ describe('settings store', () => {
     expect(await kv.get('x')).toBeUndefined()
     expect(warnings).toHaveLength(1)
     await expect(kv.set('', 'x')).rejects.toThrow(TypeError)
-    await expect(kv.set('k'.repeat(300), 'x')).rejects.toThrow(TypeError)
+    await expect(kv.set('k'.repeat(5000), 'x')).rejects.toThrow(TypeError)
+    // The direct client's keys embed the Hermes origin, which may be 2048 characters.
+    const originKey = `cindl.direct.v1|https://${'a'.repeat(2000)}.example.test|outbox`
+    await kv.set(originKey, '[]')
+    expect(await kv.get(originKey)).toBe('[]')
   })
 })
 

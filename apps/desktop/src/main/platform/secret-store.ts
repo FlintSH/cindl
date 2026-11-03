@@ -80,12 +80,30 @@ function parseSecretFile(value: unknown): SecretFile {
     typeof (value as { entries?: unknown }).entries === 'object' &&
     (value as { entries?: unknown }).entries !== null
   ) {
-    const entries: Record<string, string> = {}
+    const entries = Object.create(null) as Record<string, string>
     for (const [key, cipher] of Object.entries((value as SecretFile).entries))
       if (typeof cipher === 'string') entries[key] = cipher
     return { version: 1, entries }
   }
-  return { version: 1, entries: {} }
+  return { version: 1, entries: Object.create(null) as Record<string, string> }
+}
+
+/**
+ * Each record carries its key inside the ciphertext. Keys name the Hermes
+ * origin (the adapter's token key does), so a record copied under another
+ * key on disk, to send its tokens elsewhere, does not decrypt to anything.
+ */
+const seal = (key: string, value: string) => JSON.stringify({ key, value })
+
+function unseal(key: string, plain: string): string | undefined {
+  try {
+    const record = JSON.parse(plain) as { key?: unknown; value?: unknown } | null
+    return record?.key === key && typeof record.value === 'string'
+      ? record.value
+      : undefined
+  } catch {
+    return undefined
+  }
 }
 
 /**
@@ -138,7 +156,7 @@ export async function createSecretStore(options: {
         cache = parseSecretFile(await readJsonFile(file))
       } catch (error) {
         options.onWarning?.('Ignoring an unreadable secret store file', error)
-        cache = { version: 1, entries: {} }
+        cache = { version: 1, entries: Object.create(null) as Record<string, string> }
       }
     }
     return cache
@@ -164,6 +182,11 @@ export async function createSecretStore(options: {
           const { result, shouldReEncrypt } = await safeStorage.decryptStringAsync(
             Buffer.from(cipher, 'base64'),
           )
+          const value = unseal(key, result)
+          if (value === undefined) {
+            options.onWarning?.('A stored secret does not belong to its key; ignoring it')
+            return undefined
+          }
           if (shouldReEncrypt) {
             const data = await load()
             data.entries[key] = (await safeStorage.encryptStringAsync(result)).toString(
@@ -171,7 +194,7 @@ export async function createSecretStore(options: {
             )
             await save(data)
           }
-          return result
+          return value
         } catch (error) {
           options.onWarning?.('A stored secret could not be decrypted', error)
           return undefined
@@ -182,7 +205,9 @@ export async function createSecretStore(options: {
         const data = await load()
         let cipher: string
         try {
-          cipher = (await safeStorage.encryptStringAsync(value)).toString('base64')
+          cipher = (await safeStorage.encryptStringAsync(seal(key, value))).toString(
+            'base64',
+          )
         } catch (error) {
           options.onWarning?.(
             'The OS keyring refused to encrypt; keeping it in memory',

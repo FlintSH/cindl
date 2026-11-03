@@ -9,12 +9,12 @@ import {
   restEndpoints,
   webCryptoProvider,
   type CryptoProvider,
+  type FetchLike,
 } from '@cindl/hermes-adapter'
 import path from 'node:path'
 import type { Logger } from '../log.ts'
 import { createFileKeyValueStore } from './kv-store.ts'
 import { createLoopbackAuthorizer, type LoopbackAuthorizerHandle } from './loopback.ts'
-import { createNativeAuth, ORIGIN_KEY, type NativeAuth } from './native-auth.ts'
 import { trustedStoredOrigin, usesSecureTransport } from './origin-policy.ts'
 import {
   createSecretStore,
@@ -22,6 +22,9 @@ import {
   type SafeStorageLike,
 } from './secret-store.ts'
 import { createWebSocketFactory } from './websocket.ts'
+
+/** Settings key for the Hermes origin this device signed in to (kept after sign-out). */
+export const ORIGIN_KEY = 'hermes.origin'
 
 /**
  * The only URL the sign-in flow may open in the system browser: the Hermes
@@ -51,22 +54,47 @@ export function memoryOnlyNotice(reason: string | undefined): CindlEvent {
 }
 
 /**
+ * A fetch that only reaches the pinned Hermes origin: main never sends a
+ * token, code or cookie anywhere else, whatever an URL from elsewhere says.
+ */
+export function pinnedFetch(
+  fetch: FetchLike,
+  origin: () => string | undefined,
+): FetchLike {
+  return (url, init) => {
+    let target: URL
+    try {
+      target = new URL(url)
+    } catch {
+      return Promise.reject(new TypeError('Refused a request with an invalid URL'))
+    }
+    const allowed = origin()
+    if (allowed === undefined || target.origin !== allowed)
+      return Promise.reject(
+        new TypeError('Refused a request outside the Hermes origin you confirmed'),
+      )
+    return fetch(url, init)
+  }
+}
+
+/**
  * Everything the main-process Hermes client needs from Electron, built once
- * at startup. `createDirectClient` (client-core) takes these as its platform
- * dependencies; until it lands, the app uses `secrets`, `kv` and `auth` for
- * the signed-out state and local sign-out only.
+ * at startup and handed to `createDirectClient` (see session.ts). The
+ * pinned origin is the stored one until you confirm another for sign-in;
+ * fetch and the WebSocket only ever reach it.
  */
 export interface DesktopPlatform {
   secrets: DesktopSecretStore
   kv: KeyValueStore
   authorizer: LoopbackAuthorizerHandle
-  auth: NativeAuth
   webSocket: WebSocketFactory
   crypto: CryptoProvider
   clock: Clock
-  fetch: typeof globalThis.fetch
-  /** The Hermes origin this device last signed in to. */
+  fetch: FetchLike
+  /** The Hermes origin requests and sockets may reach. */
   origin(): string | undefined
+  /** Allow `origin` (after the owner confirmed it for sign-in). */
+  pinOrigin(origin: string): void
 }
 
 export async function createDesktopPlatform(options: {
@@ -75,9 +103,9 @@ export async function createDesktopPlatform(options: {
   platform: NodeJS.Platform
   /** Electron `shell.openExternal`. */
   openExternal(url: string): Promise<void>
-  /** Native confirmation dialog for the origin, before any sign-in starts. */
-  confirmSignIn: (origin: string) => Promise<boolean>
   log: Logger
+  /** Defaults to Node's fetch. */
+  fetch?: FetchLike
 }): Promise<DesktopPlatform> {
   const { log } = options
   const secrets = await createSecretStore({
@@ -98,30 +126,20 @@ export async function createDesktopPlatform(options: {
     },
     log,
   })
-  const crypto = webCryptoProvider()
-  const fetch = globalThis.fetch.bind(globalThis)
+  // A stored origin is used only if it still passes the contract's rule.
   let origin = trustedStoredOrigin(await kv.get(ORIGIN_KEY))
-  const auth = createNativeAuth({
-    fetch,
-    crypto,
-    authorizer,
-    secrets,
-    kv,
-    log,
-    confirmSignIn: options.confirmSignIn,
-    onSignedIn: (session) => {
-      origin = session.origin
-    },
-  })
+  const current = () => origin
   return {
     secrets,
     kv,
     authorizer,
-    auth,
-    webSocket: createWebSocketFactory({ hermesOrigin: () => origin }),
-    crypto,
+    webSocket: createWebSocketFactory({ hermesOrigin: current }),
+    crypto: webCryptoProvider(),
     clock: systemClock,
-    fetch,
-    origin: () => origin,
+    fetch: pinnedFetch(options.fetch ?? ((url, init) => fetch(url, init)), current),
+    origin: current,
+    pinOrigin: (next) => {
+      origin = trustedStoredOrigin(next)
+    },
   }
 }

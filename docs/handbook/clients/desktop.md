@@ -21,18 +21,21 @@ renderer lacks the demo notice copy.
 
 ## Status
 
-| Area                                                  | State                                                                                                       |
-| ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- |
-| Hardened shell, `app://` renderer, bridge, CSP        | Done; launch smoke-tested on both packaged AppImages                                                        |
-| Linux x64 AppImages (Cindl, Cindl Demo)               | Built by CI (`.github/workflows/desktop.yml`); unsigned                                                     |
-| Native sign-in pieces (PKCE, loopback, token storage) | Built and tested against a local fake `hermes serve`; never run against a real Hermes instance              |
-| Live Hermes connection                                | Not yet: waits for the direct Hermes client (`createDirectClient`, client-core). Sign-in is refused for now |
-| macOS, Windows, `.deb`, auto-update, code signing     | Not provided                                                                                                |
+| Area                                              | State                                                                                                                                                                                    |
+| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hardened shell, `app://` renderer, bridge, CSP    | Done; launch smoke-tested on both packaged AppImages                                                                                                                                     |
+| Linux x64 AppImages (Cindl, Cindl Demo)           | Built by CI (`.github/workflows/desktop.yml`); unsigned                                                                                                                                  |
+| Sign-in and the live Hermes connection            | Native PKCE sign-in and the direct Hermes client run in main; tested end to end against the fake `hermes serve` (also in the packaged app); not validated against a live Hermes instance |
+| macOS, Windows, `.deb`, auto-update, code signing | Not provided                                                                                                                                                                             |
 
-Until the live connection lands, Cindl opens in an honest **Not set up**
-state: every capability shows as unknown with the reason, and nothing is
-invented. `auth.signIn` answers "This build of Cindl desktop cannot connect to
-Hermes yet" and sends nothing.
+With no Hermes stored, Cindl opens **Not set up** and shows its sign-in screen;
+nothing is invented. Once you sign in, the main process connects to your
+`hermes serve` itself (the renderer only ever talks to main). It stays signed
+in across restarts until you sign out, when the OS keyring can store the
+tokens (see [Token storage](#token-storage)). Sign-in works against a
+`hermes serve` that offers native sign-in. It has not yet been validated
+against a live, authenticated Hermes instance, only against the fake
+`hermes serve` in `@cindl/fixtures`.
 
 ## What it looks like
 
@@ -64,17 +67,22 @@ The AppImages are not code-signed. They need FUSE 2 to mount themselves
 
 ## Sign-in (native PKCE)
 
-This is the flow the main process implements for Hermes v0.22.5. It is enabled
-together with the live connection.
+This is the flow the main process runs for Hermes v0.22.5, through the direct
+client (`@cindl/client-core`) and the adapter's native sign-in: the same
+implementation Android uses. Hermes must run with a sign-in provider and offer
+`native_pkce` in `auth_flows` (`GET /api/status`); a server in loopback-token
+mode, or one without native sign-in, is refused with that reason.
 
-1. You enter the address of your `hermes serve` backend. It must be `https://`;
+1. You enter the address of your `hermes serve` backend on the sign-in screen.
+   It must be `https://`;
    plain `http://` is accepted only for `127.0.0.1` or `[::1]` on the same
    machine. User names, passwords, paths, queries, fragments, trailing-dot hosts
    and port 0 are refused (the contract's `HermesOrigin` rule), and only the
    normalized origin is stored.
 2. Cindl asks you to confirm that address in a native dialog. The request to
-   sign in comes from the renderer, which displays agent output, so nothing
-   starts without this confirmation.
+   sign in comes from the renderer, which displays agent output, so nothing is
+   sent anywhere, and the browser does not open, until you confirm. Only one
+   confirmation can be open at a time.
 3. Cindl starts a listener on `127.0.0.1` with a random port and opens your
    system browser at `GET /auth/native/authorize` with an S256 PKCE challenge, a
    random `state` and the redirect `http://127.0.0.1:<port>/callback`. Hermes
@@ -92,10 +100,14 @@ together with the live connection.
    forgets the tokens and asks you to sign in again. A refresh that was in
    flight when you signed out never writes the old session back.
 
-Tokens never reach the renderer. The stored origin is re-checked against the
-same rules before every use, and each encrypted token record names its origin,
-so an edited settings file cannot send a token somewhere else or over plain
-http.
+Tokens never reach the renderer. Main sends requests and opens the WebSocket
+only to the origin you confirmed: the fetch and socket it hands the client are
+pinned to it, and the single-use WebSocket ticket travels in the
+`hermes-gateway-ticket.<ticket>` subprotocol, never in the URL. The stored
+origin is re-checked against the same rules before every use, and each
+encrypted token record names its origin, so an edited settings file cannot send
+a token somewhere else or over plain http. Signing in to a different Hermes
+forgets the previous one's tokens.
 
 **Sign-out is local.** It deletes this device's tokens. Hermes v0.22.5 cannot
 revoke native tokens it has issued, so sign-out does not end sessions anywhere
@@ -218,7 +230,6 @@ uses `~/.config/Cindl Demo` and stores no tokens.
 
 ## Limits
 
-- No live Hermes connection yet; sign-in is refused (see Status).
 - Linux x64 AppImages only, unsigned, no auto-update, no build provenance
   attestation.
 - Hermes must present a certificate that Node's bundled CA list trusts; private
@@ -227,9 +238,11 @@ uses `~/.config/Cindl Demo` and stores no tokens.
 - A compromised renderer can still call allowlisted operations, including owner
   edits with `confirm: true` and approval answers; only sign-in has a
   main-owned confirmation so far.
-- The native sign-in has been exercised only against a local fake server that
-  follows Hermes v0.22.5's rules. It has not been validated against a live,
-  authenticated Hermes instance.
+- Sign-in and the live connection have been exercised only against the fake
+  `hermes serve` in `@cindl/fixtures`, which follows Hermes v0.22.5's rules
+  (integration tests in `apps/desktop/test/transport.test.ts` and the packaged
+  smoke test). They have not been validated against a live, authenticated
+  Hermes instance.
 
 ## Troubleshooting
 
@@ -257,7 +270,9 @@ by Cindl's CI.
 | Symptom                                        | What to do                                                                                     |
 | ---------------------------------------------- | ---------------------------------------------------------------------------------------------- |
 | "AppImages require FUSE to run"                | Install `libfuse2t64`, or start with `--appimage-extract-and-run`.                             |
-| The app says "Not set up"                      | Expected in this build: the live Hermes connection is not integrated yet.                      |
+| The app says "Not set up"                      | Enter your `hermes serve` address on the sign-in screen and confirm it in the dialog.          |
+| "Hermes is running in loopback-token mode"     | Configure a sign-in provider (password or OAuth) on Hermes; Cindl never reads that token.      |
+| "does not offer native sign-in"                | That Hermes has no `native_pkce` flow in `auth_flows`; update or configure it.                 |
 | Warning that tokens stay in memory only        | No usable keyring. Install and unlock GNOME Keyring or KWallet, or accept signing in again.    |
 | A link does nothing                            | Only `https://` links open, right after a click. The terminal shows "Refused to open a link".  |
 | Window opens off screen after a monitor change | Cindl drops saved positions that are no longer on a screen; delete `window-state.json` if not. |
