@@ -6,6 +6,14 @@ with Zod; the desktop app's main process is designed to validate them again
 before anything reaches Hermes (in progress). There is no generic RPC or REST
 passthrough.
 
+The table is generated from `clientOps`, so it always matches the contract.
+To change it, change `packages/contracts/src/ops.ts` through the
+[contract-change protocol](../development/workflow.md#contract-changes), then
+run `node scripts/generate-docs-reference.mjs`. The docs coverage gate fails
+when the table and the contract differ.
+
+<!-- BEGIN GENERATED: client-operations. Source: packages/contracts/src/ops.ts. Regenerate with node scripts/generate-docs-reference.mjs -->
+
 | Operation                | Requires capability    | Changes state | Summary                                                                                     |
 | ------------------------ | ---------------------- | ------------- | ------------------------------------------------------------------------------------------- |
 | `link.get`               | none                   | no            | Current connection state.                                                                   |
@@ -35,6 +43,13 @@ passthrough.
 | `display.acquireControl` | `computer.control`     | yes           | Take the input lease for the agent-owned screen.                                            |
 | `display.releaseControl` | `computer.control`     | yes           | Return the input lease.                                                                     |
 
+<!-- END GENERATED: client-operations -->
+
+"Requires capability" is the capability that must be `available` or `limited`
+before a client attempts the operation; see [Capabilities](capabilities.md).
+"Changes state" means the operation changes something on the Hermes host or
+this device's sign-in.
+
 Rules every implementation follows:
 
 - Owner edits (`skills.write`, `soul.write`, `routines.setEnabled`,
@@ -47,5 +62,7 @@ Rules every implementation follows:
   credentials, path, query or fragment; profile names, skill names and ids use
   narrow character sets.
 - Operations that change what a client knows also emit the corresponding
-  events (for example `conversations.history` emits `history.loaded`).
-- Errors are `CindlError` with a stable code: `unauthenticated`, `forbidden`, `unsupported`, `unavailable`, `conflict`, `invalid`, `not-found`, `timeout`, `offline`, `uncertain`, `protocol`, `internal`.
+  [events](events.md) (for example `conversations.history` emits
+  `history.loaded`).
+- Errors are `CindlError` with a stable code. Every code, what it means and
+  what the owner can do is listed under [Error codes](events.md#error-codes).

@@ -1,0 +1,33 @@
+# Weekly, grouped dependency updates. The cooldown keeps proposals older than
+# pnpm's minimum release age, so `pnpm install --frozen-lockfile` accepts them.
+# Dependabot commits that change only manifests, lockfiles and workflows pass
+# the docs-impact gate without a trailer (scripts/lib/docs-impact.mjs).
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      runtime-workspace:
+        patterns: ['*']
+  - package-ecosystem: npm
+    directory: /docs/handbook
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      handbook:
+        patterns: ['*']
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 7
+    groups:
+      github-actions:
+        patterns: ['*']

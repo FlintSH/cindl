@@ -1,0 +1,84 @@
+# Testing
+
+Tests prove behaviour, not that a mock returns what the test told it to.
+Every behaviour change ships with a test that fails without it.
+
+## Unit tests (Vitest)
+
+`pnpm test` runs Vitest across every workspace package and app that has its
+own `vitest.config.ts`; the root config lists `packages/*/vitest.config.ts` and
+`apps/*/vitest.config.ts` as projects, so a new package joins by adding its
+config, never by editing the root one.
+
+- Tests live next to the code under `test/` and are named `*.test.ts` or
+  `*.test.tsx`.
+- Each project is named after its package (`contracts`, `client-core`,
+  `client-react`, `hermes-adapter`, `fixtures`, `tokens`, `web`). The web
+  project runs in jsdom.
+
+```sh
+pnpm test                                                  # every project once
+pnpm test:watch                                            # re-run on change
+pnpm exec vitest run --project client-core                 # one project
+pnpm exec vitest run packages/client-core/test/state.test.ts   # one file
+```
+
+## What to test where
+
+| Area                      | Test                                                                                                             |
+| ------------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `packages/contracts`      | Rules a schema enforces: confirmations, versions, offered choices, no passthrough operations                     |
+| `packages/client-core`    | One reducer test for each event rule, including replayed and out-of-order events                                 |
+| `packages/hermes-adapter` | Wire knowledge against the vendored upstream contract; redaction of every secret format; PKCE and redirect rules |
+| `packages/tokens`         | Contrast of every shipped colour pairing in both themes                                                          |
+| `packages/fixtures`       | That the synthetic scenario behaves like the contract says (conflicts, unsupported capabilities, answer-once)    |
+| `apps/web`                | Components through `CindlClientApi` with the synthetic scenario; never by writing to the store directly          |
+| `scripts/`                | Each gate against fixture repositories it must reject (see below)                                                |
+
+The adapter's integration tests are to run against a fake Hermes server whose
+frames are validated against the vendored upstream schemas. That server is not
+built yet; see the [acceptance matrix](../project/acceptance-matrix.md).
+
+## Synthetic data only
+
+- Use `@cindl/fixtures` for scenarios. It is fictional, always reports
+  `link.demo = true`, and lint forbids importing it from production code.
+- Hosts are `example.test` or `.invalid`; addresses are loopback or from the
+  documentation ranges; people and companies are invented.
+- Never paste real data into a test, even redacted.
+- Secret-shaped values are assembled at runtime so no literal secret is
+  committed and the [privacy scan](quality-gates.md#privacy-and-secret-scan)
+  stays meaningful:
+
+```ts
+// Synthetic, assembled at runtime; not a real credential.
+const fake = (...parts: string[]) => parts.join('')
+const token = fake('gh', 'p_', 'a'.repeat(28))
+```
+
+## Gate tests
+
+The repository gates in `scripts/` are tested with Node's built-in test runner.
+Each test builds a throwaway Git repository or build folder in the system
+temporary directory, runs the gate as a separate process, and checks its exit
+code and message.
+
+```sh
+node --test "scripts/test/*.test.mjs"
+node --test scripts/test/check-privacy.test.mjs   # one gate
+```
+
+When you add a rule to a gate, add a test with input the rule must reject, and
+check that the test fails without the rule.
+
+## Browser checks
+
+UI changes are exercised in a real browser before review, with the synthetic
+demo (`pnpm --filter @cindl/web dev:demo`), at phone (390x844 and 360x800),
+tablet (768x1024) and desktop (1280x800 and 1440x1000) sizes, in both themes,
+with keyboard and touch. Screenshots attached to a pull request show only
+synthetic data with the demo banner visible, and are checked for private data
+first.
+
+Run browsers headless on shared machines, at most one browser worker at a
+time, and stop every local server you start.

@@ -1,0 +1,55 @@
+name: Docs
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: docs-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  handbook:
+    name: Handbook coverage, build and links
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out the source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Set up pnpm (version from package.json)
+        uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - name: Set up Node.js (version from .node-version)
+        uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: |
+            pnpm-lock.yaml
+            docs/handbook/pnpm-lock.yaml
+      # The coverage gate reads the contract source, which needs the workspace.
+      - name: Install the runtime workspace
+        run: pnpm install --frozen-lockfile
+      - name: Install the handbook project
+        run: pnpm --dir docs/handbook install --frozen-lockfile
+      - name: Check the handbook covers the code
+        run: node scripts/check-docs-coverage.mjs
+      - name: Build under a sub-path and check links
+        env:
+          DOCS_BASE: /cindl/
+        run: pnpm --dir docs/handbook build
+      - name: Build and check links
+        run: pnpm --dir docs/handbook build
+      # Uploaded for download and review only. Nothing is deployed.
+      - name: Upload the built handbook
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: handbook-${{ github.sha }}
+          path: docs/handbook/.vitepress/dist
+          if-no-files-found: error
+          retention-days: 14

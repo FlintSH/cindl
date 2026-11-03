@@ -1,0 +1,41 @@
+name: Bug report
+description: Something in Cindl does not work as documented.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        This repository is public. Use synthetic data only: no real names,
+        hostnames, IP addresses, tokens, conversation content or screenshots of
+        a real account. Report security problems as SECURITY.md describes, not here.
+  - type: dropdown
+    id: client
+    attributes:
+      label: Client
+      options:
+        - Web
+        - Desktop
+        - Android
+        - Shared packages or tooling
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: Cindl commit
+      description: Output of `git rev-parse HEAD` in the checkout you built or ran.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Prefer the synthetic demo (`pnpm --filter @cindl/web dev:demo`) when it reproduces the problem.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What you expected, and what happened
+    validations:
+      required: true

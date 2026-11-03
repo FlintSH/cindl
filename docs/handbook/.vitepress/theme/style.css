@@ -1,0 +1,186 @@
+/*
+ * VitePress variables mapped to Cindl's semantic tokens. Only pairings that
+ * packages/tokens tests for contrast are used: text roles on canvas, surface,
+ * surface-raised and surface-sunken; accent-text on canvas, surface and
+ * accent-subtle; status colours on canvas, surface and their subtle fill.
+ * Both themes come from tokens.css; the head script keeps [data-theme] in step
+ * with VitePress's appearance switch.
+ */
+:root,
+.dark {
+  --vp-c-bg: var(--color-canvas);
+  --vp-c-bg-alt: var(--color-surface);
+  --vp-c-bg-elv: var(--color-surface-raised);
+  --vp-c-bg-soft: var(--color-surface);
+  --vp-c-border: var(--color-border-strong);
+  --vp-c-divider: var(--color-border);
+  --vp-c-gutter: var(--color-border);
+  --vp-c-neutral: var(--color-text);
+  --vp-c-neutral-inverse: var(--color-canvas);
+
+  --vp-c-text-1: var(--color-text);
+  --vp-c-text-2: var(--color-text-secondary);
+  --vp-c-text-3: var(--color-text-tertiary);
+
+  --vp-c-default-1: var(--color-surface-sunken);
+  --vp-c-default-2: var(--color-surface-sunken);
+  --vp-c-default-3: var(--color-surface-sunken);
+  --vp-c-default-soft: var(--color-surface-sunken);
+
+  --vp-c-brand-1: var(--color-accent-text);
+  --vp-c-brand-2: var(--color-accent-hover);
+  --vp-c-brand-3: var(--color-accent);
+  --vp-c-brand-soft: var(--color-accent-subtle);
+
+  --vp-c-tip-1: var(--color-info);
+  --vp-c-tip-2: var(--color-info);
+  --vp-c-tip-3: var(--color-info);
+  --vp-c-tip-soft: var(--color-info-subtle);
+  --vp-c-note-1: var(--color-info);
+  --vp-c-note-2: var(--color-info);
+  --vp-c-note-3: var(--color-info);
+  --vp-c-note-soft: var(--color-info-subtle);
+  --vp-c-important-1: var(--color-accent-text);
+  --vp-c-important-2: var(--color-accent-hover);
+  --vp-c-important-3: var(--color-accent);
+  --vp-c-important-soft: var(--color-accent-subtle);
+  --vp-c-success-1: var(--color-success);
+  --vp-c-success-2: var(--color-success);
+  --vp-c-success-3: var(--color-success);
+  --vp-c-success-soft: var(--color-success-subtle);
+  --vp-c-warning-1: var(--color-warning);
+  --vp-c-warning-2: var(--color-warning);
+  --vp-c-warning-3: var(--color-warning);
+  --vp-c-warning-soft: var(--color-warning-subtle);
+  --vp-c-danger-1: var(--color-danger);
+  --vp-c-danger-2: var(--color-danger);
+  --vp-c-danger-3: var(--color-danger);
+  --vp-c-danger-soft: var(--color-danger-subtle);
+  --vp-c-caution-1: var(--color-danger);
+  --vp-c-caution-2: var(--color-danger);
+  --vp-c-caution-3: var(--color-danger);
+  --vp-c-caution-soft: var(--color-danger-subtle);
+
+  --vp-font-family-base: var(--font-sans);
+  --vp-font-family-mono: var(--font-mono);
+
+  --vp-shadow-1: var(--shadow-raised);
+  --vp-shadow-2: var(--shadow-raised);
+  --vp-shadow-3: var(--shadow-overlay);
+  --vp-shadow-4: var(--shadow-overlay);
+  --vp-shadow-5: var(--shadow-overlay);
+
+  /* Inline code reads as text on a sunken chip, not as a link. */
+  --vp-code-color: var(--color-text);
+  --vp-code-bg: var(--color-surface-sunken);
+  --vp-code-link-color: var(--color-accent-text);
+  --vp-code-link-hover-color: var(--color-accent-text);
+  --vp-code-block-bg: var(--color-surface);
+  --vp-code-block-divider-color: var(--color-border);
+  --vp-code-copy-code-bg: var(--color-surface-raised);
+  --vp-code-copy-code-hover-bg: var(--color-surface-raised);
+
+  --vp-button-brand-text: var(--color-on-accent);
+  --vp-button-brand-bg: var(--color-accent);
+  --vp-button-brand-hover-text: var(--color-on-accent);
+  --vp-button-brand-hover-bg: var(--color-accent-hover);
+  --vp-button-brand-active-text: var(--color-on-accent);
+  --vp-button-brand-active-bg: var(--color-accent-hover);
+
+  --vp-nav-bg-color: var(--color-canvas);
+  --vp-local-nav-bg-color: var(--color-canvas);
+  --vp-sidebar-bg-color: var(--color-surface);
+  --vp-input-bg-color: var(--color-surface);
+}
+
+/*
+ * Callouts stay quiet: a surface panel with a status-coloured rule instead of
+ * a tinted fill, so body text and links keep their tested contrast.
+ */
+:root {
+  --vp-custom-block-font-size: var(--text-ui-size);
+  --vp-custom-block-code-font-size: var(--text-code-size);
+}
+.custom-block {
+  border-left: 3px solid var(--color-border-strong);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface) !important;
+  color: var(--color-text) !important;
+}
+.custom-block.tip,
+.custom-block.info,
+.custom-block.note {
+  border-left-color: var(--color-info);
+}
+.custom-block.warning {
+  border-left-color: var(--color-warning);
+}
+.custom-block.danger,
+.custom-block.caution {
+  border-left-color: var(--color-danger);
+}
+.custom-block.important {
+  border-left-color: var(--color-accent);
+}
+.custom-block .custom-block-title {
+  color: var(--color-text);
+}
+
+::selection {
+  background: var(--color-selection);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.vp-doc kbd {
+  display: inline-block;
+  min-width: 1.5em;
+  padding: 0 var(--space-1);
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-sunken);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: var(--text-code-size);
+  line-height: var(--text-code-line);
+  text-align: center;
+}
+
+.vp-doc table {
+  font-size: var(--text-ui-size);
+}
+
+/* Keep identifiers, commands and key combinations intact; wide tables scroll. */
+.vp-doc td code,
+.vp-doc td:has(> kbd) {
+  white-space: nowrap;
+}
+
+.build-stamp {
+  margin: 0 0 var(--space-4);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption-size);
+  line-height: var(--text-caption-line);
+}
+.build-stamp a {
+  color: var(--color-accent-text);
+}
+.build-stamp code {
+  font-family: var(--font-mono);
+}
+.build-stamp-warning {
+  color: var(--color-warning);
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0ms !important;
+    animation-duration: 0ms !important;
+  }
+}

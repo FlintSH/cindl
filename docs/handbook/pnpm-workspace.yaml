@@ -1,0 +1,16 @@
+# The handbook is its own pnpm project with its own lockfile, outside the
+# runtime workspace, so docs tooling never ships in a runtime package
+# (ADR 0001). Install it with `pnpm --dir docs/handbook install --frozen-lockfile`.
+saveExact: true
+engineStrict: true
+
+# VitePress 1.6.4 (latest stable) asks for Vite 5.4, which has unpatched
+# dev-server advisories (pnpm audit). The patched Vite 6.4 line works with
+# VitePress 1.6.4; remove this when a stable VitePress requires a patched Vite.
+overrides:
+  vite: 6.4.5
+
+# Dependency install scripts are denied unless reviewed and listed here.
+# esbuild (through Vite) installs its platform binary; same review as the root.
+allowBuilds:
+  esbuild: true
