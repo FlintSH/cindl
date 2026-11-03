@@ -75,4 +75,5 @@ Working here:
   dumps, error lines) is written only through `e2e/secrets.ts` (every token,
   ticket, code, state and verifier the run issued or received becomes a
   placeholder; tested in `test/e2e-secrets.test.ts`), and the browser is
-  never captured (`device.screenshot` skips any other app in front).
+  never captured (`device.screenshot` keeps a capture only when Cindl alone is
+  in front, and none when unsure).

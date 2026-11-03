@@ -225,7 +225,11 @@ and the auth stand-in issue or receive is replaced in device logs, UI dumps and
 report lines by a placeholder naming its kind (`[issued-code]`), and the
 adapter's redaction runs over the rest (`apps/android/e2e/secrets.ts`). The
 browser is never captured, because its address bar and pages show the code
-and state; the steps note what it showed instead. The fake auth server's log
+and state: a screenshot or UI dump is kept only when Cindl's window has focus,
+or a system window (an "Application Not Responding" dialog, the notification
+shade) has focus over Cindl; a system dialog over the browser, or a focus the
+device does not report, captures nothing. The steps note what the browser
+showed instead. The fake auth server's log
 records only request shapes, never codes, verifiers or tokens.
 
 ## Demo and real builds

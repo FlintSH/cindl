@@ -383,6 +383,24 @@ export function focusedPackage(dumpsys: string): string | undefined {
   return /mCurrentFocus=Window\{\S+ \S+ ([\w.]+)\//.exec(dumpsys)?.[1]
 }
 
+/** The app of the focused activity, from `dumpsys window` (`mFocusedApp`), or undefined. */
+export function focusedApp(dumpsys: string): string | undefined {
+  return /mFocusedApp=[^\n]*?\bu\d+ ([\w.]+)\//.exec(dumpsys)?.[1]
+}
+
+/**
+ * A screenshot can show nothing but this app: its window has focus, or no app
+ * window has focus (none, or a system window, such as an "Application Not
+ * Responding" dialog, whose title names no activity) and it is the focused
+ * app. Anything else, including an answer that cannot be read, is not
+ * captured: a system dialog over the browser would show the address bar.
+ */
+export function onlyAppInFront(dumpsys: string, pkg: string): boolean {
+  const window = focusedPackage(dumpsys)
+  if (window !== undefined) return window === pkg
+  return focusedApp(dumpsys) === pkg
+}
+
 /**
  * Reads `dumpsys window InputMethod` (plus `dumpsys input_method` for the
  * shown flag). The visible keyboard starts at the window frame's top plus its

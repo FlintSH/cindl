@@ -7,8 +7,8 @@ import {
   auditTargets,
   find,
   findTappable,
-  focusedPackage,
   label,
+  onlyAppInFront,
   parseKeyboard,
   parseUi,
   rawPixel,
@@ -167,15 +167,27 @@ export function createDevice(options: {
     await sleep(900)
   }
 
+  /** Cindl alone in front (ui.ts onlyAppInFront); false when the device does not say. */
+  const onlyCindl = () => {
+    try {
+      return onlyAppInFront(
+        shell('dumpsys window | grep -E "mCurrentFocus|mFocusedApp" || true'),
+        PACKAGE,
+      )
+    } catch {
+      return false
+    }
+  }
+
   /**
-   * A screenshot and the last UI dump, as files in the output directory. Not
-   * while another app is in front (the browser during sign-in): its address
-   * bar and pages can show a sign-in code or state, so neither is kept and
-   * this returns undefined.
+   * A screenshot and the last UI dump, as files in the output directory, only
+   * when they can show nothing but Cindl (ui.ts onlyAppInFront): another app
+   * in front (the browser during sign-in) can show a sign-in code or state in
+   * its address bar and pages, also under a system dialog. Otherwise, or when
+   * the device does not say, neither is kept and this returns undefined.
    */
   const screenshot = (name: string): string | undefined => {
-    const front = focusedPackage(shell('dumpsys window | grep mCurrentFocus || true'))
-    if (front !== undefined && front !== PACKAGE) return undefined
+    if (!onlyCindl()) return undefined
     shots += 1
     const file = `${String(shots).padStart(2, '0')}-${name}`
     const png = execFileSync(options.adb, ['exec-out', 'screencap', '-p'], {

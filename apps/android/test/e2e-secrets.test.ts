@@ -21,7 +21,7 @@ import {
   watchFakeHermes,
   type SecretKind,
 } from '../e2e/secrets.ts'
-import { focusedPackage } from '../e2e/ui.ts'
+import { focusedPackage, onlyAppInFront } from '../e2e/ui.ts'
 
 // What the emulator runs write about sign-in values (delta check of
 // 94df18b..e0bc0ce, S1, N3, N4): device logs, UI dumps and report lines hold
@@ -266,15 +266,22 @@ describe('where the values come from', () => {
 
 /**
  * adb as the device helper calls it, answering from the environment: the app
- * in front, the text of the one field on screen, and the app's error log.
+ * in front (or the focused window and the focused app apart), the text of the
+ * one field on screen, and the app's error log.
  */
 const FAKE_ADB = `#!/usr/bin/env node
 const [verb, command = ''] = process.argv.slice(2)
 const env = process.env
 const front = env.FAKE_ADB_FRONT
+const window = env.FAKE_ADB_WINDOW ?? 'Window{5a7c u0 ' + front + '/' + front + '.Main}'
+const app = env.FAKE_ADB_APP ?? front
 const say = (text) => process.stdout.write(text)
-if (verb === 'shell' && command.includes('mCurrentFocus'))
-  say('  mCurrentFocus=Window{5a7c u0 ' + front + '/' + front + '.Main}\\n')
+if (verb === 'shell' && command.includes('mCurrentFocus') && env.FAKE_ADB_NO_WINDOWS) {
+  process.stderr.write('fake adb: no answer\\n')
+  process.exit(1)
+} else if (verb === 'shell' && command.includes('mCurrentFocus'))
+  say('  mCurrentFocus=' + window + '\\n  mFocusedApp=' +
+    (app ? 'ActivityRecord{9f1e u0 ' + app + '/.Main t7}' : 'null') + '\\n')
 else if (verb === 'shell' && command.startsWith('uiautomator dump'))
   say('UI hierchary dumped to: /sdcard/cindl-ui.xml\\n')
 else if (verb === 'exec-out' && command === 'cat')
@@ -309,6 +316,36 @@ describe('what the device helper keeps', () => {
     expect(focusedPackage('  mCurrentFocus=null')).toBeUndefined()
   })
 
+  it('captures only what shows nothing but Cindl, and fails closed (delta check, SF2)', () => {
+    const CINDL = 'dev.fl1nt.cindl'
+    const BROWSER = 'org.chromium.webview_shell'
+    const window = (title: string) => `  mCurrentFocus=Window{5a7c u0 ${title}}`
+    const app = (pkg: string) => `  mFocusedApp=ActivityRecord{9f1e u0 ${pkg}/.Main t7}`
+    // CI run 41656607631, demo/logcat-01: a system dialog's window names no activity.
+    const ANR = window('Application Not Responding: com.android.systemui')
+    const cases: Array<[string, boolean]> = [
+      [`${window(`${CINDL}/${CINDL}.MainActivity`)}\n${app(CINDL)}`, true],
+      [
+        `${window(`${BROWSER}/${BROWSER}.WebViewBrowserActivity`)}\n${app(BROWSER)}`,
+        false,
+      ],
+      [`  mCurrentFocus=null\n${app(CINDL)}`, true],
+      [`  mCurrentFocus=null\n${app(BROWSER)}`, false],
+      [`${ANR}\n${app(CINDL)}`, true],
+      [`${ANR}\n${app(BROWSER)}`, false],
+      [
+        `${window('Application Error: org.chromium.webview_shell')}\n${app(BROWSER)}`,
+        false,
+      ],
+      [`${window('NotificationShade')}\n${app(BROWSER)}`, false],
+      [`${window('NotificationShade')}\n${app(CINDL)}`, true],
+      ['  mCurrentFocus=null\n  mFocusedApp=null', false],
+      ['', false],
+    ]
+    for (const [dumpsys, shown] of cases)
+      expect([dumpsys, onlyAppInFront(dumpsys, CINDL)]).toEqual([dumpsys, shown])
+  })
+
   it('captures nothing while the browser is in front, and scrubs UI dumps and error lines', async () => {
     const dir = scratch()
     const adb = join(dir, 'adb')
@@ -326,12 +363,31 @@ describe('what the device helper keeps', () => {
       expect(device.screenshot('browser-signed-in')).toBeUndefined()
       expect(readdirSync(out)).toEqual([])
 
+      // A system dialog over the browser names no activity: still the browser behind it.
+      process.env.FAKE_ADB_WINDOW =
+        'Window{d103796 u0 Application Not Responding: com.android.systemui}'
+      await device.dump()
+      expect(device.screenshot('step-failed')).toBeUndefined()
+      expect(readdirSync(out)).toEqual([])
+      // The device does not say what is in front: nothing is kept.
+      process.env.FAKE_ADB_NO_WINDOWS = '1'
+      expect(device.screenshot('unsure')).toBeUndefined()
+      expect(readdirSync(out)).toEqual([])
+      Reflect.deleteProperty(process.env, 'FAKE_ADB_NO_WINDOWS')
+      // No focused window, Cindl the focused app: captured.
+      process.env.FAKE_ADB_WINDOW = 'null'
+      process.env.FAKE_ADB_APP = 'dev.fl1nt.cindl'
+      expect(device.screenshot('between-windows')).toBe('01-between-windows.png')
+      for (const file of readdirSync(out)) rmSync(join(out, file))
+      Reflect.deleteProperty(process.env, 'FAKE_ADB_WINDOW')
+      Reflect.deleteProperty(process.env, 'FAKE_ADB_APP')
+
       process.env.FAKE_ADB_FRONT = 'dev.fl1nt.cindl'
       process.env.FAKE_ADB_TEXT = `Signed in with ${CODE}`
       await device.dump()
-      expect(device.screenshot('connected')).toBe('01-connected.png')
-      expect(readdirSync(out).sort()).toEqual(['01-connected.png', '01-connected.xml'])
-      const xml = readFileSync(join(out, '01-connected.xml'), 'utf8')
+      expect(device.screenshot('connected')).toBe('02-connected.png')
+      expect(readdirSync(out).sort()).toEqual(['02-connected.png', '02-connected.xml'])
+      const xml = readFileSync(join(out, '02-connected.xml'), 'utf8')
       expect(xml).toContain('text="Signed in with [issued-code]"')
       expect(xml).not.toContain(CODE)
 
@@ -342,7 +398,14 @@ describe('what the device helper keeps', () => {
       expect(problems).not.toContain(STATE)
     } finally {
       // Only this test sets them.
-      for (const key of ['FAKE_ADB_TEXT', 'FAKE_ADB_FRONT', 'FAKE_ADB_LOG'])
+      for (const key of [
+        'FAKE_ADB_TEXT',
+        'FAKE_ADB_FRONT',
+        'FAKE_ADB_WINDOW',
+        'FAKE_ADB_APP',
+        'FAKE_ADB_NO_WINDOWS',
+        'FAKE_ADB_LOG',
+      ])
         Reflect.deleteProperty(process.env, key)
     }
   })
