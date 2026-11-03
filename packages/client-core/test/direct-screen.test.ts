@@ -298,6 +298,30 @@ describe('direct client: live screen', () => {
     expect(ended?.message).toMatch(/not running/)
   })
 
+  it('ignores screen events for another Hermes profile', async () => {
+    const { h } = await live()
+    const { viewId } = await h.client.call('display.watch', {})
+    await h.client.call('display.frame', { viewId })
+    await h.client.call('display.acquireControl', { confirm: true })
+    // Hermes fans every profile's display events out to every client.
+    h.fake.gateway.otherProfileDisplay({ running: false, holder: 'agent' })
+    h.fake.gateway.otherProfileDisplay({ running: true, holder: 'human' })
+    // A gateway round trip after the broadcasts: they have been handled.
+    await h.client.call('routines.list', {})
+    expect(h.store.getState().display).toMatchObject({
+      status: 'running',
+      controller: 'you',
+      leaseHeldByThisDevice: true,
+    })
+    expect(viewState(h)).toBe('available')
+    expect(
+      await h.client.call('display.input', { viewId, events: [pointer(5, 5)] }),
+    ).toEqual({ sent: 1 })
+    // This profile's own events still apply.
+    h.fake.gateway.stopScreen()
+    await h.waitFor(() => viewState(h) === 'unavailable')
+  })
+
   it('never logs the ticket, the screen URL, frames or input', async () => {
     const logs: DiagnosticEntry[] = []
     const { h, urls } = await live({ log: (entry) => logs.push(entry) })

@@ -19,6 +19,7 @@ export {
 export { HermesContract, type ContractCheck } from './contract.ts'
 export {
   NOT_SHOWN_MESSAGE,
+  OTHER_PROFILE_KEY,
   defaultScript,
   type ClarifyQuestionWire,
   type DisplayViewer,

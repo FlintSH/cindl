@@ -194,8 +194,14 @@ class DirectHermesClient implements DirectClient {
   /** The learning-route probe for memory.text: once per sign-in; undefined until it answers. */
   #memoryProbe: 'responds' | 'missing' | undefined
   #display: {
+    /** Only these fields: never the spent ticket or viewer id of an observe answer. */
     status?: Pick<wire.DisplayStatus, 'supported' | 'installed' | 'running'>
     lease?: wire.DisplayLease
+    /**
+     * SHA-256 of the served profile's `profile_key` (a host path, never
+     * emitted). Hermes broadcasts display events for every profile.
+     */
+    profile?: string
     viewerId?: string
     viewerEpoch?: number
     previous: Set<string>
@@ -877,13 +883,16 @@ class DirectHermesClient implements DirectClient {
             this.#closeRequest(requestId, 'cancelled')
         return
       case 'display-status':
-        this.#display.status = effect.status
-        this.#display.lease = effect.status.lease
+        // Every profile's screen changes reach every client (methods_display_watch.py:81-103).
+        if (!this.#ownScreen(effect.status.profile_key)) return
+        this.#takeDisplayStatus(effect.status)
         this.#screen?.leaseChanged()
         this.#emitDisplay()
         this.#refreshCapabilities()
         return
       case 'display-lease':
+        // Lease changes fan out for every profile too (methods_display.py:38-47).
+        if (!this.#ownScreen(effect.profileKey)) return
         this.#display.lease = effect.lease
         this.#screen?.leaseChanged()
         this.#emitDisplay()
@@ -1312,6 +1321,28 @@ class DirectHermesClient implements DirectClient {
    * what leaseHeldByThisDevice says. A view opened on an earlier connection
    * takes control again before it sends input.
    */
+  /** The served profile's screen state from a display.status or display.observe answer. */
+  #takeDisplayStatus(status: wire.DisplayStatus): void {
+    this.#display.status = {
+      supported: status.supported,
+      installed: status.installed,
+      running: status.running,
+    }
+    this.#display.lease = status.lease
+    this.#display.profile = sha256Hex(status.profile_key)
+  }
+
+  /**
+   * Whether a display event is about the screen this client shows. Until a
+   * display.status answer names the served profile, none is.
+   */
+  #ownScreen(profileKey: string): boolean {
+    return (
+      this.#display.profile !== undefined &&
+      sha256Hex(profileKey) === this.#display.profile
+    )
+  }
+
   #holdsLease(viewerId: string): boolean {
     const lease = this.#display.lease
     return (
@@ -1346,8 +1377,7 @@ class DirectHermesClient implements DirectClient {
       )
     this.#display.viewerId = observed.viewer_id
     this.#display.viewerEpoch = this.#epoch
-    this.#display.status = observed
-    this.#display.lease = observed.lease
+    this.#takeDisplayStatus(observed)
     this.#emitDisplay()
     return { ticket: observed.ticket, path: observed.path, viewerId: observed.viewer_id }
   }
@@ -1411,8 +1441,7 @@ class DirectHermesClient implements DirectClient {
         'Hermes answered in an unexpected format.',
         'display.status',
       )
-    this.#display.status = status
-    this.#display.lease = status.lease
+    this.#takeDisplayStatus(status)
     this.#refreshCapabilities()
     return this.#emitDisplay()
   }

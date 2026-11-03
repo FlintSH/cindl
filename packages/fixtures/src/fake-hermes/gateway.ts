@@ -128,6 +128,9 @@ export interface DisplayViewer {
   closedWith?: number
 }
 
+/** A second synthetic profile on the same Hermes; real keys are host paths. */
+export const OTHER_PROFILE_KEY = 'fixture-other-profile'
+
 let connectionIds = 0
 
 export class FakeConnection {
@@ -708,6 +711,30 @@ export class FakeGateway {
     for (const viewer of this.displayViewers)
       viewer.ws.close(4001, 'Bot Desktop is not running')
     this.broadcast('display.status', this.#displaySnapshot())
+  }
+
+  /**
+   * Test control: another profile's screen changes. Hermes broadcasts display
+   * events for every profile to every client (methods_display.py:38-47,
+   * methods_display_watch.py:81-103); only `profile_key` tells them apart.
+   */
+  otherProfileDisplay(change: { running: boolean; holder: 'agent' | 'human' }): void {
+    const lease = {
+      holder: change.holder,
+      viewer_id: null,
+      viewer_hash: change.holder === 'human' ? '0123456789ab' : null,
+      since: this.#clock.now() / 1000,
+      epoch: 1,
+      reason: '',
+    }
+    this.broadcast('display.lease', { profile_key: OTHER_PROFILE_KEY, lease })
+    this.broadcast('display.status', {
+      ...this.#displaySnapshot(),
+      profile: 'other',
+      running: change.running,
+      lease,
+      profile_key: OTHER_PROFILE_KEY,
+    })
   }
 
   /** Test control: the screen starts outside Cindl (the CLI or the agent started it). */

@@ -39,5 +39,6 @@ Planned, not built: canonical sessions, steer and process operations.
   checks a mock it wrote proves nothing. Drive interleavings and failures with
   the fake's own controls (`beforeHandle`, `afterHandle`, `respondError`,
   `failNext`, `frozen`, `dropConnections`, `appRequest` for app-level prompts,
-  `stopScreen`/`startScreen` and `displayViewers` for the screen socket, whose
+  `stopScreen`/`startScreen`, `otherProfileDisplay` and `displayViewers` for
+  the screen and its socket, whose
   input passes the ported `RfbClientFilter`) rather than mocks.

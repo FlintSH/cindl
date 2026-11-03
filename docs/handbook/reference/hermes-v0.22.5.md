@@ -445,6 +445,12 @@ calls it.
   snapshot as a `display.status` event when the screen starts or stops
   elsewhere (`methods_display_watch.py:81-103`). Cindl never calls
   `display.start`, `display.stop` or `display.install`.
+- `display.status` and `display.lease` events reach every client for every
+  profile Hermes hosts (`methods_display.py:38-47`); only `profile_key`, the
+  profile's home path, tells them apart. Cindl takes the served profile's key
+  from its own `display.status` or `display.observe` answer, keeps only its
+  SHA-256 and never emits it, and ignores display events for any other key
+  (and all of them until that answer arrives).
 - `display.observe` mints a single-use 30 s ticket for `/api/display/ws`
   (`?display_ticket=`) and a viewer id bound to the calling connection
   (`methods_display.py:113-168`). It refuses a stopped screen with error 5300
