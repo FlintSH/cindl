@@ -88,9 +88,12 @@ age. Keep both protections: pick an older version instead of adding exclusions.
    offered and Cindl permits (`once` or `deny`). Never send standing grants or
    the upstream `all` flag. Never present command approvals as a universal
    spending/sending policy engine.
-5. **Fixtures are synthetic and labelled.** `@cindl/fixtures` is for tests and
-   the explicit demo build flag only (lint-enforced). Demo UI always shows the
-   synthetic banner. A test double is never a silent production fallback.
+5. **Fixtures are synthetic and labelled.** Synthetic records exist only in
+   demo flavours (web `build:demo`, desktop and Android demo builds); real
+   builds contain no fixture records (`SYNTHETIC_FIXTURE_MARKERS`, dist gate).
+   The demo label (`SYNTHETIC_DEMO_LABEL`/`SYNTHETIC_DEMO_NOTICE`) stays in
+   every renderer and shows whenever `link.demo` is true; never compile it out.
+   A test double is never a silent production fallback (ADR 0011).
 6. **Owner edits are explicit and versioned.** SOUL/skill writes go through
    edit, diff review and confirmation, and carry the SHA-256 version that was
    read. Hermes v0.22.5 has no server-side compare-and-swap: say so. Memory

@@ -7,7 +7,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./scenario": "./src/scenario/index.ts"
+    "./scenario": "./src/scenario/index.ts",
+    "./markers": "./src/markers.ts"
   },
   "scripts": {
     "typecheck": "tsc -p tsconfig.json"

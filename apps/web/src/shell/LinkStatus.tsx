@@ -1,5 +1,5 @@
 import { useLink } from '@cindl/client-react'
-import type { LinkPhase } from '@cindl/contracts'
+import { SYNTHETIC_DEMO_LABEL, type LinkPhase } from '@cindl/contracts'
 import { Dot, type Tone } from '../ui/primitives.tsx'
 
 const phaseCopy: Record<LinkPhase, { label: string; tone: Tone }> = {
@@ -14,7 +14,8 @@ const phaseCopy: Record<LinkPhase, { label: string; tone: Tone }> = {
 }
 
 export function linkCopy(phase: LinkPhase, demo: boolean | undefined) {
-  if (demo) return { label: 'Synthetic demo, not connected', tone: 'warning' as Tone }
+  if (demo)
+    return { label: `${SYNTHETIC_DEMO_LABEL}, not connected`, tone: 'warning' as Tone }
   return phaseCopy[phase]
 }
 

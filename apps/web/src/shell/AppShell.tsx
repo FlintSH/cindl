@@ -1,4 +1,5 @@
 import { useCan, useLink, useOpenRequests } from '@cindl/client-react'
+import { SYNTHETIC_DEMO_LABEL, SYNTHETIC_DEMO_NOTICE } from '@cindl/contracts'
 import { TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AgentView } from '../agent/AgentView.tsx'
@@ -27,6 +28,9 @@ export function AppShell() {
   const current: Destination = route.view
 
   useEffect(() => applyTheme(theme), [theme])
+  useEffect(() => {
+    document.title = link.demo ? `Cindl (${SYNTHETIC_DEMO_LABEL.toLowerCase()})` : 'Cindl'
+  }, [link.demo])
 
   const commands = useMemo<Command[]>(
     () => [
@@ -161,8 +165,7 @@ export function AppShell() {
         {link.demo ? (
           <p className={styles.demoBanner} role="note">
             <TriangleAlert size={14} aria-hidden="true" />
-            Synthetic demo. Not connected to Hermes; every name, message and status here
-            is invented.
+            {SYNTHETIC_DEMO_NOTICE}
           </p>
         ) : null}
       </div>

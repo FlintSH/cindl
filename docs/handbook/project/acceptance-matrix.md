@@ -56,4 +56,4 @@ re-run or inspect.
 | Downloadable APK and desktop artifact                         | not started | Android and desktop streams (CI)                                                                                |
 | Browser QA with screenshots at phone/tablet/desktop           | partial     | Web: `apps/web/e2e` (flows, 44px targets, contrast, axe, scroll) on the synthetic demo; desktop/Android pending |
 | Electron launch smoke, Android emulator smoke                 | not started | Desktop and Android streams                                                                                     |
-| MIT licence (Zachary Lowery) with third-party notices         | done        | `LICENSE`, `THIRD_PARTY_NOTICES.md`                                                                             |
+| MIT licence with third-party notices                          | done        | `LICENSE`, `THIRD_PARTY_NOTICES.md`                                                                             |
