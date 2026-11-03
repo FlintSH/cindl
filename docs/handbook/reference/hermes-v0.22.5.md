@@ -49,6 +49,8 @@ the browser.
 | `GET /auth/native/authorize`               | public  | 302 to the loopback redirect with `code` and `state`                       | `routes.py:242-276, 289-336`               |
 | `POST /auth/native/token`                  | public  | `{access_token, refresh_token, token_type, expires_at, provider, user_id}` | `routes.py:111-117, 574-591`               |
 | `POST /auth/native/refresh`                | public  | same token set, rotated                                                    | `routes.py:594-617`                        |
+| `GET /login`                               | public  | nothing: Hermes's login page, where Cindl only sends the browser           | `routes.py:195-200`                        |
+| `POST /auth/logout`                        | public  | 302 to `/login`, session cookies cleared                                   | `routes.py:496-512`                        |
 | `GET /api/sessions/{id}/mutation-snapshot` | session | `{session_id, exists, runtime_revision, runtime_generation}`               | `web_routers/sessions.py:586-598`          |
 | `PATCH /api/sessions/{id}`                 | session | fenced metadata write, see [Sessions](#sessions)                           | `sessions.py:926-934`                      |
 | `GET /api/skills`                          | session | `[{name, description, category, enabled, provenance}]`                     | `web_routers/skills.py:343-376`            |
@@ -110,6 +112,45 @@ bearer to public endpoints.
   again under the same key. A failed or cancelled switch retires nothing:
   its refresh may still store. Signing in to the same origin again is no
   switch, and sign-out is unchanged.
+
+### Web sign-in (cookie)
+
+The web client is served from Hermes's origin and runs the direct client with
+`auth: 'same-origin-cookie'`. It never handles a password or a token. Hermes's
+HttpOnly session cookies (`hermes_session_at`, `hermes_session_rt`,
+`hermes_session_provider`; `cookies.py:27-29, 60, 90-128`) ride on its
+same-origin requests, and it keeps nothing in browser storage.
+
+- Sign-in happens on Hermes's own page, `GET /login` (`routes.py:195-200`). Its
+  password form posts the provider, username, password and `next` to
+  `/auth/password-login`, which sets the cookies and answers
+  `{ok: true, next}` (`routes.py:447-494`, `login_page.py:401-430`); OAuth
+  providers go through `/auth/login`. Cindl calls neither, so neither is
+  pinned: it only sends the browser to the page. The page, both sign-in routes
+  and `/auth/logout` are on the gate's public list (`middleware.py:39-42`).
+- `loginPagePath(next)` builds that link. Hermes percent-decodes `next` twice
+  before it lands there (`_validate_post_login_target`, `routes.py:93-97`, at
+  the page and again at the login, `routes.py:171`), so Cindl escapes each `%`
+  twice; a test round-trips paths through the fake's page. A `next` that
+  `is_safe_next_path` refuses (not a same-origin path, the login or auth
+  routes, or under `/api`; `request_utils.py:16, 37-44`) is left out, and
+  Hermes lands on `/`.
+- `isSafeNextPath` is stricter than Hermes: it also refuses a backslash or a
+  control character. Hermes accepts `/\host`, or a tab between two slashes,
+  which a browser resolves to another origin, and its page navigates to the
+  landing path after sign-in (`login_page.py:427`). So a crafted link to
+  Hermes's `/login` redirects off-site at v0.22.5. Cindl never builds one; the
+  fix belongs upstream.
+- `auth.signIn` checks `GET /api/auth/me` with the cookie. Without a session it
+  fails with "Sign in on the Hermes login page, then try again." and the link
+  stays `signed-out`. The socket needs no cookie: the ws-ticket is minted with
+  it and travels in the subprotocol, a fresh one on every reconnect. The agent
+  screen works the same way, through the ticket `display.observe` returns.
+- The gate rotates an expired access cookie through the refresh cookie on the
+  next request and sets the new cookies on that answer
+  (`middleware.py:135-147, 192-211`). Requests of one burst that carried the
+  same stale refresh cookie share that rotation for 30 s
+  (`middleware.py:222-238`, `refresh_singleflight.py:1-28`).
 
 ## WebSocket `/api/ws`
 
@@ -605,7 +646,7 @@ sections above.
   Cindl calls `runtime.describe` and nothing else yet: `runtime.describe`, `session.create`, `session.list`, `session.resume`, `session.info`, `session.events.since`, `session.interrupt`, `session.steer`, `prompt.submit`, `prompt.receipt`, `prompt.resolve_unknown`, `profiles.list`, `cron.status`.
 - Server requests Cindl answers: `approval`, `clarify`.
 - Notifications Cindl maps: `gateway.ready`, `message.start`, `message.delta`, `message.interim`, `message.complete`, `reasoning.delta`, `reasoning.available`, `thinking.delta`, `tool.generating`, `tool.start`, `tool.progress`, `tool.complete`, `tool.output_risk`, `status.update`, `session.info`, `session.usage`, `session.title`, `sessions.changed`, `error`, `notice`, `request.cancel`, `approval.cancelled`, `background.complete`, `cron.changed`, `display.status`, `display.lease`, `subagent.start`, `subagent.progress`, `subagent.complete`, `skills.changed`, `session.reclaimed`.
-- REST endpoints: `GET /api/status`, `GET /api/auth/providers`, `GET /api/auth/me`, `POST /api/auth/ws-ticket`, `GET /auth/native/authorize`, `POST /auth/native/token`, `POST /auth/native/refresh`, `GET /api/sessions/{id}/mutation-snapshot`, `PATCH /api/sessions/{id}`, `GET /api/skills`, `GET /api/skills/content`, `PUT /api/skills/content`, `GET /api/profiles/{name}/soul`, `PUT /api/profiles/{name}/soul`, `GET /api/memory`. The memory-entry routes
+- REST endpoints: `GET /api/status`, `GET /api/auth/providers`, `GET /api/auth/me`, `POST /api/auth/ws-ticket`, `GET /auth/native/authorize`, `POST /auth/native/token`, `POST /auth/native/refresh`, `GET /login`, `POST /auth/logout`, `GET /api/sessions/{id}/mutation-snapshot`, `PATCH /api/sessions/{id}`, `GET /api/skills`, `GET /api/skills/content`, `PUT /api/skills/content`, `GET /api/profiles/{name}/soul`, `PUT /api/profiles/{name}/soul`, `GET /api/memory`. The memory-entry routes
   `GET /api/learning/graph`, `GET /api/learning/node`, `PUT /api/learning/node`, `DELETE /api/learning/node` back the `memory.*` operations.
 
 ## Not used at v0.22.5

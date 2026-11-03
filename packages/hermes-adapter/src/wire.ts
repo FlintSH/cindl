@@ -22,6 +22,9 @@ export const StatusResponse = z.object({
 })
 export type StatusResponse = z.infer<typeof StatusResponse>
 
+/** POST /auth/logout answers a redirect, never a body Cindl reads. */
+export const LogoutResponse = z.unknown()
+
 /** GET /api/auth/providers (dashboard_auth/routes.py:203-213). */
 export const ProvidersResponse = z.object({
   providers: z.array(

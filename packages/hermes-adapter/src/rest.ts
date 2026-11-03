@@ -88,6 +88,24 @@ export class RestClient {
     return this.#call('wsTicket', { schema: wire.WsTicketResponse })
   }
 
+  /**
+   * POST /auth/logout for a cookie session. Hermes answers only a 302 to
+   * /login (routes.py:496-512), which a browser shows as an opaque redirect
+   * under `redirect: 'manual'`; anything else is not Hermes confirming it.
+   */
+  async logout(): Promise<void> {
+    const label = 'POST /auth/logout'
+    const { response } = await this.#send(
+      'logout',
+      { schema: wire.LogoutResponse },
+      false,
+      label,
+    )
+    const body = await readBody(response)
+    if (response.type === 'opaqueredirect' || response.status === 302) return
+    throw httpError(response.status, body.json, label)
+  }
+
   nativeToken(code: string, codeVerifier: string) {
     return this.#call('nativeToken', {
       body: { code, code_verifier: codeVerifier },
