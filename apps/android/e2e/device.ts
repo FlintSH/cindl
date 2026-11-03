@@ -4,11 +4,12 @@ import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import {
   auditTargets,
-  center,
   find,
+  findTappable,
+  label,
   parseKeyboard,
   parseUi,
-  tapTarget,
+  tapPoint,
   type KeyboardState,
   type Match,
   type TargetAudit,
@@ -29,6 +30,7 @@ export function createDevice(options: { adb: string; out: string }) {
   const shell = (command: string, timeoutMs?: number) =>
     run(['shell', command], timeoutMs)
   let lastXml = ''
+  let lastRoot: UiNode | undefined
   let shots = 0
 
   const dump = async (): Promise<UiNode> => {
@@ -36,7 +38,10 @@ export function createDevice(options: { adb: string; out: string }) {
       try {
         shell('uiautomator dump /sdcard/cindl-ui.xml', 30_000)
         lastXml = run(['exec-out', 'cat', '/sdcard/cindl-ui.xml'])
-        if (lastXml.includes('<hierarchy')) return parseUi(lastXml)
+        if (lastXml.includes('<hierarchy')) {
+          lastRoot = parseUi(lastXml)
+          return lastRoot
+        }
       } catch (error) {
         if (attempt >= 6) throw error
       }
@@ -68,19 +73,25 @@ export function createDevice(options: { adb: string; out: string }) {
   }
 
   /** Like waitFor, but scrolls the screen's content up step by step to reveal what is below. */
+  /**
+   * Scrolls the screen's content up in small steps until a node matching
+   * `match` can be tapped (visible and not under an overlay), and returns it
+   * with the point to tap. Being in the dump is not enough: UI Automator keeps
+   * nodes that are scrolled out of view, with empty or inverted bounds.
+   */
   const reveal = async (match: Match, what: string) => {
-    for (let swipe = 0; swipe <= 6; swipe++) {
+    for (let swipe = 0; swipe <= 10; swipe++) {
       const root = await dump()
-      const node = find(root, match)
-      if (node) return { root, node }
+      const hit = findTappable(root, match)
+      if (hit) return { root, ...hit }
       const { right, bottom } = root.children[0]?.bounds ?? { right: 1080, bottom: 2400 }
       const x = Math.round(right / 2)
       shell(
-        `input swipe ${x} ${Math.round(bottom * 0.62)} ${x} ${Math.round(bottom * 0.38)} 400`,
+        `input swipe ${x} ${Math.round(bottom * 0.6)} ${x} ${Math.round(bottom * 0.45)} 400`,
       )
       await sleep(900)
     }
-    return waitFor(match, what, 5_000)
+    throw new Error(`Could not scroll ${what} to a place where it can be tapped`)
   }
 
   const waitUntilGone = async (match: Match, what: string, timeoutMs = 20_000) => {
@@ -94,15 +105,33 @@ export function createDevice(options: { adb: string; out: string }) {
     }
   }
 
-  async function tapNode(node: UiNode) {
-    const { x, y } = center(tapTarget(node).bounds)
-    shell(`input tap ${x} ${y}`)
+  const tapAt = async (point: { x: number; y: number }) => {
+    shell(`input tap ${point.x} ${point.y}`)
     await sleep(900)
   }
 
-  const tap = async (match: Match, what: string, timeoutMs?: number) => {
-    const { node } = await waitFor(match, what, timeoutMs)
-    await tapNode(node)
+  /** Taps a node from the latest dump, only where the tap reaches it. */
+  async function tapNode(node: UiNode) {
+    const point = lastRoot ? tapPoint(lastRoot, node) : undefined
+    if (!point)
+      throw new Error(
+        `"${label(node)}" is off screen or covered, so nothing was tapped (bounds ${JSON.stringify(node.bounds)})`,
+      )
+    await tapAt(point)
+  }
+
+  /** Waits until a node matching `match` can be tapped, then taps it. */
+  const tap = async (match: Match, what: string, timeoutMs = 30_000) => {
+    const deadline = Date.now() + timeoutMs
+    for (;;) {
+      const root = await dump()
+      const hit = findTappable(root, match)
+      if (hit) return tapAt(hit.point)
+      if (await dismissNotResponding(root)) continue
+      if (Date.now() > deadline)
+        throw new Error(`Timed out after ${timeoutMs / 1000}s waiting to tap ${what}`)
+      await sleep(750)
+    }
   }
 
   /** `input text` needs spaces as %s and shell metacharacters escaped. */
@@ -172,6 +201,7 @@ export function createDevice(options: { adb: string; out: string }) {
     dump,
     waitFor,
     reveal,
+    tapAt,
     waitUntilGone,
     tap,
     tapNode,

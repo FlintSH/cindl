@@ -336,10 +336,8 @@ async function demoSuite() {
       shot('questions')
       await audit('Question card', set.root)
       await device.tap('Harbor Loft (fictional)', 'a single-choice answer')
-      await device.tapNode(
-        (await device.reveal('Floor plan', 'a multiple-choice answer')).node,
-      )
-      await device.tapNode((await device.reveal('Send answers', 'Send answers')).node)
+      await tapRevealed('Floor plan', 'a multiple-choice answer')
+      await tapRevealed('Send answers', 'Send answers')
       await device.waitUntilGone('Send answers', 'The question card')
       shot('questions-answered')
       note('both questions answered and sent as one set')
@@ -483,7 +481,7 @@ async function demoSuite() {
 
 /** Taps a target that may be below the fold, scrolling to it first. */
 async function tapRevealed(match: Match, what: string) {
-  await device.tapNode((await device.reveal(match, what)).node)
+  await device.tapAt((await device.reveal(match, what)).point)
 }
 
 async function signinSuite(hermes: FakeHermesAuth) {
@@ -499,7 +497,7 @@ async function signinSuite(hermes: FakeHermesAuth) {
       'the Hermes address field',
     )
     if (field.node.text !== hermes.origin) {
-      await device.tapNode(field.node)
+      await device.tapAt(field.point)
       await device.type(hermes.origin)
     }
     if (device.keyboard().shown) await device.key('KEYCODE_BACK')

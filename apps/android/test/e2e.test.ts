@@ -8,10 +8,12 @@ import {
   center,
   find,
   findAll,
+  findTappable,
   label,
   parseKeyboard,
   parseUi,
   TERMS_PROMPT,
+  tapPoint,
   tapTarget,
 } from '../e2e/ui.ts'
 
@@ -142,6 +144,126 @@ describe('UI Automator dumps', () => {
     for (const text of ['Accept & continue', 'Google Terms of Service', 'I agree'])
       expect(TERMS_PROMPT.test(text)).toBe(true)
     expect(TERMS_PROMPT.test('Signed in')).toBe(false)
+  })
+})
+
+describe('tapping only what a tap can reach (CI run 41593367518)', () => {
+  // The question card at the moment that run failed (sanitized from its UI dump): both answers
+  // chosen, "Send answers" scrolled out of view below the list, the composer and the "Latest"
+  // button drawn over the bottom of the screen.
+  const questionCard = (sendAnswers: string) =>
+    parseUi(
+      dump(
+        node(
+          { class: 'android.widget.FrameLayout', bounds: '[0,0][1080,2400]' },
+          [
+            node(
+              {
+                class: 'android.widget.ScrollView',
+                scrollable: 'true',
+                bounds: '[0,409][1080,1947]',
+              },
+              [
+                node({
+                  class: 'android.widget.RadioButton',
+                  'content-desc': 'Harbor Loft (fictional)',
+                  clickable: 'true',
+                  checkable: 'true',
+                  checked: 'true',
+                  bounds: '[92,409][993,436]',
+                }),
+                node({
+                  class: 'android.widget.CheckBox',
+                  'content-desc': 'Floor plan',
+                  clickable: 'true',
+                  checkable: 'true',
+                  checked: 'true',
+                  bounds: '[92,1261][993,1387]',
+                }),
+                node({
+                  class: 'android.widget.Button',
+                  'content-desc': 'Skip this question',
+                  clickable: 'true',
+                  bounds: '[700,1800][1000,1900]',
+                }),
+                node({
+                  class: 'android.widget.Button',
+                  'content-desc': 'Send answers',
+                  clickable: 'true',
+                  bounds: sendAnswers,
+                }),
+              ].join(''),
+            ),
+            node({
+              class: 'android.widget.Button',
+              'content-desc': 'Jump to latest messages',
+              clickable: 'true',
+              bounds: '[815,1789][1049,1915]',
+            }),
+            node({
+              class: 'android.widget.EditText',
+              'content-desc': 'Message Hermes',
+              clickable: 'true',
+              bounds: '[79,1983][886,2109]',
+            }),
+          ].join(''),
+        ),
+      ),
+    )
+
+  it('does not tap a node that is scrolled out of view', () => {
+    const root = questionCard('[687,2054][993,1947]')
+    const send = find(root, 'Send answers')
+    expect(send).toBeDefined()
+    if (!send) return
+    // What the harness tapped before: the middle of inverted bounds, which is the composer.
+    const old = center(tapTarget(send).bounds)
+    expect(old).toEqual({ x: 840, y: 2001 })
+    expect(find(root, (_text, n) => n.className.endsWith('EditText'))?.bounds).toEqual({
+      left: 79,
+      top: 1983,
+      right: 886,
+      bottom: 2109,
+    })
+    expect(tapPoint(root, send)).toBeUndefined()
+    expect(findTappable(root, 'Send answers')).toBeUndefined()
+  })
+
+  it('does not tap a node under an overlay, and taps visible ones in their middle', () => {
+    const root = questionCard('[687,2054][993,1947]')
+    // Its middle (850, 1850) is under the "Latest" button.
+    expect(findTappable(root, 'Skip this question')).toBeUndefined()
+    expect(findTappable(root, 'Floor plan')?.point).toEqual({ x: 543, y: 1324 })
+    // 27px of the chosen answer is still visible at the top edge: enough to aim at its middle.
+    expect(findTappable(root, 'Harbor Loft (fictional)')?.point).toEqual({
+      x: 543,
+      y: 423,
+    })
+  })
+
+  it('does not aim at a sliver under 24px', () => {
+    const root = parseUi(
+      dump(
+        node(
+          {
+            class: 'android.widget.ScrollView',
+            scrollable: 'true',
+            bounds: '[0,409][1080,1947]',
+          },
+          node({
+            'content-desc': 'Orchard Barn (fictional)',
+            clickable: 'true',
+            bounds: '[92,1930][993,1947]',
+          }),
+        ),
+      ),
+    )
+    expect(findTappable(root, 'Orchard Barn (fictional)')).toBeUndefined()
+  })
+
+  it('taps the button once it has been scrolled into view', () => {
+    const root = questionCard('[687,1500][993,1626]')
+    expect(findTappable(root, 'Send answers')?.point).toEqual({ x: 840, y: 1563 })
   })
 })
 
