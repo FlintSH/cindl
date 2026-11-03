@@ -113,6 +113,8 @@ export function parseCallback(
   callbackUrl: string,
   expectedState: string,
 ): CallbackResult {
+  // An empty expected state would accept a callback that carries no state at all.
+  if (!expectedState) return { ok: false, reason: 'state-mismatch' }
   const url = new URL(callbackUrl, 'http://127.0.0.1')
   const state = url.searchParams.get('state') ?? ''
   if (!timingSafeEqual(state, expectedState))

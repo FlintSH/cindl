@@ -2,23 +2,36 @@
  * Redaction for anything that can leave memory as text: diagnostics, logs,
  * error details, copied reports. Conversation content is not "redacted" here;
  * it is simply never logged. These rules catch credentials that slip into
- * strings (URLs, headers, tool output previews).
+ * strings (URLs, headers, JSON bodies, tool output previews).
  */
 
 const MARK = '[redacted]'
 
+/**
+ * Keys whose values are credentials or capabilities. `code` is masked only
+ * when it holds a string (an OAuth code); numeric JSON-RPC and HTTP codes stay
+ * visible. `viewer_id` is a display-lease capability (tools/bot_desktop/lease.py).
+ */
 const SENSITIVE_KEY =
-  /^(?:access_?token|refresh_?token|id_?token|token|ticket|code|code_?verifier|password|passphrase|secret|client_?secret|api_?key|apikey|authorization|cookie|set-cookie|otp|totp|mfa_?code|session_?id_?cookie|private_?key)$/i
+  /^(?:access_?token|refresh_?token|id_?token|token|session_?token|x[-_]hermes[-_]session[-_]token|ticket|ws_?ticket|display_?ticket|code_?verifier|password|passphrase|secret|client_?secret|api_?key|apikey|x[-_]api[-_]key|authorization|proxy[-_]authorization|cookie|set[-_]cookie|otp|totp|mfa_?code|session_?id_?cookie|private_?key|viewer_?id)$/i
+const STRING_ONLY_KEY = /^code$/i
+
+const SECRET_NAMES =
+  'password|passphrase|secret|api[_-]?key|x-api-key|access[_-]?token|refresh[_-]?token|id[_-]?token|session[_-]?token|client[_-]?secret|token|ticket|ws[_-]?ticket|display[_-]?ticket|code[_-]?verifier|viewer[_-]?id|(?:proxy-)?authorization|(?:set-)?cookie'
 
 const PATTERNS: ReadonlyArray<[RegExp, string]> = [
-  // WebSocket ticket subprotocol and ticket query parameters.
+  // WebSocket ticket subprotocol and credential query parameters.
   [/hermes-gateway-ticket\.[^\s,'"]+/g, `hermes-gateway-ticket.${MARK}`],
   [
-    /([?&](?:ticket|code|code_verifier|access_token|refresh_token|token|state)=)[^&#\s'"]+/gi,
+    /([?&](?:ticket|display_ticket|code|code_verifier|access_token|refresh_token|token|state|id_token)=)[^&#\s'"]+/gi,
     `$1${MARK}`,
   ],
-  // Authorization headers.
-  [/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/g, `$1 ${MARK}`],
+  // Whole Cookie / Set-Cookie header values.
+  [/(\b(?:set-)?cookie\s*:\s*)[^\r\n]+/gi, `$1${MARK}`],
+  // Hermes session cookies wherever they appear (dashboard_auth/cookies.py).
+  [/((?:__Host-|__Secure-)?hermes_session_[a-z]+=)[^;\s,'"]+/gi, `$1${MARK}`],
+  // Authorization headers, any case.
+  [/\b(Bearer|Basic|Token)\s+[A-Za-z0-9._~+/=-]{8,}/gi, `$1 ${MARK}`],
   // PEM private keys.
   [/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, MARK],
   // JWT-shaped tokens.
@@ -31,9 +44,11 @@ const PATTERNS: ReadonlyArray<[RegExp, string]> = [
   [/\bAIza[0-9A-Za-z_-]{35}\b/g, MARK],
   [/\bglpat-[A-Za-z0-9_-]{20,}\b/g, MARK],
   [/\bhf_[A-Za-z0-9]{20,}\b/g, MARK],
+  // "code": "…" only when the value is a string (OAuth code); numeric codes stay.
+  [/("code"\s*:\s*")[^"]*(")/gi, `$1${MARK}$2`],
   // key=value / "key": "value" pairs with a sensitive key name.
   [
-    /(["']?(?:password|passphrase|secret|api[_-]?key|access[_-]?token|refresh[_-]?token|client[_-]?secret)["']?\s*[:=]\s*["']?)[^"'\s,}]+/gi,
+    new RegExp(`(["']?\\b(?:${SECRET_NAMES})["']?\\s*[:=]\\s*["']?)[^"'\\s,;}&]+`, 'gi'),
     `$1${MARK}`,
   ],
   // URL userinfo.
@@ -54,21 +69,26 @@ export function redactValue(value: unknown, depth = 0): unknown {
   if (value && typeof value === 'object') {
     const out: Record<string, unknown> = {}
     for (const [key, entry] of Object.entries(value))
-      out[key] = SENSITIVE_KEY.test(key) ? MARK : redactValue(entry, depth + 1)
+      out[key] =
+        SENSITIVE_KEY.test(key) ||
+        (STRING_ONLY_KEY.test(key) && typeof entry === 'string')
+          ? MARK
+          : redactValue(entry, depth + 1)
     return out
   }
   return value
 }
 
-/** Strip query values and userinfo from a URL for display. */
+/** Strip query values, fragments and userinfo from a URL for display. */
 export function redactUrl(raw: string): string {
   try {
     const url = new URL(raw)
     url.username = ''
     url.password = ''
+    url.hash = ''
     for (const key of [...url.searchParams.keys()]) url.searchParams.set(key, MARK)
     return url.toString().replace(/%5Bredacted%5D/g, MARK)
   } catch {
-    return redactText(raw)
+    return redactText(raw.replace(/#.*$/, ''))
   }
 }

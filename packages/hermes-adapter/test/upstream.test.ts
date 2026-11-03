@@ -45,6 +45,10 @@ describe('vendored Hermes contract subset', () => {
   it('is byte-stable (regenerate with scripts/extract-upstream.ts, never edit)', async () => {
     const raw = await readFile(subsetUrl, 'utf8')
     expect(raw.endsWith('\n')).toBe(true)
-    expect(createHash('sha256').update(raw).digest('hex')).toMatch(/^[a-f0-9]{64}$/)
+    // Pinned: any edit to the vendored file, by hand or by a changed extractor,
+    // fails here. Update only together with a reviewed upstream re-extraction.
+    expect(createHash('sha256').update(raw).digest('hex')).toBe(
+      '076edb4d6f80a924e729b41f7089dc5faaca03dad805040cd5c9f53657bcdde7',
+    )
   })
 })
