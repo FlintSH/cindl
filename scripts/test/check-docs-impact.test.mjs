@@ -88,6 +88,10 @@ describe('check-docs-impact', () => {
       'none - trivial',
       'none - no user-visible changes needed',
       'none - small fix',
+      'none - no user-facing changes',
+      'none - this commit has no docs impact',
+      'none - not applicable to any docs page',
+      'none - does not affect documentation',
     ]
     trailers.forEach((value, index) =>
       commit(
@@ -146,7 +150,30 @@ describe('check-docs-impact', () => {
     )
     const result = gate(dir, base)
     assert.equal(result.code, 0, result.output)
-    assert.match(result.output, /1 commit\(s\) predate scripts\/check-docs-impact\.mjs/)
+    assert.match(
+      result.output,
+      /1 commit\(s\) are history from before scripts\/check-docs-impact\.mjs existed/,
+    )
+  })
+
+  it('checks a branch that forked before the policy and merged after it', (t) => {
+    const dir = makeRepo(t)
+    const fork = commit(dir, { 'README.md': '# Fixture\n' }, 'Start')
+    const adoption = commit(
+      dir,
+      {
+        'scripts/check-docs-impact.mjs': '// policy marker\n',
+        'docs/handbook/development/docs.md': '# Docs\n',
+      },
+      'Adopt the policy',
+    )
+    git(dir, ['checkout', '--quiet', '-b', 'feature', fork])
+    commit(dir, { 'apps/web/src/a.ts': 'export {}\n' }, 'Old-branch code')
+    git(dir, ['checkout', '--quiet', 'main'])
+    git(dir, ['merge', '--quiet', '--no-ff', '--no-edit', 'feature'])
+    const result = gate(dir, adoption)
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /"Old-branch code": documentation was not updated/)
   })
 
   it('keeps checking after the policy file is deleted', (t) => {
@@ -190,9 +217,18 @@ describe('check-docs-impact', () => {
       'Bump the runtime-workspace group',
       bot,
     )
+    commit(
+      dir,
+      {
+        'pnpm-workspace.yaml': 'catalog:\n  zod: 4.6.8\n',
+        'pnpm-lock.yaml': 'lockfileVersion: 9.1\n',
+      },
+      'Bump zod in the catalog',
+      bot,
+    )
     const updates = gate(dir, base)
     assert.equal(updates.code, 0, updates.output)
-    assert.match(updates.output, /1 Dependabot dependency update/)
+    assert.match(updates.output, /2 Dependabot dependency update/)
     commit(dir, { 'apps/web/src/App.tsx': 'export {}\n' }, 'Bot edits code', bot)
     assert.equal(gate(dir, base).code, 1)
   })

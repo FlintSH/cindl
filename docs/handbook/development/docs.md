@@ -24,8 +24,10 @@ path rule can see.
 
 `node scripts/check-docs-impact.mjs --base <commit>` checks every commit after
 `<commit>` that is not a merge. CI runs it on pull requests (from the base of
-the pull request) and on pushes to `main` (from the previous tip). Commits made
-before the gate was added are not checked.
+the pull request) and on every push to `main` (from the previous tip). Only
+history from before the gate existed is exempt: the commits that the commit
+adding `scripts/check-docs-impact.mjs` descends from. Every other commit is
+checked, including commits on a branch that forked before the gate was added.
 
 For each commit, every changed path belongs to the first matching area below.
 For each area it touches, the same commit must change a file in that area's
@@ -66,18 +68,21 @@ Docs-Impact: none - parser moved to frames.ts; same frames, events and errors
 ```
 
 The trailer is accepted only as `Docs-Impact: none - <rationale>`, with one
-trailer per commit, and a rationale of at least 20 characters that says what
-changed and why no page describes it. These are rejected:
+trailer per commit, and a rationale of at least 20 characters with at least
+two specific words: what changed and why no page describes it. The word check
+is a heuristic against boilerplate, not a judge of truth. These are rejected:
 
-| Trailer                                              | Why                                 |
-| ---------------------------------------------------- | ----------------------------------- |
-| `Docs-Impact: n/a`, `Docs-Impact: none`              | Not `none - <rationale>`            |
-| `Docs-Impact: none - trivial`                        | Shorter than 20 characters          |
-| `Docs-Impact: none - no user-visible changes needed` | Generic: names nothing that changed |
+| Trailer                                               | Why                                 |
+| ----------------------------------------------------- | ----------------------------------- |
+| `Docs-Impact: n/a`, `Docs-Impact: none`               | Not `none - <rationale>`            |
+| `Docs-Impact: none - trivial`                         | Shorter than 20 characters          |
+| `Docs-Impact: none - no user-visible changes needed`  | Generic: names nothing that changed |
+| `Docs-Impact: none - not applicable to any docs page` | Generic: names nothing that changed |
 
 A trailer is not a way around documentation: reviewers check that the
 rationale is true. Commits from Dependabot that change only package manifests,
-lockfiles and workflow files pass without one.
+lockfiles, `pnpm-workspace.yaml` (the version catalog and overrides) and
+workflow files pass without one.
 
 ### Fixing a rejected commit
 

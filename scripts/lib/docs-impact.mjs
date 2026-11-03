@@ -83,24 +83,31 @@ export const RULES = [
 ]
 const OTHER = { area: 'other source', code: /$^/, docs: [ANY_DOC] }
 
-// Words that say nothing on their own; a rationale needs at least one other word.
+// Words that say nothing on their own. A rationale needs at least two other
+// words: a heuristic that stops boilerplate, not a judge of truth.
 const GENERIC = new Set(
-  `a an and are as at be behavior behaviour change changed changes chore clean cleanup code
-  doc docs documentation documented fix fixed fixes for impact in internal is it just minor
-  misc n na necessary needed no none not nothing obvious of on only refactor refactoring
-  required same see simple small the this to trivial trivially typo typos update updated
-  updates user users visible wip with`.split(/\s+/),
+  `a about affect affected affects all an and any applicable apply are as at be behavior
+  behaviour but by change changed changes chore clean cleanup code commit commits do docs
+  doc documentation documented does done facing file files fix fixed fixes for from has have
+  here impact impacts in internal is it its just minor misc n na necessary need needed no
+  none not nothing obvious of on only page pages reader readers refactor refactoring
+  related relevant required same see simple small so that the there this to trivial
+  trivially typo typos update updated updates user users visible was we wip with without`.split(
+    /\s+/,
+  ),
 )
 
 /** Why a Docs-Impact trailer value is unacceptable, or null when it is fine. */
 export function trailerProblem(value) {
-  const match = /^none\s+[-–—]\s+(.*)$/is.exec(value.trim())
+  const match = /^none\s+[-\u2013\u2014]\s+(.*)$/is.exec(value.trim())
   if (!match) return `"${value.trim()}" does not read "none - <rationale>"`
   const rationale = match[1].trim()
   if (rationale.length < 20)
     return `the rationale "${rationale}" has ${rationale.length} characters; at least 20 are required`
-  const words = rationale.toLowerCase().match(/[a-z0-9]+/g) ?? []
-  if (words.every((word) => GENERIC.has(word)))
+  const specific = (rationale.toLowerCase().match(/[a-z0-9]+/g) ?? []).filter(
+    (word) => !GENERIC.has(word),
+  )
+  if (specific.length < 2)
     return `the rationale "${rationale}" is generic; say what changed and why no page describes it`
   return null
 }
@@ -119,8 +126,10 @@ export function uncovered(files) {
 }
 
 const DEPENDABOT = /^\d+\+dependabot\[bot\]@users\.noreply\.github\.com$/
+// Dependabot edits manifests, lockfiles, the pnpm catalog and overrides in
+// pnpm-workspace.yaml, and action pins in workflows.
 const DEPENDENCY_FILE =
-  /(^|\/)(package\.json|pnpm-lock\.yaml)$|^\.github\/workflows\/[^/]+\.ya?ml$/
+  /(^|\/)(package\.json|pnpm-lock\.yaml|pnpm-workspace\.yaml)$|^\.github\/workflows\/[^/]+\.ya?ml$/
 
 function commitOf(root, rev, flag) {
   if (!rev) throw new Error(`pass ${flag} <commit>`)
@@ -159,13 +168,16 @@ export function checkDocsImpact(root, base, head = 'HEAD') {
   let checked = 0
   let explained = 0
   let dependabot = 0
-  for (const commit of commits) {
-    const adopted =
-      adoption !== undefined &&
-      git(root, ['merge-base', '--is-ancestor', adoption, commit], {
+  // Only history from before the policy is exempt: the commits the adoption
+  // commit itself descends from. A branch that forked earlier is still checked.
+  const predates = (commit) =>
+    adoption === undefined ||
+    (commit !== adoption &&
+      git(root, ['merge-base', '--is-ancestor', commit, adoption], {
         allowFailure: true,
-      }) !== null
-    if (!adopted) continue
+      }) !== null)
+  for (const commit of commits) {
+    if (predates(commit)) continue
     checked++
     const show = (format) => git(root, ['log', '-1', `--format=${format}`, commit])
     const label = `${commit.slice(0, 10)} "${show('%s').trim()}"`
@@ -226,7 +238,7 @@ export function checkDocsImpact(root, base, head = 'HEAD') {
   const skipped = commits.length - checked
   let summary = `${checked} commit(s) in ${baseSha.slice(0, 10)}..${headSha.slice(0, 10)} checked (${explained} with a Docs-Impact rationale, ${dependabot} Dependabot dependency update(s))`
   if (skipped)
-    summary += `; ${skipped} commit(s) predate ${POLICY_FILE} and are not checked`
+    summary += `; ${skipped} commit(s) are history from before ${POLICY_FILE} existed and are not checked`
   summary +=
     '. Paths cannot prove completeness: review the affected pages as AGENTS.md describes.'
   return { errors, summary }
