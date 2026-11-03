@@ -28,7 +28,11 @@ const ALLOWED_PERMISSIONS = [
   // AndroidX core declares this app-private, signature-level permission for its own receivers.
   `${PACKAGE}.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`,
 ]
-const NOTICES = ['assets/licenses/LICENSE.txt', 'assets/licenses/THIRD-PARTY-NOTICES.txt']
+const NOTICES = [
+  'assets/licenses/LICENSE.txt',
+  'assets/licenses/THIRD-PARTY-NOTICES.txt',
+  'assets/licenses/NATIVE-NOTICES.txt',
+]
 
 const [flavour, apk, outDir] = process.argv.slice(2)
 if ((flavour !== 'demo' && flavour !== 'production') || !apk || !outDir) {
