@@ -282,9 +282,9 @@ resolves pnpm's isolated `node_modules` and the TypeScript sources of
 - Not connected to a real Hermes yet (transport pending); sign-in not
   validated against a real Hermes server or on a phone.
 - Test APKs only: no store distribution, no production signing.
-- Native libraries are listed with the licence their POM declares; a library
-  whose POM declares none and that ships no licence file is flagged in the CI
-  log for review rather than resolved by hand.
+- Native libraries are listed with the licence their POM declares. A library
+  whose POM declares no licence and that ships no licence file stops the APK
+  build until someone reviews it; no licence is filled in by hand.
 - No hardware-keyboard shortcuts or command palette; Enter does not send.
 - No notifications or background sync.
 - Artifacts, attachments and memory entries are shown as unsupported, as in
