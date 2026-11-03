@@ -26,6 +26,8 @@ process instead of Hermes directly:
   own sign-in page opens in the system browser, so Cindl never handles a
   password or a verification code. If the browser never comes back, "Stop
   waiting" frees the screen; it does not cancel the sign-in in the browser.
+  Once you start another sign-in, the abandoned one can no longer report an
+  error or unlock the screen.
 - Notices from the desktop app (for example, that tokens are kept in memory
   only on this machine) appear above the current view until dismissed. They sit
   in the page flow, so they never cover a control.

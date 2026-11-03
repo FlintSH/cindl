@@ -1,6 +1,6 @@
 import { useCindlApi, useLink } from '@cindl/client-react'
 import { HermesOrigin, isCindlError } from '@cindl/contracts'
-import { useId, useState } from 'react'
+import { useId, useRef, useState } from 'react'
 import { Mark } from '../ui/Mark.tsx'
 import { Button } from '../ui/primitives.tsx'
 import styles from './notconnected.module.css'
@@ -17,6 +17,14 @@ export function SignIn() {
   const [origin, setOrigin] = useState(link.server?.origin ?? '')
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
+  // Only the latest attempt may change this screen. One abandoned with "Stop
+  // waiting" still settles later (main cancels it when a new one starts), and
+  // must not report or unlock anything over the attempt that replaced it.
+  const attempt = useRef(0)
+  const stopWaiting = () => {
+    attempt.current += 1
+    setBusy(false)
+  }
   const submit = async () => {
     const parsed = HermesOrigin.safeParse(origin.trim())
     if (!parsed.success) {
@@ -25,14 +33,16 @@ export function SignIn() {
       )
       return
     }
+    const mine = ++attempt.current
     setError(undefined)
     setBusy(true)
     try {
       await api.call('auth.signIn', { origin: parsed.data })
     } catch (err) {
-      setError(isCindlError(err) ? err.message : 'Sign-in did not complete.')
+      if (mine === attempt.current)
+        setError(isCindlError(err) ? err.message : 'Sign-in did not complete.')
     } finally {
-      setBusy(false)
+      if (mine === attempt.current) setBusy(false)
     }
   }
   return (
@@ -79,7 +89,7 @@ export function SignIn() {
           {busy ? (
             // The browser leg may never come back (a closed tab); this frees the
             // screen. It cannot abort the sign-in in the system browser.
-            <Button variant="quiet" onClick={() => setBusy(false)}>
+            <Button variant="quiet" onClick={stopWaiting}>
               Stop waiting
             </Button>
           ) : null}

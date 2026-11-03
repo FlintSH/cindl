@@ -141,6 +141,56 @@ describe('notices', () => {
     )
   })
 
+  // Review 91f30e07 N3: main cancels an abandoned attempt when a new one starts;
+  // that late rejection must not report an error or unlock the new attempt.
+  it('ignores the outcome of an attempt abandoned with Stop waiting', async () => {
+    const pending: Array<(error: Error) => void> = []
+    const api: CindlClientApi = {
+      call: () =>
+        new Promise((_resolve, reject) => {
+          pending.push(reject)
+        }),
+      subscribe(listener) {
+        queueMicrotask(() =>
+          listener({
+            type: 'link.changed',
+            link: {
+              phase: 'unconfigured',
+              since: '2026-01-01T00:00:00.000Z',
+              connectionEpoch: 0,
+            },
+          }),
+        )
+        return () => undefined
+      },
+    }
+    render(
+      <CindlProvider api={api}>
+        <SignIn />
+      </CindlProvider>,
+    )
+    await settle()
+    fireEvent.change(screen.getByLabelText('Hermes address'), {
+      target: { value: 'https://hermes.example.test' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop waiting' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await settle()
+    expect(pending).toHaveLength(2)
+    pending[0]?.(new CindlError('unauthenticated', 'Sign-in was cancelled.'))
+    await settle()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(
+      screen.getByRole('button', { name: 'Waiting for the browser…' }),
+    ).toHaveProperty('disabled', true)
+    // The current attempt still reports its own outcome.
+    pending[1]?.(new CindlError('unauthenticated', 'Hermes refused the sign-in.'))
+    await settle()
+    expect(screen.getByRole('alert').textContent).toBe('Hermes refused the sign-in.')
+  })
+
   it('shows client notices until dismissed', async () => {
     const { api } = testApi({ phase: 'online' }, [
       {
