@@ -96,6 +96,10 @@ describe('fake Hermes: WebSocket tickets', () => {
       ['https://elsewhere.example.test', '403'],
       ['http://127.0.0.1:9', 'open'],
       ['app://cindl', 'open'],
+      // Packaged Electron sends `Origin: null`; upstream parses no web scheme and trusts it.
+      ['null', 'open'],
+      ['file://', 'open'],
+      ['http://[::1', '403'],
       [undefined, 'open'],
     ] as const) {
       const t = await ticket(f, session.accessToken)

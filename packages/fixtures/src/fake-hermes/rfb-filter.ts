@@ -1,19 +1,26 @@
 /**
  * TEST-ONLY port of Hermes's byte-level RFB client gate
- * (tools/bot_desktop/rfb_filter.py:42-120 at v0.22.5). It parses the client
- * stream, which does not align with WebSocket frames, and passes keyboard,
- * pointer and clipboard messages only while `allowInput()` says this viewer
- * holds the lease. Everything else (pixel format, encodings, update requests)
- * always passes, so a watcher keeps receiving the picture.
+ * (tools/bot_desktop/rfb_filter.py at v0.22.5). It parses the client stream,
+ * which does not align with WebSocket frames, and passes input only while
+ * `allowInput()` says this viewer holds the lease: KeyEvent, PointerEvent,
+ * ClientCutText, SetDesktopSize (it resizes the agent's screen) and the QEMU
+ * Extended KeyEvent noVNC switches to. Everything else (pixel format,
+ * encodings, update requests, EnableContinuousUpdates, Fence) always passes,
+ * so a watcher keeps receiving the picture.
  */
 
-/** KeyEvent, PointerEvent, ClientCutText. */
-const INPUT_TYPES = new Set([4, 5, 6])
-/** Fixed-length client messages: type -> total length including the type byte. */
-const FIXED: Record<number, number> = { 0: 20, 3: 10, 4: 8, 5: 6 }
+/** KeyEvent, PointerEvent, ClientCutText, SetDesktopSize, QEMU Extended KeyEvent (:20). */
+const INPUT_TYPES = new Set([4, 5, 6, 251, 255])
+/** Fixed-length client messages: type -> total length including the type byte (:23-30). */
+const FIXED: Record<number, number> = { 0: 20, 3: 10, 4: 8, 5: 6, 150: 10, 255: 12 }
 const SET_ENCODINGS = 2
 const CLIENT_CUT_TEXT = 6
-/** Security None: 12-byte version, 1-byte security choice, 1-byte ClientInit. */
+const FENCE = 248
+/** u8 type, pad, u16 width, u16 height, u8 nScreens, pad, then 16 bytes per screen (:34). */
+const SET_DESKTOP_SIZE = 251
+/** TigerVNC's MaxCutText, which Xvnc and the bridge share (:36-39). */
+const MAX_CUT_TEXT = 256 * 1024
+/** Security None: 12-byte version, 1-byte security choice, 1-byte ClientInit (:52). */
 const HANDSHAKE_BYTES = 14
 
 const join = (parts: readonly Uint8Array[]): Uint8Array => {
@@ -44,11 +51,16 @@ export class RfbClientFilter {
     const out: Uint8Array[] = []
     if (this.#handshake > 0) {
       const count = Math.min(this.#handshake, this.#buffer.length)
-      out.push(this.#buffer.slice(0, count))
+      const head = this.#buffer.slice(0, count)
       this.#buffer = this.#buffer.slice(count)
       this.#handshake -= count
+      // ClientInit's shared flag is forced on, so a viewer never disconnects
+      // the agent's other watchers (:61-64).
+      if (this.#handshake === 0 && count >= 1) head[count - 1] = 1
+      out.push(head)
+      if (this.#handshake > 0) return join(out)
     }
-    while (this.#handshake === 0 && this.#buffer.length > 0) {
+    while (this.#buffer.length > 0) {
       const length = this.#messageLength()
       if (length === undefined || this.#buffer.length < length) break
       const message = this.#buffer.slice(0, length)
@@ -67,18 +79,25 @@ export class RfbClientFilter {
   }
 
   #messageLength(): number | undefined {
-    const type = this.#buffer[0] ?? -1
+    const buffer = this.#buffer
+    const type = buffer[0] ?? -1
     const fixed = FIXED[type]
     if (fixed !== undefined) return fixed
-    const view = new DataView(
-      this.#buffer.buffer,
-      this.#buffer.byteOffset,
-      this.#buffer.byteLength,
-    )
+    const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength)
     if (type === SET_ENCODINGS)
-      return this.#buffer.length < 4 ? undefined : 4 + 4 * view.getUint16(2)
-    if (type === CLIENT_CUT_TEXT)
-      return this.#buffer.length < 8 ? undefined : 8 + view.getUint32(4)
+      return buffer.length < 4 ? undefined : 4 + 4 * view.getUint16(2)
+    if (type === CLIENT_CUT_TEXT) {
+      if (buffer.length < 8) return undefined
+      // A negative length is the extended clipboard: |n| bytes follow (:93-97).
+      const size = Math.abs(view.getInt32(4))
+      if (size > MAX_CUT_TEXT) throw new Error('clipboard message too large')
+      return 8 + size
+    }
+    if (type === FENCE) return buffer.length < 9 ? undefined : 9 + (buffer[8] ?? 0)
+    if (type === SET_DESKTOP_SIZE)
+      return buffer.length < 8 ? undefined : 8 + 16 * (buffer[6] ?? 0)
+    // An unknown message cannot be framed, and forwarding it blind would let
+    // input hide behind it (:106-108).
     throw new Error(`unknown RFB client message type ${type}`)
   }
 }

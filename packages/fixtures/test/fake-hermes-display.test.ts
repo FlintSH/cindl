@@ -37,7 +37,8 @@ describe('fake Hermes: RFB input gate (rfb_filter.py)', () => {
   it('passes the handshake and update requests, and input only while allowed', () => {
     let allowed = false
     const filter = new RfbClientFilter(() => allowed)
-    expect(filter.feed(HANDSHAKE)).toEqual(HANDSHAKE)
+    // The handshake passes, with ClientInit's shared flag forced on.
+    expect(filter.feed(HANDSHAKE)).toEqual(join(HANDSHAKE.slice(0, 13), Uint8Array.of(1)))
     expect(filter.feed(join(UPDATE_REQUEST, KEY, POINTER))).toEqual(UPDATE_REQUEST)
     expect(filter.droppedInput).toBe(2)
     allowed = true
@@ -61,6 +62,59 @@ describe('fake Hermes: RFB input gate (rfb_filter.py)', () => {
     const filter = new RfbClientFilter(() => true)
     filter.feed(HANDSHAKE)
     expect(() => filter.feed(Uint8Array.of(9))).toThrow(/unknown RFB client message/)
+  })
+})
+
+describe('fake Hermes: the rest of the RFB gate (rfb_filter.py:20-39, 61-64)', () => {
+  const QEMU_KEY = Uint8Array.of(255, 0, 0, 1, 0, 0, 0, 0x61, 0, 0, 0, 30)
+  const SET_DESKTOP_SIZE = Uint8Array.from([
+    251,
+    0,
+    0,
+    64,
+    0,
+    32,
+    1,
+    0,
+    ...new Array<number>(16).fill(0),
+  ])
+  const CONTINUOUS_UPDATES = Uint8Array.of(150, 1, 0, 0, 0, 0, 0, 64, 0, 32)
+  const FENCE = Uint8Array.of(248, 0, 0, 0, 0, 0, 0, 0, 2, 7, 7)
+
+  it('gates QEMU key events and SetDesktopSize like input, and frames the rest', () => {
+    let allowed = false
+    const filter = new RfbClientFilter(() => allowed)
+    filter.feed(HANDSHAKE)
+    expect(
+      filter.feed(join(QEMU_KEY, SET_DESKTOP_SIZE, CONTINUOUS_UPDATES, FENCE)),
+    ).toEqual(join(CONTINUOUS_UPDATES, FENCE))
+    expect(filter.droppedInput).toBe(2)
+    allowed = true
+    expect(filter.feed(join(QEMU_KEY, SET_DESKTOP_SIZE))).toEqual(
+      join(QEMU_KEY, SET_DESKTOP_SIZE),
+    )
+  })
+
+  it('forces the shared flag on, so a viewer never disconnects the others', () => {
+    const filter = new RfbClientFilter(() => true)
+    const exclusive = new Uint8Array(14) // ClientInit shared flag 0
+    const passed = filter.feed(exclusive)
+    expect(passed[13]).toBe(1)
+  })
+
+  it('refuses clipboard text past 256 KiB, even as an extended (negative) length', () => {
+    const header = (length: number) => {
+      const bytes = new Uint8Array(8)
+      bytes[0] = 6
+      new DataView(bytes.buffer).setInt32(4, length)
+      return bytes
+    }
+    const extended = new RfbClientFilter(() => true)
+    extended.feed(HANDSHAKE)
+    expect(extended.feed(join(header(-3), Uint8Array.of(1, 2, 3)))).toHaveLength(11)
+    const huge = new RfbClientFilter(() => true)
+    huge.feed(HANDSHAKE)
+    expect(() => huge.feed(header(256 * 1024 + 1))).toThrow(/too large/)
   })
 })
 

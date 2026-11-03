@@ -37,9 +37,9 @@ Planned, not built: canonical sessions, steer and process operations.
 - Tests run against the fake Hermes server (`@cindl/fixtures/fake-hermes`)
   whose frames are validated against the vendored schemas. A test that only
   checks a mock it wrote proves nothing. Drive interleavings and failures with
-  the fake's own controls (`beforeHandle`, `afterHandle`, `respondError`,
-  `failNext`, `failNextRest`, `frozen`, `dropConnections`, `appRequest` for app-level prompts,
-  `stopScreen`/`startScreen`, `otherProfileDisplay` and `displayViewers` for
-  the screen and its socket, whose input passes the ported `RfbClientFilter`;
-  `store.serveAs` and `store.otherProfileScopes` for the served profile)
-  rather than mocks.
+  the fake's own controls rather than mocks: `beforeHandle`, `afterHandle`,
+  `respondError`, `failNext`, `failNextRest`, `frozen`, `dropConnections`;
+  `appRequest` for app-level prompts; `stopScreen`, `startScreen`,
+  `otherProfileDisplay` and `displayViewers` for the screen and its socket,
+  whose client bytes pass a full port of Hermes's `RfbClientFilter`; and
+  `store.serveAs` and `store.otherProfileScopes` for the served profile.

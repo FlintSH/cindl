@@ -765,13 +765,17 @@ export async function startFakeHermes(
     if (!hostAccepted(req.headers.host)) return false
     const origin = req.headers.origin
     if (!origin) return true
+    // Non-web origins (packaged Electron's `null`, file://, app://) are
+    // trusted; the credential is the boundary there. A malformed web origin
+    // fails closed.
+    const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(origin)?.[1]?.toLowerCase()
+    if (scheme !== 'http' && scheme !== 'https') return true
     let parsed: URL
     try {
       parsed = new URL(origin)
     } catch {
       return false
     }
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return true
     return hostAccepted(parsed.host)
   }
 
