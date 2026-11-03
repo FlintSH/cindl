@@ -49,6 +49,24 @@ describe('Cindl lint invariants', () => {
       "declare const require: (id: string) => unknown\nexport const x = require('@cindl/fixtures')",
       'no-restricted-syntax',
     ],
+    // Review 898a8eaa S6: routes that bypassed the import rules.
+    ["import { x } from '../node_modules/@cindl/fixtures'", 'no-restricted-imports'],
+    [
+      "export const load = () => import('../node_modules/@cindl/fixtures/src/index.ts')",
+      'no-restricted-syntax',
+    ],
+    [
+      "export const all = import.meta.glob('../../../packages/fixtures/src/**')",
+      'no-restricted-syntax',
+    ],
+    [
+      "export const url = new URL('../../../packages/fixtures/src/scenario/data.ts', import.meta.url)",
+      'no-restricted-syntax',
+    ],
+    [
+      "const name = 'data'\nexport const url = new URL(`../${name}.ts`, import.meta.url)",
+      'no-restricted-syntax',
+    ],
   ])('blocks fixture access: %s', async (code, rule) => {
     expect(await rulesFor(code)).toContain(rule)
   })
@@ -73,6 +91,21 @@ describe('Cindl lint invariants', () => {
       'const { indexedDB } = globalThis\nvoid indexedDB.open("x")',
       'no-restricted-syntax',
     ],
+    // Review 898a8eaa N1: aliases and other routes to the same objects.
+    ["const w = window\nw.localStorage.setItem('t', 'x')", 'no-restricted-syntax'],
+    ["window.window.localStorage.setItem('t', 'x')", 'no-restricted-syntax'],
+    ['void (0, window).localStorage.length', 'no-restricted-syntax'],
+    ["document.defaultView?.localStorage.setItem('t', 'x')", 'no-restricted-syntax'],
+    ["top?.localStorage.setItem('t', 'x')", 'no-restricted-syntax'],
+    ["export const s = Reflect.get(window, 'localStorage')", 'no-restricted-syntax'],
+    [
+      "export const d = Object.getOwnPropertyDescriptor(Document.prototype, 'cookie')",
+      'no-restricted-syntax',
+    ],
+    [
+      "const k = ['local', 'Storage'].join('')\nexport const s: unknown = window[k as 'name']",
+      'no-restricted-syntax',
+    ],
   ])('blocks browser storage: %s', async (code, rule) => {
     expect(await rulesFor(code)).toContain(rule)
   })
@@ -83,6 +116,21 @@ describe('Cindl lint invariants', () => {
       'apps/web/src/probe.tsx',
     )
     expect(rules).toContain('no-restricted-syntax')
+  })
+
+  it('lets Node scripts compute file URLs and preferences.ts use localStorage', async () => {
+    expect(
+      await rulesFor(
+        "const name = 'tokens.css'\nexport const url = new URL(`../${name}`, import.meta.url)",
+        'packages/tokens/scripts/probe.ts',
+      ),
+    ).not.toContain('no-restricted-syntax')
+    expect(
+      await rulesFor(
+        "export const read = () => window.localStorage.getItem('cindl.preferences')",
+        'apps/web/src/platform/preferences.ts',
+      ),
+    ).toEqual([])
   })
 
   it('allows the explicit demo switch and tests to load fixtures', async () => {

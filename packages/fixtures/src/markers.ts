@@ -1,7 +1,7 @@
 /**
  * Strings that only occur in SYNTHETIC fixture records. A real-flavour build
  * output (web dist, desktop real package, Android release bundle) must contain
- * none of them; the dist gate imports this list. The demo label from
+ * none of them; the planned dist gate (not built yet) imports this list. The demo label from
  * @cindl/contracts is deliberately not a marker: it is required UI copy.
  * test/markers.test.ts proves every marker still occurs in the scenario, so
  * the list cannot silently stop matching anything.

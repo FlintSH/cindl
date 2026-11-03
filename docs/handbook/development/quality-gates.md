@@ -42,6 +42,15 @@ the root config and lifts one rule: computed dynamic imports, which the gates
 need to load workspace sources from `--root` in their tests. Scripts never
 ship in a client; every other rule applies to them unchanged.
 
+The root config also encodes Cindl's invariants, each with a case in
+`apps/web/test/lint-rules.test.ts`: no raw HTML; no fixture code outside tests
+and the demo switch, including relative `node_modules` paths,
+`import.meta.glob` and fixture asset URLs (bundled sources also refuse computed
+`new URL(…, import.meta.url)` paths); and no browser storage or cookies outside
+`apps/web/src/platform/preferences.ts`, whether reached directly, through an
+alias or another window object, `Reflect`, a property descriptor or a computed
+key.
+
 ## Privacy and secret scan
 
 `node scripts/check-privacy.mjs` reads every tracked file. The rules are in
