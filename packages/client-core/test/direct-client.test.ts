@@ -507,6 +507,36 @@ describe('direct client: approvals and questions', () => {
     expect(h.rpcCalls('request.answer')).toBe(0)
   })
 
+  it('keeps an app-level prompt whose frame arrived after the list call was sent (N4)', async () => {
+    const h = await harness()
+    let raised = false
+    // Hermes registers a new app-level prompt after building the list and before sending it.
+    h.fake.gateway.afterHandle = (method, params) => {
+      if (method !== 'session.events.since' || params.session_id !== '' || raised) return
+      if (h.store.getState().link.connectionEpoch < 1) return
+      raised = true
+      const newest = [...h.fake.gateway.connections].at(-1)
+      void h.fake.gateway.appRequest(
+        'display.install.sudo',
+        { profile_key: 'default' },
+        newest,
+      )
+    }
+    h.fake.gateway.dropConnections()
+    await online(h, 2)
+    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+    await h.waitFor(() =>
+      h.events.some(
+        (e) =>
+          e.type === 'requests.synced' &&
+          e.conversationId === undefined &&
+          e.connectionEpoch === 2 &&
+          e.openRequestIds.includes(request.requestId),
+      ),
+    )
+    expect(requestOf(h, request.requestId)?.status).toBe('open')
+  })
+
   it('changes nothing app-level when the list cannot be read', async () => {
     const h = await harness()
     const [mine] = [...h.fake.gateway.connections]
