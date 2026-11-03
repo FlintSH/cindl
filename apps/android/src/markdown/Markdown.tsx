@@ -1,4 +1,12 @@
-import type { List, PhrasingContent, RootContent, Table } from 'mdast'
+import type {
+  AlignType,
+  Heading as MdHeading,
+  List,
+  PhrasingContent,
+  RootContent,
+  Table,
+  TableCell,
+} from 'mdast'
 import { memo, useMemo, useRef, useState, type ReactNode } from 'react'
 import {
   Linking,
@@ -131,21 +139,7 @@ function Block({ node, context }: { node: RootContent; context: Context }): Reac
     case 'paragraph':
       return <Paragraph nodes={node.children} context={context} />
     case 'heading':
-      return (
-        <Text
-          accessibilityRole="header"
-          style={[
-            node.depth <= 3 ? theme.text.title : theme.text.body,
-            {
-              fontFamily: theme.fonts.semibold,
-              color: theme.colors.text,
-              marginTop: theme.space[2],
-            },
-          ]}
-        >
-          {renderInlines(node.children, context)}
-        </Text>
-      )
+      return <Heading node={node} context={context} />
     case 'blockquote':
       return (
         <View
@@ -214,6 +208,28 @@ function Paragraph({
   return (
     <Text ref={self} selectable style={bodyStyle(context)}>
       {renderInlines(nodes, { ...context, host: self })}
+    </Text>
+  )
+}
+
+/** A heading is its links' host too (delta check of 7dab9fe, S6). */
+function Heading({ node, context }: { node: MdHeading; context: Context }) {
+  const { theme } = context
+  const self = useRef<HostInstance | null>(null)
+  return (
+    <Text
+      ref={self}
+      accessibilityRole="header"
+      style={[
+        node.depth <= 3 ? theme.text.title : theme.text.body,
+        {
+          fontFamily: theme.fonts.semibold,
+          color: theme.colors.text,
+          marginTop: theme.space[2],
+        },
+      ]}
+    >
+      {renderInlines(node.children, { ...context, host: self })}
     </Text>
   )
 }
@@ -397,6 +413,38 @@ function ListBlock({ node, context }: { node: List; context: Context }) {
   )
 }
 
+/** A table cell's text is its links' host too (delta check of 7dab9fe, S6). */
+function Cell({
+  cell,
+  header,
+  align,
+  context,
+}: {
+  cell: TableCell
+  header: boolean
+  align: AlignType | undefined
+  context: Context
+}) {
+  const { theme } = context
+  const self = useRef<HostInstance | null>(null)
+  return (
+    <Text
+      ref={self}
+      selectable
+      style={[
+        theme.text.ui,
+        {
+          color: theme.colors.text,
+          fontFamily: header ? theme.fonts.semibold : theme.fonts.regular,
+          textAlign: align === 'right' ? 'right' : align === 'center' ? 'center' : 'left',
+        },
+      ]}
+    >
+      {renderInlines(cell.children, { ...context, host: self })}
+    </Text>
+  )
+}
+
 function TableBlock({ node, context }: { node: Table; context: Context }) {
   const { theme } = context
   const widths = tableColumnWidths(node)
@@ -423,25 +471,12 @@ function TableBlock({ node, context }: { node: Table; context: Context }) {
                     paddingHorizontal: theme.space[3],
                   }}
                 >
-                  <Text
-                    selectable
-                    style={[
-                      theme.text.ui,
-                      {
-                        color: theme.colors.text,
-                        fontFamily:
-                          rowIndex === 0 ? theme.fonts.semibold : theme.fonts.regular,
-                        textAlign:
-                          align === 'right'
-                            ? 'right'
-                            : align === 'center'
-                              ? 'center'
-                              : 'left',
-                      },
-                    ]}
-                  >
-                    {renderInlines(cell.children, context)}
-                  </Text>
+                  <Cell
+                    cell={cell}
+                    header={rowIndex === 0}
+                    align={align}
+                    context={context}
+                  />
                 </View>
               )
             })}

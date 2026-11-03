@@ -167,4 +167,16 @@ describe('a link in agent Markdown gets focus back when its confirmation closes'
       'Directions are on the venue page (harbor-loft.example.test).',
     ])
   })
+
+  it('in a heading: to the heading (S6)', async () => {
+    expect(await cancelled('floor plan')).toEqual([
+      'heading: The floor plan (harbor-loft.example.test)',
+    ])
+  })
+
+  it("in a table cell: to the cell's text (S6)", async () => {
+    expect(await cancelled('the loft map')).toEqual([
+      'the loft map (harbor-loft.example.test)',
+    ])
+  })
 })

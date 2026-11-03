@@ -427,8 +427,10 @@ Hermes server, Chrome's Custom Tab, and a phone.
 
 - **Agent output** is untrusted: raw HTML is dropped, images are never loaded
   (a placeholder names the host), every link shows its destination host next to
-  its text, and opening one asks first, showing the full address. Very deep
-  nesting is shown as plain text.
+  its text, and opening one asks first, showing the full address. Closing
+  that question gives focus back to the text the link is in (a paragraph, a
+  heading or a table cell; a link has no view of its own). Very deep nesting
+  is shown as plain text.
 - **Decisions:** approvals offer only Allow once and Deny and lock on the first
   tap; withheld standing grants are explained under "Why only once?". A
   question set is answered (or each question skipped) and sent once; **Skip
