@@ -152,6 +152,56 @@ export const center = (rect: Rect) => ({
 export const width = (rect: Rect) => rect.right - rect.left
 export const height = (rect: Rect) => rect.bottom - rect.top
 
+const contains = (rect: Rect, x: number, y: number) =>
+  x >= rect.left && x < rect.right && y >= rect.top && y < rect.bottom
+
+const within = (node: UiNode, ancestor: UiNode) => {
+  for (let current: UiNode | undefined = node; current; current = current.parent)
+    if (current === ancestor) return true
+  return false
+}
+
+/**
+ * Where a tap on `node` would land on it, or undefined when it cannot. UI
+ * Automator keeps nodes that are scrolled out of view in the dump, with empty
+ * or inverted bounds, so being in the tree is not being on screen. The visible
+ * part must be big enough to aim at, and no clickable node drawn after it (an
+ * overlay such as the composer or the "Latest" button) may cover the point.
+ */
+export function tapPoint(
+  root: UiNode,
+  node: UiNode,
+  minPx = 24,
+): { x: number; y: number } | undefined {
+  const target = tapTarget(node)
+  if (width(target.bounds) < minPx || height(target.bounds) < minPx) return undefined
+  const point = center(target.bounds)
+  const nodes = flatten(root)
+  const covered = nodes
+    .slice(nodes.indexOf(target) + 1)
+    .some(
+      (other) =>
+        other.clickable &&
+        !within(other, target) &&
+        width(other.bounds) > 0 &&
+        height(other.bounds) > 0 &&
+        contains(other.bounds, point.x, point.y),
+    )
+  return covered ? undefined : point
+}
+
+/** The first node matching `match` that a tap can reach, with where to tap it. */
+export function findTappable(
+  root: UiNode,
+  match: Match,
+): { node: UiNode; point: { x: number; y: number } } | undefined {
+  for (const node of findAll(root, match)) {
+    const point = tapPoint(root, node)
+    if (point) return { node, point }
+  }
+  return undefined
+}
+
 const isInteractive = (node: UiNode) =>
   node.clickable ||
   node.longClickable ||
