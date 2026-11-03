@@ -115,8 +115,8 @@ from the desktop app's custom protocol.
   and saves or deletes nothing. When an entry before it in the same store was
   removed, the entry moved up a place: the locked editor says where the same
   text is now (its row reads "No longer at this place" when nothing took its
-  place), and your draft comes back when you open it there. A locked editor
-  can reload the list.
+  place), and the entry's own draft comes back when you open it there (the
+  lock says where any other text goes). A locked editor can reload the list.
   - "Use this draft for the entry now here" reads that entry first. Nothing
     changes unless the read succeeds and the entry is still at that place; a
     failed read is shown, and you can try again. If the entry changed again,
@@ -132,17 +132,25 @@ from the desktop app's custom protocol.
     shows the entry without it, the draft is offered (Continue the draft,
     Discard the draft). Editing afresh, saving or discarding that fresh text
     leaves it; if the fresh text must be kept too, it is kept beside it and
-    waits under "Unsaved drafts". Drafts for entries Hermes no longer lists
-    stay there too, to copy or discard; each discard button names its draft.
+    waits under "Unsaved drafts", which names the entry it was written for.
+    Drafts for entries Hermes no longer lists stay there too, to copy or
+    discard. Each discard button names its draft by its first line, numbered
+    when two drafts share one.
   - When a locked editor's entry has moved, the lock says where the text you
     were editing goes when you close it: back with the entry, back to the
     entry it was written for, or under "Unsaved drafts".
   - A delete names the text it removes: the first line with words in it, of
     the text Cindl read under the id the delete sends. Deleting warns first,
     because Hermes keeps no backup.
-  - Focus stays in the editor: it moves into your draft when an adoption
-    completes, and onto the lock notice when a lock removes the control you
-    were on. The adopt button is described by the entry now at the place.
+  - Focus never drops to the page because of a change in an editor (memory
+    entries, SOUL and skills alike). When the control you were on goes (a
+    step, a lock, an adoption, Continue or a discard), focus moves to what
+    took its place: the lock notice while the editor is locked, else your
+    draft, the changes under review, or Edit. Focus you moved elsewhere stays
+    there. The adopt button is described by the entry now at the place.
+  - An entry whose first line is only a heading mark gets no title from
+    Hermes; Cindl names it by its first line with words, in its row, the lock
+    notice and the confirmation.
   - After a save, the text it replaced stays on screen: ready to restore while
     the entry is still the one you saved, and otherwise only to copy.
   - Known limit: entries with identical text in one store look the same to

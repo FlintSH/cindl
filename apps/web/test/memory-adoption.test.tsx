@@ -668,6 +668,8 @@ describe('an editor only ever shows the entry it was opened for, or the one the 
     await settle()
     await settle()
     expect(lockedNow()).toBe(true)
+    // The note now here is still at this place, so the lock names no other place for it.
+    expect(alerts().join(' ')).not.toMatch(/The same text is now/)
     expect(button('Delete entry…')).toBeNull()
     expect(textarea()!.readOnly).toBe(true)
     expect(keptMemoryDrafts()).toContain(D_F)

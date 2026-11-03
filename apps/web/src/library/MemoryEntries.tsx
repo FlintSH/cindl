@@ -50,6 +50,9 @@ const titleOf = (content: string) => {
   return first.length > 80 ? `${first.slice(0, 80)}…` : first
 }
 
+/** An entry's name in labels: Hermes's title, or (when that is empty) the same rule on its preview. */
+const nameOf = (entry: MemoryEntrySummary) => entry.title.trim() || titleOf(entry.preview)
+
 /** Where an entry sits in the list. The UI follows it across edits; writes never use it. */
 interface Position {
   store: MemoryStore
@@ -83,9 +86,10 @@ export function MemoryEntries() {
   const entries = list.data ?? []
   const selected = open ? atPosition(entries, open) : undefined
   // Drafts kept for entries Hermes no longer lists (removed, or rewritten
-  // elsewhere). They attach to no other entry (except one with identical text,
-  // which shares the identity); the owner copies or discards them. Shown while no entry is open, which also keeps a locked
-  // editor's draft from appearing twice.
+  // elsewhere), and drafts kept beside an entry's own draft. They attach to no
+  // other entry (except one with identical text, which shares the identity);
+  // the owner copies or discards them. Shown while no entry is open, which also
+  // keeps a locked editor's draft from appearing twice.
   const listed = new Set(entries.map((entry) => fingerprintOf(entry.id)))
   const orphans =
     open || !list.data
@@ -95,6 +99,15 @@ export function MemoryEntries() {
         keptDocumentDrafts(MEMORY_DRAFT_PREFIX).filter(
           ({ key }) => !listed.has(key.slice(MEMORY_DRAFT_PREFIX.length)),
         )
+  // Each discard button names its draft; drafts sharing a first line are
+  // numbered, so no two buttons have the same name.
+  const discardName = (key: string, draft: string) => {
+    const title = titleOf(draft)
+    const same = orphans.filter((orphan) => titleOf(orphan.draft) === title)
+    return same.length === 1
+      ? `Discard draft: ${title}`
+      : `Discard draft ${same.findIndex((orphan) => orphan.key === key) + 1} of ${same.length}: ${title}`
+  }
   // Where the entry with this identity is listed now (1-based in its store),
   // when exactly one entry has that text.
   const placeNow = (identity: string) => {
@@ -105,6 +118,17 @@ export function MemoryEntries() {
         fingerprintOf(entry.id) === identity ? [index + 1] : [],
       )
     return places.length === 1 ? places[0] : undefined
+  }
+  // A draft kept beside a listed entry's own draft says which entry it is for.
+  const writtenFor = (key: string) => {
+    const identity = key.slice(MEMORY_DRAFT_PREFIX.length).split('#')[0] ?? ''
+    const at = key.includes('#') ? placeNow(identity) : undefined
+    return at === undefined ? null : (
+      <p className={styles.note}>
+        Written for {identity.startsWith('profile:') ? 'note about you' : 'agent note'}{' '}
+        {at}.
+      </p>
+    )
   }
   const editor = (summary: MemoryEntrySummary | undefined, place: number) => (
     <MemoryEntryEditor
@@ -130,16 +154,18 @@ export function MemoryEntries() {
           <h3 className={styles.memoryStoreTitle}>Unsaved drafts</h3>
           <p className={styles.note}>
             Text you wrote for entries Hermes no longer lists (removed, or changed
-            elsewhere). Copy what you need; nothing here is saved.
+            elsewhere), and drafts kept beside an entry's own draft. Copy what you need;
+            nothing here is saved.
           </p>
           <ul className={styles.rows}>
             {orphans.map(({ key, draft }) => (
               <li key={key} className={styles.memoryItem}>
+                {writtenFor(key)}
                 <pre className={styles.doc}>{draft}</pre>
                 <div className={styles.actions}>
                   <Button
                     variant="quiet"
-                    aria-label={`Discard draft: ${titleOf(draft)}`}
+                    aria-label={discardName(key, draft)}
                     onClick={() => {
                       forgetDocumentDraft(key)
                       setDraftsSeen((value) => value + 1)
@@ -187,7 +213,7 @@ export function MemoryEntries() {
                         <Button
                           variant="quiet"
                           aria-expanded={isOpen}
-                          aria-label={`${isOpen ? 'Close' : 'Open'} memory entry: ${entry.title}`}
+                          aria-label={`${isOpen ? 'Close' : 'Open'} memory entry: ${nameOf(entry)}`}
                           onClick={() =>
                             setOpen(isOpen ? undefined : positionOf(entries, entry.id))
                           }
@@ -416,7 +442,7 @@ function MemoryEntryEditor({
             draftKey={draftKey}
             canWrite={canWrite}
             locked={locked ? lockMessage : undefined}
-            nowHere={locked ? summary?.title : undefined}
+            nowHere={locked && summary ? nameOf(summary) : undefined}
             onAdopt={
               summary && locked
                 ? (keptAs) => adopt(summary, keptAs ?? draftKey)

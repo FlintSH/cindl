@@ -1,6 +1,15 @@
 import { diffLines, diffStats } from '@cindl/client-core'
 import { isCindlError, type VersionedDocument } from '@cindl/contracts'
-import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type FocusEvent,
+  type Ref,
+} from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './views.module.css'
 
@@ -55,7 +64,15 @@ function keepKey(draftKey: string, keptAs: string | undefined, draft: string) {
   return `${draftKey}#${n}`
 }
 
-function Review({ before, draft }: { before: string; draft: string }) {
+function Review({
+  before,
+  draft,
+  changes,
+}: {
+  before: string
+  draft: string
+  changes: Ref<HTMLPreElement>
+}) {
   const { lines, exact } = useMemo(() => diffLines(before, draft), [before, draft])
   const stats = diffStats(lines)
   return (
@@ -65,7 +82,7 @@ function Review({ before, draft }: { before: string; draft: string }) {
         {stats.added === 1 ? '' : 's'} added, <strong>{stats.removed}</strong> removed.
         {exact ? '' : ' (Large document: shown as a full replacement.)'}
       </p>
-      <pre className={styles.diff} aria-label="Changes">
+      <pre className={styles.diff} aria-label="Changes" ref={changes} tabIndex={-1}>
         {lines.map((line, index) => (
           <span key={index} className={styles.diffLine} data-kind={line.kind}>
             {line.kind === 'added' ? '+ ' : line.kind === 'removed' ? '- ' : '  '}
@@ -163,19 +180,45 @@ export function DocumentEditor({
       // eslint-disable-next-line react-hooks/set-state-in-effect -- records where the draft was filed, once
       setStage((now) => (now.kind === 'view' ? now : { ...now, keptAs: key }))
   }, [draftKey, keptAs, keptDraft])
-  // Focus follows the editor's state: into the draft when a lock lifts (an
-  // adoption), and onto the notice when a lock takes away the focused control.
+  // Each step is keyed by its kind, so a step's controls are replaced, never
+  // reused as another step's (a focused Edit would become Review changes).
+  // Focus never drops to the page because of a change here. When the control
+  // that had focus goes (a lock or an adoption, Continue, a discard, a step to
+  // review or back), focus moves to what took its place: the lock notice while
+  // locked, else the draft, the changes under review, or Edit (Reload when
+  // there is no Edit). A lock that lands or lifts with nothing focused moves
+  // focus the same way. Focus the owner moved elsewhere stays there.
+  const root = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLTextAreaElement>(null)
   const notice = useRef<HTMLDivElement>(null)
+  const changes = useRef<HTMLPreElement>(null)
+  const edit = useRef<HTMLButtonElement>(null)
+  const reload = useRef<HTMLButtonElement>(null)
+  const focused = useRef<Element | null>(null)
   const wasLocked = useRef(Boolean(lockText))
-  useEffect(() => {
+  useLayoutEffect(() => {
     const lockedNow = Boolean(lockText)
-    if (wasLocked.current && !lockedNow) box.current?.focus()
-    const page = notice.current?.ownerDocument
-    if (!wasLocked.current && lockedNow && page?.activeElement === page?.body)
-      notice.current?.focus()
+    const lockMoved = wasLocked.current !== lockedNow
     wasLocked.current = lockedNow
-  }, [lockText])
+    const page = root.current?.ownerDocument
+    if (!page) return
+    const active = page.activeElement
+    if (active && active !== page.body) {
+      focused.current = root.current?.contains(active) ? active : null
+      return
+    }
+    const was = focused.current
+    focused.current = null
+    const taken = was !== null && (!was.isConnected || was.matches(':disabled'))
+    if (!taken && !lockMoved) return
+    const target = lockedNow
+      ? notice.current
+      : (box.current ?? changes.current ?? edit.current ?? reload.current)
+    target?.focus()
+  })
+  const track = (event: FocusEvent) => {
+    focused.current = event.target
+  }
   const hereId = useId()
   const [error, setError] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
@@ -228,7 +271,7 @@ export function DocumentEditor({
 
   if (stage.kind === 'view')
     return (
-      <div className={styles.section}>
+      <div key="view" className={styles.section} ref={root} onFocus={track}>
         {lockNotice}
         <pre className={styles.doc}>{document.content}</pre>
         <p className={styles.note}>
@@ -285,11 +328,14 @@ export function DocumentEditor({
           </div>
         ) : null}
         <div className={styles.actions}>
-          <Button variant="quiet" onClick={onReload}>
+          <Button variant="quiet" ref={reload} onClick={onReload}>
             Reload
           </Button>
           {canWrite && !lockText ? (
-            <Button onClick={() => setStage({ kind: 'edit', draft: document.content })}>
+            <Button
+              ref={edit}
+              onClick={() => setStage({ kind: 'edit', draft: document.content })}
+            >
               Edit
             </Button>
           ) : null}
@@ -300,7 +346,7 @@ export function DocumentEditor({
 
   if (stage.kind === 'edit')
     return (
-      <div className={styles.section}>
+      <div key="edit" className={styles.section} ref={root} onFocus={track}>
         {lockNotice}
         {draftNote && !lockText ? (
           <p className={styles.note} role="status">
@@ -399,9 +445,9 @@ export function DocumentEditor({
     }
   }
   return (
-    <div className={styles.section}>
+    <div key="review" className={styles.section} ref={root} onFocus={track}>
       {lockNotice}
-      <Review before={document.content} draft={draft} />
+      <Review before={document.content} draft={draft} changes={changes} />
       {moved && !lockText ? (
         <p className={styles.error} role="alert">
           This text changed in Hermes while you were reviewing, so the changes above are

@@ -1,12 +1,14 @@
 // Re-check 5d0be84: the web memory editor through the direct client, the
-// adapter and the fake Hermes on loopback. RT4 and RT6 are the reviewer's
+// adapter and the fake Hermes on loopback. RT4, RT6 and RT8 are the reviewer's
 // probes with their assertions unchanged; R10 and R11 run the flows of its
 // RT5 and RT7, whose expectations this change does not adopt (see the
-// commit): they assert where each draft really goes. Synthetic data only.
+// commit): they assert where each draft really goes. R12 and R13 cover its
+// notes on the Unsaved drafts wording and on entries Hermes gives no title.
+// Synthetic data only.
 import { webcrypto } from 'node:crypto'
 import { CindlProvider } from '@cindl/client-react'
 import { type CindlClientApi, type CindlEvent } from '@cindl/contracts'
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { webCryptoProvider } from '../../../packages/hermes-adapter/src/index.ts'
 import { harness as directHarness } from '../../../packages/client-core/test/direct-harness.ts'
@@ -21,6 +23,7 @@ afterEach(() => {
 const GLAZE = 'Glaze supplier calls moved to Thursdays at 10:00 (fictional supplier).'
 const KILN = 'The kiln firing log lives in the studio inventory sheet, tab "Firings".'
 const HARBOR = 'Harbor Loft (fictional) holds the offsite date until Friday.'
+const HARBOR_MON = 'Harbor Loft (fictional) holds the offsite date until Monday.'
 const EXTRA = 'Extra note about the studio van (fictional).'
 const BRIEF = 'Prefers a short morning brief, ready before 08:30.'
 const FOCUS = 'Protects focus time before 11:00 on weekdays.'
@@ -211,6 +214,28 @@ describe('the memory editor through the direct client (re-check 5d0be84)', () =>
     expect(another).toBe(false)
   })
 
+  it('RT8 (P1g): a lock lands while a save is held, then Hermes refuses the save as stale: the draft is kept once', async () => {
+    const t = await setup(FIVE)
+    await harborOffered(t)
+    t.hold('memory.entries', 'request')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reload' })[0]!)
+    await settle()
+    fireEvent.click(button('Edit')!)
+    fireEvent.change(textarea()!, { target: { value: FRESH } })
+    fireEvent.click(button('Review changes')!)
+    t.hold('memory.write', 'request')
+    fireEvent.click(button('Confirm and save')!)
+    await settle()
+    // Elsewhere Harbor is rewritten; the list asked earlier lands first and locks the editor.
+    t.profile.memory.memory = [B_NOTE, HARBOR_MON, EXTRA]
+    await t.release('memory.entries')
+    await until(() => lockedNow())
+    await t.release('memory.write')
+    await until(() => alerts().some((a) => /Your draft is kept/.test(a)))
+    const after = { keys: keptKeys(), drafts: kept() }
+    expect(after.drafts.filter((d) => d === FRESH)).toHaveLength(1)
+  })
+
   it("R10: a fresh edit kept beside Harbor's own draft, then Harbor moves up: the lock says it waits under Unsaved drafts, and it does, while Harbor's own draft returns with Harbor", async () => {
     const t = await setup(FIVE)
     await harborOffered(t)
@@ -273,5 +298,45 @@ describe('the memory editor through the direct client (re-check 5d0be84)', () =>
     expect(hint.join(' ')).not.toMatch(/Unsaved drafts/)
     expect(closed).toEqual({ unsaved: false, draft: false })
     expect(kiln.box).toBe(D_K)
+  })
+
+  it("R12: a draft kept beside a listed entry's own draft is listed under Unsaved drafts, which says it holds such drafts, with the entry it was written for", async () => {
+    const t = await setup(FIVE)
+    await harborOffered(t)
+    t.hold('memory.entries', 'request')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Reload' })[0]!)
+    await settle()
+    fireEvent.click(button('Edit')!)
+    fireEvent.change(textarea()!, { target: { value: FRESH } })
+    t.profile.memory.memory = [HARBOR, EXTRA]
+    await t.release('memory.entries')
+    await until(() => lockedNow())
+    fireEvent.click(button(/Close memory entry/)!)
+    await settle()
+    const unsaved = screen.getByText('Unsaved drafts').parentElement!
+    expect(unsaved.textContent).toContain(
+      "Text you wrote for entries Hermes no longer lists (removed, or changed elsewhere), and drafts kept beside an entry's own draft.",
+    )
+    expect(within(unsaved).getByText('Written for agent note 1.')).toBeTruthy()
+    expect(within(unsaved).getByText(FRESH)).toBeTruthy()
+    expect(kept()).toEqual([D_H, FRESH])
+  })
+
+  it('R13: Hermes gives an entry whose first line is only a heading mark an empty title; its row, the lock and the adopt button name it by its text', async () => {
+    const MARKED = '#\nBench rota moved to Tuesdays (fictional).'
+    const t = await setup([GLAZE, KILN, MARKED])
+    expect(
+      button('Open memory entry: Bench rota moved to Tuesdays (fictional).'),
+    ).toBeTruthy()
+    fireEvent.click(button(/Open memory entry: The kiln firing log/)!)
+    await until(() => Boolean(button('Edit')))
+    await lockWith(t, [GLAZE, MARKED], D_K)
+    const adopt = button(ADOPT)!
+    const described = document.getElementById(
+      adopt.getAttribute('aria-describedby') ?? '',
+    )?.textContent
+    expect(described).toBe(
+      'Now at this place: “Bench rota moved to Tuesdays (fictional).”.',
+    )
   })
 })

@@ -38,9 +38,13 @@ const fixtureEntries: Entry[] = [
   { store: 'profile', content: FOCUS },
 ]
 const fp = (content: string) => sha256Hex(content.trim()).slice(0, 12)
-/** The confirmation's naming rule, copied from MemoryEntries.tsx `titleOf`. */
+/** The confirmation's naming rule, copied from MemoryEntries.tsx `titleOf`: the first line with words. */
 const titleOf = (content: string) => {
-  const first = (content.trim().split('\n')[0] ?? '').replace(/^[#\s]+/, '').trim()
+  const first =
+    content
+      .split('\n')
+      .map((line) => line.replace(/^[#\s]+/, '').trim())
+      .find((line) => line.length > 0) ?? 'this entry'
   return first.length > 80 ? `${first.slice(0, 80)}…` : first
 }
 
