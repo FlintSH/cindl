@@ -554,6 +554,14 @@ The direct client shows the screen (ADR 0012) in
   request an RFB server answers at once (RFC 6143, 7.5.3). If nothing arrives
   within 10 s more, the view ends as stalled and the socket closes with 4100,
   so the human keeps control.
+- An open view keeps the agent's screen running. The bridge stamps the
+  screen's activity on the chunks it relays, at most once a minute
+  (`web_routers/display.py:35, 168-187`), and Hermes's idle stop
+  (`bot_desktop.idle_stop_minutes`, 30 by default) counts an attached viewer
+  as use (`tools/bot_desktop/runtime.py:414-419, 452-465`). The liveness probe
+  above keeps bytes flowing on a still screen, so a view left open, on Work >
+  Computer over a weekend for example, keeps the screen up the whole time;
+  closing the view lets the idle stop run again.
 - Frames, input and the ticket URL are never logged. Diagnostics record the
   close code, a stall or an RFB protocol error, nothing else.
 - `display.lease.acquire {viewer_id}` and `display.lease.release {viewer_id}`
