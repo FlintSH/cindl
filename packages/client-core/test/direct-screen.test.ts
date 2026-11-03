@@ -596,6 +596,28 @@ describe('live screen: when Hermes closes the view', () => {
   })
 })
 
+describe('live screen: closes that keep the human in control', () => {
+  it('closes with 4100 when the handshake stalls, never handing control back', async () => {
+    const clock = manualClock()
+    const { live, sockets } = stubScreen({ clock })
+    const watching = live.watch()
+    await vi.waitFor(() => expect(sockets).toHaveLength(1))
+    clock.fire()
+    expect(await codeOf(watching)).toBe('timeout')
+    expect(sockets[0]?.closes).toEqual([[4100, 'reconnect']])
+  })
+
+  it('closes with 4100 on a malformed RFB stream, never handing control back', async () => {
+    const { live, socket, viewId, logs } = await watchedStub(systemClock)
+    // A server message type RFB 3.8 does not define.
+    socket.feed([200])
+    expect(socket.closes).toEqual([[4100, 'protocol error']])
+    expect(logs).toContain('direct.screen-protocol-error')
+    socket.drop(4100)
+    expect(await codeOf(live.frame(viewId))).toBe('unavailable')
+  })
+})
+
 describe('live screen: the ticket', () => {
   it('sends it only to the pinned route on the Hermes origin, over wss', async () => {
     const { live, opened, sockets } = stubScreen()

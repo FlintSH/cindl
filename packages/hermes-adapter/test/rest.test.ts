@@ -1,3 +1,5 @@
+import { createServer, type Server } from 'node:http'
+import type { AddressInfo } from 'node:net'
 import { CindlError } from '@cindl/contracts'
 import { describe, expect, it } from 'vitest'
 import { hermesReasonOf, RestClient, rpcError, type FetchLike } from '../src/index.ts'
@@ -10,6 +12,48 @@ const errorOf = (promise: Promise<unknown>) =>
     },
     (error: unknown) => error as CindlError,
   )
+
+/** A throwaway HTTP server on 127.0.0.1; returns its origin. */
+async function listen(server: Server): Promise<string> {
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
+  return `http://127.0.0.1:${(server.address() as AddressInfo).port}`
+}
+
+const closeServer = (server: Server) =>
+  new Promise<void>((resolve) => {
+    server.closeAllConnections()
+    server.close(() => resolve())
+  })
+
+describe('RestClient: the origin pin', () => {
+  it('never follows a redirect, so no request leaves the Hermes origin', async () => {
+    const reached: string[] = []
+    const elsewhere = createServer((req, res) => {
+      reached.push(req.url ?? '')
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.end(JSON.stringify({ version: '0.22.5' }))
+    })
+    const redirecting = createServer((_req, res) => {
+      res.writeHead(302, { Location: `${target}/api/status` })
+      res.end()
+    })
+    const target = await listen(elsewhere)
+    const origin = await listen(redirecting)
+    try {
+      const rest = new RestClient({
+        origin,
+        fetch: (url, init) => fetch(url, init),
+        timers,
+        auth: { kind: 'cookie' },
+      })
+      expect(await errorOf(rest.status())).toBeInstanceOf(CindlError)
+      expect(reached).toEqual([])
+    } finally {
+      await closeServer(elsewhere)
+      await closeServer(redirecting)
+    }
+  })
+})
 
 describe('RestClient', () => {
   it('maps auth denial, missing things and bad input to Cindl codes', async () => {

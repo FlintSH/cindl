@@ -69,6 +69,8 @@ export interface FakeHermes {
   advance(ms: number): void
   /** A synthetic signed-in session, as the password login would mint. */
   signIn(): FakeSession
+  /** Test control: the next `METHOD /path` request answers `status` instead of being handled. */
+  failNextRest(route: string, status: number): void
   close(): Promise<void>
 }
 
@@ -713,9 +715,13 @@ export async function startFakeHermes(
     user_id: session.userId,
   })
 
+  /** One-shot REST failures by `METHOD /path` (failNextRest). */
+  const restFailures = new Map<string, number>()
+
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://fake-hermes.invalid')
-    calls.push({ kind: 'rest', name: `${req.method ?? 'GET'} ${url.pathname}` })
+    const name = `${req.method ?? 'GET'} ${url.pathname}`
+    calls.push({ kind: 'rest', name })
     const send = (status: number, body: unknown) => {
       if (res.headersSent) return
       res.writeHead(status, {
@@ -726,6 +732,12 @@ export async function startFakeHermes(
     }
     if (!hostAccepted(req.headers.host)) {
       send(400, { detail: 'Invalid host header' })
+      return
+    }
+    const failure = restFailures.get(name)
+    if (failure !== undefined) {
+      restFailures.delete(name)
+      send(failure, { detail: 'Internal Server Error' })
       return
     }
     route(req, res, url)
@@ -852,6 +864,9 @@ export async function startFakeHermes(
       offset += ms
     },
     signIn: () => auth.mintSession(),
+    failNextRest(route, status) {
+      restFailures.set(route, status)
+    },
     async close() {
       gateway.restart()
       for (const client of wss.clients) client.terminate()

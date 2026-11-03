@@ -1483,6 +1483,21 @@ describe('direct client: memory entries', () => {
       .filter((c) => /learning|memory|\/api\/fs|files/i.test(c.name))
       .map((c) => c.name)
 
+  it('keeps memory entries unknown after a transient probe failure and probes again', async () => {
+    const fake = await fakeHermes()
+    fake.failNextRest('GET /api/learning/graph', 503)
+    const h = await harness({ fake })
+    await h.waitFor(() => h.fake.calls.some((c) => c.name === 'GET /api/learning/graph'))
+    // A 503 does not prove the routes are missing: unknown, not unsupported.
+    await h.client.call('routines.list', {})
+    expect(h.store.getState().capabilities['memory.text']).toBeUndefined()
+    h.fake.gateway.dropConnections()
+    await online(h, 2)
+    await h.waitFor(
+      () => h.store.getState().capabilities['memory.text']?.state === 'available',
+    )
+  })
+
   it('negotiates memory entries from the learning routes and never reads memory files', async () => {
     const h = await harness()
     await h.waitFor(
