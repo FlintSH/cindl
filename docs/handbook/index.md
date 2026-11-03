@@ -17,6 +17,11 @@ reviewed together.
 - [Acceptance matrix](project/acceptance-matrix.md): every requirement, its
   status and its evidence.
 
+## Clients
+
+- [Web](clients/web.md): requirements, demo, builds, security properties,
+  keyboard.
+
 ## Reference
 
 - [Hermes v0.22.5 transport](reference/hermes-v0.22.5.md): exactly which
