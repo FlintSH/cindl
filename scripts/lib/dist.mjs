@@ -94,8 +94,12 @@ export function checkOutputs(root, outputs, { markers, labels }) {
       // Byte content read as UTF-8: bundles, archives such as app.asar and
       // Hermes bytecode keep their strings as UTF-8 bytes.
       const text = readFileSync(file).toString('utf8')
-      if (text.includes(labels.label)) seen.label = true
-      if (text.includes(labels.notice)) seen.notice = true
+      // Only shipped files count: a source map embeds the original sources, so
+      // it can contain the label even when the bundle does not.
+      if (!file.endsWith('.map')) {
+        if (text.includes(labels.label)) seen.label = true
+        if (text.includes(labels.notice)) seen.notice = true
+      }
       if (flavour === 'real') {
         const records = markers.filter((marker) => text.includes(marker))
         if (records.length)

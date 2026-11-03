@@ -81,6 +81,20 @@ describe('check-dist', () => {
       /dist-demo: demo output lacks the demo notice \(SYNTHETIC_DEMO_NOTICE\)/,
     )
     assert.match(result.output, /lacks the demo label \(SYNTHETIC_DEMO_LABEL\)/)
+    // A source map embeds sources, so the notice there does not count.
+    const onlyInMap = {
+      ...unlabelled,
+      'assets/app.js.map': JSON.stringify({
+        version: 3,
+        sources: ['../../src/labels.ts'],
+        sourcesContent: [`export const NOTICE = '${NOTICE}' // ${LABEL}`],
+        mappings: '',
+      }),
+    }
+    assertFails(
+      check(t, { 'apps/web/dist-demo': onlyInMap }, ['--demo', 'apps/web/dist-demo']),
+      /dist-demo: demo output lacks the demo notice/,
+    )
   })
 
   it('checks a packaged single-file output such as app.asar', (t) => {

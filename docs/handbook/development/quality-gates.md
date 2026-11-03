@@ -175,8 +175,10 @@ node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo
   renderer keeps it, so a demo flavour built on a production renderer can
   never show synthetic data unlabelled.
 - **Demo flavours** (web `build:demo`; later the desktop demo package and the
-  Android demo build) fail unless they contain both `SYNTHETIC_DEMO_NOTICE` and
-  `SYNTHETIC_DEMO_LABEL` from `@cindl/contracts`.
+  Android demo build) fail unless a shipped file contains both
+  `SYNTHETIC_DEMO_NOTICE` and `SYNTHETIC_DEMO_LABEL` from `@cindl/contracts`.
+  Source maps do not count: they embed the original sources, so they hold the
+  label even when the bundle has lost it.
 - **Every output** fails if a source map names an absolute path, or if any file
   contains the build machine's checkout or home directory path.
 
