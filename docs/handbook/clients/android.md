@@ -163,9 +163,14 @@ until the owner decides about those terms.
 
   Not shown on the runners yet: the on-screen keyboard. Run 41681122382
   passed that step on a keyboard Android called shown, with its top at the
-  display's bottom edge and none on screen; the step now fails on that. That
-  run's ImeTracker lines point to the cause: the keyboard's show animation
-  and the window manager's control of it both timed out.
+  display's bottom edge and none on screen; the step now fails on that. The
+  cause is the emulator, not the app's focus or show request (every request
+  reached `onShown`). Every configuration line of that run reads
+  `qwerty/v/v`: the emulator reports a hardware keyboard even with
+  `hw.keyboard=no`, and beside one, Android's keyboard shows its window and
+  navigation strip but not its keys. Its show animation then timed out. The
+  test device now turns on `show_ime_with_hard_keyboard` (show the on-screen
+  keyboard with a physical one), a setting, nothing installed.
 
 - **Production APK:** the sign-in screen (no demo data); sign-in through the
   emulator's browser (the AOSP image has no Chrome: run 41593367518 logged

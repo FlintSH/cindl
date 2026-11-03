@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import { DEVICE_SETTINGS } from '../e2e/device.ts'
 import { keyboardMoment, settledKeyboard, type KeyboardReader } from '../e2e/keyboard.ts'
 import type { VisibleKeyboard } from '../e2e/ui.ts'
 
@@ -83,5 +84,17 @@ describe("the keyboard and the composer's bounds from one moment", () => {
     expect(
       await keyboardMoment(restless.reader, () => Promise.resolve('composer'), 1),
     ).toBeUndefined()
+  })
+})
+
+describe('the emulator shows the on-screen keyboard', () => {
+  it('beside the hardware keyboard it reports, with settings only (no package, no terms)', () => {
+    // CI run 41681122382: every configuration line reads qwerty/v/v, so Android's
+    // keyboard showed its window and navigation strip but no keys (23-keyboard.png).
+    expect(DEVICE_SETTINGS).toContain('settings put secure show_ime_with_hard_keyboard 1')
+    for (const setting of DEVICE_SETTINGS)
+      expect(setting).toMatch(
+        /^(?:settings put (?:global|system|secure) [a-z_]+ [\w.]+|cmd uimode night no)$/,
+      )
   })
 })

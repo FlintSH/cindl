@@ -19,7 +19,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { SYNTHETIC_DEMO_LABEL } from '@cindl/contracts'
 import { nativeTokensKey } from '@cindl/hermes-adapter'
 import { secureStoreKey } from '../src/platform/secretStore.ts'
-import { createDevice, PACKAGE } from './device.ts'
+import { createDevice, DEVICE_SETTINGS, PACKAGE } from './device.ts'
 import { startFakeHermes, type FakeHermes } from '@cindl/fixtures/fake-hermes'
 import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
 import { SECURE_STORE_FILE, tokenStorage, type TokenStorage } from './keystore.ts'
@@ -253,18 +253,7 @@ async function startOnTalk() {
 
 function prepareDevice() {
   device.run(['wait-for-device'], 120_000)
-  for (const setting of [
-    // Deterministic UI dumps: system animations off (the app then also reduces motion).
-    'settings put global window_animation_scale 0',
-    'settings put global transition_animation_scale 0',
-    'settings put global animator_duration_scale 0',
-    'settings put system font_scale 1.0',
-    'settings put system accelerometer_rotation 0',
-    'settings put system user_rotation 0',
-    'settings put global always_finish_activities 0',
-    'cmd uimode night no',
-  ])
-    device.shell(setting)
+  for (const setting of DEVICE_SETTINGS) device.shell(setting)
   device.shell('logcat -c')
   device.shell('logcat -b crash -c')
 }

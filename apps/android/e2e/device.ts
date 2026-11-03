@@ -27,6 +27,23 @@ import {
 
 export const PACKAGE = 'dev.fl1nt.cindl'
 
+/** How each run sets up the emulator before the app is installed: settings only. */
+export const DEVICE_SETTINGS = [
+  // Deterministic UI dumps: system animations off (the app then also reduces motion).
+  'settings put global window_animation_scale 0',
+  'settings put global transition_animation_scale 0',
+  'settings put global animator_duration_scale 0',
+  'settings put system font_scale 1.0',
+  'settings put system accelerometer_rotation 0',
+  'settings put system user_rotation 0',
+  'settings put global always_finish_activities 0',
+  // The emulator reports a hardware keyboard even with hw.keyboard=no (every
+  // configuration line of CI run 41681122382 reads qwerty/v/v), and beside one
+  // the on-screen keyboard shows its window but not its keys. A phone has none.
+  'settings put secure show_ime_with_hard_keyboard 1',
+  'cmd uimode night no',
+] as const
+
 /**
  * adb against the single emulator CI starts; `adb` comes from the pinned
  * platform-tools. `scrub` runs over every text taken from the device that the
