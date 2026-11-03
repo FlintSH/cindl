@@ -14,42 +14,42 @@ when the table and the contract differ.
 
 <!-- BEGIN GENERATED: client-operations. Source: packages/contracts/src/ops.ts. Regenerate with node scripts/generate-docs-reference.mjs -->
 
-| Operation                | Requires capability    | Changes state | Summary                                                                                                                   |
-| ------------------------ | ---------------------- | ------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| `link.get`               | none                   | no            | Current connection state.                                                                                                 |
-| `capabilities.get`       | none                   | no            | Negotiated capabilities for this connection.                                                                              |
-| `auth.signIn`            | none                   | yes           | Sign in to a hermes serve origin with the platform flow (native PKCE or same-origin login).                               |
-| `auth.signOut`           | none                   | yes           | Forget this device’s tokens. Hermes v0.22.5 cannot revoke issued native tokens remotely.                                  |
-| `conversations.list`     | `sessions.list`        | no            | Hermes sessions for the active profile.                                                                                   |
-| `conversations.create`   | `sessions.create`      | yes           | Start a side conversation.                                                                                                |
-| `conversations.setMain`  | none                   | no            | Pin the device’s main conversation (stored on this device).                                                               |
-| `conversations.rename`   | `sessions.rename`      | yes           | Rename a conversation in Hermes.                                                                                          |
-| `conversations.history`  | `sessions.history`     | no            | Stored transcript for a conversation.                                                                                     |
-| `prompt.submit`          | `chat.stream`          | yes           | Send a message. Never retried automatically once its outcome is uncertain.                                                |
-| `prompt.discard`         | none                   | no            | Drop a queued or uncertain local prompt without sending it.                                                               |
-| `conversation.interrupt` | `chat.interrupt`       | yes           | Ask Hermes to stop the current turn.                                                                                      |
-| `request.answer`         | none                   | yes           | Answer one open approval or clarify request once (never an unsupported one); clarify sets are answered in one submission. |
-| `routines.list`          | `routines.read`        | no            | Scheduled Hermes cron jobs.                                                                                               |
-| `routines.setEnabled`    | `routines.write`       | yes           | Pause or resume a cron job.                                                                                               |
-| `skills.list`            | `skills.read`          | no            | Installed skills.                                                                                                         |
-| `skills.read`            | `skills.read`          | no            | A skill’s SKILL.md content.                                                                                               |
-| `skills.write`           | `skills.write`         | yes           | Replace a skill’s content after a reviewed diff; rejected if it changed since read.                                       |
-| `soul.read`              | `soul.read`            | no            | The profile’s SOUL.md.                                                                                                    |
-| `soul.write`             | `soul.write`           | yes           | Replace SOUL.md after a reviewed diff; rejected if it changed since read.                                                 |
-| `memory.overview`        | `memory.overview`      | no            | Memory provider metadata (GET /api/memory). Entries are a separate capability.                                            |
-| `memory.entries`         | `memory.text`          | no            | Memory entries (agent notes and the user profile) as Hermes lists them.                                                   |
-| `memory.read`            | `memory.text`          | no            | One memory entry in full.                                                                                                 |
-| `memory.write`           | `memory.text`          | yes           | Replace one entry after a reviewed diff; refused if it changed since it was read (its id is its version).                 |
-| `memory.delete`          | `memory.text`          | yes           | Delete one entry. Permanent: Hermes keeps no backup.                                                                      |
-| `connections.mcp`        | `connections.mcp`      | no            | Cached MCP server health (read-only; does not probe).                                                                     |
-| `connections.accounts`   | `connections.accounts` | no            | Account coverage evidence, when a safe source exists.                                                                     |
-| `display.status`         | `computer.view`        | no            | State of the agent-owned screen. Never starts it.                                                                         |
-| `display.acquireControl` | `computer.control`     | yes           | Take the input lease for the agent-owned screen.                                                                          |
-| `display.releaseControl` | `computer.control`     | yes           | Return the input lease.                                                                                                   |
-| `display.watch`          | `computer.view`        | no            | Start showing the agent-owned screen. Never starts the screen.                                                            |
-| `display.frame`          | `computer.view`        | no            | What changed on the screen since the last call; waits a few seconds for a change.                                         |
-| `display.unwatch`        | `computer.view`        | yes           | Stop showing the screen. Hands control back if this device held it.                                                       |
-| `display.input`          | `computer.control`     | yes           | Pointer and key input, sent only while this device holds control. Never logged.                                           |
+| Operation                | Requires capability    | Changes state | Summary                                                                                                                            |
+| ------------------------ | ---------------------- | ------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| `link.get`               | none                   | no            | Current connection state.                                                                                                          |
+| `capabilities.get`       | none                   | no            | Negotiated capabilities for this connection.                                                                                       |
+| `auth.signIn`            | none                   | yes           | Sign in to a hermes serve origin with the platform flow (native PKCE or same-origin login).                                        |
+| `auth.signOut`           | none                   | yes           | Forget this device’s tokens. Hermes v0.22.5 cannot revoke issued native tokens remotely.                                           |
+| `conversations.list`     | `sessions.list`        | no            | Hermes sessions for the active profile.                                                                                            |
+| `conversations.create`   | `sessions.create`      | yes           | Start a side conversation.                                                                                                         |
+| `conversations.setMain`  | none                   | no            | Pin the device’s main conversation (stored on this device).                                                                        |
+| `conversations.rename`   | `sessions.rename`      | yes           | Rename a conversation in Hermes.                                                                                                   |
+| `conversations.history`  | `sessions.history`     | no            | Stored transcript for a conversation.                                                                                              |
+| `prompt.submit`          | `chat.stream`          | yes           | Send a message. Never retried automatically once its outcome is uncertain.                                                         |
+| `prompt.discard`         | none                   | no            | Drop a queued or uncertain local prompt without sending it.                                                                        |
+| `conversation.interrupt` | `chat.interrupt`       | yes           | Ask Hermes to stop the current turn.                                                                                               |
+| `request.answer`         | none                   | yes           | Answer one open approval or clarify request once (never an unsupported one); clarify sets are answered in one submission.          |
+| `routines.list`          | `routines.read`        | no            | Scheduled Hermes cron jobs.                                                                                                        |
+| `routines.setEnabled`    | `routines.write`       | yes           | Pause or resume a cron job.                                                                                                        |
+| `skills.list`            | `skills.read`          | no            | Installed skills.                                                                                                                  |
+| `skills.read`            | `skills.read`          | no            | A skill’s SKILL.md content.                                                                                                        |
+| `skills.write`           | `skills.write`         | yes           | Replace a skill’s content after a reviewed diff; rejected if it changed since read.                                                |
+| `soul.read`              | `soul.read`            | no            | The profile’s SOUL.md.                                                                                                             |
+| `soul.write`             | `soul.write`           | yes           | Replace SOUL.md after a reviewed diff; rejected if it changed since read.                                                          |
+| `memory.overview`        | `memory.overview`      | no            | Memory provider metadata (GET /api/memory). Entries are a separate capability.                                                     |
+| `memory.entries`         | `memory.text`          | no            | Memory entries (agent notes and the user profile) as Hermes lists them.                                                            |
+| `memory.read`            | `memory.text`          | no            | One memory entry in full.                                                                                                          |
+| `memory.write`           | `memory.text`          | yes           | Replace one entry after a reviewed diff; refused if it changed since it was read (its id is its version).                          |
+| `memory.delete`          | `memory.text`          | yes           | Delete one entry. Permanent: Hermes keeps no backup.                                                                               |
+| `connections.mcp`        | `connections.mcp`      | no            | Cached MCP server health (read-only; does not probe).                                                                              |
+| `connections.accounts`   | `connections.accounts` | no            | Account coverage evidence, when a safe source exists.                                                                              |
+| `display.status`         | `computer.view`        | no            | State of the agent-owned screen. Never starts it.                                                                                  |
+| `display.acquireControl` | `computer.control`     | yes           | Take the input lease for the agent-owned screen.                                                                                   |
+| `display.releaseControl` | `computer.control`     | yes           | Return the input lease.                                                                                                            |
+| `display.watch`          | `computer.view`        | no            | Start showing the agent-owned screen. Never starts the screen.                                                                     |
+| `display.frame`          | `computer.view`        | no            | What changed on the screen since the last call; waits a few seconds for a change.                                                  |
+| `display.unwatch`        | `computer.view`        | yes           | Stop showing the screen. While online, a lease this device holds returns to the agent; with the link down it stays with the owner. |
+| `display.input`          | `computer.control`     | yes           | Pointer and key input, sent only while this device holds control. Never logged.                                                    |
 
 <!-- END GENERATED: client-operations -->
 

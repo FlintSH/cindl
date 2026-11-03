@@ -22,13 +22,17 @@ Two facts shape the design:
   (`gateway/session_pending_controls.py:65-101`). Acknowledgement means
   Hermes's registry accepted the answer. It does not mean the action that
   follows succeeded.
-- **A decline can become a password.** If every answering client declines a
-  sidecar request with 4404, the request settles at once with a non-empty JSON
-  error string as its value (`server_requests.py:254-278`). The secret callback
-  can store that string (`tui_gateway/agent_callbacks.py:231-254`), and sudo
-  and vault prompts use the value as the password or code (`:256-257`,
-  `:265-279`; the value comes back from `tui_gateway/server.py:1092-1097`). On
-  the session-owner path, any error reply settles the request for every client
+- **A decline can become a password.** If every answering client attached to
+  a session declines that session's sidecar request with 4404, the request
+  settles at once with a non-empty JSON error string as its value
+  (`server_requests.py:254-279`). An app-level request (empty `session_id`)
+  has no attached clients, so no vote settles it (`:264-271`). The secret
+  callback can store that string (`tui_gateway/agent_callbacks.py:231-254`);
+  sudo, `vault.unlock_prompt` and `vault.code` use the value as the password
+  or code (`:256-257`, `:265-266`, `:278-279`), and `vault.save_login` parses
+  it as JSON and drops anything else (`:268-275`). The value comes back from
+  `tui_gateway/server.py:1092-1097`. On the session-owner path, any error reply
+  settles the request for every client
   (`gateway/session_server_requests.py:74-93`).
 
 **Decision.**
@@ -59,8 +63,9 @@ Two facts shape the design:
   behaviour is pinned by tests with synthetic callbacks. These prompts are
   never tested with real secrets.
 - The one reply Cindl sends without answering is the 4404 "not shown" vote
-  for a prompt that another app's window owns, and only on a sidecar socket
-  that counts such votes. The sidecar advertises that with `declines_not_shown`
+  for a session's prompt that another app's window owns, and only on a
+  sidecar socket that counts such votes; never for an app-level prompt, which
+  no vote settles. The sidecar advertises that with `declines_not_shown`
   (`tui_gateway/methods_voice.py:539`, declared in
   `tui_gateway/contracts/liveness.py:48`), and `_decline` in
   `tui_gateway/server_requests.py:254` counts the vote.

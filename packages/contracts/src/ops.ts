@@ -375,7 +375,8 @@ export const clientOps = {
     result: z.object({ stopped: z.boolean() }),
     capability: 'computer.view',
     mutates: true,
-    summary: 'Stop showing the screen. Hands control back if this device held it.',
+    summary:
+      'Stop showing the screen. While online, a lease this device holds returns to the agent; with the link down it stays with the owner.',
   }),
   'display.input': op({
     args: z.object({
