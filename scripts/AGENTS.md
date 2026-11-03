@@ -4,8 +4,9 @@ Repository gates and docs generators, run directly with `node scripts/...` by
 people and CI. Read `docs/handbook/development/quality-gates.md` first.
 
 - Node 24 `.mjs` with no dependencies beyond the repository's own tooling
-  (Prettier, TypeScript). Never add a runtime dependency to a shipped package
-  for a gate.
+  (Prettier) and the workspace packages' source (contract, shortcuts,
+  fixture markers). Never add a runtime dependency to a shipped package for
+  a gate.
 - A CLI file only parses arguments and reports; rules live in `lib/` so they
   can be read and tested.
 - Fail closed: missing inputs, unreadable sources or an empty result are
