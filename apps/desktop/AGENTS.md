@@ -17,7 +17,7 @@ documentation: `docs/handbook/clients/desktop.md`. Non-negotiable:
   CSP header keeps `connect-src 'none'` and `frame-ancestors 'none'`. Block
   navigation and new windows; deny permissions; the renderer session cancels
   every http(s)/ws(s) request and uses a dead proxy; WebRTC is removed from the
-  page.
+  top frame (child frames keep it: a known gap, see clients/desktop.md).
 - The preload exposes only `window.cindlDesktop` (`DesktopBridge`), only on
   `app://cindl`, and may import only `electron` and Node-free modules (the
   build fails otherwise). Main answers only `desktopChannels`, checks the
@@ -75,7 +75,9 @@ flock /tmp/cindl-heavy-build.lock pnpm --filter @cindl/desktop run package:demo
 - `safeStorage` reports libsecret/encryption available even when it fell back
   to Chromium's built-in key: probe-encrypt and reject `v10`.
 - WebRTC opens TCP to loopback even through a fixed proxy; it is removed from
-  the page with `contextBridge.executeInMainWorld`.
+  the top frame with `contextBridge.executeInMainWorld`. Preloads never run in
+  `about:blank` child frames, even with `nodeIntegrationInSubFrames`, so those
+  keep it.
 - Headless ozone reports a 1x1 screen: pass `--ozone-override-screen-size`.
 - The `EnableNodeCliInspectArguments` fuse stays on (Playwright drives the
   packaged binary through `--inspect`); turn it off before any signed macOS

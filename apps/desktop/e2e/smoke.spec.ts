@@ -284,10 +284,17 @@ test.describe('Cindl (real flavour)', () => {
   test('keeps developer tools closed in a packaged build', async () => {
     const { app, packaged } = launched as Launched
     test.skip(!packaged, 'Unpacked development builds allow developer tools.')
-    const opened = await app.evaluate(({ BrowserWindow }: typeof Electron) => {
+    const opened = await app.evaluate(async ({ BrowserWindow }: typeof Electron) => {
       const contents = BrowserWindow.getAllWindows()[0]?.webContents
-      contents?.openDevTools({ mode: 'detach' })
-      return contents?.isDevToolsOpened()
+      if (!contents) return 'no window'
+      // Developer tools open asynchronously: isDevToolsOpened() straight after
+      // openDevTools() is false even when they are allowed. Wait for them.
+      const settled = new Promise<boolean>((resolve) => {
+        contents.once('devtools-opened', () => resolve(true))
+        setTimeout(() => resolve(contents.isDevToolsOpened()), 3_000)
+      })
+      contents.openDevTools({ mode: 'detach' })
+      return settled
     })
     expect(opened).toBe(false)
   })
@@ -341,6 +348,29 @@ test.describe('Cindl (real flavour)', () => {
       webkit: typeof (globalThis as Record<string, unknown>).webkitRTCPeerConnection,
     }))
     expect(webrtc).toEqual({ peerConnection: 'undefined', webkit: 'undefined' })
+    // A same-origin child frame never gets the bridge. It does hand WebRTC
+    // back: Electron runs no preload in about:blank child frames (a known gap,
+    // docs/handbook/clients/desktop.md). This pins that, so a change in either
+    // direction shows up here and the docs get updated.
+    const framed = await page.evaluate(() => {
+      const probe = (frame: HTMLIFrameElement) => {
+        const child = frame.contentWindow as unknown as Record<string, unknown> | null
+        return {
+          peerConnection: typeof child?.RTCPeerConnection,
+          webkit: typeof child?.webkitRTCPeerConnection,
+          bridge: typeof child?.cindlDesktop,
+        }
+      }
+      const frame = document.createElement('iframe')
+      document.body.append(frame)
+      const inner = frame.contentDocument?.createElement('iframe')
+      if (inner) frame.contentDocument?.body.append(inner)
+      const result = { child: probe(frame), grandchild: inner ? probe(inner) : 'none' }
+      frame.remove()
+      return result
+    })
+    const child = { peerConnection: 'function', webkit: 'function', bridge: 'undefined' }
+    expect(framed).toEqual({ child, grandchild: child })
     // Anything the renderer's session still reaches goes to a proxy that cannot connect.
     const proxy = await app.evaluate(async ({ session }: typeof Electron) => ({
       remote: await session.defaultSession.resolveProxy('https://turn.example.test:3478'),

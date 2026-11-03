@@ -81,7 +81,11 @@ const bridge: DesktopBridge = {
 if (location.protocol === `${APP_SCHEME}:` && location.host === APP_HOST) {
   contextBridge.exposeInMainWorld('cindlDesktop', bridge)
   // Cindl uses no WebRTC, and the CSP cannot restrict it: take it away from
-  // page script before any runs. (Main also routes it to a dead proxy.)
+  // page script before any runs. (Main also routes it to a dead proxy.) This
+  // covers the top frame only. Electron runs no preload in a same-origin
+  // about:blank child frame, even with nodeIntegrationInSubFrames, so page
+  // script that creates one can still reach WebRTC there (a known gap; see
+  // docs/handbook/clients/desktop.md).
   try {
     contextBridge.executeInMainWorld({
       func: () => {

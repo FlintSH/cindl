@@ -159,11 +159,19 @@ uses `~/.config/Cindl Demo` and stores no tokens.
 - **No network from the renderer.** Its session cancels every `http`, `https`,
   `ws` and `wss` request, and sends anything else to a proxy that cannot
   connect (the discard port on loopback, with loopback not exempted). WebRTC,
-  which the CSP cannot restrict, is removed from the page before any script
-  runs; as a second layer it may only use that dead proxy, which stops it
-  from reaching any other machine (Chromium still lets WebRTC open TCP
+  which the CSP cannot restrict, is removed from the top frame before any
+  script runs; as a second layer it may only use that dead proxy, which stops
+  it from reaching any other machine (Chromium still lets WebRTC open TCP
   connections to loopback directly). Main's own Hermes traffic does not use
   this session.
+- **Known gap: WebRTC in child frames.** Electron runs no preload in a
+  same-origin `about:blank` child frame, even with `nodeIntegrationInSubFrames`,
+  so script in a compromised renderer can create one and use WebRTC from it.
+  The dead proxy still keeps it off other machines; what remains is TCP to
+  loopback with ICE/STUN framing, mainly port probing. A page cannot be
+  stopped from reaching a child frame's window (`window[0]`), and Electron has
+  no switch that turns WebRTC off. The smoke test pins this behaviour, and the
+  threat model tracks it.
 - **Permissions and devices.** Every permission request and check is denied,
   device pickers (HID, serial, USB, Bluetooth) are cancelled, screen capture
   is refused and downloads are blocked.
