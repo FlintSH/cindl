@@ -237,8 +237,8 @@ export function displayState(
       controller = 'you'
       held = true
     } else if (lease.viewer_hash && viewerHashes.previous.has(lease.viewer_hash))
-      // Our viewer id from an earlier connection: Hermes binds viewer ids to the
-      // connection that minted them, so this device cannot release it any more.
+      // Our viewer id from an earlier connection: still this device's lease,
+      // released with `force`, which Hermes honours only for the holding id.
       controller = 'you'
     else controller = 'another-viewer'
   }

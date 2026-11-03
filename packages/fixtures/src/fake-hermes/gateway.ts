@@ -1282,7 +1282,9 @@ export class FakeGateway {
           "viewer_id required to release another viewer's lease (or pass force: true)",
           { code: 'viewer_mismatch' },
         )
-      if (force || !viewerId || display.holderViewerId === viewerId) {
+      // lease.release: a named viewer releases only its own lease, force or not;
+      // force without a name releases whoever holds (lease.py:204-226).
+      if (viewerId ? display.holderViewerId === viewerId : force) {
         if (display.holder === 'human') {
           display.holder = 'agent'
           display.holderViewerId = undefined

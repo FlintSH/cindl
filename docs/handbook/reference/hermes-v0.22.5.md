@@ -519,10 +519,14 @@ The direct client shows the screen (ADR 0012) in
   close code only.
 - `display.lease.acquire {viewer_id}` and `display.lease.release {viewer_id}`
   accept only viewer ids minted on the same connection
-  (`methods_display.py:234-262`). The lease shows the holder only as
-  `viewer_hash = sha256(viewer_id)[:12]` (`tools/bot_desktop/lease.py:67`),
-  which is how Cindl recognises its own lease. After a reconnect the old
-  viewer id belongs to a closed connection and cannot release the lease.
+  (`methods_display.py:139-146, 232-261`), except that a release with
+  `force: true` skips that check (`:254`). A release that names a viewer id
+  still releases only a lease that id holds, force or not
+  (`tools/bot_desktop/lease.py:204-226`). The lease shows the holder only as
+  `viewer_hash = sha256(viewer_id)[:12]` (`lease.py:67`), which is how Cindl
+  recognises its own lease. After a reconnect Cindl keeps its earlier viewer
+  ids in memory (never emitted or logged) and hands back a lease one of them
+  holds with `force: true`; it never names another viewer's id.
 - Display close codes: 4000 evicted controller, 4001 screen stopped, 4401
   ticket missing, expired or used (after accept), 4403 Host/Origin refused,
   1003 non-binary frame (`web_routers/display.py:37-42`).

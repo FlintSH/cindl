@@ -214,8 +214,12 @@ class DirectHermesClient implements DirectClient {
     profile?: string
     viewerId?: string
     viewerEpoch?: number
-    previous: Set<string>
-  } = { previous: new Set() }
+    /**
+     * This device's viewer ids from earlier connections, by viewer hash. Never
+     * emitted or logged; used to recognise and release their lease.
+     */
+    previous: Map<string, string>
+  } = { previous: new Map() }
   #listRefresh: unknown
   #requestSync: unknown
   #started = false
@@ -602,7 +606,10 @@ class DirectHermesClient implements DirectClient {
     void this.#storage?.saveEpoch(this.#epoch)
     if (this.#display.viewerId && this.#display.viewerEpoch !== this.#epoch) {
       // Viewer ids belong to the connection that minted them (methods_display.py).
-      this.#display.previous.add(sha256Hex(this.#display.viewerId).slice(0, 12))
+      this.#display.previous.set(
+        sha256Hex(this.#display.viewerId).slice(0, 12),
+        this.#display.viewerId,
+      )
       delete this.#display.viewerId
       delete this.#display.viewerEpoch
       this.#screen?.leaseChanged()
@@ -1329,7 +1336,7 @@ class DirectHermesClient implements DirectClient {
       this.#display.lease,
       {
         current: viewer ? sha256Hex(viewer).slice(0, 12) : undefined,
-        previous: this.#display.previous,
+        previous: new Set(this.#display.previous.keys()),
       },
       this.#now(),
     )
@@ -1883,20 +1890,25 @@ class DirectHermesClient implements DirectClient {
       return this.#emitDisplay()
     },
     'display.releaseControl': async () => {
-      const viewerId =
+      const current =
         this.#display.viewerEpoch === this.#epoch ? this.#display.viewerId : undefined
-      if (!viewerId) {
-        const state = this.#displayState()
-        if (state.controller === 'you')
-          throw new CindlError(
-            'conflict',
-            'This device took control on an earlier connection. Hermes binds control to that connection, so hand it back from the Hermes host or take control again first.',
-          )
-        return state
-      }
+      const lease = this.#display.lease
+      // A viewer id from an earlier connection cannot pass the minted-id check
+      // any more, but `force` skips only that check: Hermes still releases
+      // nothing another viewer holds (methods_display.py:247-261, lease.py:204-226).
+      const earlier =
+        lease?.holder === 'human' && lease.viewer_hash
+          ? this.#display.previous.get(lease.viewer_hash)
+          : undefined
+      const params = earlier
+        ? { viewer_id: earlier, force: true }
+        : current
+          ? { viewer_id: current }
+          : undefined
+      if (!params) return this.#displayState()
       const leased = wire.parseWire(
         wire.DisplayLeaseResult,
-        await this.#rpc('display.lease.release', { viewer_id: viewerId }),
+        await this.#rpc('display.lease.release', params),
       )
       if (!leased)
         throw new CindlError(
@@ -1927,7 +1939,7 @@ class DirectHermesClient implements DirectClient {
     this.#everOnline = false
     this.#deviceLoaded = false
     this.#epoch = 0
-    this.#display = { previous: new Set() }
+    this.#display = { previous: new Map() }
     this.#servedProfile = undefined
     this.#screen?.close()
     this.#memoryProbe = undefined

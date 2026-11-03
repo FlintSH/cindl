@@ -1447,6 +1447,36 @@ describe('direct client: the profile Hermes serves', () => {
   })
 })
 
+describe('direct client: screen control across reconnects', () => {
+  it("hands control back with the earlier viewer id, and never another viewer's lease", async () => {
+    const h = await harness()
+    await h.waitFor(
+      () => h.store.getState().capabilities['computer.control']?.state === 'available',
+    )
+    await h.client.call('display.acquireControl', { confirm: true })
+    h.fake.gateway.dropConnections()
+    await online(h, 2)
+    expect(h.store.getState().display?.controller).toBe('you')
+    expect(await h.client.call('display.releaseControl', {})).toMatchObject({
+      controller: 'agent',
+      leaseHeldByThisDevice: false,
+    })
+    expect(h.fake.store.display.holder).toBe('agent')
+
+    const other = await connectRawClient(h.fake, h.fake.signIn())
+    const observed = (await other.request('display.observe', {})) as {
+      result: { viewer_id: string }
+    }
+    await other.request('display.lease.acquire', { viewer_id: observed.result.viewer_id })
+    await h.waitFor(() => h.store.getState().display?.controller === 'another-viewer')
+    expect(await h.client.call('display.releaseControl', {})).toMatchObject({
+      controller: 'another-viewer',
+    })
+    expect(h.fake.store.display.holderViewerId).toBe(observed.result.viewer_id)
+    other.close()
+  })
+})
+
 describe('direct client: memory entries', () => {
   const memoryCalls = (h: Harness) =>
     h.fake.calls
