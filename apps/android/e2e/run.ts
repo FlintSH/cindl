@@ -27,6 +27,7 @@ import { runExitCode, type StepStatus } from './outcome.ts'
 import { heldControl, inControl } from './screenControl.ts'
 import { DeviceLogs, RunSecrets, watchFakeHermes } from './secrets.ts'
 import {
+  auditLine,
   commonAncestor,
   find,
   findAll,
@@ -42,6 +43,7 @@ import {
   overlayOpen,
   screenToDevice,
   TERMS_PROMPT,
+  touchTargetsRow,
   type Match,
   type TargetAudit,
   type UiNode,
@@ -102,12 +104,7 @@ async function step(name: string, body: (context: StepContext) => Promise<void>)
     audit: async (screen, root) => {
       const result = await device.audit(root)
       audits.push({ screen, ...result })
-      detail(
-        `${screen}: ${result.checked} targets checked, ${result.issues.length} under 48dp` +
-          (result.skippedClipped
-            ? `, ${result.skippedClipped} partly scrolled off (not measured)`
-            : ''),
-      )
+      detail(auditLine(screen, result))
     },
   }
   console.log(`\n== ${name}`)
@@ -1350,26 +1347,11 @@ function deviceInfo(read: () => string): string {
   }
 }
 
-const issues = audits.flatMap((audit) =>
-  audit.issues.map((issue) => ({ screen: audit.screen, ...issue })),
-)
-const measured = audits.reduce((sum, audit) => sum + audit.checked, 0)
 steps.push({
   name: 'Touch targets are at least 48dp',
-  // Nothing measured is not a pass.
-  status: issues.length > 0 || measured === 0 ? 'failed' : 'passed',
   seconds: 0,
-  detail:
-    issues.length > 0
-      ? issues.map(
-          (issue) =>
-            `${issue.screen}: "${issue.label}" ${issue.widthDp}x${issue.heightDp}dp (${issue.className})`,
-        )
-      : [
-          measured === 0
-            ? 'no screen was measured'
-            : `${measured} targets on ${audits.length} screens`,
-        ],
+  // Nothing measured, on the run or on any one screen, is not a pass.
+  ...touchTargetsRow(audits),
   evidence: [],
 })
 

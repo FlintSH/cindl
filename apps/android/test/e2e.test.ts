@@ -6,6 +6,7 @@ import { startFakeHermesAuth, type FakeHermesAuth } from '../e2e/fakeHermesAuth.
 import { runExitCode } from '../e2e/outcome.ts'
 import { holdingTokens, sharedPreferences, tokenStorage } from '../e2e/keystore.ts'
 import {
+  auditLine,
   auditTargets,
   center,
   commonAncestor,
@@ -27,6 +28,8 @@ import {
   TERMS_PROMPT,
   tapPoint,
   tapTarget,
+  touchTargetsRow,
+  type TargetAudit,
 } from '../e2e/ui.ts'
 
 const PKG = 'dev.fl1nt.cindl'
@@ -258,6 +261,35 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
       'Cancel',
       'Open in browser',
     ])
+  })
+
+  it('measures every target when nothing is drawn above the scrim, as in a dump without drawing orders', () => {
+    // 16-link-confirmation as a uiautomator without drawing orders would dump it.
+    const xml = `${WINDOW}${CONTAINER}${EMPTY}${SCRIM_BRANCH}${SCRIM}</node>${CONTENT}${PARAGRAPH}${SPAN}</node></node>${CARD}${TITLE}${CANCEL}${OPEN}</node></node></node>`
+    const root = parseUi(dump(xml.replaceAll(/ drawing-order="\d+"/g, '')))
+    expect(overlayOpen(root)).toBe(true)
+    expect(reachable(root).map(label)).toContain('Cancel')
+    expect(auditTargets(root, DENSITY)).toMatchObject({
+      checked: 3,
+      exemptInline: 1,
+      issues: [],
+    })
+  })
+
+  // 22dp at density 420 (2.625px per dp).
+  const TINY = `<node index="0" text="" class="android.widget.Button" content-desc="Tiny" clickable="true" focusable="true" ${attrs('bounds="[100,100][158,158]" drawing-order="1"')} />`
+
+  it('counts a clickable view over the window that holds the screen as no scrim', () => {
+    const holder = `<node index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="true" focusable="true" ${attrs('bounds="[0,0][1080,2400]" drawing-order="1"')}>`
+    const root = parseUi(dump(`${WINDOW}${holder}${TINY}</node></node>`))
+    expect(overlayOpen(root)).toBe(false)
+    expect(issues(root)).toEqual(['Tiny 22.1x22.1dp'])
+  })
+
+  it('counts every node when a clickable over the window has nothing drawn above it', () => {
+    const cover = `<node index="1" text="" class="android.view.ViewGroup" content-desc="" clickable="true" focusable="true" ${attrs('bounds="[0,0][1080,2400]" drawing-order="2"')} />`
+    const root = parseUi(dump(`${WINDOW}${CONTENT}${TINY}</node>${cover}</node>`))
+    expect(issues(root)).toEqual(['Tiny 22.1x22.1dp'])
   })
 
   it('exempts a link inside a sentence (WCAG 2.5.8), and nothing that only looks like one', () => {
@@ -789,5 +821,53 @@ describe('where the app keeps the Hermes tokens (read as root on the emulator)',
       plaintext: false,
       fingerprint: undefined,
     })
+  })
+})
+
+describe('the 48dp row (delta check of c6ce4d3)', () => {
+  const audit = (checked: number, more: Partial<TargetAudit> = {}): TargetAudit => ({
+    checked,
+    skippedClipped: 0,
+    exemptInline: 0,
+    issues: [],
+    ...more,
+  })
+
+  it('fails on a screen where no target was measured, though others were', () => {
+    expect(
+      touchTargetsRow([
+        { screen: '02-talk', ...audit(5) },
+        { screen: '16-link-confirmation', ...audit(0) },
+      ]),
+    ).toEqual({ status: 'failed', detail: ['16-link-confirmation: no target measured'] })
+    expect(auditLine('16-link-confirmation', audit(0))).toBe(
+      '16-link-confirmation: 0 targets checked, 0 under 48dp, nothing measured (fails the 48dp row)',
+    )
+  })
+
+  it('fails on a target under 48dp and on a run that audited nothing; passes otherwise', () => {
+    const tiny = {
+      label: 'Tiny',
+      className: 'android.widget.Button',
+      widthDp: 22.1,
+      heightDp: 22.1,
+      bounds: { left: 100, top: 100, right: 158, bottom: 158 },
+    }
+    expect(
+      touchTargetsRow([{ screen: '02-talk', ...audit(5, { issues: [tiny] }) }]),
+    ).toEqual({
+      status: 'failed',
+      detail: ['02-talk: "Tiny" 22.1x22.1dp (android.widget.Button)'],
+    })
+    expect(touchTargetsRow([])).toEqual({
+      status: 'failed',
+      detail: ['no screen was measured'],
+    })
+    expect(
+      touchTargetsRow([
+        { screen: '02-talk', ...audit(5) },
+        { screen: '03-work', ...audit(4) },
+      ]),
+    ).toEqual({ status: 'passed', detail: ['9 targets on 2 screens'] })
   })
 })

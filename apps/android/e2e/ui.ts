@@ -157,13 +157,18 @@ export function overlayOpen(root: UiNode): boolean {
   return scrimOf(root) !== undefined
 }
 
-/** An open dialog's or sheet's scrim: a clickable node over the whole window. */
+/**
+ * An open dialog's or sheet's scrim: a clickable node over the whole window
+ * with nothing in it (the app's scrim is a bare Pressable). A clickable view
+ * that holds the screen's content is not one.
+ */
 function scrimOf(root: UiNode): UiNode | undefined {
   const window = root.children[0]?.bounds
   if (!window) return undefined
   return flatten(root).find(
     (node) =>
       node.clickable &&
+      node.children.length === 0 &&
       node.bounds.left <= window.left &&
       node.bounds.top <= window.top &&
       node.bounds.right >= window.right &&
@@ -178,7 +183,9 @@ function scrimOf(root: UiNode): UiNode | undefined {
  * "no-hide-descendants" on its content) and the scrim takes every touch
  * there, but uiautomator's dump still lists those nodes, because it includes
  * views that are not important for accessibility (CI run 41668168848,
- * 16-link-confirmation: the reply's link behind "Open this link?").
+ * 16-link-confirmation: the reply's link behind "Open this link?"). When
+ * nothing is drawn above the scrim (a dump without drawing orders), it hides
+ * nothing that can be told apart, and every node counts.
  */
 export function reachable(root: UiNode): UiNode[] {
   const all = flatten(root)
@@ -191,7 +198,7 @@ export function reachable(root: UiNode): UiNode[] {
     )
     if (above.length) return above.flatMap((node) => [node, ...flatten(node)])
   }
-  return []
+  return all
 }
 
 export type Match = string | RegExp | ((label: string, node: UiNode) => boolean)
@@ -428,6 +435,46 @@ export function auditTargets(
       })
   }
   return audit
+}
+
+/** A screen's audit as its step reports it. */
+export function auditLine(screen: string, audit: TargetAudit): string {
+  return (
+    `${screen}: ${audit.checked} targets checked, ${audit.issues.length} under 48dp` +
+    (audit.skippedClipped
+      ? `, ${audit.skippedClipped} partly scrolled off (not measured)`
+      : '') +
+    (audit.checked === 0 ? ', nothing measured (fails the 48dp row)' : '')
+  )
+}
+
+/**
+ * The "Touch targets are at least 48dp" row: failed by any target under
+ * 48dp, and by any screen where no target was measured (an audit that
+ * measured nothing on a screen proves nothing about it), as by a run that
+ * audited no screen.
+ */
+export function touchTargetsRow(
+  audits: ReadonlyArray<{ screen: string } & TargetAudit>,
+): {
+  status: 'passed' | 'failed'
+  detail: string[]
+} {
+  if (audits.length === 0) return { status: 'failed', detail: ['no screen was measured'] }
+  const problems = [
+    ...audits.flatMap((audit) =>
+      audit.issues.map(
+        (issue) =>
+          `${audit.screen}: "${issue.label}" ${issue.widthDp}x${issue.heightDp}dp (${issue.className})`,
+      ),
+    ),
+    ...audits
+      .filter((audit) => audit.checked === 0)
+      .map((audit) => `${audit.screen}: no target measured`),
+  ]
+  if (problems.length > 0) return { status: 'failed', detail: problems }
+  const measured = audits.reduce((sum, audit) => sum + audit.checked, 0)
+  return { status: 'passed', detail: [`${measured} targets on ${audits.length} screens`] }
 }
 
 export interface KeyboardState {

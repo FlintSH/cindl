@@ -467,8 +467,11 @@ Hermes server, Chrome's Custom Tab, and a phone.
   from TalkBack (the app's content is marked "no-hide-descendants") and its
   scrim takes every touch there; focus moves to the overlay's title when it
   opens. The emulator tests audit touch targets the same way: only what the
-  owner can reach, so while an overlay is open only the overlay (uiautomator's
-  dump still lists the hidden nodes beneath it). A link inside a sentence is
+  owner can reach, so while an overlay is open only what is drawn above its
+  scrim (uiautomator's dump still lists the hidden nodes beneath it). When
+  nothing is drawn above it (a dump without drawing orders), every node
+  counts, and a screen where no target is measured fails the audit, as a run
+  that measures none does. A link inside a sentence is
   exempt, as WCAG 2.5.8's inline exception allows: a span whose label is part
   of its paragraph's text and whose box lies within the paragraph. Any other
   link or button must be 48dp.
