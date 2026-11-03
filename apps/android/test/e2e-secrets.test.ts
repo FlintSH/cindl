@@ -17,6 +17,7 @@ import { startFakeHermesAuth, type FakeHermesAuth } from '../e2e/fakeHermesAuth.
 import {
   DeviceLogs,
   isUid,
+  logcatTag,
   logcatUid,
   RunSecrets,
   watchFakeHermes,
@@ -130,6 +131,13 @@ describe('the device log lines that count (CI runs 41656607631 and 41681122382)'
   const ROOT =
     "11-03 17:26:25.182  root     0     0 I init    : Service 'adbd' (pid 525) exited with status 0"
 
+  it("reads a line's tag, padded or not", () => {
+    expect(logcatTag(SHELL)).toBe('WindowManagerShell')
+    expect(logcatTag(SERVER)).toBe('WindowManager')
+    expect(logcatTag(ROOT)).toBe('init')
+    expect(logcatTag('no logcat line')).toBeUndefined()
+  })
+
   it('reads the uid of a line as logcat prints it, and nothing from a line without one', () => {
     expect(logcatUid(SHELL)).toBe('10124')
     expect(logcatUid(SERVER)).toBe('1000')
@@ -238,6 +246,13 @@ describe('the device log lines that count (CI runs 41656607631 and 41681122382)'
       held(`11-03 15:04:00.000  1000:   638   659 I ActivityManager: state ${STATE}`),
     ).toEqual(['state'])
     expect(held(`${SERVER} returned=${STATE}`)).toEqual(['state'])
+    // In a captured link another process logs under any other tag.
+    expect(
+      held(SERVER.replace(' V WindowManager: ', ' I ActivityTaskManager: ')),
+    ).toEqual(['state'])
+    expect(held(SHELL.replace(' V WindowManagerShell: ', ' D Browser: '))).toEqual([
+      'state',
+    ])
     // And on Cindl's own line, captured link or not.
     expect(
       held(`11-03 15:04:00.000 10151:  4321  4400 D ReactNativeJS: capturedLink=${LINK}`),

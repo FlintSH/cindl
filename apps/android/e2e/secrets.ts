@@ -86,13 +86,28 @@ const othersLine = (line: string, uid: string | undefined) => {
   return uid !== undefined && of !== undefined && !isUid(of, uid)
 }
 
+/** The tag of a `logcat -v threadtime -v uid` line (`WindowManager`, `init`), or undefined. */
+export function logcatTag(line: string): string | undefined {
+  return /^\d\d-\d\d \d\d:\d\d:\d\d\.\d+\s+[\w-]+:?\s+\d+\s+\d+\s+[VDIWEFAS]\s+(.*?)\s*:\s/.exec(
+    line,
+  )?.[1]
+}
+
+/** The window manager's tags, in system_server and SystemUI (CI run 41656607631). */
+const WINDOW_MANAGER = new Set(['WindowManager', 'WindowManagerShell'])
+
+/** Android's window manager's record of a link Cindl opened, in another process's line. */
+const linkRecord = (line: string, uid: string | undefined) =>
+  othersLine(line, uid) && WINDOW_MANAGER.has(logcatTag(line) ?? '')
+
 /**
  * The kinds of secret a device log (read with `-v uid`) holds, as the run
  * counts them: in every line, Cindl's own and other processes', with one
  * exception. Android's window manager logs the link Cindl opened in the
  * browser as `capturedLink=`, and that link carries the sign-in's state (CI
- * run 41656607631: SystemUI and system_server). On another process's line,
- * the state inside that link is the system's record and does not count. A
+ * run 41656607631: SystemUI and system_server). On another process's
+ * WindowManager or WindowManagerShell line (`linkRecord`), the state inside
+ * that link is the system's record and does not count. A
  * token, ticket, code or verifier there counts, and so does the state
  * anywhere else, in Cindl's own lines too. Without Cindl's UID, no line is
  * another process's.
@@ -104,7 +119,7 @@ export function heldKinds(
 ): SecretKind[] {
   const kinds = new Set<SecretKind>()
   for (const line of raw.split('\n')) {
-    const stateSearched = othersLine(line, uid)
+    const stateSearched = linkRecord(line, uid)
       ? line.replaceAll(/capturedLink=\S*/g, 'capturedLink=')
       : line
     for (const kind of secrets.found(line))

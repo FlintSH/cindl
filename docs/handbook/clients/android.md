@@ -206,8 +206,8 @@ until the owner decides about those terms.
     or a number (`10151`); Cindl's lines are matched by its number or its
     user name (`u0_a151`). One exception: Android's window manager logs the
     link Cindl opened in the browser (`capturedLink=`), with its state; on
-    another process's line, the state inside that link is scrubbed in the
-    artifact but not counted. If no line can be told to be Cindl's, the check
+    another process's WindowManager or WindowManagerShell line, the state
+    inside that link is scrubbed in the artifact but not counted. If no line can be told to be Cindl's, the check
     fails rather than pass unchecked.
   - **The agent's screen:** the fake's synthetic screen, served over
     `/api/display/ws`, drawn by the Kotlin painter (a pixel of its desktop
