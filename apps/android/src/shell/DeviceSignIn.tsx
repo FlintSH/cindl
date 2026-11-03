@@ -11,6 +11,7 @@ import { createAndroidPlatform, type AndroidPlatform } from '../platform/android
 import { normalizeOrigin } from '../platform/origin.ts'
 import { useTheme } from '../theme/theme.tsx'
 import { Button, ErrorText, Note, Txt } from '../ui/primitives.tsx'
+import { forgetDrafts } from '../views/drafts.ts'
 
 type Phase =
   | { phase: 'checking' }
@@ -95,7 +96,10 @@ export function DeviceSignIn() {
   const signOut = (origin: string) => {
     if (!platform) return
     signOutDevice(platform, origin).then(
-      () => setState({ phase: 'signed-out' }),
+      () => {
+        forgetDrafts()
+        setState({ phase: 'signed-out' })
+      },
       () => setError('Cindl could not delete the tokens on this device. Try again.'),
     )
   }

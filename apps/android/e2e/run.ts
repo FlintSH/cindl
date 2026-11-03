@@ -371,6 +371,54 @@ async function demoSuite() {
     },
   )
 
+  await step(
+    'Memory: a warned delete and a reviewed edit',
+    async ({ note, shot, audit }) => {
+      await startOnTalk()
+      await openDestination('Library', named('Skills'))
+      await device.tap(
+        (text, node) => text === 'Memory' && node.clickable,
+        'the Memory tab',
+      )
+      await tapRevealed(
+        (text) => text.startsWith('Open memory entry: The kiln firing log'),
+        'the kiln firing log entry',
+      )
+      // Deleting asks first and says it is permanent; keeping the entry sends nothing.
+      await tapRevealed('Delete entry…', 'Delete entry')
+      const warning = await device.waitFor(
+        (text) => text.includes('Hermes keeps no backup, so this cannot be undone.'),
+        'the delete warning',
+      )
+      shot('memory-delete-warning')
+      await audit('Memory delete warning', warning.root)
+      await device.tap('Keep it', 'Keep it')
+      await device.waitUntilGone(
+        (text) => text.includes('Hermes keeps no backup'),
+        'The delete warning',
+      )
+      note('delete asked first, said it cannot be undone, and Keep it kept the entry')
+
+      // An edit is reviewed as a diff against the text that was read, then confirmed.
+      await tapRevealed('Edit', 'Edit')
+      const field = await device.waitFor('Edit agent note 2', 'the entry editor')
+      await device.tapNode(field.node)
+      await device.key('KEYCODE_MOVE_END')
+      await device.type(' Checked on Monday.')
+      if (device.keyboard().shown) await device.key('KEYCODE_BACK')
+      await tapRevealed('Review changes', 'Review changes')
+      await device.waitFor(
+        (text) => text.startsWith('Review before saving: 1 line added, 1 removed.'),
+        'the reviewed diff',
+      )
+      shot('memory-review')
+      await tapRevealed('Confirm and save', 'Confirm and save')
+      await device.reveal('Restore previous version', 'the saved entry')
+      shot('memory-saved')
+      note('the edit was reviewed as a diff (1 line added, 1 removed), then saved')
+    },
+  )
+
   await step('Chat with the on-screen keyboard open', async ({ note, shot }) => {
     await startOnTalk()
     await device.tap(isComposer, 'the composer')

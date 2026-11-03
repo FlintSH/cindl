@@ -34,6 +34,7 @@ import {
   type Tone,
 } from '../ui/primitives.tsx'
 import { DocumentEditor } from '../views/DocumentEditor.tsx'
+import { forgetDrafts } from '../views/drafts.ts'
 import { Page, Section, Tabs } from '../views/Page.tsx'
 import { RequireCapability } from '../views/RequireCapability.tsx'
 import { useResource } from '../views/useResource.ts'
@@ -292,7 +293,10 @@ function Device() {
           onPress={() => {
             setError(undefined)
             api.call('auth.signOut', {}).then(
-              () => setDone(true),
+              () => {
+                forgetDrafts()
+                setDone(true)
+              },
               () =>
                 setError(
                   'Signing out did not complete. Try again; until it does, this device may still be signed in.',

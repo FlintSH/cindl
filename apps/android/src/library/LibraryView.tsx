@@ -19,6 +19,7 @@ import { Layer } from '../views/Layer.tsx'
 import { Page, Section, Tabs } from '../views/Page.tsx'
 import { RequireCapability } from '../views/RequireCapability.tsx'
 import { useResource } from '../views/useResource.ts'
+import { MemoryEntries } from './MemoryEntries.tsx'
 
 const sectionLabels: Record<LibrarySection, string> = {
   skills: 'Skills',
@@ -174,14 +175,18 @@ export function LibraryView() {
             </RequireCapability>
           ) : null}
           {section === 'memory' ? (
-            <Section title="Memory">
-              <RequireCapability id="memory.overview" label="Memory overview">
-                <Memory />
-              </RequireCapability>
-              <RequireCapability id="memory.text" label="Memory entries">
-                <Note>Memory entries are available.</Note>
-              </RequireCapability>
-            </Section>
+            <>
+              <Section title="Memory">
+                <RequireCapability id="memory.overview" label="Memory overview">
+                  <Memory />
+                </RequireCapability>
+              </Section>
+              <Section title="Entries">
+                <RequireCapability id="memory.text" label="Memory entries">
+                  <MemoryEntries />
+                </RequireCapability>
+              </Section>
+            </>
           ) : null}
           {section === 'artifacts' ? (
             <Section title="Artifacts">

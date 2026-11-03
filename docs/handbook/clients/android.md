@@ -126,7 +126,8 @@ until the owner decides about those terms.
 - **Demo APK:** the four destinations; system back closing a skill detail, a
   sheet and a side conversation before leaving the app; the approval card
   (Allow once and Deny only) and the question set; the sudo prompt's card
-  offering nothing to send; sending a message with the
+  offering nothing to send; a memory entry's delete warning and a reviewed
+  edit; sending a message with the
   on-screen keyboard open (composer above the keyboard, navigation hidden);
   every touch target at least 48dp; 200% font size and dark theme; a draft
   surviving background, rotation, activity recreation; a cold start after the
@@ -194,7 +195,8 @@ survived, deletes the verifier and says "Cindl stopped waiting for the browser
 (the app was closed during sign-in). Nothing was saved. Start again." If only
 the JavaScript runtime restarted, the attempt resumes. **Signing out** deletes
 this device's tokens only: Hermes v0.22.5 cannot revoke tokens it already
-issued.
+issued. It also forgets drafts the app kept in memory (an edit kept after a
+conflict, unsent answers to questions).
 
 Evidence: unit tests run the whole flow against a fake Hermes server
 (`apps/android/test/signin.test.ts`), the listener's JUnit tests run on a plain
@@ -242,6 +244,13 @@ Hermes server and on a phone.
   another Hermes surface, such as the Hermes terminal; the card stays until
   Hermes closes the prompt. Prompts that belong to no conversation are listed
   under Work, Needs you.
+- **Memory** (Library, Memory) lists Hermes's memory entries: agent notes
+  and notes about you, each named by its place in its list. Editing one goes
+  through a review of the exact changes and a confirmation, and the save names
+  the entry Hermes listed (its id includes a fingerprint of its text), so
+  Hermes refuses it if the entry changed after it was read; the draft is kept
+  to review again. Deleting asks first and cannot be undone: Hermes keeps no
+  backup.
 - **System back** closes an open sheet or dialog first, then steps out of an
   editor review, then a skill detail, then returns to Talk, then from a side
   conversation to the main one, and only then leaves the app.
@@ -306,6 +315,6 @@ resolves pnpm's isolated `node_modules` and the TypeScript sources of
   build until someone reviews it; no licence is filled in by hand.
 - No hardware-keyboard shortcuts or command palette; Enter does not send.
 - No notifications or background sync.
-- Artifacts, attachments and memory entries are shown as unsupported, as in
-  the other clients.
+- Artifacts and attachments are shown as unsupported, as in the other
+  clients.
 - Licence texts are shipped in the APK but not yet shown in the app.

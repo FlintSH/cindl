@@ -266,4 +266,5 @@ export const clarifyDraftStore = {
   save: (requestId: string, drafts: ClarifyDrafts) => {
     draftsByRequest.set(requestId, drafts)
   },
+  clear: () => draftsByRequest.clear(),
 }

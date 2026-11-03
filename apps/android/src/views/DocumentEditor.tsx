@@ -7,16 +7,10 @@ import { Dialog } from '../overlay/Sheet.tsx'
 import { describeFailure, NOT_APPLIED, SAVE_UNCERTAIN } from '../talk/failures.ts'
 import { useTheme } from '../theme/theme.tsx'
 import { Button, Note, Txt } from '../ui/primitives.tsx'
+import { keptDrafts } from './drafts.ts'
 
 type Stage =
   { kind: 'view' } | { kind: 'edit'; draft: string } | { kind: 'review'; draft: string }
-
-/**
- * Drafts kept after a save conflict, by document key, so a reload (which can
- * remount the editor or fail) never loses what the owner wrote. Cleared on
- * save or discard (web parity).
- */
-const keptDrafts = new Map<string, string>()
 
 /**
  * Owner edits go through three explicit steps: edit, review the exact diff
