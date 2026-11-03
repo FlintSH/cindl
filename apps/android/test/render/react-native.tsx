@@ -13,7 +13,8 @@ import { createElement, type ReactNode, type Ref } from 'react'
  *   accessible name, `accessibilityRole` the role ("header" is a heading),
  *   `accessibilityState` aria-disabled/selected/checked/busy/expanded, and a
  *   live region aria-live;
- * - `onPress` fires on a click unless the element is disabled, as on a device;
+ * - `onPress` fires on a click unless `disabled` is set, as Pressable does
+ *   (React Native 0.88.1 ignores `accessibilityState.disabled` for presses);
  * - styles are not drawn, animations end at once (a loop, like a spinner,
  *   never does), and TalkBack focus requests are recorded in `nativeLog`.
  *
@@ -145,8 +146,7 @@ export function Pressable({
   onPress?: Press
   children?: ReactNode | ((state: PressState) => ReactNode)
 }) {
-  const state = props.accessibilityState as A11yState | undefined
-  const off = disabled === true || state?.disabled === true
+  const off = disabled === true
   const content =
     typeof children === 'function'
       ? children({ pressed: false, hovered: false })

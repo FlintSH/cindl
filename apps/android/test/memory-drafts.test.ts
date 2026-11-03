@@ -352,7 +352,7 @@ describe('TalkBack focus around adoption and locking', () => {
     h.press('Use this draft for the entry now here')
     await h.settle()
     expect(lockedNow(h)).toBe(false)
-    expect(h.focusLog().at(-1)).toBe('draft')
+    expect(h.focusLog()).toEqual(['notice', 'draft'])
   })
 
   it('F2: a lock that takes Edit and Delete away sends TalkBack focus to the lock notice', async () => {

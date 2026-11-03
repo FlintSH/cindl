@@ -240,11 +240,18 @@ them instead (`apps/android/test/memory-identity.test.ts`,
 shipped components: `MemoryEntries`, `DocumentEditor` and the app's providers
 render with react-dom in jsdom (`apps/android/test/memoryScreen.tsx`), on a
 synthetic memory that answers like the adapter and can hold a request or its
-answer. Only React Native's host layer is replaced
+answer. React Native's host layer is replaced
 (`apps/android/test/render/react-native.tsx`), as React Native's own Jest
 preset does: views become DOM elements, accessibility props become ARIA (the
 label is the accessible name, the role and state what TalkBack reads), and a
-request to move TalkBack focus is recorded. The tests read the screen by role,
+request to move TalkBack focus is recorded. That stand-in also simplifies what
+the screens use: a press is a click (none when `disabled` is set, as
+Pressable does), Animated values jump to their end, and Easing, StyleSheet and
+Platform are minimal. Three modules are replaced as well
+(`apps/android/vitest.config.ts`): `react-native-safe-area-context` (zero
+insets), the lucide icons (an empty element) and `expo`
+(`apps/android/test/render/expo.ts`: the keyboard focus module records its
+calls; no other native module is linked). The tests read the screen by role,
 name and text and see where focus is sent. They do not cover native drawing
 or layout, or what TalkBack itself announces; no emulator test covers those
 flows yet.

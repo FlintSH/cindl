@@ -188,6 +188,27 @@ describe('an adoption carries the key the draft is kept under', () => {
     expect(saved.kept).toEqual([D_H])
     expect(another).toBe(false)
   })
+
+  it("RT6b: that fresh edit, used for the entry now here and then discarded, leaves Harbor's own draft kept", async () => {
+    const h = setup(FIVE)
+    await harborOffered(h)
+    await holdListAndReload(h)
+    h.press('Edit')
+    h.change(FRESH)
+    h.mem.set('memory', [B_NOTE, EXTRA])
+    await releaseList(h)
+    expect(lockedNow(h)).toBe(true)
+    expect(keptMemoryDrafts()).toEqual([D_H, FRESH])
+    h.press(ADOPT)
+    await h.settle()
+    expect(lockedNow(h)).toBe(false)
+    // Discarding forgets only the slot the adopted draft carried.
+    h.back()
+    await h.settle()
+    h.press('Discard')
+    await h.settle()
+    expect(keptMemoryDrafts()).toEqual([D_H])
+  })
 })
 
 describe('a moved-entry lock says where the text in the box goes', () => {
