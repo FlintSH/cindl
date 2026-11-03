@@ -1,6 +1,6 @@
 # 0012 Computer view: the RFB stream stays inside the client implementation
 
-**Status:** Proposed. Built: the contract operations, the RFB client core (`packages/client-core/src/rfb.ts`), the web viewer, the synthetic screen, and the Hermes transport in the direct client (`packages/client-core/src/direct/screen.ts`: `display.observe`, `/api/display/ws`, lease-gated input), tested against the fake Hermes. Not built: a `displaySocketFactory` in any app (desktop, Android, web), so real builds show `computer.view` as limited. Not validated against a live Hermes.
+**Status:** Proposed. Built: the contract operations, the RFB client core (`packages/client-core/src/rfb.ts`), the web viewer, the synthetic screen, and the Hermes transport in the direct client (`packages/client-core/src/direct/screen.ts`: `display.observe`, `/api/display/ws`, lease-gated input), tested against the fake Hermes; and the desktop app's screen socket in its main process (`apps/desktop/src/main/platform/websocket.ts`), so the real desktop app shows the screen, tested against the fake Hermes and packaged. Not built: a screen socket for Android or the web client, which show `computer.view` as limited. Not validated against a live Hermes.
 
 **Context.** Hermes v0.22.5 shows a profile's agent-owned screen through
 three pieces (`tui_gateway/methods_display.py`, `hermes_cli/web_routers/display.py`):
@@ -54,8 +54,10 @@ React tree, for the same reason.
     unless this device holds the lease, and Hermes filters input as well.
 - **Pull, not push.** The UI asks for the next update when it has painted.
   The client keeps only the newest pixels for each region, so a slow renderer
-  (or IPC) never builds an unbounded queue. In the desktop app frames cross
-  IPC as transferable typed arrays.
+  (or IPC) never builds an unbounded queue. In the desktop app each region is
+  copied across IPC (structured clone) and again by the bridge: a full
+  640x400 frame (1 MB) takes about 7 ms in the packaged app, a small update
+  about 1 ms.
 - **Privacy.** Frames are never stored, logged or attached to diagnostics.
   Input events are never logged, because typing on the screen can be secret
   entry. The viewer always says whether you are watching or in control.
