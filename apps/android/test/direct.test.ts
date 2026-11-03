@@ -7,7 +7,7 @@ import {
   systemClock,
   type ClientStore,
 } from '@cindl/client-core'
-import type { LinkState } from '@cindl/contracts'
+import type { DisplayInputEvent, LinkState } from '@cindl/contracts'
 import {
   nodeSocketFactory,
   startFakeHermes,
@@ -39,6 +39,7 @@ import {
   type WebSocketConstructor,
 } from '../src/platform/webSocket.ts'
 import { sendAnswer } from '../src/talk/requests.ts'
+import { createGestures, createInputQueue, fitScreen } from '../src/work/screenInput.ts'
 import { deviceStores, fakeListener, nodeCrypto } from './support.ts'
 
 // The real Android client (src/platform/direct.ts) on the app's own platform pieces
@@ -388,5 +389,62 @@ describe('the agent screen through the real Android client', () => {
     ).resolves.toEqual({
       stopped: true,
     })
+  })
+
+  it('turns a tap on the picture into a click only while in control', async () => {
+    const fake = await fakeHermes()
+    const { platform } = device()
+    const { client, store } = await launch(platform)
+    await client.api.call('auth.signIn', { origin: fake.origin })
+    await until(
+      () => store.getState().capabilities['computer.view']?.state === 'available',
+    )
+    const view = await client.api.call('display.watch', {})
+    await client.api.call('display.frame', { viewId: view.viewId })
+
+    const calls: DisplayInputEvent[][] = []
+    const flushes: Array<() => void> = []
+    const queue = createInputQueue({
+      send: (events) => {
+        calls.push(events)
+        return client.api.call('display.input', { viewId: view.viewId, events })
+      },
+      schedule: (flush) => flushes.push(flush),
+      onError: (error) => {
+        throw error
+      },
+    })
+    // The picture shown at twice its size: view (200, 600) is screen (100, 300).
+    const gestures = createGestures({
+      slop: 10,
+      wheelStep: 24,
+      fit: () => fitScreen(1280, 800, { width: view.width, height: view.height }),
+    })
+    const tap = () => {
+      gestures.start([{ x: 200, y: 600 }])
+      queue.push(gestures.end())
+      flushes.shift()?.()
+    }
+
+    // Watching: the tap goes nowhere.
+    tap()
+    expect(calls).toEqual([])
+
+    await client.api.call('display.acquireControl', { confirm: true })
+    queue.setEnabled(true)
+    tap()
+    expect(calls).toEqual([
+      [
+        { type: 'pointer', x: 100, y: 300, buttons: 1 },
+        { type: 'pointer', x: 100, y: 300, buttons: 0 },
+      ],
+    ])
+    const marked = await until(async () => {
+      const frame = await client.api.call('display.frame', { viewId: view.viewId })
+      const colour = pixel(frame.regions, 100, 300)
+      return colour && colour[0] === 230 ? colour : undefined
+    })
+    expect(marked).toEqual([230, 120, 40])
+    await client.api.call('display.unwatch', { viewId: view.viewId })
   })
 })

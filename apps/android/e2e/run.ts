@@ -136,6 +136,7 @@ const slug = (text: string) =>
 /** The demo's synthetic screen (packages/fixtures/src/scenario/screen.ts). */
 const DEMO_SCREEN = { width: 640, height: 400 }
 const DESKTOP_TEAL = [47, 93, 98]
+const MARKER_ORANGE = [230, 120, 40]
 
 /** The synthetic sudo prompt in the "Kiln inventory sheet" conversation, as TalkBack reads its title. */
 const SUDO_PROMPT =
@@ -496,28 +497,63 @@ async function demoSuite() {
     },
   )
 
-  await step('Work: the agent screen, live', async ({ note, shot, audit }) => {
-    await startOnTalk()
-    await openDestination('Work', named('Needs you'))
-    const live = await device.reveal(
-      (text) => text.startsWith('The agent’s screen, live.'),
-      'the live screen',
-    )
-    // The synthetic screen's desktop (packages/fixtures/src/scenario/screen.ts), left of its window.
-    const at = screenToDevice(live.node.bounds, DEMO_SCREEN, { x: 20, y: 200 })
-    let colour = device.pixel(at.x, at.y)
-    for (let tries = 0; tries < 20 && !near(colour, DESKTOP_TEAL); tries++) {
-      await sleep(500)
-      colour = device.pixel(at.x, at.y)
-    }
-    shot('agent-screen')
-    await audit('Agent screen', await device.dump())
-    if (!near(colour, DESKTOP_TEAL))
-      throw new Error(
-        `The synthetic picture is not drawn: ${JSON.stringify(colour)} at device ${at.x},${at.y}`,
+  await step(
+    'Work: the agent screen, live, and a tap in control',
+    async ({ note, shot, audit }) => {
+      await startOnTalk()
+      await openDestination('Work', named('Needs you'))
+      const live = await device.reveal(
+        (text) => text.startsWith('The agent’s screen, live.'),
+        'the live screen',
       )
-    note(`the synthetic picture is drawn: ${JSON.stringify(colour)} at screen (20, 200)`)
-  })
+      // The synthetic screen's desktop (packages/fixtures/src/scenario/screen.ts), left of its window.
+      const at = screenToDevice(live.node.bounds, DEMO_SCREEN, { x: 20, y: 200 })
+      let colour = device.pixel(at.x, at.y)
+      for (let tries = 0; tries < 20 && !near(colour, DESKTOP_TEAL); tries++) {
+        await sleep(500)
+        colour = device.pixel(at.x, at.y)
+      }
+      shot('agent-screen')
+      await audit('Agent screen', await device.dump())
+      if (!near(colour, DESKTOP_TEAL))
+        throw new Error(
+          `The synthetic picture is not drawn: ${JSON.stringify(colour)} at device ${at.x},${at.y}`,
+        )
+      note(
+        `the synthetic picture is drawn: ${JSON.stringify(colour)} at screen (20, 200)`,
+      )
+
+      // In control, a tap draws the synthetic screen's pointer marker where it landed.
+      await tapRevealed('Take control…', 'Take control')
+      await device.tap('Take control now', 'Take control now')
+      const controlled = await device.reveal(
+        (text) => text.startsWith('The agent’s screen, live. You are in control'),
+        'the screen in control',
+      )
+      const target = screenToDevice(controlled.node.bounds, DEMO_SCREEN, {
+        x: 320,
+        y: 376,
+      })
+      await device.tapAt(target)
+      let marked = device.pixel(target.x, target.y)
+      for (let tries = 0; tries < 20 && !near(marked, MARKER_ORANGE); tries++) {
+        await sleep(500)
+        marked = device.pixel(target.x, target.y)
+      }
+      shot('agent-screen-tap')
+      await audit('Agent screen in control', await device.dump())
+      if (!near(marked, MARKER_ORANGE))
+        throw new Error(
+          `A tap in control did not draw the marker: ${JSON.stringify(marked)} at device ${target.x},${target.y}`,
+        )
+      note('in control, a tap drew the synthetic screen’s orange marker where it landed')
+      await tapRevealed('Give control back', 'Give control back')
+      await device.reveal(
+        (text) => text.startsWith('The agent’s screen, live. Watching.'),
+        'the screen watched again',
+      )
+    },
+  )
 
   await step('Chat with the on-screen keyboard open', async ({ note, shot }) => {
     await startOnTalk()

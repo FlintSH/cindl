@@ -130,7 +130,8 @@ until the owner decides about those terms.
   confirmation with the full address before anything opens) and a withheld
   remote image; a memory entry's delete warning and a reviewed
   edit; the demo's synthetic screen drawn live in Work, Computer (a pixel
-  of its desktop read back from the screen); sending a message with the
+  of its desktop read back from the screen) and, after taking control, a tap
+  drawing its orange pointer marker where it landed; sending a message with the
   on-screen keyboard open (composer above the keyboard, navigation hidden);
   every touch target at least 48dp; 200% font size and dark theme; a draft
   surviving background, rotation, activity recreation; a cold start after the
@@ -294,9 +295,13 @@ phone.
   when Hermes's screen is running and the client has negotiated the picture
   (the labelled demo streams a synthetic screen), with its state, who
   controls it, and Take control and Give control back. Watching sends no
-  input. This version shows the picture only: taking control from Android
-  pauses Hermes's input on its screen, and nothing is sent from here yet.
-  Cindl never starts, stops or installs the screen. See
+  input. In control, a tap is a left click, a drag moves with the button
+  held, a long press is a right click and two fingers moving up or down turn
+  the wheel (up scrolls down, as on a phone); **Keyboard** opens the
+  on-screen keyboard, whose keys (Enter and Backspace included) go to the
+  screen, with arrow buttons beside it. The picture's label says whether you
+  are watching or in control, and TalkBack moves past it like any other
+  element. Cindl never starts, stops or installs the screen. See
   [Live screen](#live-screen).
 - **System back** closes an open sheet or dialog first, then steps out of an
   editor review, then a skill detail, then returns to Talk, then from a side
@@ -339,10 +344,22 @@ are far smaller, because only changed regions are sent. The pure-JavaScript
 alternative, a BMP data URI for `<Image>` per frame, took 57 and 233 ms and
 4,096,094 characters before the image is even decoded, so it is not used.
 
+Input goes only while this device holds control, and it is never logged.
+A touch is mapped through the picture's displayed scale to a screen pixel (a
+gesture that starts off the picture sends nothing). Between paints only the
+newest position of a drag is kept, never at the cost of a press or release,
+and each `display.input` call carries at most 64 events. Giving control back
+drops whatever was still waiting. Keys come from a hidden text field that
+never keeps the text; Tab and other control characters are not sent.
+
 Only an emulator or a phone can show: the frame rate and the Kotlin side's
 cost (OkHttp's base64 encode, the ARGB conversion, `Bitmap.setPixels`, drawing),
 memory use on a device, that the picture is drawn where the tests expect it,
-and how it behaves on a slow network or after the app goes to the background.
+how gestures feel and whether a scroll view or the system takes them first,
+how real keyboards (Gboard, Samsung, hardware) deliver keys to the hidden
+field, TalkBack in control, and how it behaves on a slow network or after the
+app goes to the background. The emulator suite covers the drawn picture and a
+tap in control on the synthetic screen; the rest needs a phone.
 
 ## Build and check locally
 
@@ -393,7 +410,9 @@ resolves pnpm's isolated `node_modules` and the TypeScript sources of
 
 - Not validated against a real Hermes server or on a phone: the client has
   run against synthetic servers only.
-- No input to the agent's screen yet: Android shows the picture only.
+- The agent's screen takes no middle click, clipboard or key combinations
+  (Ctrl or Alt with a key), and text arrives one character at a time
+  (keyboard suggestions are off in that field).
 - Test APKs only: no store distribution, no production signing.
 - Native libraries are listed with the licence their POM declares. A library
   whose POM declares no licence and that ships no licence file stops the APK
