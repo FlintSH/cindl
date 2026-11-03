@@ -39,6 +39,14 @@ const noFixtureDynamicImport = {
   selector: `ImportExpression[source.value=${fixturePath}]`,
   message: fixtureMessage,
 }
+/** The adapter, bare or by path; the web UI reaches it only through its platform client. */
+const adapterPath = '/(@cindl\\/+hermes-adapter|packages\\/+hermes-adapter)/'
+const adapterMessage =
+  'The web UI uses CindlClientApi; only src/platform/client.ts imports the adapter.'
+const noAdapterDynamicImport = {
+  selector: `ImportExpression[source.value=${adapterPath}]`,
+  message: adapterMessage,
+}
 /** apps/web/src/platform/client.ts: only the demo switch's exact import. */
 const onlyDemoSwitchImport = {
   selector: `ImportExpression[source.value=${fixturePath}]:not([source.value='@cindl/fixtures/scenario'])`,
@@ -352,13 +360,25 @@ const blocks = tseslint.config(
           patterns: [
             ...fixtureImports.patterns,
             {
-              group: ['@cindl/hermes-adapter', '@cindl/hermes-adapter/*'],
-              message:
-                'The web UI uses CindlClientApi; only src/platform/client.ts imports the adapter.',
+              group: [
+                '@cindl/hermes-adapter',
+                '@cindl/hermes-adapter/*',
+                '**/@cindl/hermes-adapter',
+                '**/@cindl/hermes-adapter/**',
+                '**/packages/hermes-adapter',
+                '**/packages/hermes-adapter/**',
+              ],
+              message: adapterMessage,
+            },
+            {
+              // Repeated slashes slip past the glob patterns above.
+              regex: '(@cindl/+hermes-adapter|packages/+hermes-adapter)',
+              message: adapterMessage,
             },
           ],
         },
       ],
+      'no-restricted-syntax': ['error', ...browserSyntax, noAdapterDynamicImport],
     },
   },
   {
@@ -397,6 +417,7 @@ const blocks = tseslint.config(
         ...noGlobalReach,
         noAssignedAlias,
         storageMember(STORAGE.filter((n) => n !== 'localStorage')),
+        noAdapterDynamicImport,
       ],
     },
   },

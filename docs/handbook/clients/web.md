@@ -30,8 +30,9 @@ in through Hermes's own `/login` page.
 - **Signing in.** "Sign in on Hermes" opens Hermes's own sign-in page. Its
   `next` is the mount (such as `/cindl/`) and the view you were on, never a
   query; it is escaped for the two decodes Hermes applies, so you come back to
-  the same view. (An OAuth provider decodes it once more, so a view whose name
-  holds an encoded slash comes back as its parent.) Cindl never sees the password: the session is Hermes's
+  the same view. (An OAuth provider decodes it once more, so a link to a skill
+  whose name holds an encoded slash, such as `tools/git`, opens `tools`
+  instead.) Cindl never sees the password: the session is Hermes's
   HttpOnly cookie, which the page cannot read. "Check again" asks Hermes
   whether this browser is signed in now.
 - **Talking to Hermes.** Every request goes to the page's own origin with the
@@ -47,10 +48,12 @@ in through Hermes's own `/login` page.
   Hermes holds.
 - **Signing out.** "Sign out on this device" asks Hermes (`POST /auth/logout`)
   to clear its session cookie in this browser. What Hermes v0.22.5 ends on its
-  side depends on how it signs you in: its basic sign-in revokes nothing, so a
-  copy of the cookie keeps working until it expires (12 hours for access, 30
-  days for refresh); its self-hosted OIDC sign-in asks the identity provider
-  to revoke the refresh token when that provider supports it. When Hermes
+  side depends on how it signs you in: its basic and Nous sign-ins revoke
+  nothing, so a copy of the cookie keeps working until it expires (with basic,
+  12 hours for access and 30 days for refresh); its self-hosted OIDC sign-in
+  asks the identity provider to revoke the refresh token when that provider
+  supports it, and the access token Hermes already set still works until it
+  expires. When Hermes
   ends the session itself (its gate answers that the session is over), Cindl
   stops and shows sign-in. Known limits, being fixed in the client:
   - Other tabs of Cindl stay connected until they reconnect or ask Hermes for
@@ -62,8 +65,8 @@ in through Hermes's own `/login` page.
   page's own policy allows same-origin WebSockets (`connect-src 'self'`);
   WebKit fixed that case in 2022 (bug 235873), and older Safari blocks them.
 - **What the mount must do.** Serve the build's files under the sub-path with
-  their content types (`.js` as `text/javascript`, which browsers require for
-  module scripts), redirect the bare sub-path (`/cindl`) to the one with a
+  their content types (`.js` as a JavaScript type such as `text/javascript`,
+  which browsers require for module scripts), redirect the bare sub-path (`/cindl`) to the one with a
   trailing slash (the build's asset paths are relative), send
   `Content-Security-Policy: frame-ancestors 'none'` with Cindl's pages and
   `Cache-Control: no-cache` with `/cindl/` and `index.html`, and pass every

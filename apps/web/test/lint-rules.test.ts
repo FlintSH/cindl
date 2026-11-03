@@ -252,6 +252,41 @@ describe('Cindl lint invariants', () => {
     ).toContain('no-restricted-imports')
   })
 
+  it.each([
+    [
+      'apps/web/src/talk/Probe.ts',
+      "import { x } from '@cindl/hermes-adapter/upstream/x'",
+      'no-restricted-imports',
+    ],
+    [
+      'apps/web/src/talk/Probe.ts',
+      "import { x } from '../../../../packages/hermes-adapter/src/index.ts'",
+      'no-restricted-imports',
+    ],
+    [
+      'apps/web/src/talk/Probe.ts',
+      "import { x } from '../../node_modules/@cindl/hermes-adapter/src/index.ts'",
+      'no-restricted-imports',
+    ],
+    [
+      'apps/web/src/talk/Probe.ts',
+      "import { x } from '../../../../packages//hermes-adapter/src/index.ts'",
+      'no-restricted-imports',
+    ],
+    [
+      'apps/web/src/talk/Probe.ts',
+      "export const load = () => import('@cindl/hermes-adapter')",
+      'no-restricted-syntax',
+    ],
+    [
+      'apps/web/src/platform/preferences.ts',
+      "export const load = () => import('@cindl/hermes-adapter')",
+      'no-restricted-syntax',
+    ],
+  ])('keeps the adapter out of %s in any form: %s', async (filePath, code, rule) => {
+    expect(await rulesFor(code, filePath)).toContain(rule)
+  })
+
   it('lets the demo switch load the labelled scenario', async () => {
     expect(
       await rulesFor(

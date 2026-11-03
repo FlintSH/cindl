@@ -37,8 +37,9 @@ routes in the [Hermes v0.22.5 reference](../reference/hermes-v0.22.5.md).
 - **No keys to manage.** Cindl has no model, no API keys and no account of its
   own. Signing out of a native client forgets that device's tokens, and the
   web client asks Hermes to clear its cookie in that browser. What Hermes
-  v0.22.5 revokes depends on its sign-in provider: its basic provider revokes
-  nothing, so copies keep working until they expire.
+  v0.22.5 revokes depends on its sign-in provider: basic and Nous revoke
+  nothing, so copies keep working until they expire, and self-hosted OIDC
+  revokes only the refresh token.
 
 ## What runs today
 
@@ -60,7 +61,8 @@ that already terminates HTTPS for Hermes:
 2. Serve `apps/web/dist` at `/cindl/` (another sub-path works too):
    `index.html` for `/cindl/`, each file under it with its content type, and
    a redirect from `/cindl` to `/cindl/`. The types: `.html` `text/html`,
-   `.js` `text/javascript` (browsers refuse module scripts of any other type),
+   `.js` a JavaScript type such as `text/javascript` (browsers refuse module
+   scripts of any other type),
    `.css` `text/css`, `.svg` `image/svg+xml`, `.woff2` `font/woff2` and
    `.map` `application/json`.
 3. Send `Content-Security-Policy: frame-ancestors 'none'` with those

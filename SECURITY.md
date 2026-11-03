@@ -25,8 +25,8 @@ The threat model, trust boundaries and mitigations are documented in
 
 ## What Cindl does not claim
 
-- It does not revoke Hermes tokens remotely: Hermes v0.22.5's native tokens are
-  stateless, so signing out is local to a device.
+- It does not revoke Hermes tokens remotely: Hermes v0.22.5 has no native revoke
+  route, so signing out is local to a device.
 - Command approvals are Hermes's dangerous-command gate, not a universal policy
   engine for every action the agent can take.
 - Hermes v0.22.5 has no server-side compare-and-swap for SOUL.md or skills.

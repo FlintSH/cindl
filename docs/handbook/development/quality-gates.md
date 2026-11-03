@@ -77,6 +77,9 @@ same files from a package config that spreads the root one, such as
   `import('@cindl/fixtures/scenario')`, and every other rule. The Android
   app's own config adds its checks (raw colours, DOM globals, storage only in
   `src/platform`) on top of these scopes.
+- **`apps/web/src` except `platform/client.ts`:** no import of
+  `@cindl/hermes-adapter`, by name, path or dynamic import; the web UI uses
+  `CindlClientApi`.
 - **`apps/web/src/platform/preferences.ts`:** `localStorage` only; every other
   storage API stays off limits.
 

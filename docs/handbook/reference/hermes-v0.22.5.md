@@ -93,8 +93,9 @@ bearer to public endpoints.
   (`cindl.hermes.native-tokens.v1|<origin>`), which the adapter exports so a
   platform migration never repeats the format. Without a store, Cindl keeps
   them in memory and says so. Sign-out is
-  local: logout does not revoke native tokens, which are stateless (basic
-  provider defaults: 12 h access, 30 d refresh). Sign-out always deletes the
+  local: there is no native revoke route, so logout does not revoke native
+  tokens (with the basic provider they are stateless, 12 h access and 30 d
+  refresh; with OIDC they are the identity provider's tokens). Sign-out always deletes the
   stored record, even when the store has stopped encrypting, since its
   delete may still work; a delete that fails is logged.
 - Signing in to another origin is all or nothing in the direct client. A
@@ -135,7 +136,8 @@ same-origin requests, and it keeps nothing in browser storage.
   (`routes.py:224-231, 369-371`). Cindl escapes each `%` twice, so the
   password path lands on `next` exactly and the OAuth path decodes an escape
   in it once more: only a `next` without `%` comes back the same on both.
-  Tests round-trip both paths through the fake. A `next` that
+  Tests round-trip both paths through the fake. Hermes checks `next` again at
+  every hop. A `next` that
   `is_safe_next_path` refuses (not a same-origin path, the login or auth
   routes, or under `/api`; `request_utils.py:16, 37-44`) is left out, and
   Hermes lands on `/`.
@@ -187,7 +189,11 @@ same-origin requests, and it keeps nothing in browser storage.
   refresh). The self-hosted OIDC provider asks its identity provider to revoke
   the refresh token, best effort, when that provider advertises a revocation
   endpoint (RFC 7009; `plugins/dashboard_auth/self_hosted/__init__.py:124-145`);
-  the access token still works until it expires.
+  the access token still works until it expires. Hermes calls every registered
+  provider's revoke with the cookie's refresh token (`routes.py:498-504`), so
+  with basic and OIDC both configured, a basic session's refresh token is also
+  posted to the identity provider's revocation endpoint, where it means
+  nothing.
 
 ## WebSocket `/api/ws`
 
