@@ -6,10 +6,11 @@ export type FocusTarget = () => HostInstance | null | undefined
 
 /**
  * The control the owner pressed last, for a moment, so a dialog or sheet it
- * opens can give TalkBack focus back to it when it closes. Android does not
- * tell the app where TalkBack focus is; a control the owner just activated is
- * where it was. A press older than a second opened nothing that opens now
- * (system back, for one, presses nothing).
+ * opens can give TalkBack focus back to it when it closes. React Native does
+ * not tell the app where TalkBack focus is; a control the owner just
+ * activated is where it was. A press older than a second opened nothing that
+ * opens now. System back presses nothing, so an overlay it opens has no
+ * opener, unless a control was pressed in that second.
  */
 let last: { control: { current: HostInstance | null }; at: number } | undefined
 

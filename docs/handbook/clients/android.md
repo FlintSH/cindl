@@ -266,8 +266,10 @@ Each step starts from a known screen, so one failure does not fail the steps
 after it: Cindl in front, nothing left open over it, and Talk selected, with
 or without a conversation (`apps/android/e2e/reset.ts`). Another app in front
 is answered with a relaunch, never system back. Back closes a dialog, a
-sheet or the keyboard a step left, and only after focus is read again right
-before it. A dialog or sheet counts only from a dump of Cindl's window alone,
+sheet or the keyboard a step left, and focus is read again right before it.
+That narrows the time in which another app can come to the front unseen; it
+does not close it: a few hundred milliseconds remain between that read and
+the key. A dialog or sheet counts only from a dump of Cindl's window alone,
 and only such a dump ends the reset. It gives up after six passes, naming
 each. A reset that takes more than one pass is noted in the step's report.
 
@@ -500,8 +502,9 @@ Hermes server, Chrome's Custom Tab, and a phone.
     is none). The confirmation closes if the entry read there changes.
     Deleting warns first, because Hermes keeps no backup.
   - TalkBack focus moves into your draft when an adoption completes, and onto
-    the lock notice whenever the editor locks: Android cannot tell whether the
-    control TalkBack was on is the one the lock removed.
+    the lock notice whenever the editor locks: React Native does not tell the
+    app where TalkBack focus is, so Cindl cannot tell whether the control it
+    was on is one the lock removed.
   - After a save, the text it replaced stays on screen: restorable only onto
     the version that save produced, otherwise shown to copy.
   - Known limit: entries with identical text in one store look the same to
@@ -543,11 +546,19 @@ Hermes server, Chrome's Custom Tab, and a phone.
   page's heading or Talk's conversation switcher, never to nothing. An action
   that moves focus itself keeps it there: the working margin's Show gives
   TalkBack focus to the card it shows and a keyboard's to the card's first
-  control. Android
-  does not tell the app where TalkBack focus is, so the opener is the control
-  pressed in the second before the overlay opened (a TalkBack double tap
-  presses it too); an overlay system back opened has none. A keyboard's
-  focus never moves in touch mode.
+  control. React Native does not tell the app where TalkBack focus is, so
+  the opener is the control pressed in the second before the overlay opened
+  (a TalkBack double tap presses it too). An overlay system back opened has
+  none, unless a control was pressed in that second: that control is then
+  taken for its opener. A keyboard's focus never moves in touch mode. Whether
+  TalkBack follows a hardware keyboard's focus is not verified. With one
+  overlay over another (none opens another today), the one beneath would stay
+  open to TalkBack and to a keyboard's focus: only the app's content is hidden
+  and blocked.
+
+  Not proven on a device yet: these focus rules and the focus module below
+  have not compiled or run on one. The next Android run is the first to build
+  them and to run the emulator case that checks them.
 
   React Native 0.88 cannot hold a keyboard's focus in an overlay on its own,
   so a small local Expo module does (`apps/android/modules/cindl-focus`: one

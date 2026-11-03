@@ -44,7 +44,8 @@ export const RESET_PASSES = 6
  *   of Cindl's own window);
  * - a dialog, a sheet or the keyboard's window up: system back, after focus
  *   is read once more right before it, since the dump takes time and another
- *   app can come to the front meanwhile.
+ *   app can come to the front meanwhile. That narrows the window, not closes
+ *   it: a few hundred milliseconds remain between the read and the key.
  * After `RESET_PASSES` passes it gives up, naming every pass (CI run
  * 41696032323: the old loop named only its last reason).
  */
