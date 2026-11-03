@@ -52,7 +52,7 @@ export function Section({ title, children }: { title: string; children: ReactNod
   )
 }
 
-/** In-page section tabs (Library, Agent). Each is a 44dp target. */
+/** In-page section tabs (Library, Agent). Each is a touch target (48dp on Android). */
 export function Tabs<T extends string>({
   label,
   items,

@@ -93,7 +93,7 @@ describe('native theme from @cindl/tokens', () => {
     expect(theme.text.code.fontFamily).toBe(fontFamily.native.mono[400])
     for (const style of Object.values(theme.text))
       expect(style).not.toHaveProperty('fontWeight')
-    expect(theme.layout.touchTarget).toBe(44)
+    expect(theme.layout.touchTarget).toBe(48)
   })
 })
 

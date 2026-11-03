@@ -3,10 +3,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useTheme } from '../theme/theme.tsx'
 import { Mark } from '../ui/Mark.tsx'
 import { Txt } from '../ui/primitives.tsx'
+import { DeviceSignIn } from './DeviceSignIn.tsx'
 
 /**
  * Shown by a real (non-demo) build while it has no way to reach Hermes. It
- * says why and never substitutes demo data.
+ * says why, never substitutes demo data, and lets the owner sign in ahead of
+ * the connection (DeviceSignIn).
  */
 export function NotConnected() {
   const theme = useTheme()
@@ -34,6 +36,7 @@ export function NotConnected() {
         The direct connection to your Hermes server is not part of this build yet, so
         Cindl cannot show your conversations. It does not invent data in the meantime.
       </Txt>
+      <DeviceSignIn />
       <View style={{ gap: theme.space[2] }}>
         <Txt tone="secondary">
           To explore the interface, install the labelled demo build, which shows synthetic
