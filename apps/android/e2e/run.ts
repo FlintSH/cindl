@@ -337,6 +337,12 @@ async function demoSuite() {
       await audit('Question card', set.root)
       await device.tap('Harbor Loft (fictional)', 'a single-choice answer')
       await tapRevealed('Floor plan', 'a multiple-choice answer')
+      // Both questions must be answered before the set is sent (no partial answers).
+      const chosen = await device.dump()
+      for (const answer of ['Harbor Loft (fictional)', 'Floor plan'])
+        if (!findAll(chosen, answer).some((n) => n.checked))
+          throw new Error(`"${answer}" is not chosen before sending`)
+      note('both answers chosen (Harbor Loft, Floor plan)')
       await tapRevealed('Send answers', 'Send answers')
       await device.waitUntilGone('Send answers', 'The question card')
       shot('questions-answered')
