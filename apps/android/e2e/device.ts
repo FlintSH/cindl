@@ -7,7 +7,9 @@ import {
   auditTargets,
   find,
   findTappable,
+  keepCapture,
   label,
+  onlyApp,
   onlyAppInFront,
   parseKeyboard,
   parseUi,
@@ -167,35 +169,38 @@ export function createDevice(options: {
     await sleep(900)
   }
 
-  /** Cindl alone in front (ui.ts onlyAppInFront); false when the device does not say. */
-  const onlyCindl = () => {
+  /** What has focus (`dumpsys window`); undefined when the device does not say. */
+  const focus = () => {
     try {
-      return onlyAppInFront(
-        shell('dumpsys window | grep -E "mCurrentFocus|mFocusedApp" || true'),
-        PACKAGE,
-      )
+      return shell('dumpsys window | grep -E "mCurrentFocus|mFocusedApp" || true')
     } catch {
-      return false
+      return undefined
     }
   }
 
   /**
-   * A screenshot and the last UI dump, as files in the output directory, only
-   * when they can show nothing but Cindl (ui.ts onlyAppInFront): another app
-   * in front (the browser during sign-in) can show a sign-in code or state in
-   * its address bar and pages, also under a system dialog. Otherwise, or when
-   * the device does not say, neither is kept and this returns undefined.
+   * A screenshot, as a file in the output directory, only when it can show
+   * nothing but Cindl: Cindl's own window in focus just before the capture
+   * and, unchanged, just after it (ui.ts keepCapture). Another app in front
+   * (the browser during sign-in) can show a sign-in code or state in its
+   * address bar and pages. Otherwise, or when the device does not say,
+   * nothing is kept and this returns undefined. The last UI dump is kept
+   * beside it only when it, too, shows Cindl alone.
    */
   const screenshot = (name: string): string | undefined => {
-    if (!onlyCindl()) return undefined
-    shots += 1
-    const file = `${String(shots).padStart(2, '0')}-${name}`
+    const before = focus()
+    if (before === undefined || !onlyAppInFront(before, PACKAGE)) return undefined
     const png = execFileSync(options.adb, ['exec-out', 'screencap', '-p'], {
       timeout: 30_000,
       maxBuffer: 64 * 1024 * 1024,
     })
+    const after = focus()
+    if (after === undefined || !keepCapture(before, after, PACKAGE)) return undefined
+    shots += 1
+    const file = `${String(shots).padStart(2, '0')}-${name}`
     writeFileSync(join(options.out, `${file}.png`), png)
-    if (lastXml) writeFileSync(join(options.out, `${file}.xml`), scrub(lastXml))
+    if (lastXml && lastRoot && onlyApp(lastRoot, PACKAGE))
+      writeFileSync(join(options.out, `${file}.xml`), scrub(lastXml))
     return `${file}.png`
   }
 

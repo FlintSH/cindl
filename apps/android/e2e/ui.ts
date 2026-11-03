@@ -500,16 +500,41 @@ export function focusedApp(dumpsys: string): string | undefined {
 }
 
 /**
- * A screenshot can show nothing but this app: its window has focus, or no app
- * window has focus (none, or a system window, such as an "Application Not
- * Responding" dialog, whose title names no activity) and it is the focused
- * app. Anything else, including an answer that cannot be read, is not
- * captured: a system dialog over the browser would show the address bar.
+ * A screenshot can show nothing but this app: its own window has focus and it
+ * is the focused app. Anything else is not captured, including an answer that
+ * cannot be read. No focused window, or a system window in front (an
+ * "Application Not Responding" dialog, the notification shade, whose titles
+ * name no activity), can still leave the browser on screen as Cindl takes
+ * over again, and the browser's address bar shows the sign-in's code and
+ * state.
  */
 export function onlyAppInFront(dumpsys: string, pkg: string): boolean {
-  const window = focusedPackage(dumpsys)
-  if (window !== undefined) return window === pkg
-  return focusedApp(dumpsys) === pkg
+  return focusedPackage(dumpsys) === pkg && focusedApp(dumpsys) === pkg
+}
+
+/** A UI dump of this app's window alone: it has nodes, and every one is the app's. */
+export function onlyApp(root: UiNode, pkg: string): boolean {
+  const nodes = flatten(root)
+  return nodes.length > 0 && nodes.every((node) => node.pkg === pkg)
+}
+
+/** The focus lines of `dumpsys window` (mCurrentFocus, mFocusedApp), trimmed. */
+const focusLines = (dumpsys: string) =>
+  [...dumpsys.matchAll(/^\s*((?:mCurrentFocus|mFocusedApp)=.*?)\s*$/gm)]
+    .map((line) => line[1])
+    .join('\n')
+
+/**
+ * A screen capture is kept when only this app was in front just before it
+ * (`onlyAppInFront`) and still is just after, with the same window and
+ * activity in focus: the browser could have come to the front in between.
+ */
+export function keepCapture(before: string, after: string, pkg: string): boolean {
+  return (
+    onlyAppInFront(before, pkg) &&
+    onlyAppInFront(after, pkg) &&
+    focusLines(before) === focusLines(after)
+  )
 }
 
 /**

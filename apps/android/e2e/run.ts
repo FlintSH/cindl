@@ -96,7 +96,10 @@ async function step(name: string, body: (context: StepContext) => Promise<void>)
   const capture = (shot: string) => {
     const file = device.screenshot(shot)
     if (file) record.evidence.push(file)
-    else detail(`${shot}: not captured, another app (the browser) was in front`)
+    else
+      detail(
+        `${shot}: not captured, Cindl's own window did not have focus throughout (the browser or a system window was in front)`,
+      )
   }
   const context: StepContext = {
     note: detail,
