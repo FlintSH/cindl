@@ -33,9 +33,15 @@ export interface CindlTheme {
   shadow: { raised: string; overlay: string }
   space: typeof space
   radius: typeof radius
-  layout: typeof layout
+  layout: Omit<typeof layout, 'touchTarget'> & { touchTarget: number }
   motion: typeof motion
 }
+
+/**
+ * Android's accessibility guidance asks for 48dp touch targets. DESIGN.md's
+ * 44px is the floor for every client, so Android uses the larger size.
+ */
+export const ANDROID_TOUCH_TARGET = 48
 
 const textStyleNames: readonly TextStyleName[] = [
   'caption',
@@ -67,7 +73,7 @@ export function buildTheme(name: ThemeName): CindlTheme {
     shadow: elevation[name],
     space,
     radius,
-    layout,
+    layout: { ...layout, touchTarget: ANDROID_TOUCH_TARGET },
     motion,
   }
 }

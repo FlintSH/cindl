@@ -146,6 +146,15 @@ export async function recoverSignIn(
   return { kind: 'interrupted', origin: attempt?.origin }
 }
 
+/** Stops the attempt in progress (if any); its `signIn` then fails with "Sign-in was cancelled". */
+export async function cancelSignIn(
+  deps: Pick<SignInDeps, 'secrets' | 'loopback'>,
+): Promise<void> {
+  const raw = await deps.secrets.get(ATTEMPT_KEY)
+  const attempt = raw === undefined ? undefined : parseAttempt(raw)
+  if (attempt) deps.loopback.cancel(attempt.id)
+}
+
 /** Waits for the callback of a started (or resumed) attempt and exchanges its code. */
 export async function finishSignIn(
   attempt: SignInAttempt,

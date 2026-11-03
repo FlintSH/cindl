@@ -10,6 +10,7 @@ import type {
 } from '../modules/cindl-loopback/index.ts'
 import {
   ATTEMPT_KEY,
+  cancelSignIn,
   createLoopbackAuthorizer,
   finishSignIn,
   recoverSignIn,
@@ -247,6 +248,23 @@ describe('native sign-in against a fake Hermes server', () => {
     expect([...listener.attempts.values()].every((a) => a.status !== 'listening')).toBe(
       true,
     )
+  })
+
+  it('cancels the attempt in progress and saves nothing', async () => {
+    let browserOpen: () => void = () => undefined
+    const opened = new Promise<void>((resolve) => (browserOpen = resolve))
+    // The owner closes the tab without signing in; the attempt waits for its callback.
+    deps.openBrowser = () => {
+      browserOpen()
+      return Promise.resolve()
+    }
+    const attempt = signIn(hermes.origin, deps)
+    await opened
+    await cancelSignIn(deps)
+    await expect(attempt).rejects.toThrow('Sign-in was cancelled. Nothing was saved.')
+    expect(secrets.data.has(secureStoreKey(ATTEMPT_KEY))).toBe(false)
+    // Nothing to cancel any more: a second call is a no-op.
+    await expect(cancelSignIn(deps)).resolves.toBeUndefined()
   })
 
   it('persists the verifier for the attempt only while the browser is open', async () => {

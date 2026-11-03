@@ -17,6 +17,7 @@ import {
   type CindlLoopbackNative,
 } from '../../modules/cindl-loopback/index.ts'
 import {
+  cancelSignIn,
   createLoopbackAuthorizer,
   finishSignIn,
   recoverSignIn,
@@ -50,6 +51,8 @@ export interface AndroidPlatform {
   signIn: (origin: string) => Promise<{ origin: string; tokens: NativeTokenSet }>
   recoverSignIn: () => Promise<Recovery>
   resumeSignIn: (attempt: SignInAttempt) => Promise<NativeTokenSet>
+  /** Stops the sign-in in progress; it then fails with "Sign-in was cancelled". */
+  cancelSignIn: () => Promise<void>
   tokens: TokenVault
 }
 
@@ -97,6 +100,7 @@ export async function createAndroidPlatform(): Promise<AndroidPlatform> {
     signIn: (origin) => signIn(origin, deps),
     recoverSignIn: () => recoverSignIn(deps),
     resumeSignIn: (attempt) => finishSignIn(attempt, deps),
+    cancelSignIn: () => cancelSignIn(deps),
     tokens: createTokenVault(secrets),
   }
 }

@@ -107,7 +107,7 @@ export function Button({
   accessibilityLabel?: string
   accessibilityHint?: string
   icon?: LucideIcon
-  /** Square 44dp icon button; `label` is then only spoken. */
+  /** Square icon button (one touch target, 48dp); `label` is then only spoken. */
   iconOnly?: boolean
   variant?: ButtonVariant
   disabled?: boolean
@@ -171,6 +171,7 @@ const buttonStyles = (theme: CindlTheme) => {
   return {
     button: {
       minHeight: layout.touchTarget,
+      minWidth: layout.touchTarget,
       paddingHorizontal: space[3],
       paddingVertical: space[1],
       borderRadius: radius.md,
@@ -256,12 +257,16 @@ export function Dot({ tone = 'neutral' }: { tone?: Tone }) {
   )
 }
 
-/** Section label: label size, 600 weight, uppercase, 0.04em tracking, tertiary colour. */
+/**
+ * Section label: label size, 600 weight, uppercase, 0.04em tracking, tertiary colour.
+ * The upper case is visual only: TalkBack gets the text as written, as on the web.
+ */
 export function SectionTitle({ children }: { children: string }) {
   const theme = useTheme()
   return (
     <Text
       accessibilityRole="header"
+      accessibilityLabel={children}
       style={[
         theme.text.label,
         {

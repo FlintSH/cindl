@@ -49,6 +49,11 @@ export default tseslint.config(
     },
   },
   {
+    // The emulator test harness is a command-line tool and prints by design.
+    files: ['e2e/**/*.ts'],
+    rules: { 'no-console': 'off' },
+  },
+  {
     // The bundle gate reads the fixture marker list; it never ships in the app.
     files: ['scripts/check-bundle.ts'],
     rules: { 'no-restricted-imports': 'off' },

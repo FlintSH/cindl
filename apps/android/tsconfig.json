@@ -13,6 +13,8 @@
     "test",
     "plugins",
     "scripts",
+    "e2e",
+    "sdk",
     "modules/*/index.ts",
     "vitest.config.ts"
   ],

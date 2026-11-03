@@ -1,11 +1,21 @@
-# Android checks that need no Android SDK.
+# Android checks, test APKs and emulator tests.
 #
-# Building an APK (Gradle and the Android Gradle plugin) or running an
-# emulator uses Android SDK packages under Google's licence terms. Accepting
-# those terms is the owner's decision and has not been made, so this workflow
-# has no APK, Gradle, emulator or sdkmanager step, and the generated project
-# sets android.builder.sdkDownload=false so a build can never fetch SDK
-# packages on its own. See docs/handbook/clients/android.md.
+# Building an APK or running an emulator uses Android SDK packages under
+# Google's Android Software Development Kit License Agreement
+# (`android-sdk-license`). The owner approved accepting it for Cindl APK builds
+# and emulator tests on GitHub-hosted runners only (2026-11-03); see
+# docs/handbook/clients/android.md. So:
+# - the SDK jobs refuse to run on any other runner;
+# - every SDK package is pinned in apps/android/sdk/android-sdk.ts and checked
+#   against Google's manifests (licence id and licence text) before use;
+# - build packages must already be on the runner image (no installs), and the
+#   generated project sets android.builder.sdkDownload=false;
+# - emulator packages are downloaded as pinned archives with checksums;
+# - nothing runs `sdkmanager --licenses`, writes licence files or accepts any
+#   other terms (a browser first-run screen is reported as blocked, never
+#   accepted);
+# - APKs are signed with a throwaway key made for each run (never a store or
+#   production key) and carry Cindl's MIT licence and third-party notices.
 name: Android
 
 on:
@@ -21,6 +31,8 @@ on:
       - 'eslint.config.mjs'
       - 'vitest.config.ts'
       - '.node-version'
+      - 'LICENSE'
+      - 'THIRD_PARTY_NOTICES.md'
       - '.github/workflows/android.yml'
   pull_request:
     paths:
@@ -33,6 +45,8 @@ on:
       - 'eslint.config.mjs'
       - 'vitest.config.ts'
       - '.node-version'
+      - 'LICENSE'
+      - 'THIRD_PARTY_NOTICES.md'
       - '.github/workflows/android.yml'
   workflow_dispatch:
 
@@ -46,15 +60,16 @@ concurrency:
 
 env:
   EXPO_NO_TELEMETRY: '1'
-  # Nothing here may use the runner's preinstalled Android SDK.
-  ANDROID_HOME: ''
-  ANDROID_SDK_ROOT: ''
 
 jobs:
   checks:
     name: Android checks (no Android SDK)
     runs-on: ubuntu-24.04
     timeout-minutes: 30
+    env:
+      # None of these checks may use the runner's Android SDK.
+      ANDROID_HOME: ''
+      ANDROID_SDK_ROOT: ''
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -77,28 +92,25 @@ jobs:
           pnpm exec vitest run --project android
 
       - name: Bundle a production build and check it has no fixture records (ADR 0011)
-        working-directory: apps/android
         env:
           EXPO_PUBLIC_CINDL_DEMO: ''
         run: |
-          pnpm exec expo export --platform android --output-dir dist-production --clear
-          node scripts/check-bundle.ts production "$(find dist-production -name '*.hbc' | head -1)"
+          pnpm --filter @cindl/android exec expo export --platform android --output-dir dist-production --clear
+          node apps/android/scripts/check-bundle.ts production "$(find apps/android/dist-production -name '*.hbc' | head -1)"
 
       - name: Bundle the demo build and check it carries the demo notice
-        working-directory: apps/android
         env:
           EXPO_PUBLIC_CINDL_DEMO: '1'
         run: |
-          pnpm exec expo export --platform android --output-dir dist-demo --clear
-          node scripts/check-bundle.ts demo "$(find dist-demo -name '*.hbc' | head -1)"
+          pnpm --filter @cindl/android exec expo export --platform android --output-dir dist-demo --clear
+          node apps/android/scripts/check-bundle.ts demo "$(find apps/android/dist-demo -name '*.hbc' | head -1)"
 
       - name: Generate the native projects and check them (expo prebuild, no SDK)
-        working-directory: apps/android
         run: |
-          EXPO_PUBLIC_CINDL_DEMO=1 pnpm exec expo prebuild --platform android --no-install --clean
-          node scripts/check-native-project.ts android demo
-          EXPO_PUBLIC_CINDL_DEMO= pnpm exec expo prebuild --platform android --no-install --clean
-          node scripts/check-native-project.ts android production
+          EXPO_PUBLIC_CINDL_DEMO=1 pnpm --filter @cindl/android exec expo prebuild --platform android --no-install --clean
+          node apps/android/scripts/check-native-project.ts apps/android/android demo
+          EXPO_PUBLIC_CINDL_DEMO='' pnpm --filter @cindl/android exec expo prebuild --platform android --no-install --clean
+          node apps/android/scripts/check-native-project.ts apps/android/android production
 
       - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
         with:
@@ -128,3 +140,208 @@ jobs:
             "$src/test/java/dev/fl1nt/cindl/loopback/LoopbackListenerTest.kt"
           java -cp "$tools/out:$tools/junit.jar:$tools/hamcrest.jar:$tools/kotlinc/lib/kotlin-stdlib.jar" \
             org.junit.runner.JUnitCore dev.fl1nt.cindl.loopback.LoopbackListenerTest
+
+  apk:
+    name: Test APK (${{ matrix.flavour }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        flavour: [demo, production]
+    env:
+      EXPO_PUBLIC_CINDL_DEMO: ${{ matrix.flavour == 'demo' && '1' || '' }}
+    steps:
+      - name: Require a GitHub-hosted runner (the only place the SDK licence is approved)
+        env:
+          RUNNER_KIND: ${{ runner.environment }}
+        run: |
+          if [ "$RUNNER_KIND" != github-hosted ]; then
+            echo "::error::Android SDK steps run only on GitHub-hosted runners (owner approval, 2026-11-03)."
+            exit 1
+          fi
+          echo "CINDL_RUNNER_ENVIRONMENT=$RUNNER_KIND" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Check the pinned SDK packages (android-sdk-license, preinstalled, no downloads)
+        run: |
+          node apps/android/scripts/android-sdk.ts verify-repositories build
+          node apps/android/scripts/android-sdk.ts verify-installed build "$ANDROID_HOME" "$RUNNER_TEMP/android-sdk-build.json"
+
+      # The report holds the runner's package versions and any licence text that did not match
+      # (Google's public licence text), so a stopped run can be reviewed without the runner.
+      - name: Keep the SDK check report when it stops the build
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: android-sdk-check-${{ matrix.flavour }}
+          path: ${{ runner.temp }}/android-sdk-build.json
+          if-no-files-found: ignore
+          retention-days: 7
+
+      - name: Generate the ${{ matrix.flavour }} native project and its licence notices
+        run: |
+          pnpm --filter @cindl/android exec expo prebuild --platform android --no-install --clean
+          node apps/android/scripts/check-native-project.ts apps/android/android ${{ matrix.flavour }}
+          node apps/android/scripts/third-party-notices.ts apps/android/android/app/src/main/assets/licenses
+
+      - name: Build the test APK (release build type, throwaway signing key)
+        run: |
+          abis="$(node apps/android/scripts/android-sdk.ts value abis)"
+          password="$(openssl rand -hex 24)"
+          echo "::add-mask::$password"
+          export CINDL_TEST_KEYSTORE="$RUNNER_TEMP/cindl-test.p12"
+          export CINDL_TEST_KEYSTORE_PASSWORD="$password"
+          keytool -genkeypair -noprompt -storetype PKCS12 -keystore "$CINDL_TEST_KEYSTORE" \
+            -storepass "$password" -keypass "$password" -alias cindl-test -keyalg RSA -keysize 3072 \
+            -validity 30 -dname "CN=Cindl CI test build (not for distribution), O=Cindl"
+          cd apps/android/android
+          ./gradlew --no-daemon --console=plain --stacktrace --warning-mode=summary \
+            -Dorg.gradle.jvmargs="-Xmx6g -XX:MaxMetaspaceSize=1g" \
+            -PreactNativeArchitectures="$abis" \
+            :app:assembleRelease
+          rm -f "$CINDL_TEST_KEYSTORE"
+
+      - name: Check the APK and collect it with its notices
+        run: |
+          apk=apps/android/android/app/build/outputs/apk/release/app-release.apk
+          licenses=apps/android/android/app/src/main/assets/licenses
+          out="$RUNNER_TEMP/artifact"
+          node apps/android/scripts/check-apk.ts ${{ matrix.flavour }} "$apk" "$RUNNER_TEMP/apk-check"
+          mkdir -p "$out"
+          cp "$apk" "$out/cindl-${{ matrix.flavour }}-test.apk"
+          cp "$RUNNER_TEMP/apk-check/apk-report.json" "$out/apk-report.json"
+          cp "$licenses/LICENSE.txt" "$licenses/THIRD-PARTY-NOTICES.txt" "$out/"
+          cp "$RUNNER_TEMP/android-sdk-build.json" "$out/android-sdk-packages.json"
+          (cd "$out" && sha256sum "cindl-${{ matrix.flavour }}-test.apk" > SHA256SUMS && cat SHA256SUMS)
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cindl-android-${{ matrix.flavour }}-test-apk
+          path: ${{ runner.temp }}/artifact/
+          if-no-files-found: error
+          retention-days: 14
+
+  emulator:
+    name: Emulator tests (Android 16, API 36)
+    needs: apk
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Require a GitHub-hosted runner (the only place the SDK licence is approved)
+        env:
+          RUNNER_KIND: ${{ runner.environment }}
+        run: |
+          if [ "$RUNNER_KIND" != github-hosted ]; then
+            echo "::error::Android SDK steps run only on GitHub-hosted runners (owner approval, 2026-11-03)."
+            exit 1
+          fi
+          echo "CINDL_RUNNER_ENVIRONMENT=$RUNNER_KIND" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: cindl-android-*-test-apk
+          path: ${{ runner.temp }}/apks
+
+      - name: Download the pinned emulator packages (android-sdk-license, checksummed archives)
+        run: |
+          sdk="$RUNNER_TEMP/android-sdk"
+          node apps/android/scripts/android-sdk.ts verify-repositories emulator
+          node apps/android/scripts/android-sdk.ts install emulator "$sdk"
+          node apps/android/scripts/android-sdk.ts verify-installed emulator "$sdk" "$RUNNER_TEMP/android-sdk-emulator.json"
+          echo "CINDL_TEST_SDK=$sdk" >> "$GITHUB_ENV"
+
+      - name: Allow the emulator to use KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' |
+            sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+          ls -l /dev/kvm
+
+      - name: Start the emulator (AOSP Android 16, Pixel-sized, no hardware keyboard)
+        id: boot
+        run: |
+          sdk="$CINDL_TEST_SDK"
+          avd="$HOME/.android/avd"
+          mkdir -p "$avd/cindl.avd"
+          printf '%s\n' 'avd.ini.encoding=UTF-8' "path=$avd/cindl.avd" 'path.rel=avd/cindl.avd' 'target=android-36' > "$avd/cindl.ini"
+          printf '%s\n' \
+            'avd.ini.encoding=UTF-8' 'AvdId=cindl' 'avd.ini.displayname=cindl' \
+            'abi.type=x86_64' 'hw.cpu.arch=x86_64' 'hw.cpu.ncore=3' 'hw.ramSize=4096' \
+            'disk.dataPartition.size=6G' 'image.sysdir.1=system-images/android-36/default/x86_64/' \
+            'tag.id=default' 'tag.display=Default Android System Image' 'target=android-36' \
+            'hw.lcd.width=1080' 'hw.lcd.height=2400' 'hw.lcd.density=420' 'hw.keyboard=no' \
+            'hw.mainKeys=no' 'hw.gpu.enabled=yes' 'hw.gpu.mode=swiftshader_indirect' \
+            'hw.initialOrientation=portrait' 'showDeviceFrame=no' 'PlayStore.enabled=false' \
+            > "$avd/cindl.avd/config.ini"
+          export ANDROID_HOME="$sdk" ANDROID_SDK_ROOT="$sdk" ANDROID_AVD_HOME="$avd"
+          nohup "$sdk/emulator/emulator" -avd cindl -no-window -no-audio -no-boot-anim -no-snapshot \
+            -no-metrics -gpu swiftshader_indirect -camera-back none -camera-front none \
+            > "$RUNNER_TEMP/emulator.log" 2>&1 &
+          adb="$sdk/platform-tools/adb"
+          timeout 120 "$adb" wait-for-device
+          timeout 600 bash -c "until [ \"\$('$adb' shell getprop sys.boot_completed 2>/dev/null | tr -d '\r')\" = 1 ]; do sleep 5; done"
+          "$adb" shell input keyevent KEYCODE_WAKEUP
+          "$adb" shell wm dismiss-keyguard || true
+          "$adb" shell getprop ro.build.version.release
+
+      - name: Emulator tests, demo APK (synthetic data)
+        if: ${{ !cancelled() && steps.boot.outcome == 'success' }}
+        run: |
+          ADB="$CINDL_TEST_SDK/platform-tools/adb" node apps/android/e2e/run.ts demo \
+            "$(find "$RUNNER_TEMP/apks" -name cindl-demo-test.apk)" "$RUNNER_TEMP/e2e/demo"
+
+      - name: Emulator tests, real APK sign-in (fake Hermes auth server, synthetic)
+        if: ${{ !cancelled() && steps.boot.outcome == 'success' }}
+        run: |
+          ADB="$CINDL_TEST_SDK/platform-tools/adb" node apps/android/e2e/run.ts signin \
+            "$(find "$RUNNER_TEMP/apks" -name cindl-production-test.apk)" "$RUNNER_TEMP/e2e/signin"
+
+      - name: Collect the emulator evidence
+        if: ${{ always() }}
+        run: |
+          mkdir -p "$RUNNER_TEMP/e2e"
+          cp "$RUNNER_TEMP/emulator.log" "$RUNNER_TEMP/android-sdk-emulator.json" "$RUNNER_TEMP/e2e/" 2>/dev/null || true
+          (cd "$RUNNER_TEMP/apks" && find . -name SHA256SUMS -exec cat {} \;) > "$RUNNER_TEMP/e2e/apk-SHA256SUMS" 2>/dev/null || true
+          "$CINDL_TEST_SDK/platform-tools/adb" emu kill || true
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ always() }}
+        with:
+          name: cindl-android-emulator-evidence
+          path: ${{ runner.temp }}/e2e/
+          if-no-files-found: warn
+          retention-days: 14

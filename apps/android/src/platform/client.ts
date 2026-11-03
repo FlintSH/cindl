@@ -10,8 +10,8 @@ export type ClientResolution =
  * EXPO_PUBLIC_CINDL_DEMO=1 (inlined at bundle time; metro.config.cjs leaves
  * the fixtures out of every other bundle), and it always shows a banner.
  *
- * The direct Hermes client (packages/client-core/src/direct, transport
- * stream) is not in this baseline yet. When it lands, real builds resolve to
+ * The direct Hermes client (`createDirectClient`, transport stream) is not
+ * in this baseline yet. When it lands, real builds resolve to
  * `createDirectClient(await createAndroidPlatform())`; see
  * docs/handbook/clients/android.md.
  */
