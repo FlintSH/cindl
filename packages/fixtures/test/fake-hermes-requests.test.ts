@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
+  closeFakes,
   connectRawClient,
   NOT_SHOWN_MESSAGE,
   startFakeHermes,
@@ -10,12 +11,7 @@ import {
 type Json = Record<string, unknown>
 
 const fakes: FakeHermes[] = []
-afterEach(async () => {
-  for (const fake of fakes.splice(0)) {
-    expect(fake.violations).toEqual([])
-    await fake.close()
-  }
-})
+afterEach(() => closeFakes(fakes.splice(0)))
 
 async function waitFor<T>(check: () => T | undefined | false, ms = 3_000): Promise<T> {
   const started = Date.now()

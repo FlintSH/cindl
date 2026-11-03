@@ -1,4 +1,5 @@
 import {
+  closeFakes,
   nodeSocketFactory,
   startFakeHermes,
   type FakeHermes,
@@ -6,7 +7,7 @@ import {
   type FakeSession,
   type NodeSocketOptions,
 } from '@cindl/fixtures/fake-hermes'
-import { afterEach, expect } from 'vitest'
+import { afterEach } from 'vitest'
 import {
   createDiagnostics,
   HermesConnection,
@@ -26,15 +27,7 @@ export const timers: Timers = {
 
 const running: FakeHermes[] = []
 
-afterEach(async () => {
-  for (const fake of running.splice(0)) {
-    expect(
-      fake.violations,
-      'fake Hermes frames must match the vendored contract',
-    ).toEqual([])
-    await fake.close()
-  }
-})
+afterEach(() => closeFakes(running.splice(0)))
 
 export async function fakeHermes(options: FakeHermesOptions = {}): Promise<FakeHermes> {
   const fake = await startFakeHermes(options)

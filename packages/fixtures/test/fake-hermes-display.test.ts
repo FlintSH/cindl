@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import WebSocket from 'ws'
 import {
+  closeFakes,
   connectRawClient,
   RfbClientFilter,
   startFakeHermes,
@@ -182,5 +183,17 @@ describe('fake Hermes: a screen that stops mid-view (display.py:181-185, 241-244
     // Hermes closed it, so this is no hand-back by the viewer.
     expect(f.store.display.holderViewerId).toBe(observed.viewer_id)
     client.close()
+  })
+})
+
+describe('fake Hermes: closing fakes in tests', () => {
+  it('closes every fake before it reports a contract violation', async () => {
+    const first = await startFakeHermes()
+    const second = await startFakeHermes()
+    first.violations.push('synthetic violation (fixture)')
+    await expect(closeFakes([first, second])).rejects.toThrow(/synthetic violation/)
+    // Neither is left listening, the one after the violation included.
+    for (const closed of [first, second])
+      await expect(fetch(`${closed.origin}/api/status`)).rejects.toThrow()
   })
 })

@@ -43,3 +43,5 @@ Planned, not built: canonical sessions, steer and process operations.
   `otherProfileDisplay` and `displayViewers` for the screen and its socket,
   whose client bytes pass a full port of Hermes's `RfbClientFilter`; and
   `store.serveAs` and `store.otherProfileScopes` for the served profile.
+  Close fakes with `closeFakes`, which closes them all before it reports a
+  contract violation, so a failing check never leaves one listening.

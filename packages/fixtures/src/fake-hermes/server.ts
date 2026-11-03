@@ -882,3 +882,23 @@ export async function startFakeHermes(
   }
   return fake
 }
+
+/**
+ * Test helper: close every fake, then fail if any saw a frame that broke the
+ * vendored contract. Closing first means a violation never leaves a fake (or
+ * the fakes after it) listening until the test worker exits.
+ */
+export async function closeFakes(fakes: Iterable<FakeHermes>): Promise<void> {
+  const violations: string[] = []
+  for (const fake of fakes) {
+    try {
+      await fake.close()
+    } finally {
+      violations.push(...fake.violations)
+    }
+  }
+  if (violations.length)
+    throw new Error(
+      `fake Hermes frames must match the vendored contract:\n${violations.join('\n')}`,
+    )
+}

@@ -29,7 +29,12 @@ export {
   type TurnContext,
   type TurnScript,
 } from './gateway.ts'
-export { startFakeHermes, type FakeHermes, type FakeHermesOptions } from './server.ts'
+export {
+  closeFakes,
+  startFakeHermes,
+  type FakeHermes,
+  type FakeHermesOptions,
+} from './server.ts'
 export {
   FIXTURE_HOME,
   MEMORY_LIMITS,

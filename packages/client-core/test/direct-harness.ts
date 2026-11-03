@@ -1,12 +1,13 @@
 import { CindlEvent, type LinkState } from '@cindl/contracts'
 import {
+  closeFakes,
   nodeSocketFactory,
   startFakeHermes,
   type FakeHermes,
   type FakeHermesOptions,
 } from '@cindl/fixtures/fake-hermes'
 import { webCryptoProvider } from '@cindl/hermes-adapter'
-import { afterEach, expect } from 'vitest'
+import { afterEach } from 'vitest'
 import {
   createDirectClient,
   createStore,
@@ -48,13 +49,7 @@ export function memorySecrets(): SecretStore & { map: Map<string, string> } {
 
 export async function fakeHermes(options: FakeHermesOptions = {}): Promise<FakeHermes> {
   const fake = await startFakeHermes(options)
-  cleanups.push(async () => {
-    expect(
-      fake.violations,
-      'fake Hermes frames must match the vendored contract',
-    ).toEqual([])
-    await fake.close()
-  })
+  cleanups.push(() => closeFakes([fake]))
   return fake
 }
 
