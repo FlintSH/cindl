@@ -14,6 +14,7 @@ The canonical handbook and its VitePress site. Read
   the source, then run `node scripts/generate-docs-reference.mjs`.
 - Link pages with relative `.md` links; link repository files with their GitHub
   URL on `main`. Both are checked.
+- Anchors use the site's heading ids, not GitHub's: keep apostrophes out of linked headings.
 - Provenance comes from Git at build time (`.vitepress/build-info.mjs`). Never
   hardcode a version, branch or date.
 - The theme uses only `packages/tokens` variables and fonts, and for text and

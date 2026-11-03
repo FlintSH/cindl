@@ -24,7 +24,7 @@ Hermes service as a side effect of Cindl; no tokens in browser storage.
 **Decided (2026-11-03).** The owner approved serving Cindl at `/cindl/` on
 the existing private HTTPS origin of their Hermes once its checks pass,
 keeping Hermes's current sign-in, with no public exposure. The web client
-connects when served there ([Web client](../clients/web.md#served-by-hermess-origin));
+connects when served there ([Web client](../clients/web.md#served-from-the-hermes-origin));
 installing it on the owner's machine is a separate, private step.
 
 ## Live validation run

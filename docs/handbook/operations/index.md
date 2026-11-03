@@ -46,7 +46,7 @@ routes in the [Hermes v0.22.5 reference](../reference/hermes-v0.22.5.md).
 | The production web bundle        | `pnpm --filter @cindl/web build`; checked in CI for synthetic fixture records and local paths; served by the operator (below)              |
 | This handbook                    | Built in CI and uploaded as a workflow artifact for review; not hosted                                                                     |
 
-## Serve the web client from Hermes's origin
+## Serve the web client from the Hermes origin
 
 The web client must come from the same origin as `hermes serve`, because it
 signs in with Hermes's own session cookie. Usually that is the reverse proxy

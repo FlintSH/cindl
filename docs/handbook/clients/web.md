@@ -11,7 +11,7 @@ wildcard CORS. The web client therefore reaches a live Hermes only when it is
 served from that same origin, under a sub-path such as `/cindl/`, and signed
 in through Hermes's own `/login` page.
 
-### Served by Hermes's origin
+### Served from the Hermes origin
 
 - **How it decides.** A production build asks its own origin's public
   `GET /api/status` once at start. It talks to Hermes only when the answer is

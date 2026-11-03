@@ -257,6 +257,38 @@ describe('check-docs-coverage', () => {
     assert.equal(coverage(ignored).code, 0)
   })
 
+  it("checks anchors between handbook pages against the site's heading ids", (t) => {
+    const pages = {
+      'docs/handbook/ops.md':
+        "# Ops\n\n## Serve it from Hermes's origin\n\n## Steps\n\n## Steps\n\n## Custom {#own-id}\n",
+    }
+    // The site writes the apostrophe as a hyphen; repeats get -1; custom ids stand.
+    const ok = fixture(t, {
+      ...pages,
+      'docs/handbook/guide.md':
+        '# Guide\n\n[a](ops.md#serve-it-from-hermes-s-origin) [b](ops.md#steps-1) [c](ops.md#own-id) [d](#guide)\n',
+    })
+    assert.equal(coverage(ok).code, 0, coverage(ok).output)
+    // GitHub's form of the same heading (no hyphen) is not an anchor on the site.
+    assertFails(
+      fixture(t, {
+        ...pages,
+        'docs/handbook/guide.md': '# Guide\n\n[a](ops.md#serve-it-from-hermess-origin)\n',
+      }),
+      /guide\.md:3: links to ops\.md#serve-it-from-hermess-origin, but the handbook site gives that page no #serve-it-from-hermess-origin anchor/,
+    )
+    assertFails(
+      fixture(t, { 'docs/handbook/guide.md': '# Guide\n\n[top](#nowhere)\n' }),
+      /guide\.md:3: links to #nowhere, but the handbook site gives that page no #nowhere anchor/,
+    )
+    // Pages outside the handbook render on GitHub, which names anchors its own way.
+    const github = fixture(t, {
+      ...pages,
+      'README.md': '[ops](docs/handbook/ops.md#serve-it-from-hermess-origin)\n',
+    })
+    assert.equal(coverage(github).code, 0, coverage(github).output)
+  })
+
   it('checks the key combinations in the web client page', (t) => {
     const web = (rows) =>
       `# Web client\n\n## Keyboard\n\n| Keys | Action |\n| --- | --- |\n${rows.join('\n')}\n`
