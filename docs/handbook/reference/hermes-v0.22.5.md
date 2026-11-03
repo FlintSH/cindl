@@ -524,8 +524,13 @@ The direct client shows the screen (ADR 0012) in
   plain 1000 like any clean end, so Cindl asks `display.status`: the view
   ends as not running if the screen stopped, otherwise as ended. Frames wait
   for that answer.
+- Liveness: RFB has no heartbeat and a still screen sends nothing, so after
+  15 s without a byte Cindl asks for one pixel, a non-incremental update
+  request an RFB server answers at once (RFC 6143, 7.5.3). If nothing arrives
+  within 10 s more, the view ends as stalled and the socket closes with 4100,
+  so the human keeps control.
 - Frames, input and the ticket URL are never logged. Diagnostics record the
-  close code only.
+  close code, a stall or an RFB protocol error, nothing else.
 - `display.lease.acquire {viewer_id}` and `display.lease.release {viewer_id}`
   accept only viewer ids minted on the same connection
   (`methods_display.py:139-146, 232-261`), except that a release with

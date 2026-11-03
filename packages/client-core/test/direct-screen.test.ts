@@ -385,6 +385,7 @@ describe('direct client: live screen', () => {
 
 /** A stub screen socket: records what LiveScreen sends and how it closes it. */
 interface StubSocket extends BinaryWebSocketLike {
+  readonly sent: Uint8Array[]
   readonly closes: Array<[number | undefined, string | undefined]>
   /** Server bytes, as if they arrived on the socket. */
   feed(bytes: ArrayLike<number>): void
@@ -432,8 +433,11 @@ function stubScreen(
       opened.push(url)
       const socket: StubSocket = {
         readyState: 1,
+        sent: [],
         closes: [],
-        send: () => undefined,
+        send(data) {
+          this.sent.push(data)
+        },
         close(code, reason) {
           this.closes.push([code, reason])
         },
@@ -615,6 +619,36 @@ describe('live screen: closes that keep the human in control', () => {
     expect(logs).toContain('direct.screen-protocol-error')
     socket.drop(4100)
     expect(await codeOf(live.frame(viewId))).toBe('unavailable')
+  })
+})
+
+describe('live screen: liveness', () => {
+  it('asks for one pixel after a quiet spell and ends a stream that stays silent', async () => {
+    const clock = manualClock()
+    const { live, socket, viewId, logs } = await watchedStub(clock)
+    socket.sent.length = 0
+    clock.fire()
+    expect(socket.sent).toEqual([Uint8Array.of(3, 0, 0, 0, 0, 0, 0, 1, 0, 1)])
+    clock.fire()
+    expect(socket.closes).toEqual([[4100, 'reconnect']])
+    expect(logs).toContain('direct.screen-stalled')
+    const ended = await failure(live.frame(viewId))
+    expect(ended?.code).toBe('unavailable')
+    expect(ended?.message).toMatch(/stopped answering/)
+  })
+
+  it('keeps a stream that answers the probe', async () => {
+    const clock = manualClock()
+    const { live, socket, viewId } = await watchedStub(clock)
+    clock.fire()
+    socket.feed([
+      ...updateHeader(1),
+      ...rawRect({ x: 0, y: 0, width: 1, height: 1 }, [9, 9, 9]),
+    ])
+    // The answer restarted the quiet-spell timer: this is a new probe, not a stall.
+    clock.fire()
+    expect(socket.closes).toEqual([])
+    expect(pixel(await live.frame(viewId), 0, 0)).toEqual([9, 9, 9])
   })
 })
 

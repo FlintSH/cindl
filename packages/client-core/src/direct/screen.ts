@@ -15,6 +15,15 @@ const READY_TIMEOUT_MS = 10_000
 const CLOSE_DONE = 1000
 /** Any other close keeps a lease this viewer holds, as a dropped link does (display.py:234-240). */
 const CLOSE_KEEP_LEASE = 4100
+/**
+ * Liveness: after IDLE_PROBE_MS without a byte from the screen, ask for one
+ * pixel. A non-incremental update request must be answered at once (RFC 6143
+ * 7.5.3), so nothing within PROBE_ANSWER_MS more means the stream stalled.
+ */
+const IDLE_PROBE_MS = 15_000
+const PROBE_ANSWER_MS = 10_000
+/** FramebufferUpdateRequest, non-incremental, for the pixel at 0,0. */
+const PIXEL_REQUEST = Uint8Array.of(3, 0, 0, 0, 0, 0, 0, 1, 0, 1)
 
 /** What `display.observe` gives a viewer (tui_gateway/methods_display.py). */
 export interface ObservedScreen {
@@ -62,6 +71,8 @@ interface View {
   wake: (() => void) | undefined
   /** Settles a handshake still in progress when the view ends. */
   abort: ((error: CindlError) => void) | undefined
+  /** The liveness timer of the current socket. */
+  idle: unknown
 }
 
 const closedError = () => new CindlError('not-found', 'That screen view was closed.')
@@ -126,6 +137,7 @@ export class LiveScreen {
       ended: undefined,
       wake: undefined,
       abort: undefined,
+      idle: undefined,
     }
     this.#view = view
     try {
@@ -286,6 +298,7 @@ export class LiveScreen {
   #closeSocket(view: View, code: number): void {
     const socket = view.socket
     view.socket = undefined
+    this.#options.clock.clearTimeout(view.idle)
     view.rfb?.close()
     view.rfb = undefined
     view.requested = false
@@ -316,6 +329,7 @@ export class LiveScreen {
     view.ended = undefined
     return new Promise<void>((resolve, reject) => {
       let settled = false
+      let ready = false
       const timer = this.#options.clock.setTimeout(() => {
         if (settled) return
         this.#closeSocket(view, CLOSE_KEEP_LEASE)
@@ -339,6 +353,7 @@ export class LiveScreen {
           view.size = size
           // The handshake ends with a request for the whole screen.
           view.requested = true
+          ready = true
           settle()
         },
         onUpdate: () => {
@@ -359,12 +374,15 @@ export class LiveScreen {
       view.rfb = rfb
       rfb.setControlling(this.#options.holdsLease(view.viewerId))
       socket.onmessage = (event) => {
-        if (view.socket === socket) rfb.receive(event.data)
+        if (view.socket !== socket) return
+        rfb.receive(event.data)
+        if (ready && view.socket === socket) this.#alive(view, socket)
       }
       socket.onerror = () => undefined
       socket.onclose = (event) => {
         if (view.socket !== socket) return
         view.socket = undefined
+        this.#options.clock.clearTimeout(view.idle)
         view.rfb?.close()
         view.rfb = undefined
         view.requested = false
@@ -376,6 +394,30 @@ export class LiveScreen {
         if (!failed) this.#closed(view, event.code)
       }
     })
+  }
+
+  /** Bytes arrived: restart the quiet-spell timer that sends the one-pixel probe. */
+  #alive(view: View, socket: BinaryWebSocketLike): void {
+    const clock = this.#options.clock
+    clock.clearTimeout(view.idle)
+    view.idle = clock.setTimeout(() => {
+      if (view.socket !== socket) return
+      if (socket.readyState === 1) socket.send(PIXEL_REQUEST)
+      view.idle = clock.setTimeout(() => this.#stalled(view, socket), PROBE_ANSWER_MS)
+    }, IDLE_PROBE_MS)
+  }
+
+  /** Not even the probed pixel came: end the view, closing without handing control back. */
+  #stalled(view: View, socket: BinaryWebSocketLike): void {
+    if (view.socket !== socket) return
+    this.#options.log('direct.screen-stalled')
+    this.#closeSocket(view, CLOSE_KEEP_LEASE)
+    if (this.#view !== view || view.ended) return
+    view.ended = new CindlError(
+      'unavailable',
+      'The screen stopped answering. Watch the screen again.',
+    )
+    view.wake?.()
   }
 
   /** The screen socket closed after the view was up. */
