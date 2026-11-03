@@ -190,9 +190,11 @@ uses `~/.config/Cindl Demo` and stores no tokens.
   link per gesture, and at most five in ten seconds. A compromised renderer can
   therefore not open the browser on its own; it can still turn one of your
   clicks into a different `https` destination than the one it displays.
-- **Native files.** `saveText` shows the native save dialog; the renderer only
-  suggests a base name (separators, control and bidi characters removed). New
-  files are created with mode `0600`; an existing file keeps its permissions.
+- **Native files.** `saveText` shows the native save dialog, and only right
+  after a click or Enter/Space that main saw (one dialog per gesture, like a
+  link). The renderer only suggests a base name (separators, control and bidi
+  characters removed). New files are created with mode `0600`; an existing
+  file keeps its permissions.
 - **Logs** go to standard error, never to a file, and every line passes
   through the adapter's `redactText`/`redactValue` plus a header pass for
   `Cookie`, `Set-Cookie` and `Authorization`. Set `CINDL_LOG=debug` for more

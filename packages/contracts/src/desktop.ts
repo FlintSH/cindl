@@ -18,7 +18,11 @@ export interface DesktopBridge {
    */
   call<K extends OpName>(name: K, args: OpArgs<K>): Promise<OpResult<K>>
   subscribe(listener: (event: CindlEvent) => void): () => void
-  /** Native save dialog for text the renderer already holds (e.g. an exported transcript). */
+  /**
+   * Native save dialog for text the renderer already holds (e.g. an exported
+   * transcript). Call it from a click or key handler: main opens one dialog per
+   * gesture it saw and otherwise resolves `{ saved: false }`.
+   */
   saveText(suggestedName: string, content: string): Promise<{ saved: boolean }>
   /** Opens an https URL in the system browser after main-process validation. */
   openExternal(url: string): Promise<{ opened: boolean }>

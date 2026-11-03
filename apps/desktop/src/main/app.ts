@@ -288,6 +288,7 @@ export function runCindl(flavour: Flavour): void {
         mainWindow && !mainWindow.isDestroyed() ? mainWindow.webContents.id : undefined,
       client: clientHost,
       saveText,
+      consumeGesture: gestures.consume,
       openExternal: (url) => external.open(url),
       onEventSignal: (contentsId, signal) => {
         const contents = webContents.fromId(contentsId)

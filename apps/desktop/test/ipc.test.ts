@@ -28,6 +28,7 @@ function setup(overrides: Partial<IpcDeps> = {}) {
       call: vi.fn((name: OpName, args: unknown) => Promise.resolve({ name, args })),
     },
     saveText: vi.fn(() => Promise.resolve({ saved: true })),
+    consumeGesture: vi.fn(() => true),
     openExternal: vi.fn(() => Promise.resolve({ opened: true })),
     onEventSignal: vi.fn(),
     log: createLogger({ write: (line) => lines.push(line) }),
@@ -326,6 +327,30 @@ describe('cindl:save-text', () => {
     expect(deps.saveText).not.toHaveBeenCalled()
   })
 
+  // Review 91f30e07 N5: a compromised renderer must not open dialogs at will.
+  it('opens the dialog only after a click or key press, once per gesture', async () => {
+    let gestures = 1
+    const { handlers, deps, lines } = setup({ consumeGesture: () => gestures-- > 0 })
+    expect(await handlers.saveText(fromApp, 'a.txt', 'x')).toEqual({
+      ok: true,
+      value: { saved: true },
+    })
+    expect(await handlers.saveText(fromApp, 'notes.desktop', 'x')).toEqual({
+      ok: true,
+      value: { saved: false },
+    })
+    expect(deps.saveText).toHaveBeenCalledTimes(1)
+    expect(lines.join('\n')).toContain('Refused a save dialog')
+  })
+
+  it('does not spend a gesture on a call it rejects', async () => {
+    const consumeGesture = vi.fn(() => true)
+    const { handlers } = setup({ consumeGesture })
+    await handlers.saveText(fromApp, 'name.txt', 5)
+    await handlers.saveText({ ...fromApp, senderFrame: null }, 'a.txt', 'x')
+    expect(consumeGesture).not.toHaveBeenCalled()
+  })
+
   it('refuses foreign senders', async () => {
     const { handlers, deps } = setup()
     const reply = await handlers.saveText({ ...fromApp, senderFrame: null }, 'a.txt', 'x')
@@ -342,6 +367,7 @@ describe('cindl:save-text', () => {
     ['bell\u0007\u0000name.txt', 'bellname.txt'],
     ['invoice\u202etxt.md', 'invoicetxt.md'],
     ['notes\u2066\u2069.md', 'notes.md'],
+    ['report\u061ctxt.md', 'reporttxt.md'],
     ['...', 'cindl-export.txt'],
     ['', 'cindl-export.txt'],
     ['x'.repeat(300), 'x'.repeat(120)],

@@ -61,16 +61,22 @@ const MAX_FILE_NAME_LENGTH = 120
 const FALLBACK_FILE_NAME = 'cindl-export.txt'
 
 /**
+ * Controls, characters Windows forbids, and bidi marks and overrides that
+ * could disguise the extension shown in the dialog.
+ */
+/* eslint-disable no-control-regex -- the control range is the point */
+const UNSAFE_FILE_NAME_CHARACTERS =
+  /[\u0000-\u001f\u007f<>:"|?*\u061c\u200e\u200f\u202a-\u202e\u2066-\u2069]/g
+/* eslint-enable no-control-regex */
+
+/**
  * Reduces a renderer-suggested file name to a plain base name. The renderer
  * never chooses a directory: the owner does, in the native dialog.
  */
 export function sanitizeFileName(input: string): string {
   const base = input.split(/[\\/]/).at(-1) ?? ''
   const cleaned = base
-    // Controls, characters Windows forbids, and bidi overrides that could
-    // disguise the extension shown in the dialog.
-    // eslint-disable-next-line no-control-regex
-    .replace(/[\u0000-\u001f\u007f<>:"|?*\u200e\u200f\u202a-\u202e\u2066-\u2069]/g, '')
+    .replace(UNSAFE_FILE_NAME_CHARACTERS, '')
     .replace(/\s+/g, ' ')
     .replace(/^[\s.]+|[\s.]+$/g, '')
   const trimmed = cleaned.slice(0, MAX_FILE_NAME_LENGTH).trim()
@@ -122,6 +128,11 @@ export interface IpcDeps {
   trustedContentsId(): number | undefined
   client: Pick<CindlClientApi, 'call'>
   saveText(fileName: string, content: string): Promise<{ saved: boolean }>
+  /**
+   * True once per click or Enter/Space that main saw (guards.ts). A save
+   * dialog opens only for one, as a link does.
+   */
+  consumeGesture(): boolean
   /** Validates the URL itself (see external.ts); never throws. */
   openExternal(url: unknown): Promise<{ opened: boolean }>
   /** The renderer started or stopped listening on `desktopChannels.event`. */
@@ -183,6 +194,10 @@ export function createIpcHandlers(deps: IpcDeps) {
         return invalid('Expected a file name and text to save.')
       if (content.length > MAX_SAVE_TEXT_LENGTH)
         return invalid('That text is too large to save from Cindl.')
+      if (!deps.consumeGesture()) {
+        log.warn('Refused a save dialog that no click or key press asked for')
+        return { ok: true, value: { saved: false } }
+      }
       try {
         return { ok: true, value: await deps.saveText(sanitizeFileName(name), content) }
       } catch (error) {
