@@ -160,7 +160,11 @@ export function createIpcHandlers(deps: IpcDeps) {
         // The parsed value, not the raw input, goes on: unknown keys are dropped.
         parsed = parseOpArgs(name, input)
       } catch (error) {
-        return invalid(`Invalid arguments for ${name}.`, issuePaths(error))
+        // Contract v4: parseOpArgs throws CindlError('invalid') whose message
+        // says nothing was sent and whose detail names the field, not its value.
+        return isCindlError(error)
+          ? { ok: false, error: toErrorShape(error, log) }
+          : invalid(`Invalid arguments for ${name}.`, issuePaths(error))
       }
       try {
         return { ok: true, value: await deps.client.call(name, parsed) }

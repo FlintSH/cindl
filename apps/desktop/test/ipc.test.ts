@@ -153,7 +153,9 @@ describe('cindl:call', () => {
     expect(reply.ok).toBe(false)
     if (!reply.ok) {
       expect(reply.error.code).toBe('invalid')
-      expect(reply.error.message).toBe(`Invalid arguments for ${name}.`)
+      // Validation failures say nothing was sent, and never echo the value.
+      expect(reply.error.message).toMatch(/^Not sent: /)
+      expect(JSON.stringify(reply.error)).not.toContain('passwd')
     }
     expect(deps.client.call).not.toHaveBeenCalled()
   })
