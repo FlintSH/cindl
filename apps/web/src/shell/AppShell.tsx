@@ -14,6 +14,7 @@ import { CommandPalette, type Command } from './CommandPalette.tsx'
 import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { pruneRequestDrafts } from '../talk/RequestCard.tsx'
 import { forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
+import { forgetPlaces } from '../talk/places.ts'
 import { Notices } from './Notices.tsx'
 import { SignIn } from './SignIn.tsx'
 import { forgetSignOut, useSigningIn } from './session.ts'
@@ -49,7 +50,10 @@ export function AppShell() {
   // sign-out button, or Hermes refusing the session. Kept document drafts go
   // too, so none returns after another sign-in, to this Hermes or another.
   useEffect(() => {
-    if (!link.demo && link.phase === 'signed-out') forgetDocumentDrafts()
+    if (!link.demo && link.phase === 'signed-out') {
+      forgetDocumentDrafts()
+      forgetPlaces()
+    }
   }, [link.demo, link.phase])
   // Online again, an earlier sign-out Hermes did not confirm no longer applies.
   useEffect(() => {

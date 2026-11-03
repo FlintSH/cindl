@@ -1,5 +1,6 @@
 import type { CindlClientApi, OpResult } from '@cindl/contracts'
 import { useSyncExternalStore } from 'react'
+import { forgetPlaces } from '../talk/places.ts'
 import { pruneRequestDrafts } from '../talk/RequestCard.tsx'
 import { forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
 
@@ -37,9 +38,10 @@ export async function signOutHere(
   api: CindlClientApi,
 ): Promise<OpResult<'auth.signOut'>> {
   const result = await api.call('auth.signOut', {})
-  // Nothing typed on this device outlives the session.
+  // Nothing typed or read on this device outlives the session.
   pruneRequestDrafts(new Set())
   forgetDocumentDrafts()
+  forgetPlaces()
   update({ unconfirmed: result.hermesConfirmed === false })
   return result
 }

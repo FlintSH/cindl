@@ -3,6 +3,7 @@ import { isCindlError } from '@cindl/contracts'
 import { ArrowUp, Square } from 'lucide-react'
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
+import { keepPlace, placeOf } from './places.ts'
 import styles from './talk.module.css'
 
 export interface ComposerHandle {
@@ -43,7 +44,13 @@ export const Composer = forwardRef<
   const link = useLink()
   const canSend = useCan('chat.stream')
   const canInterrupt = useCan('chat.interrupt')
-  const [text, setText] = useState('')
+  // The unsent message belongs to its conversation (TalkView keys the composer
+  // by conversation), and waits there while the owner is elsewhere.
+  const [text, setTextNow] = useState(() => placeOf(conversationId).draft)
+  const setText = (value: string) => {
+    setTextNow(value)
+    keepPlace(conversationId, { draft: value })
+  }
   const [error, setError] = useState<string>()
   const [unconfirmed, setUnconfirmed] = useState<string>()
   const input = useRef<HTMLTextAreaElement>(null)

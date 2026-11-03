@@ -42,8 +42,9 @@ content instead of adding panes.
 
 Breakpoints are literal in media queries: 768 and 1280. The working margin
 opens as a sheet over the conversation below 1280px, so closing it returns to
-the same scroll position. Restoring scroll positions across destination
-switches is planned.
+the same scroll position. Each conversation also keeps where the owner left
+it (the unsent message, the reading position and the selected step) while they
+switch conversations or destinations, in memory until the session ends.
 
 ## Typography
 

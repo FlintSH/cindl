@@ -16,6 +16,7 @@ import {
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
+  useReducer,
   useRef,
   useState,
 } from 'react'
@@ -29,6 +30,7 @@ import { Button, Dot } from '../ui/primitives.tsx'
 import { Composer, type ComposerHandle } from './Composer.tsx'
 import { HistoryPopover } from './HistoryPopover.tsx'
 import { MessageView } from './MessageView.tsx'
+import { keepPlace, placeOf } from './places.ts'
 import { composerHint, presenceCopy } from './presence.ts'
 import { RequestCard, requestDomId } from './RequestCard.tsx'
 import { WorkingMargin } from './WorkingMargin.tsx'
@@ -70,12 +72,12 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     const [sheetOpen, setSheetOpen] = useState(false)
     const marginOpen = wide ? marginPreference : sheetOpen
     const setMarginOpen = wide ? setMarginPreference : setSheetOpen
-    const [selection, setSelection] = useState<{
-      conversationId: string
-      toolId: string
-    }>()
+    // The selected step lives in the conversation's place (places.ts).
+    const [, placeChanged] = useReducer((n: number) => n + 1, 0)
     // Pinned to the newest content until the owner scrolls up to read.
-    const [atBottom, setAtBottom] = useState(true)
+    const [atBottom, setAtBottom] = useState(
+      () => !conversationId || placeOf(conversationId).scrollTop === undefined,
+    )
     const composer = useRef<ComposerHandle>(null)
     const scroller = useRef<HTMLDivElement>(null)
     // In-flight history loads. After `history.reset` the transcript is missing
@@ -117,6 +119,15 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         },
       )
     }, [api, conversationId, conversation, loaded, canHistory, historyFailed])
+
+    // Coming back to a conversation puts the owner where they were reading.
+    useLayoutEffect(() => {
+      const el = scroller.current
+      if (!el || !conversationId) return
+      const { scrollTop } = placeOf(conversationId)
+      if (scrollTop !== undefined) el.scrollTop = scrollTop
+      setAtBottom(scrollTop === undefined)
+    }, [conversationId, loaded])
 
     useLayoutEffect(() => {
       const el = scroller.current
@@ -170,11 +181,14 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     }
 
     const presence = presenceCopy(link, activity)
-    // Selection belongs to one conversation; switching conversations clears it without an effect.
-    const selectedToolId =
-      selection?.conversationId === conversationId ? selection.toolId : undefined
+    // Selection belongs to one conversation and comes back with it.
+    const selectedToolId = placeOf(conversationId).toolId
+    const select = (toolId: string | undefined) => {
+      keepPlace(conversationId, { toolId })
+      placeChanged()
+    }
     const selectTool = (toolId: string) => {
-      setSelection(selectedToolId === toolId ? undefined : { conversationId, toolId })
+      select(selectedToolId === toolId ? undefined : toolId)
       setMarginOpen(true)
     }
     const startSide = async () => {
@@ -266,6 +280,9 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                 const bottom =
                   el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_SLACK_PX
                 if (bottom !== atBottom) setAtBottom(bottom)
+                keepPlace(conversationId, {
+                  scrollTop: bottom ? undefined : el.scrollTop,
+                })
               }}
             >
               <div
@@ -338,6 +355,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
               </div>
             ))}
             <Composer
+              key={conversationId}
               ref={composer}
               conversationId={conversationId}
               canStop={activity.turnOpen || activity.phase === 'executing'}
@@ -350,7 +368,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
           <WorkingMargin
             conversationId={conversationId}
             selectedToolId={selectedToolId}
-            onClearSelection={() => setSelection(undefined)}
+            onClearSelection={() => select(undefined)}
             onClose={() => setMarginOpen(false)}
             onShowRequest={revealRequest}
           />
@@ -365,7 +383,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
             <WorkingMargin
               conversationId={conversationId}
               selectedToolId={selectedToolId}
-              onClearSelection={() => setSelection(undefined)}
+              onClearSelection={() => select(undefined)}
               onClose={() => setSheetOpen(false)}
               onShowRequest={revealRequest}
             />

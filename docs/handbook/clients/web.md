@@ -242,11 +242,14 @@ from the desktop app's custom protocol.
     the entry is still the one you saved, and otherwise only to copy.
   - Known limit: entries with identical text in one store look the same to
     Cindl, so they share one kept draft, and an editor may follow either.
-- **Drafts stay on this device, briefly:** answers being written, and document
-  drafts kept after a save conflict, a lock or while used for another memory
-  entry, live in memory only. An answer's draft is dropped once its request
-  closes, and every draft is forgotten when the session ends, whether you sign
-  out or Hermes refuses the session.
+- **Drafts stay on this device, briefly:** answers being written, the message
+  being written in each conversation, and document drafts kept after a save
+  conflict, a lock or while used for another memory entry, live in memory
+  only. Each conversation keeps its own unsent message, reading position and
+  selected step while you switch conversations or views, so nothing typed
+  follows you into another conversation. An answer's draft is dropped once its
+  request closes, and every draft is forgotten when the session ends, whether
+  you sign out or Hermes refuses the session.
 
 ## Keyboard
 
