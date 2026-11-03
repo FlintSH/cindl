@@ -12,9 +12,11 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@cindl/contracts": "workspace:*"
+    "@cindl/contracts": "workspace:*",
+    "@cindl/hermes-adapter": "workspace:*"
   },
   "devDependencies": {
+    "@cindl/fixtures": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:"
   }
