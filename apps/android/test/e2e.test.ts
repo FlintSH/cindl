@@ -326,6 +326,21 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
       ),
     ).toEqual(['the venue page 70.1x26.3dp'])
   })
+
+  it('measures a link that is all its paragraph says: it is in no sentence', () => {
+    const alone = (text: string) =>
+      issues(
+        parseUi(
+          dump(
+            `${WINDOW}${CONTENT}${PARAGRAPH.replace(/text="[^"]*"/, `text="${text}"`)}${SPAN}</node></node></node>`,
+          ),
+        ),
+      )
+    expect(alone('the venue page')).toEqual(['the venue page 70.1x26.3dp'])
+    expect(alone(' the venue page. ')).toEqual(['the venue page 70.1x26.3dp'])
+    expect(alone('See the venue page')).toEqual([])
+    expect(alone('the venue page (harbor-loft.example.test)')).toEqual([])
+  })
 })
 
 describe('tapping an inline link (CI run 41656607631)', () => {

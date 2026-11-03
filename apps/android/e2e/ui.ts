@@ -347,9 +347,10 @@ const boxInside = (inner: Rect, outer: Rect) =>
  * A link inside a sentence, as WCAG 2.5.8's inline exception means it: React
  * Native gives a link span an accessibility node of its own, a child of its
  * paragraph's TextView, with no text of its own, its label part of the
- * paragraph's text and its box within the paragraph's (CI run 41668168848:
- * "the venue page" [854,784][1038,853] in [42,784][1038,991]). Any other
- * link or button is a target like the rest.
+ * paragraph's text, other words around it, and its box within the
+ * paragraph's (CI run 41668168848: "the venue page" [854,784][1038,853] in
+ * [42,784][1038,991]). A link that is all its paragraph says, and any other
+ * link or button, is a target like the rest.
  */
 const isInlineLink = (node: UiNode) => {
   const paragraph = node.parent
@@ -360,6 +361,7 @@ const isInlineLink = (node: UiNode) => {
     node.text === '' &&
     name !== '' &&
     paragraph.text.includes(name) &&
+    /[\p{L}\p{N}]/u.test(paragraph.text.replace(name, '')) &&
     boxInside(node.bounds, paragraph.bounds)
   )
 }
