@@ -60,7 +60,10 @@ Two facts shape the design:
   never tested with real secrets.
 - The one reply Cindl sends without answering is the 4404 "not shown" vote
   for a prompt that another app's window owns, and only on a sidecar socket
-  that counts such votes (`declines_not_shown`, `server_requests.py:117-121`).
+  that counts such votes. The sidecar advertises that with `declines_not_shown`
+  (`tui_gateway/methods_voice.py:539`, declared in
+  `tui_gateway/contracts/liveness.py:48`), and `_decline` in
+  `tui_gateway/server_requests.py:254` counts the vote.
   Never on a canonical socket, where any error reply settles the request.
 - After a reconnect, a request Hermes re-sends reopens, whatever Cindl last
   knew about it. The client then syncs each conversation that has open

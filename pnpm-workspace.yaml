@@ -34,6 +34,10 @@ allowBuilds:
 # Security overrides for transitive dev tooling. Remove each one once its
 # dependents accept the patched version.
 overrides:
-  # GHSA-g3hv-75wg-m249 (ReDoS through glob parts). Dev-only, via eslint and
-  # typescript-eslint, which still ask for ^10; 11.0.1 is the first fix.
+  # GHSA-g3hv-75wg-m249 (ReDoS through glob parts). Dev-only. 11.0.1 is the
+  # first fix. It also replaces the ^3 that electron-builder's glob@7.2.3 and
+  # @electron/asar@3.4.1 ask for, not only eslint's and typescript-eslint's
+  # ^10. Packaging works because electron-builder 26 never takes asar's own
+  # unpack path, which calls minimatch's default export (gone in 11). Remove
+  # the override once all four accept a fixed minimatch.
   minimatch: 11.0.3

@@ -25,7 +25,12 @@ Pre-release, under active development. What works today:
 - The web client UI against a **synthetic demo** (fictional data, always
   bannered): `pnpm --filter @cindl/web dev:demo`.
 
-Not yet done: live Hermes transport, desktop and Android apps, CI, docs site.
+- The Electron desktop app (Linux AppImages, real and labelled demo
+  flavours); it cannot sign in until the live transport lands.
+- CI on GitHub-hosted runners and the handbook site build.
+
+Not yet done: the live Hermes transport, the Android app on `main`, and any
+validation against a live Hermes.
 The acceptance matrix in
 [`docs/handbook/project/acceptance-matrix.md`](docs/handbook/project/acceptance-matrix.md)
 tracks every requirement and its evidence.
