@@ -1,0 +1,39 @@
+{
+  "name": "@cindl/desktop",
+  "productName": "Cindl",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Cindl desktop app: a hardened Electron shell around the apps/web renderer.",
+  "license": "MIT",
+  "author": "Zachary Lowery",
+  "homepage": "https://github.com/FlintSH/cindl",
+  "type": "module",
+  "main": "dist/main.cjs",
+  "scripts": {
+    "build": "node scripts/build.ts",
+    "build:demo": "node scripts/build.ts --flavour demo",
+    "start": "electron .",
+    "start:demo": "electron dist-demo",
+    "package": "node scripts/package.ts",
+    "package:demo": "node scripts/package.ts --flavour demo",
+    "smoke": "playwright test -c playwright.config.ts",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@cindl/client-core": "workspace:*",
+    "@cindl/contracts": "workspace:*",
+    "@cindl/fixtures": "workspace:*",
+    "@cindl/hermes-adapter": "workspace:*",
+    "@cindl/tokens": "workspace:*",
+    "@cindl/web": "workspace:*",
+    "@playwright/test": "1.64.1",
+    "@types/node": "catalog:",
+    "@types/ws": "8.18.2",
+    "electron": "45.2.1",
+    "electron-builder": "26.18.0",
+    "esbuild": "0.28.2",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "ws": "8.22.1"
+  }
+}

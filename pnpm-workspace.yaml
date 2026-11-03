@@ -23,7 +23,13 @@ catalog:
   zod: 4.6.7
 
 # Dependency install scripts are denied unless reviewed and listed here.
-allowBuilds: {}
+allowBuilds:
+  # Windows Squirrel installer pulled in by electron-builder (apps/desktop).
+  # Cindl packages Linux only, so its install script stays denied.
+  electron-winstaller: false
+  # apps/desktop bundles with esbuild's JS API, which runs the binary from the
+  # @esbuild/<platform> optional package; the install script only optimizes.
+  esbuild: false
 
 # Security overrides for transitive dev tooling. Remove each one once its
 # dependents accept the patched version.

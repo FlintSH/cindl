@@ -1,0 +1,145 @@
+# Builds both desktop flavours (Cindl and Cindl Demo) as AppImages, runs the
+# flavour gates, launch-smoke-tests those exact files with Chromium's sandbox
+# on, and uploads them from main only, and only when the smoke test passed.
+name: Desktop
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'apps/desktop/**'
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.node-version'
+      - '.github/workflows/desktop.yml'
+  pull_request:
+    paths:
+      - 'apps/desktop/**'
+      - 'apps/web/**'
+      - 'packages/**'
+      - 'package.json'
+      - 'pnpm-lock.yaml'
+      - 'pnpm-workspace.yaml'
+      - '.node-version'
+      - '.github/workflows/desktop.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  linux-appimage:
+    name: Linux x64 AppImages
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck and unit-test the desktop app
+        run: |
+          pnpm --filter @cindl/desktop typecheck
+          pnpm exec vitest run --project desktop
+
+      - name: Build the production web renderer
+        run: pnpm --filter @cindl/web build
+
+      # Each package step builds the flavour and runs its gates on the bundles
+      # and on the packaged app.asar and renderer (no fixture records in the
+      # real app; the demo notice copy in every renderer).
+      - name: Package Cindl (real flavour)
+        run: pnpm --filter @cindl/desktop run package
+
+      - name: Package Cindl Demo
+        run: pnpm --filter @cindl/desktop run package:demo
+
+      - name: Locate the AppImages and record their checksums
+        working-directory: apps/desktop/release
+        run: |
+          shopt -s nullglob
+          real=(real/Cindl-[0-9]*-x86_64.AppImage)
+          demo=(demo/Cindl-Demo-*-x86_64.AppImage)
+          if [ "${#real[@]}" -ne 1 ] || [ "${#demo[@]}" -ne 1 ]; then
+            echo "Expected one AppImage per flavour, found ${#real[@]} and ${#demo[@]}" >&2
+            exit 1
+          fi
+          (cd real && sha256sum "$(basename "${real[0]}")" > "$(basename "${real[0]}").sha256")
+          (cd demo && sha256sum "$(basename "${demo[0]}")" > "$(basename "${demo[0]}").sha256")
+          cat real/*.sha256 demo/*.sha256
+          echo "CINDL_SMOKE_REAL=$PWD/${real[0]}" >> "$GITHUB_ENV"
+          echo "CINDL_SMOKE_DEMO=$PWD/${demo[0]}" >> "$GITHUB_ENV"
+
+      # Ubuntu 23.10+ blocks the unprivileged user namespaces Chromium's sandbox
+      # needs, and an AppImage cannot use a setuid helper. Allow them on this
+      # throwaway runner so the smoke test runs with the sandbox on (Cindl
+      # refuses to run without it).
+      - name: Allow Chromium's user-namespace sandbox
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+
+      - name: Ensure Xvfb is available
+        run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
+
+      - name: Launch smoke test of both packaged AppImages
+        working-directory: apps/desktop
+        env:
+          CINDL_SMOKE_SANDBOX: '1'
+          CINDL_SMOKE_ARTIFACTS: ${{ runner.temp }}/desktop-smoke
+        run: >-
+          xvfb-run --auto-servernum --server-args="-screen 0 1440x900x24"
+          pnpm exec playwright test -c playwright.config.ts
+
+      - name: Upload smoke test results on failure
+        if: failure()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: desktop-smoke-results
+          path: |
+            apps/desktop/test-results
+            ${{ runner.temp }}/desktop-smoke
+          if-no-files-found: ignore
+          retention-days: 7
+
+      # Only main builds are published, and only after the smoke test passed;
+      # pull-request builds are tested but never uploaded.
+      - name: Upload the smoke-tested Cindl AppImage
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cindl-desktop-linux-x64-appimage
+          path: |
+            apps/desktop/release/real/Cindl-*-x86_64.AppImage
+            apps/desktop/release/real/Cindl-*-x86_64.AppImage.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Upload the smoke-tested Cindl Demo AppImage
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: cindl-demo-desktop-linux-x64-appimage
+          path: |
+            apps/desktop/release/demo/Cindl-Demo-*-x86_64.AppImage
+            apps/desktop/release/demo/Cindl-Demo-*-x86_64.AppImage.sha256
+          if-no-files-found: error
+          retention-days: 14
