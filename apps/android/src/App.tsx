@@ -1,5 +1,4 @@
 import { CindlProvider } from '@cindl/client-react'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import * as SplashScreen from 'expo-splash-screen'
 import * as SystemUI from 'expo-system-ui'
 import { useEffect, useState, type ReactNode } from 'react'
@@ -7,9 +6,9 @@ import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { NavProvider } from './nav/NavProvider.tsx'
 import { PortalHost } from './overlay/Portal.tsx'
 import { resolveClient, type ClientResolution } from './platform/client.ts'
-import { createKeyValueStore } from './platform/keyValueStore.ts'
 import { createPreferencesStore, type PreferencesStore } from './platform/preferences.ts'
 import { PreferencesProvider, usePreference } from './platform/PreferencesProvider.tsx'
+import { deviceKeyValueStore } from './platform/storage.ts'
 import { AppShell } from './shell/AppShell.tsx'
 import { ErrorBoundary } from './shell/ErrorBoundary.tsx'
 import { KeyboardProvider } from './shell/keyboard.tsx'
@@ -25,7 +24,7 @@ interface Boot {
 }
 
 async function boot(): Promise<Boot> {
-  const preferences = createPreferencesStore(createKeyValueStore(AsyncStorage))
+  const preferences = createPreferencesStore(deviceKeyValueStore())
   await preferences.load()
   return { preferences, client: await resolveClient() }
 }

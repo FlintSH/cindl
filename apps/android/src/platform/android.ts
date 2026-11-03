@@ -8,7 +8,6 @@ import {
 } from '@cindl/client-core'
 import { CindlError } from '@cindl/contracts'
 import type { CryptoProvider, NativeTokenSet } from '@cindl/hermes-adapter'
-import AsyncStorage from '@react-native-async-storage/async-storage'
 import { CryptoDigestAlgorithm, digest, getRandomBytes, randomUUID } from 'expo-crypto'
 import * as SecureStore from 'expo-secure-store'
 import { openBrowserAsync } from 'expo-web-browser'
@@ -28,8 +27,8 @@ import {
 } from '../auth/signIn.ts'
 import { createTokenVault, type TokenVault } from '../auth/tokens.ts'
 import { createCryptoProvider } from './crypto.ts'
-import { createKeyValueStore } from './keyValueStore.ts'
 import { createSecretStore } from './secretStore.ts'
+import { deviceKeyValueStore } from './storage.ts'
 import { createWebSocketFactory, type WebSocketConstructor } from './webSocket.ts'
 
 /**
@@ -90,7 +89,7 @@ export async function createAndroidPlatform(): Promise<AndroidPlatform> {
     newAttemptId: () => randomUUID(),
   }
   return {
-    keyValue: createKeyValueStore(AsyncStorage),
+    keyValue: deviceKeyValueStore(),
     secrets,
     // React Native's WebSocket (OkHttp) has the WebSocketLike shape; DOM typings differ only in `this`.
     webSocket: createWebSocketFactory(WebSocket as unknown as WebSocketConstructor),

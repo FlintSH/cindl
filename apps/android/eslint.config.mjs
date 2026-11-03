@@ -1,51 +1,58 @@
 // Android lint rules: the root config plus React Native specifics. ESLint 10
 // resolves the nearest config per file, so this file governs apps/android.
-// Rule lists extend the root's (cindlRules) instead of replacing them.
+// The root's rule options apply here unchanged; Android's own checks are the
+// `cindl-android` rules (lint/rules.mjs). Tests: test/lint-rules.test.ts.
 import globals from 'globals'
 import tseslint from 'typescript-eslint'
-import root, { cindlRules } from '../../eslint.config.mjs'
+import root from '../../eslint.config.mjs'
+import android from './lint/rules.mjs'
 
-const [, ...rootSyntax] = cindlRules.rules['no-restricted-syntax']
-const [, ...rootGlobals] = cindlRules.rules['no-restricted-globals']
-const isFixtureImportRule = (entry) => String(entry.selector).includes('ImportExpression')
+/**
+ * The root's options for `rule` in the scope that lists `glob`. The root
+ * exports no scoped lists, so they are found by a glob it names; a lookup that
+ * finds nothing stops lint rather than leave Android with weaker rules.
+ */
+function rootRule(glob, rule) {
+  const block = root.findLast((b) => b.files?.includes(glob) && b.rules?.[rule])
+  if (!block)
+    throw new Error(
+      `apps/android/eslint.config.mjs: the root config no longer scopes ${rule} for ${glob}; update this file.`,
+    )
+  return block.rules[rule]
+}
 
-const androidSyntax = [
-  {
-    selector: 'Literal[value=/^#(?:[0-9a-fA-F]{3,4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/]',
-    message: 'Use semantic colours from useTheme(); raw colours live in @cindl/tokens.',
-  },
-  {
-    selector: 'Literal[value=/^(?:rgb|hsl)a?\\(/]',
-    message: 'Use semantic colours from useTheme(); raw colours live in @cindl/tokens.',
-  },
-]
+/** Code in the app bundle. */
+const SHIPPED = ['src/**/*.{ts,tsx}', 'index.ts', 'modules/**/*.ts']
 
-export default tseslint.config(
+export default [
   ...root,
-  { ignores: ['android/**', '.expo/**', 'dist/**', 'dist-*/**'] },
   {
-    files: ['src/**/*.{ts,tsx}', 'index.ts', 'modules/**/*.ts'],
+    // Browser-scope rules (storage, global aliases) for everything that ships. The
+    // root applies only its bundled scope to apps/*/src and none to index.ts or
+    // modules/; Android code is written to the stricter scope.
+    files: SHIPPED,
+    plugins: { 'cindl-android': android },
     rules: {
-      // React Native has no DOM; DOM types exist only for the shared packages.
-      'no-restricted-globals': [
-        'error',
-        ...rootGlobals,
-        { name: 'document', message: 'React Native has no DOM.' },
-        { name: 'window', message: 'React Native has no window object.' },
-      ],
-      'no-restricted-syntax': ['error', ...rootSyntax, ...androidSyntax],
+      'no-restricted-syntax': rootRule('apps/web/src/**', 'no-restricted-syntax'),
+      'cindl-android/no-dom-globals': 'error',
+      'cindl-android/no-raw-colour': 'error',
+      'cindl-android/storage-in-platform': 'error',
     },
   },
   {
-    // The explicit, build-flag-gated demo switch may load the synthetic scenario.
+    // The platform layer is where the device's storage is opened.
+    files: ['src/platform/**'],
+    rules: { 'cindl-android/storage-in-platform': 'off' },
+  },
+  {
+    // The demo switch: one literal import of the labelled scenario, nothing else,
+    // under the same rules as the web's switch.
     files: ['src/platform/client.ts'],
     rules: {
-      'no-restricted-imports': 'off',
-      'no-restricted-syntax': [
-        'error',
-        ...rootSyntax.filter((entry) => !isFixtureImportRule(entry)),
-        ...androidSyntax,
-      ],
+      'no-restricted-syntax': rootRule(
+        'apps/web/src/platform/client.ts',
+        'no-restricted-syntax',
+      ),
     },
   },
   {
@@ -71,4 +78,4 @@ export default tseslint.config(
       '@typescript-eslint/no-require-imports': 'off',
     },
   },
-)
+]

@@ -8,7 +8,8 @@ Native Android app on Expo SDK 58 / React Native 0.88 (ADR 0008). Read
   `@cindl/tokens`; no forked types or styles. Colours come from `useTheme()`
   only (lint rejects raw colours).
 - Tokens only in secure storage (Android Keystore); nothing secret in
-  AsyncStorage or logs.
+  AsyncStorage or logs. Storage modules are imported only in `src/platform`
+  (lint: `cindl-android/storage-in-platform`).
 - System back closes sheets and overlays first; IME never covers the composer;
   48dp targets (`ANDROID_TOUCH_TARGET`); TalkBack labels match the web labels;
   respect font scale and reduced motion.
@@ -48,6 +49,9 @@ Working here:
 - Request identity, clarify drafts and answers go through
   `src/talk/requests.ts` only.
 - Keep pure logic out of components so it can be tested without React Native.
+- `eslint.config.mjs` never sets a root rule's options again (that replaces the
+  root's list for those files); Android checks are rules in `lint/rules.mjs`,
+  tested in `test/lint-rules.test.ts`.
 - Emulator tests live in `e2e/` and run only in CI (`e2e/run.ts`); their pure
   parts (UI dump parsing, 48dp audit, fake Hermes auth server) are unit-tested
   in `test/e2e.test.ts`. Use accessibility labels as selectors, so a renamed
