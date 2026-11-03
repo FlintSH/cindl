@@ -109,8 +109,18 @@ socket is the one exception Hermes imposes; see
 [The agent's screen](#the-agent-s-screen)). The stored
 origin is re-checked against the same rules before every use, and each
 encrypted token record names its origin, so an edited settings file cannot send
-a token somewhere else or over plain http. Signing in to a different Hermes
-forgets the previous one's tokens.
+a token somewhere else or over plain http.
+
+**Switching Hermes is all or nothing.** Signing in to a different Hermes
+changes nothing until it succeeds. Only then does Cindl store the new address
+and forget the previous Hermes's tokens. If the sign-in fails or is cancelled
+(in the browser, or by the five-minute timeout), Cindl goes back to the Hermes
+it was using, with the same address and tokens and without a restart, and a
+notice at the top of the window says why. Quitting while the browser is still
+open leaves the device on the previous Hermes as well. A newer sign-in, or
+signing out, replaces a sign-in that is still waiting for the browser. If the
+previous tokens cannot be removed at once, a notice says so and Cindl removes
+them at its next start.
 
 **Sign-out is local.** It deletes this device's tokens. Hermes v0.22.5 cannot
 revoke native tokens it has issued, so sign-out does not end sessions anywhere
@@ -306,6 +316,7 @@ by Cindl's CI.
 | "Hermes is running in loopback-token mode"     | Configure a sign-in provider (password or OAuth) on Hermes; Cindl never reads that token.      |
 | "does not offer native sign-in"                | That Hermes has no `native_pkce` flow in `auth_flows`; update or configure it.                 |
 | Warning that tokens stay in memory only        | No usable keyring. Install and unlock GNOME Keyring or KWallet, or accept signing in again.    |
+| "Sign-in to … did not complete"                | Cindl stayed on the Hermes you were using. Check the address and native sign-in, then retry.   |
 | Work says the agent screen is not running      | Start it on Hermes (the agent or the Hermes CLI). Cindl never starts, stops or installs it.    |
 | A link does nothing                            | Only `https://` links open, right after a click. The terminal shows "Refused to open a link".  |
 | Window opens off screen after a monitor change | Cindl drops saved positions that are no longer on a screen; delete `window-state.json` if not. |

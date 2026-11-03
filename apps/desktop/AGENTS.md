@@ -34,7 +34,9 @@ documentation: `docs/handbook/clients/desktop.md`. Non-negotiable:
   (`src/main/platform/origin-policy.ts`), re-checked on every stored read.
 - Native sign-in: a main-owned confirmation of the origin first; PKCE with a
   loopback listener bound to `127.0.0.1`, one matching-state callback, then
-  closed (or on timeout, cancel or replacement).
+  closed (or on timeout, cancel or replacement). Switching origin is all or
+  nothing (`session.ts`): store the origin and forget the old tokens only
+  after success; on failure restore the pin and restart on the old origin.
 - `openExternal` only for validated `https:` URLs, only right after a trusted
   click or Enter/Space (`createGestureTracker`), rate limited.
 
@@ -44,7 +46,7 @@ documentation: `docs/handbook/clients/desktop.md`. Non-negotiable:
 | ---------------------- | ------------------------------------------------------------------------ |
 | `src/main/app.ts`      | Shared main process: lifecycle, window, wiring (`runCindl(flavour)`)     |
 | `src/main/index.ts`    | Real flavour entry                                                       |
-| `src/main/session.ts`  | The direct Hermes client on the platform pieces, sign-in confirmation    |
+| `src/main/session.ts`  | The direct Hermes client on the platform pieces; all-or-nothing sign-in  |
 | `src/main/demo.ts`     | Cindl Demo entry (synthetic scenario)                                    |
 | `src/main/ipc.ts`      | Channel handlers, sender checks, `BridgeReply` envelopes                 |
 | `src/main/host.ts`     | Owns the main-process `CindlClientApi`; mirror store and snapshot replay |

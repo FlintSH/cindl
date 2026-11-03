@@ -96,8 +96,8 @@ export interface DesktopPlatform {
   fetch: FetchLike
   /** The Hermes origin requests and sockets may reach. */
   origin(): string | undefined
-  /** Allow `origin` (after the owner confirmed it for sign-in). */
-  pinOrigin(origin: string): void
+  /** Allow `origin` (after the owner confirmed it for sign-in), or nothing. */
+  pinOrigin(origin: string | undefined): void
 }
 
 export async function createDesktopPlatform(options: {

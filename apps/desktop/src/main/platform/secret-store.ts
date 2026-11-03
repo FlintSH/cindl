@@ -108,12 +108,15 @@ function unseal(key: string, plain: string): string | undefined {
 
 /**
  * Secrets in memory only. Used when the OS cannot encrypt: nothing is ever
- * written to disk, so tokens are forgotten when Cindl quits.
+ * written to disk, so tokens are forgotten when Cindl quits. It reports
+ * `available` all the same: it never writes plaintext, and holding the tokens
+ * here (rather than in the client that signed in) lets them outlive that
+ * client, so a failed switch can restart the previous session.
  */
 export function createMemorySecretStore(reason: string): DesktopSecretStore {
   const values = new Map<string, string>()
   return {
-    available: false,
+    available: true,
     persistence: 'memory-only',
     reason,
     get: (key) => Promise.resolve(values.get(key)),

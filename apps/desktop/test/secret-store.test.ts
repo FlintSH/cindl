@@ -116,7 +116,9 @@ describe('secret store without OS encryption', () => {
     'keeps tokens in memory only with %s and never writes them',
     async (_label, safeStorage) => {
       const store = await createSecretStore({ safeStorage, file, platform: 'linux' })
-      expect(store.available).toBe(false)
+      // Usable: callers hand it tokens and deletes (it never writes plaintext);
+      // persistence says they do not survive a restart.
+      expect(store.available).toBe(true)
       expect(store.persistence).toBe('memory-only')
       expect(store.reason).toBeTruthy()
       await store.set('hermes.native-tokens:https://hermes.example.test', TOKEN)
