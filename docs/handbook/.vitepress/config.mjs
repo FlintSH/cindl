@@ -1,11 +1,10 @@
 import { copyFileSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitepress'
 import { getBuildInfo } from './build-info.mjs'
 import { buildSidebar, excludedPages, rewrites } from './sidebar.mjs'
 
-const handbook = fileURLToPath(new URL('..', import.meta.url))
+const handbook = join(import.meta.dirname, '..')
 const repo = join(handbook, '../..')
 const repoUrl = 'https://github.com/FlintSH/cindl'
 // The app icon is the web client's; the handbook serves it rather than a copy.

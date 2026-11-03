@@ -5,10 +5,9 @@
 import { createReadStream, existsSync, statSync } from 'node:fs'
 import { createServer } from 'node:http'
 import { extname, join, sep } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { parseArgs } from 'node:util'
 
-const dist = fileURLToPath(new URL('./dist', import.meta.url))
+const dist = join(import.meta.dirname, 'dist')
 const base = process.env.DOCS_BASE || '/'
 const { values } = parseArgs({ options: { port: { type: 'string', default: '4174' } } })
 const TYPES = {

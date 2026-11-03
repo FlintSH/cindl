@@ -5,9 +5,8 @@ import { execFileSync, spawnSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 
-export const repoRoot = fileURLToPath(new URL('../..', import.meta.url))
+export const repoRoot = join(import.meta.dirname, '../..')
 
 // Isolate Git from the developer's configuration (signing, hooks, identity).
 const ENV = {

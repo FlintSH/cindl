@@ -1,9 +1,9 @@
 // Small, dependency-free helpers shared by the repository gates in scripts/.
 import { execFileSync } from 'node:child_process'
-import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
 
 /** Repository root, resolved from this file so gates work from any directory. */
-export const defaultRoot = fileURLToPath(new URL('../..', import.meta.url))
+export const defaultRoot = join(import.meta.dirname, '../..')
 
 /** Run git and return stdout. Throws (with git's stderr) when git fails. */
 export function git(cwd, args, { allowFailure = false } = {}) {
