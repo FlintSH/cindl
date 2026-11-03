@@ -13,6 +13,7 @@ import {
   startFakeHermes,
   type FakeHermes,
 } from '@cindl/fixtures/fake-hermes'
+import { nativeTokensKey } from '@cindl/hermes-adapter'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   ATTEMPT_MARKER_KEY,
@@ -20,12 +21,7 @@ import {
   INTERRUPTED_NOTICE,
   recoverInterruptedSignIn,
 } from '../src/auth/loopback.ts'
-import {
-  LEGACY_ATTEMPT_KEY,
-  legacyTokensKey,
-  nativeTokensKey,
-  ORIGIN_KEY,
-} from '../src/auth/migrate.ts'
+import { LEGACY_ATTEMPT_KEY, legacyTokensKey, ORIGIN_KEY } from '../src/auth/migrate.ts'
 import type { AndroidPlatform } from '../src/platform/android.ts'
 import {
   createAndroidClient,

@@ -1,4 +1,4 @@
-import { NativeAuth, webCryptoProvider } from '@cindl/hermes-adapter'
+import { NativeAuth, nativeTokensKey, webCryptoProvider } from '@cindl/hermes-adapter'
 import { systemClock } from '@cindl/client-core'
 import { describe, expect, it } from 'vitest'
 import {
@@ -11,7 +11,6 @@ import {
   LEGACY_ATTEMPT_KEY,
   legacyTokensKey,
   migrateEarlierSignIn,
-  nativeTokensKey,
   ORIGIN_KEY,
 } from '../src/auth/migrate.ts'
 import { deviceStores, fakeListener } from './support.ts'
@@ -207,7 +206,7 @@ describe('a sign-in made by an earlier build (its own PKCE)', () => {
     expect(await secrets.get(legacyTokensKey(ORIGIN))).toBeUndefined()
     expect(await secrets.get(LEGACY_ATTEMPT_KEY)).toBeUndefined()
     expect(await secrets.get(nativeTokensKey(ORIGIN))).toBe(JSON.stringify(tokens))
-    // The adapter's own class reads the moved record: the key format is the one it uses.
+    // Under the adapter's exported key, and its own class reads the moved record there.
     expect(await nativeAuth(secrets).identity()).toMatchObject({
       provider: 'basic',
       userId: 'synthetic-owner',

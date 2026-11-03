@@ -1,6 +1,6 @@
 import type { KeyValueStore, SecretStore } from '@cindl/client-core'
 import { HermesOrigin } from '@cindl/contracts'
-import { wire } from '@cindl/hermes-adapter'
+import { nativeTokensKey, wire } from '@cindl/hermes-adapter'
 
 /**
  * The Hermes origin this device last signed in to. Not a secret; kept after a
@@ -9,13 +9,8 @@ import { wire } from '@cindl/hermes-adapter'
  */
 export const ORIGIN_KEY = 'signin.origin'
 
-/**
- * Where the adapter's NativeAuth keeps an origin's tokens in the SecretStore
- * (packages/hermes-adapter/src/native-auth.ts). test/direct.test.ts proves
- * NativeAuth reads what is written here.
- */
-export const nativeTokensKey = (origin: string) =>
-  `cindl.hermes.native-tokens.v1|${origin}`
+/** Where the adapter's NativeAuth keeps an origin's tokens in the SecretStore. */
+export { nativeTokensKey }
 
 /**
  * What earlier builds kept, which ran their own PKCE before the direct client

@@ -250,7 +250,8 @@ Hermes or another. The address stays, ready to sign in again.
 
 A device that signed in with an earlier build (which ran its own PKCE before
 the direct client existed) keeps its sign-in: on the first start, its tokens
-move to where `NativeAuth` reads them and the old record is deleted; an
+move to where `NativeAuth` reads them (the adapter's `nativeTokensKey`) and the
+old record is deleted; an
 unfinished earlier attempt, whose PKCE verifier is deleted with it, is
 reported as interrupted. This only applies to an update signed with the same
 key as the earlier build. Every CI test APK is signed with its own throwaway
