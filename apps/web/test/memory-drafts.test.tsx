@@ -624,6 +624,42 @@ describe('adoption keeps every draft', () => {
     expect(textarea()!.value).toBe(D_H)
     expect(h.writes()).toEqual([])
   })
+
+  it('P1d: a list reload that lands while a save is in flight (after Hermes applied it) leaves no kept copy of the saved text', async () => {
+    const h = harness()
+    await open(/The kiln firing log/)
+    await holdListAndReload(h)
+    editTo('Edit agent note 2', D_K)
+    fireEvent.click(button('Review changes')!)
+    h.holdAnswer('memory.write')
+    fireEvent.click(button('Confirm and save')!)
+    await settle()
+    // Hermes applied the write; its answer is slow. The list asked earlier is answered now.
+    await releaseList(h)
+    const during = { locked: lockedNow(), kept: keptKeys() }
+    h.release('memory.write')
+    await settle()
+    await settle()
+    const saved = {
+      locked: lockedNow(),
+      kept: keptMemoryDrafts(),
+      restore: Boolean(button('Restore previous version')),
+      store: h.mem.contents(),
+    }
+    fireEvent.click(button(/Close memory entry/)!)
+    await settle()
+    const closed = {
+      unsaved: Boolean(screen.queryByText('Unsaved drafts')),
+      savedTextListedAsUnsaved: Array.from(
+        document.querySelectorAll('[class*="memoryItem"] pre'),
+      ).some((p) => p.textContent === D_K),
+    }
+    expect(during.locked).toBe(true)
+    expect(during.kept).toHaveLength(1)
+    expect(h.mem.has(/Kiln draft/)).toBe(true)
+    expect(saved.kept).toEqual([])
+    expect(closed.unsaved).toBe(false)
+  })
 })
 
 describe('the delete confirmation names the entry it deletes', () => {

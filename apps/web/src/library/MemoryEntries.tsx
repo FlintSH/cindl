@@ -369,6 +369,26 @@ function MemoryEntryEditor({
       },
     )
   }
+  // What the lock says, and where the draft in the box goes when this closes:
+  // an entry's own kept draft returns when that entry is opened; a draft kept
+  // beside another (`#n`) waits under Unsaved drafts; a draft written for
+  // another entry returns to that entry while it is listed, and otherwise
+  // waits under Unsaved drafts.
+  const lockMessage = (keptAs: string | undefined) => {
+    const base =
+      'The entry this editor showed was changed, removed or moved in Hermes, and Cindl cannot tell which, so nothing here can be saved or deleted. Your text is kept below to copy.'
+    if (movedTo === undefined || movedTo === place) return base
+    const here = `${base} The same text is now ${label} ${movedTo}`
+    if (keptAs === undefined || keptAs === ownKey)
+      return `${here}; close this and open it there to keep editing it.`
+    if (keptAs.includes('#'))
+      return `${here}. The text you were editing is kept apart from that entry's own draft, so when you close this it stays under Unsaved drafts.`
+    const source = keptAs.slice(MEMORY_DRAFT_PREFIX.length)
+    const sourcePlace = placeNow(source)
+    return sourcePlace === undefined
+      ? `${here}. This draft was written for another entry, so when you close this it stays under Unsaved drafts.`
+      : `${here}. This draft was written for ${source.startsWith('profile:') ? 'note about you' : 'agent note'} ${sourcePlace}, so when you close this it goes back to that entry.`
+  }
   const otherDraft =
     adoptedFrom !== undefined &&
     ownKey !== undefined &&
@@ -395,19 +415,13 @@ function MemoryEntryEditor({
             document={toDocument(data)}
             draftKey={draftKey}
             canWrite={canWrite}
-            locked={
-              locked
-                ? `The entry this editor showed was changed, removed or moved in Hermes, and Cindl cannot tell which, so nothing here can be saved or deleted. Your text is kept below to copy.${
-                    movedTo === undefined || movedTo === place
-                      ? ''
-                      : adoptedFrom === undefined
-                        ? ` The same text is now ${label} ${movedTo}; close this and open it there to keep editing it.`
-                        : ` The same text is now ${label} ${movedTo}. This draft was written for another entry, so when you close this it stays under Unsaved drafts.`
-                  }`
+            locked={locked ? lockMessage : undefined}
+            nowHere={locked ? summary?.title : undefined}
+            onAdopt={
+              summary && locked
+                ? (keptAs) => adopt(summary, keptAs ?? draftKey)
                 : undefined
             }
-            nowHere={locked ? summary?.title : undefined}
-            onAdopt={summary && locked ? () => adopt(summary, draftKey) : undefined}
             adoption={adoption}
             draftNote={
               adoptedFrom

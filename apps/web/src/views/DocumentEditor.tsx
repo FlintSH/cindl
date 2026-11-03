@@ -1,6 +1,6 @@
 import { diffLines, diffStats } from '@cindl/client-core'
 import { isCindlError, type VersionedDocument } from '@cindl/contracts'
-import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './views.module.css'
 
@@ -105,14 +105,16 @@ export function DocumentEditor({
   writeNote?: string | undefined
   /**
    * Why this editor may no longer save (its document is gone, or the one shown
-   * may not be it). The draft stays visible, read-only, and is kept.
+   * may not be it). The draft stays visible, read-only, and is kept. Given as
+   * a function, it is told where the draft in the box is kept, so it can say
+   * where that draft goes when the editor closes.
    */
-  locked?: string | undefined
+  locked?: string | ((keptAs: string | undefined) => string) | undefined
   /**
    * The owner's explicit choice to use a locked draft for the document now
    * shown. Without it, nothing written for one document reaches another.
    */
-  onAdopt?: (() => void) | undefined
+  onAdopt?: ((keptAs: string | undefined) => void) | undefined
   /** An adoption under way (`busy`) or refused (`error`); the draft stays kept either way. */
   adoption?: { busy: boolean; error?: string | undefined } | undefined
   /** What a locked editor's adoption would use the draft for, said beside the button. */
@@ -134,6 +136,14 @@ export function DocumentEditor({
   })
   const [, setKeptSeen] = useState(0)
   const keptAs = stage.kind === 'view' ? undefined : stage.keptAs
+  // Where the box's draft is kept now. A save or conflict that ends after the
+  // editor locked (the lock files the draft) must act on that key, not on the
+  // one the draft had when the save started.
+  const keptAsNow = useRef(keptAs)
+  useLayoutEffect(() => {
+    keptAsNow.current = keptAs
+  })
+  const lockText = typeof locked === 'function' ? locked(keptAs) : locked
   // The box holds this document's kept draft.
   const restored = keptAs === draftKey && keptDrafts.has(draftKey)
   // A kept draft for this document that the box is not showing: offered, never
@@ -144,7 +154,7 @@ export function DocumentEditor({
   // drafts) and it never returns to a different document. So does an editor
   // asked to keep its draft (one written for another document).
   const keptDraft =
-    (locked || keepDraft) && stage.kind !== 'view' ? stage.draft : undefined
+    (lockText || keepDraft) && stage.kind !== 'view' ? stage.draft : undefined
   useEffect(() => {
     if (keptDraft === undefined) return
     const key = keepKey(draftKey, keptAs, keptDraft)
@@ -157,25 +167,25 @@ export function DocumentEditor({
   // adoption), and onto the notice when a lock takes away the focused control.
   const box = useRef<HTMLTextAreaElement>(null)
   const notice = useRef<HTMLDivElement>(null)
-  const wasLocked = useRef(Boolean(locked))
+  const wasLocked = useRef(Boolean(lockText))
   useEffect(() => {
-    const lockedNow = Boolean(locked)
+    const lockedNow = Boolean(lockText)
     if (wasLocked.current && !lockedNow) box.current?.focus()
     const page = notice.current?.ownerDocument
     if (!wasLocked.current && lockedNow && page?.activeElement === page?.body)
       notice.current?.focus()
     wasLocked.current = lockedNow
-  }, [locked])
+  }, [lockText])
   const hereId = useId()
   const [error, setError] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
   // The text a save replaced, offered back only while the document is still
   // the version that save produced (not another entry, nor a later change).
   const [backup, setBackup] = useState<{ content: string; version: string }>()
-  const lockNotice = locked ? (
+  const lockNotice = lockText ? (
     <div className={styles.section} ref={notice} tabIndex={-1}>
       <p className={styles.error} role="alert">
-        {locked}
+        {lockText}
       </p>
       {nowHere ? (
         <p className={styles.note} id={hereId}>
@@ -206,7 +216,7 @@ export function DocumentEditor({
               variant="quiet"
               disabled={Boolean(adoption?.busy)}
               aria-describedby={nowHere ? hereId : undefined}
-              onClick={onAdopt}
+              onClick={() => onAdopt(keptAs)}
             >
               Use this draft for the entry now here
             </Button>
@@ -225,7 +235,7 @@ export function DocumentEditor({
           Read {new Date(document.readAt).toLocaleString()} from {document.source}.
           Version <code>{document.version.slice(0, 12)}</code>.
         </p>
-        {otherKept !== undefined && !locked ? (
+        {otherKept !== undefined && !lockText ? (
           <div className={styles.section}>
             <p className={styles.note} role="status">
               An unsaved draft for this is kept on this device:
@@ -253,7 +263,7 @@ export function DocumentEditor({
             </div>
           </div>
         ) : null}
-        {backup && !locked && backup.version === document.version ? (
+        {backup && !lockText && backup.version === document.version ? (
           <p className={styles.note}>
             The previous version is kept on this screen until you leave it.{' '}
             <Button
@@ -278,7 +288,7 @@ export function DocumentEditor({
           <Button variant="quiet" onClick={onReload}>
             Reload
           </Button>
-          {canWrite && !locked ? (
+          {canWrite && !lockText ? (
             <Button onClick={() => setStage({ kind: 'edit', draft: document.content })}>
               Edit
             </Button>
@@ -292,17 +302,17 @@ export function DocumentEditor({
     return (
       <div className={styles.section}>
         {lockNotice}
-        {draftNote && !locked ? (
+        {draftNote && !lockText ? (
           <p className={styles.note} role="status">
             {draftNote}
           </p>
-        ) : restored && !locked ? (
+        ) : restored && !lockText ? (
           <p className={styles.note} role="status">
             Your unsaved draft was kept. Review it against the current version before
             saving.
           </p>
         ) : null}
-        {otherKept !== undefined && !locked ? (
+        {otherKept !== undefined && !lockText ? (
           <p className={styles.note}>
             Another unsaved draft for this is kept on this device. Saving or discarding
             this one leaves it.
@@ -316,7 +326,7 @@ export function DocumentEditor({
           ref={box}
           className={styles.editor}
           value={stage.draft}
-          readOnly={Boolean(locked)}
+          readOnly={Boolean(lockText)}
           spellCheck
           onChange={(event) =>
             setStage({ kind: 'edit', draft: event.target.value, keptAs: stage.keptAs })
@@ -335,7 +345,7 @@ export function DocumentEditor({
           </Button>
           <Button
             variant="primary"
-            disabled={Boolean(locked) || stage.draft === document.content}
+            disabled={Boolean(lockText) || stage.draft === document.content}
             onClick={() =>
               setStage({
                 kind: 'review',
@@ -361,12 +371,13 @@ export function DocumentEditor({
     try {
       const previous = document.content
       const saved = await onSave(draft, base)
-      if (stage.keptAs !== undefined) keptDrafts.delete(stage.keptAs)
+      // The draft is saved: forget its kept copy, wherever it is filed now.
+      if (keptAsNow.current !== undefined) keptDrafts.delete(keptAsNow.current)
       setBackup({ content: previous, version: saved.version })
       setStage({ kind: 'view' })
     } catch (err) {
       if (isCindlError(err) && err.code === 'conflict') {
-        const key = keepKey(draftKey, stage.keptAs, draft)
+        const key = keepKey(draftKey, keptAsNow.current, draft)
         keptDrafts.set(key, draft)
         setStage({ kind: 'review', draft, base, keptAs: key })
         setError({ message: `${err.message} Your draft is kept.`, conflict: true })
@@ -391,7 +402,7 @@ export function DocumentEditor({
     <div className={styles.section}>
       {lockNotice}
       <Review before={document.content} draft={draft} />
-      {moved && !locked ? (
+      {moved && !lockText ? (
         <p className={styles.error} role="alert">
           This text changed in Hermes while you were reviewing, so the changes above are
           against the new version. Go back to editing and review your draft again before
@@ -425,7 +436,7 @@ export function DocumentEditor({
         </Button>
         <Button
           variant="primary"
-          disabled={saving || moved || Boolean(locked) || Boolean(error?.conflict)}
+          disabled={saving || moved || Boolean(lockText) || Boolean(error?.conflict)}
           onClick={() => void save()}
         >
           {saving ? 'Saving…' : 'Confirm and save'}

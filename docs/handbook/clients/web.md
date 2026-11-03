@@ -124,14 +124,19 @@ from the desktop app's custom protocol.
     review the draft against that entry's text before saving.
   - A draft stays kept for the entry it was written for until you save or
     discard that draft, including while you edit it for another entry. So
-    closing the editor loses nothing, and if that entry moves, the draft waits
-    under "Unsaved drafts" rather than following it.
-  - An entry's own kept draft is never replaced or forgotten by other text.
-    When the editor shows the entry without it, the draft is offered (Continue
-    the draft, Discard the draft). Editing afresh, saving or discarding that
-    fresh text leaves it; if the fresh text must be kept too, it is kept beside
-    it. Drafts for entries Hermes no longer lists stay under "Unsaved drafts",
-    to copy or discard; each discard button names its draft.
+    closing the editor loses nothing: the draft goes back to that entry while
+    Hermes lists it, and otherwise waits under "Unsaved drafts". It never
+    follows the entry you used it for.
+  - An entry's own kept draft is never replaced or forgotten by other text,
+    and it is the one that returns when you open the entry. When the editor
+    shows the entry without it, the draft is offered (Continue the draft,
+    Discard the draft). Editing afresh, saving or discarding that fresh text
+    leaves it; if the fresh text must be kept too, it is kept beside it and
+    waits under "Unsaved drafts". Drafts for entries Hermes no longer lists
+    stay there too, to copy or discard; each discard button names its draft.
+  - When a locked editor's entry has moved, the lock says where the text you
+    were editing goes when you close it: back with the entry, back to the
+    entry it was written for, or under "Unsaved drafts".
   - A delete names the text it removes: the first line with words in it, of
     the text Cindl read under the id the delete sends. Deleting warns first,
     because Hermes keeps no backup.
