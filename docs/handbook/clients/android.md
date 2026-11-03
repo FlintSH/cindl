@@ -511,6 +511,17 @@ Hermes server, Chrome's Custom Tab, and a phone.
     the text Cindl read under the id the delete sends ("this entry" if there
     is none). The confirmation closes if the entry read there changes.
     Deleting warns first, because Hermes keeps no backup.
+  - Each step in the editor (Edit, Continue the draft, Review changes, Back
+    to editing, Discard changes, Reload and keep my draft, Restore previous
+    version, a save, or system back) gives TalkBack focus and a hardware
+    keyboard's to what took the place of the control you pressed: the lock
+    notice while the editor is locked, else the draft, the review's summary,
+    or **Edit** (**Reload** when there is no Edit). A save gives focus to
+    Edit when it lands, and none if you pressed anything else while it was on
+    its way: focus you moved stays where you moved it (web parity, cb9caeb).
+    Known gap: moving TalkBack focus with a swipe is not seen (React Native
+    does not report it), so a save that lands after a swipe elsewhere still
+    gives focus to Edit; the web keeps it wherever you moved it.
   - TalkBack focus moves into your draft when an adoption completes, and onto
     the lock notice whenever the editor locks: React Native does not tell the
     app where TalkBack focus is, so Cindl cannot tell whether the control it

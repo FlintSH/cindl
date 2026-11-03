@@ -10,6 +10,8 @@ import {
   type TextInputInstance,
 } from 'react-native'
 import { useBackHandler, useDestinationActive } from '../nav/NavProvider.tsx'
+import { giveKeyboardFocus } from '../overlay/keyboardFocus.ts'
+import { pressCount } from '../overlay/opener.ts'
 import { Dialog } from '../overlay/Sheet.tsx'
 import { describeFailure, NOT_APPLIED, SAVE_UNCERTAIN } from '../talk/failures.ts'
 import { useTheme } from '../theme/theme.tsx'
@@ -121,6 +123,17 @@ export function DocumentEditor({
   // completed), onto the notice when it starts (it takes Edit and Delete away).
   const box = useRef<TextInputInstance>(null)
   const edit = useRef<HostInstance | null>(null)
+  // A step replaces the control the owner pressed (or the step system back
+  // left): TalkBack focus and a keyboard's go to what took its place, the lock
+  // notice while locked, else the draft, the review, or Edit (Reload when
+  // there is no Edit). A step that lands later (a save) gives none once the
+  // owner has pressed something else meanwhile (web parity, cb9caeb).
+  const reload = useRef<HostInstance | null>(null)
+  const reviewText = useRef<HostInstance | null>(null)
+  const stepPresses = useRef<number>(undefined)
+  const step = () => {
+    stepPresses.current = pressCount()
+  }
   const lockText = useRef<HostInstance>(null)
   const isLocked = Boolean(locked)
   const wasLocked = useRef(isLocked)
@@ -134,6 +147,25 @@ export function DocumentEditor({
     }, 60)
     return () => clearTimeout(timer)
   }, [isLocked])
+  useEffect(() => {
+    const presses = stepPresses.current
+    if (presses === undefined) return
+    stepPresses.current = undefined
+    const timer = setTimeout(() => {
+      if (pressCount() !== presses) return
+      // The lock notice is there only while the editor is locked (lockPanel).
+      const node =
+        lockText.current ??
+        box.current ??
+        reviewText.current ??
+        edit.current ??
+        reload.current
+      if (!node) return
+      AccessibilityInfo.sendAccessibilityEvent(node, 'focus')
+      giveKeyboardFocus(node)
+    }, 60)
+    return () => clearTimeout(timer)
+  }, [stage.kind])
   const [failure, setFailure] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
   // The text a save replaced, with the version that save produced.
@@ -190,14 +222,18 @@ export function DocumentEditor({
 
   const leaveEditing = () => {
     if (dirty) setDiscarding(true)
-    else setStage({ kind: 'view' })
+    else {
+      step()
+      setStage({ kind: 'view' })
+    }
   }
 
   useBackHandler(
     () => {
-      if (stage.kind === 'review')
+      if (stage.kind === 'review') {
+        step()
         setStage({ kind: 'edit', draft: stage.draft, keptAs: stage.keptAs })
-      else leaveEditing()
+      } else leaveEditing()
       return true
     },
     active && stage.kind !== 'view' && !saving,
@@ -292,6 +328,7 @@ export function DocumentEditor({
                   <Button
                     label="Continue the draft"
                     onPress={() => {
+                      step()
                       setFailure(undefined)
                       setStage({ kind: 'edit', draft: offered, keptAs: draftKey })
                     }}
@@ -308,7 +345,10 @@ export function DocumentEditor({
               label="Restore previous version"
               variant="quiet"
               style={{ alignSelf: 'flex-start' }}
-              onPress={() => setStage({ kind: 'edit', draft: backup.content })}
+              onPress={() => {
+                step()
+                setStage({ kind: 'edit', draft: backup.content })
+              }}
             />
           </View>
         ) : previous === 'copy' && backup ? (
@@ -322,12 +362,13 @@ export function DocumentEditor({
         ) : null}
         {actions(
           <>
-            <Button label="Reload" variant="quiet" onPress={onReload} />
+            <Button ref={reload} label="Reload" variant="quiet" onPress={onReload} />
             {canWrite && !locked ? (
               <Button
                 ref={edit}
                 label="Edit"
                 onPress={() => {
+                  step()
                   setFailure(undefined)
                   setStage({ kind: 'edit', draft: document.content })
                 }}
@@ -381,6 +422,7 @@ export function DocumentEditor({
               label="Discard changes"
               variant="quiet"
               onPress={() => {
+                step()
                 if (stage.keptAs !== undefined) keptDrafts.delete(stage.keptAs)
                 setFailure(undefined)
                 setStage({ kind: 'view' })
@@ -391,7 +433,10 @@ export function DocumentEditor({
               label="Review changes"
               variant="primary"
               disabled={Boolean(locked) || stage.draft === document.content}
-              onPress={() => setStage(reviewStage(stage.draft, document, stage.keptAs))}
+              onPress={() => {
+                step()
+                setStage(reviewStage(stage.draft, document, stage.keptAs))
+              }}
             />
           </>,
         )}
@@ -436,7 +481,7 @@ export function DocumentEditor({
   return (
     <View style={{ gap: theme.space[3] }}>
       {lockNotice}
-      <Txt>
+      <Txt ref={reviewText}>
         {`Review before saving: ${stats.added} line${stats.added === 1 ? '' : 's'} added, ${stats.removed} removed.${
           exact ? '' : ' (Large document: shown as a full replacement.)'
         }`}
@@ -503,6 +548,7 @@ export function DocumentEditor({
               label="Reload and keep my draft"
               onPress={() => {
                 // Fetch the current version, keep the draft, and review it again against the new text.
+                step()
                 onReload()
                 setFailure(undefined)
                 setStage({ kind: 'edit', draft, keptAs })
@@ -513,14 +559,20 @@ export function DocumentEditor({
             label="Back to editing"
             variant="quiet"
             disabled={saving}
-            onPress={() => setStage({ kind: 'edit', draft, keptAs })}
+            onPress={() => {
+              step()
+              setStage({ kind: 'edit', draft, keptAs })
+            }}
           />
           <Button
             label={saving ? 'Saving…' : 'Confirm and save'}
             variant="primary"
             disabled={saving || moved || Boolean(locked) || Boolean(failure?.conflict)}
             busy={saving}
-            onPress={() => void save()}
+            onPress={() => {
+              step()
+              void save()
+            }}
           />
         </>,
       )}

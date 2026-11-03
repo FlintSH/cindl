@@ -106,3 +106,43 @@ describe('a refusal Discard clears', () => {
     )
   })
 })
+
+describe('focus after each step of the editor (web parity, cb9caeb)', () => {
+  it('goes to what replaced the control pressed: the draft, the review, Edit', async () => {
+    const h = harness()
+    await openEntry(h, /Glaze supplier/)
+    h.press('Edit')
+    await h.settle()
+    expect(h.focusLog().at(-1)).toBe('draft')
+    expect(h.keyboardLog().at(-1)).toBe('draft')
+    h.change('Glaze supplier calls moved to Tuesdays (fictional supplier).')
+    h.press('Review changes')
+    await h.settle()
+    expect(h.focusLog().at(-1)).toMatch(
+      /^Review before saving: 1 line added, 1 removed\./,
+    )
+    h.press('Back to editing')
+    await h.settle()
+    expect(h.focusLog().at(-1)).toBe('draft')
+    h.press('Review changes')
+    h.press('Confirm and save')
+    await h.settle()
+    expect(h.mem.store('memory')[0]).toBe(
+      'Glaze supplier calls moved to Tuesdays (fictional supplier).',
+    )
+    expect(h.focusLog().at(-1)).toBe('button: Edit')
+    expect(h.keyboardLog().at(-1)).toBe('button: Edit')
+  })
+
+  it('goes to Edit when the owner discards the changes in the box', async () => {
+    keptDrafts.set(key('memory', GLAZE), 'Glaze supplier calls moved to Wednesdays.')
+    const h = harness()
+    // The kept draft is restored into the box as the entry opens.
+    await openEntry(h, /Glaze supplier/)
+    expect(h.field()?.value).toBe('Glaze supplier calls moved to Wednesdays.')
+    h.press('Discard changes')
+    await h.settle()
+    expect(h.focusLog().at(-1)).toBe('button: Edit')
+  })
+  // The other steps, and a save that lands after another press: editor-steps.test.tsx.
+})

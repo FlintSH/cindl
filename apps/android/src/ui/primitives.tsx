@@ -75,17 +75,25 @@ export function focusRing(theme: CindlTheme): ViewStyle {
 
 /** Text in a DESIGN.md style. The system font scale applies; never disable it. */
 export function Txt({
+  ref,
   variant = 'ui',
   tone = 'primary',
   weight,
   style,
   ...rest
-}: TextProps & { variant?: TextStyleName; tone?: TextTone; weight?: Weight }) {
+}: TextProps & {
+  /** The text's view, for sending TalkBack focus to it. */
+  ref?: Ref<HostInstance>
+  variant?: TextStyleName
+  tone?: TextTone
+  weight?: Weight
+}) {
   const theme = useTheme()
   const base = theme.text[variant]
   const fontFamily = weight && variant !== 'code' ? theme.fonts[weight] : base.fontFamily
   return (
     <Text
+      ref={ref}
       {...rest}
       style={[base, { fontFamily, color: textColor(theme, tone) }, style]}
     />

@@ -311,6 +311,9 @@ describe('adoption keeps every draft', () => {
     h.press('Continue the draft')
     expect(h.field()?.value).toBe(D_H)
     expect(h.writes()).toEqual([])
+    // TalkBack focus goes into the draft that replaced the offer (web parity, cb9caeb).
+    await h.settle()
+    expect(h.focusLog().at(-1)).toBe('draft')
   })
 
   it('R9b: a continued draft is that entry own draft: saving it forgets its kept copy, and only that', async () => {
@@ -352,7 +355,8 @@ describe('TalkBack focus around adoption and locking', () => {
     h.press('Use this draft for the entry now here')
     await h.settle()
     expect(lockedNow(h)).toBe(false)
-    expect(h.focusLog()).toEqual(['notice', 'draft'])
+    // Edit's step into the draft, the lock to its notice, the adoption back into the draft.
+    expect(h.focusLog()).toEqual(['draft', 'notice', 'draft'])
   })
 
   it('F2: a lock that takes Edit and Delete away sends TalkBack focus to the lock notice', async () => {
