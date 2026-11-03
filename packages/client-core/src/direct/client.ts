@@ -264,7 +264,10 @@ class DirectHermesClient implements DirectClient {
     // display.status is the read-only probe that establishes computer.view, so
     // it only needs a sidecar connection (a stopped screen is a valid answer).
     const probe = name === 'display.status' && this.#sidecarOnline()
-    if (capability && !queueable && !probe) this.#require(capability)
+    // display.unwatch only closes a view on this device, and it is needed
+    // exactly when the screen stops being available (a dropped link).
+    const local = name === 'display.unwatch'
+    if (capability && !queueable && !probe && !local) this.#require(capability)
     const handler = this.#handlers[name] as unknown as (a: typeof parsed) => unknown
     try {
       return (await handler(parsed)) as OpResult<K>
@@ -1848,8 +1851,11 @@ class DirectHermesClient implements DirectClient {
     // The live picture (ADR 0012). Never starts, stops or installs the screen.
     'display.watch': () => this.#screenOrThrow().watch(),
     'display.frame': ({ viewId }) => this.#screenOrThrow().frame(viewId),
+    // Online, closing hands control back as closing Hermes's viewer window
+    // does; with the link down it keeps the human's control, as a dropped
+    // link would, instead of giving the screen to the agent unseen.
     'display.unwatch': ({ viewId }) =>
-      this.#screen?.unwatch(viewId) ?? { stopped: false },
+      this.#screen?.unwatch(viewId, this.#link.phase === 'online') ?? { stopped: false },
     'display.input': ({ viewId, events }) => this.#screenOrThrow().input(viewId, events),
     'display.acquireControl': async () => {
       // Control goes to the WATCHING viewer: Hermes passes input only from the

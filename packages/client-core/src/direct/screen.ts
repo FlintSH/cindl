@@ -163,10 +163,14 @@ export class LiveScreen {
     return { sent }
   }
 
-  /** Stop showing the screen. Like closing Hermes's viewer window, this hands control back. */
-  unwatch(viewId: string): { stopped: boolean } {
+  /**
+   * Stop showing the screen. With `handBack`, like closing Hermes's viewer
+   * window, a lease this viewer holds returns to the agent; without it the
+   * close reads as a dropped link and the human keeps control.
+   */
+  unwatch(viewId: string, handBack: boolean): { stopped: boolean } {
     if (this.#view?.viewId !== viewId) return { stopped: false }
-    this.#end(CLOSE_DONE)
+    this.#end(handBack ? CLOSE_DONE : CLOSE_KEEP_LEASE)
     return { stopped: true }
   }
 

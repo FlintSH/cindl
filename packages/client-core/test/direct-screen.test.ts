@@ -243,6 +243,24 @@ describe('direct client: live screen', () => {
     expect(await h.client.call('display.unwatch', { viewId })).toEqual({ stopped: false })
   })
 
+  it('stops the view while the link is down without handing the screen to the agent', async () => {
+    const { h } = await live()
+    const { viewId } = await h.client.call('display.watch', {})
+    await h.client.call('display.frame', { viewId })
+    await h.client.call('display.acquireControl', { confirm: true })
+    const [viewer] = viewers(h)
+    // The gateway link drops and stays down; the screen socket is still up.
+    h.fake.gateway.frozen = true
+    h.fake.gateway.dropConnections()
+    await h.waitFor(() => h.store.getState().link.phase !== 'online')
+    expect(viewState(h)).not.toBe('available')
+    expect(await h.client.call('display.unwatch', { viewId })).toEqual({ stopped: true })
+    await h.waitFor(() => viewer?.closedWith !== undefined)
+    expect(viewer?.closedWith).toBe(4100)
+    expect(h.fake.store.display.holder).toBe('human')
+    h.fake.gateway.frozen = false
+  })
+
   it('takes control again under a new viewer id after a reconnect, keeping the human in control meanwhile', async () => {
     const { h } = await live()
     const { viewId } = await h.client.call('display.watch', {})

@@ -499,11 +499,15 @@ The direct client shows the screen (ADR 0012) in
 - `display.acquireControl` names the watching viewer's id. After a reconnect
   that id belongs to a closed connection, so input waits; taking control opens
   the view again under a fresh id and then acquires the lease for it.
-- Closing: `display.unwatch`, sign-out and `stop()` close the socket with
-  1000, which hands control back as closing Hermes's viewer window does.
-  Every other close Cindl makes (reopening the view, a stalled handshake, an
-  RFB protocol error) uses 4100. Hermes treats that as a dropped link and
-  keeps the human's control (`web_routers/display.py:234-240`).
+- Closing: `display.unwatch` while the link is online, sign-out and `stop()`
+  close the socket with 1000, which hands control back as closing Hermes's
+  viewer window does. Every other close Cindl makes uses 4100: unwatching
+  while the link is down, reopening the view, a stalled handshake, an RFB
+  protocol error. Hermes treats that as a dropped link and keeps the human's
+  control (`web_routers/display.py:234-240`), so a link that drops while the
+  owner is in control never hands the screen to the agent unseen.
+- `display.unwatch` skips the capability check: it only closes a view on this
+  device, and it is needed exactly when the screen stops being available.
 - When Hermes closes the view: on 4000 (another human took control) Cindl
   observes again with the same viewer id and keeps watching without control.
   4001 (screen stopped) and every other code end the view as unavailable.
