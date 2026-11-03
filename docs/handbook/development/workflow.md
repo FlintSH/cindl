@@ -117,6 +117,7 @@ Run these before you push. CI runs all of them (see
 | `pnpm --dir docs/handbook build`                     | The handbook builds; links, anchors and assets resolve; nothing loads from another origin         |
 | `node --test "scripts/test/*.test.mjs"`              | The gates themselves reject bad input                                                             |
 | `pnpm --filter @cindl/web build`                     | The production web bundle builds without demo data                                                |
+| `pnpm test:e2e`                                      | The web client's end-to-end flows pass on the synthetic demo                                      |
 
 ## Commits and pull requests
 

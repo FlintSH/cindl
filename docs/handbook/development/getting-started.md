@@ -54,6 +54,14 @@ production build, which never contains the demo data, is:
 pnpm --filter @cindl/web build      # output in apps/web/dist
 ```
 
+The end-to-end suite drives the demo build in Chromium; see
+[Testing](testing.md#end-to-end-tests-playwright) for the first-run browser
+install:
+
+```sh
+pnpm test:e2e
+```
+
 ## Run the repository gates
 
 These run in CI on every pull request and push to `main`. Each fails with a

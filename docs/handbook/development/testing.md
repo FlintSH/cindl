@@ -71,6 +71,25 @@ node --test scripts/test/check-privacy.test.mjs   # one gate
 When you add a rule to a gate, add a test with input the rule must reject, and
 check that the test fails without the rule.
 
+## End-to-end tests (Playwright)
+
+The web client has a Playwright suite in `apps/web/e2e`. It builds the
+synthetic demo (`build:demo`), serves it with the production CSP on
+`127.0.0.1:4173`, and drives it in Chromium with one worker. It fails on any
+console error, page error or CSP violation. It exercises the real UI and
+client state, not a live Hermes.
+
+```sh
+pnpm --filter @cindl/web exec playwright install chromium   # first run only
+pnpm test:e2e
+CINDL_E2E_CHANNEL=chrome pnpm test:e2e                      # an installed Chrome instead
+```
+
+CI runs the same suite with Playwright's bundled Chromium in the
+`Web end-to-end on the synthetic demo` job and keeps the traces of a failed
+run as a workflow artifact for seven days. The [web client page](../clients/web.md#tests)
+lists the optional screenshot capture.
+
 ## Browser checks
 
 UI changes are exercised in a real browser before review, with the synthetic

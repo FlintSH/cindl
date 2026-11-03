@@ -12,17 +12,18 @@ They cannot judge whether prose is complete or true. The review that the
 
 ## Where each gate runs
 
-| Gate                    | Command                                              | CI workflow and job                   |
-| ----------------------- | ---------------------------------------------------- | ------------------------------------- |
-| Verify                  | `pnpm verify`                                        | `ci.yml`, Verify and repository gates |
-| Privacy and secret scan | `node scripts/check-privacy.mjs`                     | `ci.yml`                              |
-| Licence check           | `node scripts/check-license.mjs`                     | `ci.yml`                              |
-| Gate tests              | `node --test "scripts/test/*.test.mjs"`              | `ci.yml`                              |
-| Docs impact             | `node scripts/check-docs-impact.mjs --base <commit>` | `ci.yml` (pull requests and pushes)   |
-| Production web build    | `pnpm --filter @cindl/web build`                     | `ci.yml`                              |
-| Production output       | `node scripts/check-dist.mjs apps/web/dist`          | `ci.yml`, after the web build         |
-| Docs coverage           | `node scripts/check-docs-coverage.mjs`               | `docs.yml`                            |
-| Docs build and links    | `pnpm --dir docs/handbook build`                     | `docs.yml`, at `/` and at `/cindl/`   |
+| Gate                    | Command                                              | CI workflow and job                            |
+| ----------------------- | ---------------------------------------------------- | ---------------------------------------------- |
+| Verify                  | `pnpm verify`                                        | `ci.yml`, Verify and repository gates          |
+| Privacy and secret scan | `node scripts/check-privacy.mjs`                     | `ci.yml`                                       |
+| Licence check           | `node scripts/check-license.mjs`                     | `ci.yml`                                       |
+| Gate tests              | `node --test "scripts/test/*.test.mjs"`              | `ci.yml`                                       |
+| Docs impact             | `node scripts/check-docs-impact.mjs --base <commit>` | `ci.yml` (pull requests and pushes)            |
+| Production web build    | `pnpm --filter @cindl/web build`                     | `ci.yml`                                       |
+| Production output       | `node scripts/check-dist.mjs apps/web/dist`          | `ci.yml`, after the web build                  |
+| Web end-to-end          | `pnpm test:e2e`                                      | `ci.yml`, Web end-to-end on the synthetic demo |
+| Docs coverage           | `node scripts/check-docs-coverage.mjs`               | `docs.yml`                                     |
+| Docs build and links    | `pnpm --dir docs/handbook build`                     | `docs.yml`, at `/` and at `/cindl/`            |
 
 Both workflows run on every pull request and on pushes to `main`, with
 read-only permissions and actions pinned to full commit SHAs. `docs.yml`
