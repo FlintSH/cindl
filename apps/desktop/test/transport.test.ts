@@ -13,7 +13,12 @@ import {
   selectOpenRequests,
   type ClientStore,
 } from '@cindl/client-core'
-import { CindlError, type LinkState, type ServerRequest } from '@cindl/contracts'
+import {
+  CindlError,
+  type CindlEvent,
+  type LinkState,
+  type ServerRequest,
+} from '@cindl/contracts'
 import { startFakeHermes, type FakeHermes } from '@cindl/fixtures/fake-hermes'
 import type { FetchLike } from '@cindl/hermes-adapter'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -85,6 +90,8 @@ interface Desktop {
   platform: DesktopPlatform
   real: RealClient
   store: ClientStore
+  /** Every event the client emitted: what main forwards to the renderer. */
+  events: CindlEvent[]
   lines: string[]
   confirmSignIn: ReturnType<typeof vi.fn<(origin: string) => Promise<boolean>>>
   openBrowser: ReturnType<typeof vi.fn<(url: string) => Promise<void>>>
@@ -124,7 +131,11 @@ async function desktop(
     since: '2026-06-02T08:00:00.000Z',
     connectionEpoch: 0,
   })
-  real.client.subscribe((event) => store.dispatch(event))
+  const events: CindlEvent[] = []
+  real.client.subscribe((event) => {
+    events.push(event)
+    store.dispatch(event)
+  })
   cleanups.push(() => {
     real.stop()
     platform.authorizer.cancel()
@@ -144,6 +155,7 @@ async function desktop(
     platform,
     real,
     store,
+    events,
     lines,
     confirmSignIn,
     openBrowser,
@@ -237,6 +249,17 @@ describe('desktop wiring against a fake hermes serve', { timeout: 30_000 }, () =
     const again = await desktop(dir)
     await again.waitFor(() => again.link().phase === 'signed-out')
     expect(again.link().server?.origin).toBe(fake.origin)
+  })
+
+  it('announces where it starts once: unconfigured, with its capabilities', async () => {
+    const d = await desktop(userData())
+    const links = d.events.flatMap((event) =>
+      event.type === 'link.changed' ? [event.link.phase] : [],
+    )
+    expect(links).toEqual(['unconfigured'])
+    expect(
+      d.events.filter((event) => event.type === 'capabilities.changed'),
+    ).toHaveLength(1)
   })
 
   it('never answers a sudo prompt', async () => {

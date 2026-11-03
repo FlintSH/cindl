@@ -122,16 +122,7 @@ export function createRealClient(
       platform.secrets.persistence === 'memory-only'
         ? [memoryOnlyNotice(platform.secrets.reason)]
         : [],
-    start: async () => {
-      await direct.start()
-      // The client does not announce the state it starts in ("unconfigured"
-      // when no origin is stored), so main's host would stay at "connecting".
-      emit({ type: 'link.changed', link: await direct.call('link.get', {}) })
-      emit({
-        type: 'capabilities.changed',
-        capabilities: await direct.call('capabilities.get', {}),
-      })
-    },
+    start: () => direct.start(),
     stop: () => direct.stop(),
   }
 }
