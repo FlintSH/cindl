@@ -335,3 +335,54 @@ export function parseKeyboard(
 /** Words that mean a screen asks to accept terms; the tests must stop there, never accept. */
 export const TERMS_PROMPT =
   /terms of service|accept (?:&|and) continue|license agreement|i agree/i
+
+/**
+ * One pixel of `screencap` output without `-p`: a header of width, height and
+ * format (and, on newer Android, a colour space), all little-endian 32-bit,
+ * then RGBA rows. Undefined for another format or a point off the screen.
+ */
+export function rawPixel(
+  capture: Uint8Array,
+  x: number,
+  y: number,
+): [number, number, number] | undefined {
+  if (capture.length < 12) return undefined
+  const header = new DataView(capture.buffer, capture.byteOffset, 12)
+  const width = header.getUint32(0, true)
+  const height = header.getUint32(4, true)
+  const format = header.getUint32(8, true)
+  const offset = capture.length - width * height * 4
+  if (format !== 1 || (offset !== 12 && offset !== 16)) return undefined
+  if (x < 0 || y < 0 || x >= width || y >= height) return undefined
+  const at = offset + (y * width + x) * 4
+  return [capture[at] ?? 0, capture[at + 1] ?? 0, capture[at + 2] ?? 0]
+}
+
+/**
+ * Where a point of the agent's screen is drawn on the device: the picture is
+ * centred in its view with its aspect kept (modules/cindl-screen ScreenPixels.kt `fit`).
+ */
+export function screenToDevice(
+  bounds: Rect,
+  screen: { width: number; height: number },
+  point: { x: number; y: number },
+): { x: number; y: number } {
+  const viewWidth = bounds.right - bounds.left
+  const viewHeight = bounds.bottom - bounds.top
+  const scale = Math.min(viewWidth / screen.width, viewHeight / screen.height)
+  const left = bounds.left + (viewWidth - screen.width * scale) / 2
+  const top = bounds.top + (viewHeight - screen.height * scale) / 2
+  return {
+    x: Math.round(left + (point.x + 0.5) * scale),
+    y: Math.round(top + (point.y + 0.5) * scale),
+  }
+}
+
+/** True when two colours differ by at most `tolerance` in every channel. */
+export const near = (
+  colour: readonly number[] | undefined,
+  expected: readonly number[],
+  tolerance = 16,
+) =>
+  colour !== undefined &&
+  expected.every((channel, i) => Math.abs((colour[i] ?? -999) - channel) <= tolerance)

@@ -12,6 +12,9 @@ import {
   findTappable,
   interactiveWithin,
   label,
+  near,
+  rawPixel,
+  screenToDevice,
   parseKeyboard,
   parseUi,
   TERMS_PROMPT,
@@ -415,5 +418,52 @@ describe('read-only cards', () => {
     if (!approval || !deny) throw new Error('fixture nodes missing')
     const other = commonAncestor(approval, deny)
     expect(other && interactiveWithin(other).map(label)).toEqual(['Deny'])
+  })
+})
+
+describe('reading the screen back', () => {
+  /** A raw `screencap` of a 3x2 screen; Android 9 and later add a colour-space word. */
+  const capture = (withColourSpace: boolean) => {
+    const header = new DataView(new ArrayBuffer(withColourSpace ? 16 : 12))
+    header.setUint32(0, 3, true)
+    header.setUint32(4, 2, true)
+    header.setUint32(8, 1, true)
+    const pixels = new Uint8Array(3 * 2 * 4)
+    // (2, 1) is the demo's orange marker; the rest is the desktop teal.
+    for (let i = 0; i < 6; i++)
+      pixels.set(i === 5 ? [230, 120, 40, 255] : [47, 93, 98, 255], i * 4)
+    return new Uint8Array([...new Uint8Array(header.buffer), ...pixels])
+  }
+
+  it('reads a pixel from a raw capture with either header', () => {
+    for (const withColourSpace of [false, true]) {
+      expect(rawPixel(capture(withColourSpace), 2, 1)).toEqual([230, 120, 40])
+      expect(rawPixel(capture(withColourSpace), 0, 0)).toEqual([47, 93, 98])
+      expect(rawPixel(capture(withColourSpace), 3, 0)).toBeUndefined()
+    }
+    const other = capture(false)
+    other[8] = 2
+    expect(rawPixel(other, 0, 0)).toBeUndefined()
+  })
+
+  it('maps a point of the agent screen to the device, centred with its aspect kept', () => {
+    // A 640x400 picture in a 1000x700 view at (40, 100): scaled by 1.5625, centred vertically.
+    const bounds = { left: 40, top: 100, right: 1040, bottom: 800 }
+    expect(screenToDevice(bounds, { width: 640, height: 400 }, { x: 0, y: 0 })).toEqual({
+      x: 41,
+      y: 138,
+    })
+    expect(
+      screenToDevice(bounds, { width: 640, height: 400 }, { x: 639, y: 399 }),
+    ).toEqual({
+      x: 1039,
+      y: 762,
+    })
+  })
+
+  it('compares colours with a tolerance for scaling', () => {
+    expect(near([50, 90, 100], [47, 93, 98])).toBe(true)
+    expect(near([230, 120, 40], [47, 93, 98])).toBe(false)
+    expect(near(undefined, [47, 93, 98])).toBe(false)
   })
 })

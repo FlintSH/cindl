@@ -43,7 +43,9 @@ Working here:
   implementation, the adapter's `NativeAuth`; `src/auth/loopback.ts` is only
   the browser leg. Platform pieces (storage, sockets, crypto) live in
   `src/platform`; the Kotlin loopback listener in `modules/cindl-loopback` has
-  JUnit tests that CI runs on a plain JVM. Client tests run against
+  JUnit tests that CI runs on a plain JVM, and so does the screen module's pixel
+  math (`modules/cindl-screen` `ScreenPixels.kt`): keep Android types out of the
+  files that job compiles. Client tests run against
   `@cindl/fixtures/fake-hermes` (read-only to this stream).
 - Synthetic fixtures load only in `src/platform/client.ts` behind
   `EXPO_PUBLIC_CINDL_DEMO=1`; `metro.config.cjs` empties them in other bundles.
@@ -53,6 +55,9 @@ Working here:
   `src/talk/requests.ts` only; `sendAnswer` refuses prompts Cindl never
   answers (`assertAnswerable`) before anything is sent.
 - Keep pure logic out of components so it can be tested without React Native.
+- The agent screen: never log frames, input or the screen socket's URL (it
+  holds the single-use display ticket), and never start, stop or install the
+  screen.
 - `eslint.config.mjs` never sets a root rule's options again (that replaces the
   root's list for those files); Android checks are rules in `lint/rules.mjs`,
   tested in `test/lint-rules.test.ts`.

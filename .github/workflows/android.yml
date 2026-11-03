@@ -117,7 +117,7 @@ jobs:
           distribution: temurin
           java-version: '17'
 
-      - name: Unit-test the Kotlin loopback listener on the JVM (no Android SDK)
+      - name: Unit-test the Kotlin loopback listener and screen pixels on the JVM (no Android SDK)
         run: |
           tools="$RUNNER_TEMP/jvm-tools"
           mkdir -p "$tools"
@@ -133,13 +133,18 @@ jobs:
             "$tools/hamcrest.jar" 66fdef91e9739348df7a096aa384a5685f4e875584cce89386a7a47251c4d8e9
           unzip -q "$tools/kotlinc.zip" -d "$tools"
           src=apps/android/modules/cindl-loopback/android/src
+          screen=apps/android/modules/cindl-screen/android/src
+          # Only files free of Android types; the rest compiles in the APK build.
           "$tools/kotlinc/bin/kotlinc" -jvm-target 17 -cp "$tools/junit.jar:$tools/hamcrest.jar" \
             -d "$tools/out" \
             "$src/main/java/dev/fl1nt/cindl/loopback/HttpHead.kt" \
             "$src/main/java/dev/fl1nt/cindl/loopback/LoopbackListener.kt" \
-            "$src/test/java/dev/fl1nt/cindl/loopback/LoopbackListenerTest.kt"
+            "$src/test/java/dev/fl1nt/cindl/loopback/LoopbackListenerTest.kt" \
+            "$screen/main/java/dev/fl1nt/cindl/screen/ScreenPixels.kt" \
+            "$screen/test/java/dev/fl1nt/cindl/screen/ScreenPixelsTest.kt"
           java -cp "$tools/out:$tools/junit.jar:$tools/hamcrest.jar:$tools/kotlinc/lib/kotlin-stdlib.jar" \
-            org.junit.runner.JUnitCore dev.fl1nt.cindl.loopback.LoopbackListenerTest
+            org.junit.runner.JUnitCore dev.fl1nt.cindl.loopback.LoopbackListenerTest \
+            dev.fl1nt.cindl.screen.ScreenPixelsTest
 
   apk:
     name: Test APK (${{ matrix.flavour }})

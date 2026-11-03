@@ -9,6 +9,7 @@ import {
   label,
   parseKeyboard,
   parseUi,
+  rawPixel,
   tapPoint,
   type KeyboardState,
   type Match,
@@ -166,6 +167,19 @@ export function createDevice(options: { adb: string; out: string }) {
     return `${file}.png`
   }
 
+  /** One device pixel, from a raw screen capture (no PNG to decode). */
+  const pixel = (x: number, y: number) =>
+    rawPixel(
+      new Uint8Array(
+        execFileSync(options.adb, ['exec-out', 'screencap'], {
+          timeout: 30_000,
+          maxBuffer: 64 * 1024 * 1024,
+        }),
+      ),
+      x,
+      y,
+    )
+
   const pid = () => shell(`pidof ${PACKAGE} || true`).trim()
 
   const density = () => {
@@ -216,6 +230,7 @@ export function createDevice(options: { adb: string; out: string }) {
     clearText,
     key,
     screenshot,
+    pixel,
     pid,
     density,
     audit,

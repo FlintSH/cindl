@@ -16,7 +16,6 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { SYNTHETIC_DEMO_LABEL } from '@cindl/contracts'
-import { NO_LIVE_PICTURE } from '../src/work/screen.ts'
 import { createDevice, PACKAGE } from './device.ts'
 import { startFakeHermes, type FakeHermes } from '@cindl/fixtures/fake-hermes'
 import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
@@ -30,6 +29,8 @@ import {
   interactiveWithin,
   label,
   matches,
+  near,
+  screenToDevice,
   TERMS_PROMPT,
   type Match,
   type TargetAudit,
@@ -131,6 +132,10 @@ const slug = (text: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
+
+/** The demo's synthetic screen (packages/fixtures/src/scenario/screen.ts). */
+const DEMO_SCREEN = { width: 640, height: 400 }
+const DESKTOP_TEAL = [47, 93, 98]
 
 /** The synthetic sudo prompt in the "Kiln inventory sheet" conversation, as TalkBack reads its title. */
 const SUDO_PROMPT =
@@ -491,19 +496,28 @@ async function demoSuite() {
     },
   )
 
-  await step(
-    'Work: the screen state and control, no live picture',
-    async ({ note, shot }) => {
-      await startOnTalk()
-      await openDestination('Work', named('Needs you'))
-      // The demo offers computer.view; the app still says it shows no picture.
-      await device.reveal(NO_LIVE_PICTURE, 'the computer card')
-      shot('work-computer')
-      note(
-        'Work, Computer shows the state and who controls it, and says there is no live picture',
+  await step('Work: the agent screen, live', async ({ note, shot, audit }) => {
+    await startOnTalk()
+    await openDestination('Work', named('Needs you'))
+    const live = await device.reveal(
+      (text) => text.startsWith('The agent’s screen, live.'),
+      'the live screen',
+    )
+    // The synthetic screen's desktop (packages/fixtures/src/scenario/screen.ts), left of its window.
+    const at = screenToDevice(live.node.bounds, DEMO_SCREEN, { x: 20, y: 200 })
+    let colour = device.pixel(at.x, at.y)
+    for (let tries = 0; tries < 20 && !near(colour, DESKTOP_TEAL); tries++) {
+      await sleep(500)
+      colour = device.pixel(at.x, at.y)
+    }
+    shot('agent-screen')
+    await audit('Agent screen', await device.dump())
+    if (!near(colour, DESKTOP_TEAL))
+      throw new Error(
+        `The synthetic picture is not drawn: ${JSON.stringify(colour)} at device ${at.x},${at.y}`,
       )
-    },
-  )
+    note(`the synthetic picture is drawn: ${JSON.stringify(colour)} at screen (20, 200)`)
+  })
 
   await step('Chat with the on-screen keyboard open', async ({ note, shot }) => {
     await startOnTalk()

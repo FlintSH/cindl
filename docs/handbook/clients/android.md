@@ -129,8 +129,8 @@ until the owner decides about those terms.
   offering nothing to send; agent output with a link (its host shown, a
   confirmation with the full address before anything opens) and a withheld
   remote image; a memory entry's delete warning and a reviewed
-  edit; Work, Computer saying there is no live picture; sending a message
-  with the
+  edit; the demo's synthetic screen drawn live in Work, Computer (a pixel
+  of its desktop read back from the screen); sending a message with the
   on-screen keyboard open (composer above the keyboard, navigation hidden);
   every touch target at least 48dp; 200% font size and dark theme; a draft
   surviving background, rotation, activity recreation; a cold start after the
@@ -290,12 +290,14 @@ phone.
   and draft until you close it. After a save, the text it replaced stays on
   screen: restorable only onto the version that save produced, otherwise shown
   to copy.
-- **The agent's screen** (Work, Computer) shows the screen's state and who
-  controls it, with Take control and Give control back. The live picture is
-  not in the Android app yet, and the card says so, even in the demo, which
-  streams a synthetic screen to the other clients. Taking control from Android
-  pauses Hermes's input on its screen and sends nothing: the app has no
-  picture or input yet. Cindl never starts, stops or installs the screen.
+- **The agent's screen** (Work, Computer) shows the agent-owned screen live
+  when Hermes's screen is running and the client has negotiated the picture
+  (the labelled demo streams a synthetic screen), with its state, who
+  controls it, and Take control and Give control back. Watching sends no
+  input. This version shows the picture only: taking control from Android
+  pauses Hermes's input on its screen, and nothing is sent from here yet.
+  Cindl never starts, stops or installs the screen. See
+  [Live screen](#live-screen).
 - **System back** closes an open sheet or dialog first, then steps out of an
   editor review, then a skill detail, then returns to Talk, then from a side
   conversation to the main one, and only then leaves the app.
@@ -307,6 +309,40 @@ phone.
   web labels, and the system font size, dark theme and "Remove animations"
   setting are followed. A destination keeps its scroll position when you come
   back to it.
+
+## Live screen
+
+The picture comes from Hermes's `/api/display/ws` (ADR 0012). The direct
+client opens it through the app's screen socket (see
+[Permissions and network policy](#permissions-and-network-policy)), speaks
+RFB and hands back only the regions that changed since the last frame, as
+RGBA bytes. Work, Computer asks for the next frame only after the last one
+was painted, so frames never queue up, and it ends the view when it closes,
+also when a watch answers after that.
+
+The picture is drawn by a local Expo module (`apps/android/modules/cindl-screen`):
+one Android bitmap of the screen's size, painted region by region and drawn
+centred with its aspect kept. Each region reaches Kotlin as a typed array read
+in place through JSI, so the pixels are not copied or base64-encoded on their
+way to the bitmap. Only the newest pixels are kept: the client's framebuffer
+and the bitmap, each width x height x 4 bytes (4.1 MB at 1280x800), capped
+like the client at 4096x4096 in area.
+
+What it costs is the way in: React Native's WebSocket carries binary frames
+between Kotlin and JavaScript as base64. A full 1280x800 Raw repaint is
+4,096,016 bytes on the socket and 5,461,356 base64 characters across the
+bridge. On this repository's build machine (`apps/android/scripts/measure-screen.ts`,
+median of 5), decoding that in JavaScript took 16 ms with V8's JIT and 247 ms
+with V8's interpreter only (closer to Hermes, which has no JIT); the RFB
+client then took 8 and 65 ms to read it and copy the region out. Most frames
+are far smaller, because only changed regions are sent. The pure-JavaScript
+alternative, a BMP data URI for `<Image>` per frame, took 57 and 233 ms and
+4,096,094 characters before the image is even decoded, so it is not used.
+
+Only an emulator or a phone can show: the frame rate and the Kotlin side's
+cost (OkHttp's base64 encode, the ARGB conversion, `Bitmap.setPixels`, drawing),
+memory use on a device, that the picture is drawn where the tests expect it,
+and how it behaves on a slow network or after the app goes to the background.
 
 ## Build and check locally
 
@@ -357,8 +393,7 @@ resolves pnpm's isolated `node_modules` and the TypeScript sources of
 
 - Not validated against a real Hermes server or on a phone: the client has
   run against synthetic servers only.
-- No live picture of the agent's screen (Work, Computer shows its state and
-  who controls it).
+- No input to the agent's screen yet: Android shows the picture only.
 - Test APKs only: no store distribution, no production signing.
 - Native libraries are listed with the licence their POM declares. A library
   whose POM declares no licence and that ships no licence file stops the APK

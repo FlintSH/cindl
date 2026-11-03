@@ -18,7 +18,8 @@ import {
 } from '../talk/failures.ts'
 import { relativeDay } from '../talk/format.ts'
 import { RequestCard } from '../talk/RequestCard.tsx'
-import { NO_LIVE_PICTURE, TAKE_CONTROL_WARNING } from './screen.ts'
+import { TAKE_CONTROL_WARNING } from './screen.ts'
+import { ScreenView } from './ScreenView.tsx'
 import { requestKeyOf } from '../talk/requests.ts'
 import { useTheme } from '../theme/theme.tsx'
 import {
@@ -199,6 +200,8 @@ function Computer() {
   const display = useCindlState((state) => state.display)
   const canControl = useCan('computer.control')
   const controlCapability = useCapability('computer.control')
+  // `limited` means state and lease only: the live picture needs `available`.
+  const view = useCapability('computer.view')
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
@@ -235,7 +238,11 @@ function Computer() {
           },
         ]}
       />
-      <Note>{NO_LIVE_PICTURE}</Note>
+      {display.status === 'running' && view?.state === 'available' ? (
+        <ScreenView controlling={display.leaseHeldByThisDevice} />
+      ) : view?.state === 'limited' && view.reason ? (
+        <Note>{view.reason}</Note>
+      ) : null}
       {canControl ? (
         <View
           style={{
