@@ -450,6 +450,36 @@
   margin: 0;
 }
 
+.waitingList {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+.waitingRow {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-1) var(--space-1) var(--space-3);
+  color: var(--color-accent-text);
+}
+.waitingRow + .waitingRow {
+  border-top: 1px solid var(--color-border);
+}
+.waitingTitle {
+  color: var(--color-text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.requestTitle:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 4px;
+}
+
 /* History popover --------------------------------------------------------- */
 .history {
   display: flex;

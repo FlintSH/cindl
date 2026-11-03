@@ -86,6 +86,7 @@ local.properties
 *.snap
 
 # Test and browser artifacts (captured locally; publish only reviewed copies)
+.playwright-cli/
 test-results/
 playwright-report/
 blob-report/

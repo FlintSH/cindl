@@ -93,7 +93,7 @@ export const Composer = forwardRef<
               title="Stop"
               onClick={() => void api.call('conversation.interrupt', { conversationId })}
             >
-              <Square size={14} aria-hidden="true" />
+              <Square size={12} fill="currentColor" strokeWidth={0} aria-hidden="true" />
             </Button>
           ) : null}
           <Button

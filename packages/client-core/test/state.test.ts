@@ -118,6 +118,44 @@ describe('streaming messages', () => {
     expect(state.tools.t1?.status).toBe('complete')
   })
 
+  it('does not anchor a tool twice when history already places it', () => {
+    const tool = {
+      id: 't-old',
+      conversationId: 'c1',
+      name: 'calendar.search',
+      title: 'Checked a calendar',
+      status: 'complete' as const,
+    }
+    const state = run([
+      {
+        type: 'history.loaded',
+        conversationId: 'c1',
+        messages: [
+          {
+            id: 'm-old',
+            conversationId: 'c1',
+            role: 'assistant',
+            parts: [{ type: 'tool', toolId: 't-old' }],
+            status: 'complete',
+          },
+          {
+            id: 'm-live',
+            conversationId: 'c1',
+            role: 'assistant',
+            parts: [],
+            status: 'streaming',
+          },
+        ],
+      },
+      { type: 'tool.updated', activity: tool },
+    ])
+    const references = (state.messages.c1 ?? []).flatMap((m) =>
+      m.parts.filter((p) => p.type === 'tool' && p.toolId === 't-old'),
+    )
+    expect(references).toHaveLength(1)
+    expect(state.messages.c1?.[1]?.parts).toEqual([])
+  })
+
   it('drops a conversation transcript on history reset so it is refetched', () => {
     const state = run([
       {

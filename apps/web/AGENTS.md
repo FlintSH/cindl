@@ -15,4 +15,10 @@ The responsive web client and the Electron renderer. Read `DESIGN.md` first.
   stale responses are ignored.
 - The production build adds a strict CSP (`vite.config.ts`); keep assets local.
 - UI changes need browser QA at phone (390x844, 360x800), tablet (768x1024) and
-  desktop (1280x800, 1440x1000) sizes with the synthetic demo, both themes.
+  desktop (1280x800, 1440x1000) sizes with the synthetic demo, both themes:
+  `pnpm --filter @cindl/web test:e2e` runs the flow tests against the
+  production demo build (add `CINDL_E2E_CHANNEL=chrome` to use an installed
+  Chrome instead of Playwright's bundled Chromium); `CINDL_CAPTURE=1` also
+  writes the screenshot matrix to `.agent-artifacts/web-qa/capture/`. Review
+  every image before publishing it.
+- Component tests (`test/*.test.tsx`, jsdom) cover security-relevant rendering.

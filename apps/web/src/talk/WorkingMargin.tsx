@@ -1,8 +1,8 @@
 import { useOpenRequests, useTool } from '@cindl/client-react'
-import { X } from 'lucide-react'
+import { HelpCircle, ShieldAlert, X } from 'lucide-react'
 import { Button, SectionTitle } from '../ui/primitives.tsx'
 import { duration } from './format.ts'
-import { RequestCard } from './RequestCard.tsx'
+import { requestDomId } from './RequestCard.tsx'
 import { ToolIcon } from './ToolRow.tsx'
 import styles from './talk.module.css'
 
@@ -90,13 +90,36 @@ export function WorkingMargin({
         {selectedToolId ? (
           <Evidence toolId={selectedToolId} />
         ) : requests.length ? (
-          requests.map((request) => (
-            <RequestCard
-              key={`${request.connectionEpoch}:${request.rpcId}`}
-              request={request}
-              compact
-            />
-          ))
+          // The actionable card lives in the conversation; the margin only points to it,
+          // so one request never shows two sets of decision buttons.
+          <ul className={styles.waitingList}>
+            {requests.map((request) => {
+              const Icon = request.kind === 'approval' ? ShieldAlert : HelpCircle
+              const label = request.kind === 'approval' ? 'approval' : 'question'
+              return (
+                <li
+                  key={`${request.connectionEpoch}:${request.rpcId}`}
+                  className={styles.waitingRow}
+                >
+                  <Icon size={15} aria-hidden="true" />
+                  <span className={styles.waitingTitle}>{request.title}</span>
+                  <Button
+                    variant="quiet"
+                    aria-label={`Show ${label}: ${request.title}`}
+                    onClick={() => {
+                      const card = document.getElementById(requestDomId(request))
+                      card?.scrollIntoView({ block: 'center' })
+                      card
+                        ?.querySelector<HTMLElement>('h3')
+                        ?.focus({ preventScroll: true })
+                    }}
+                  >
+                    Show
+                  </Button>
+                </li>
+              )
+            })}
+          </ul>
         ) : (
           <p className={styles.marginEmpty}>
             Nothing is waiting on you here. Select a step to see what Hermes did.

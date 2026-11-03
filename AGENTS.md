@@ -54,6 +54,7 @@ pnpm format                        # Prettier write
 pnpm check:tokens                  # generated tokens.css/fonts.css are current
 pnpm --filter @cindl/web dev:demo  # web UI on 127.0.0.1:5173 with the SYNTHETIC demo
 pnpm --filter @cindl/web build     # production web build (no demo data)
+pnpm test:e2e                      # web flow tests on the demo build (Playwright)
 ```
 
 Gates that are **not built yet** (owned by the docs/quality stream; do not claim

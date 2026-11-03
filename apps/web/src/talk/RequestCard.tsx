@@ -12,6 +12,9 @@ const choiceLabel: Record<ApprovalChoice, string> = { once: 'Allow once', deny: 
  * it) and only the choices Hermes offered that Cindl may send. One decision
  * per request; the server is the authority on whether it still applies.
  */
+export const requestDomId = (request: Pick<ServerRequest, 'rpcId' | 'connectionEpoch'>) =>
+  `request-${request.connectionEpoch}-${String(request.rpcId).replace(/[^A-Za-z0-9_-]/g, '_')}`
+
 export function RequestCard({
   request,
   compact = false,
@@ -45,6 +48,7 @@ export function RequestCard({
   const Icon = request.kind === 'approval' ? ShieldAlert : HelpCircle
   return (
     <section
+      id={compact ? undefined : requestDomId(request)}
       className={styles.request}
       data-kind={request.kind}
       aria-labelledby={titleId}
@@ -52,7 +56,7 @@ export function RequestCard({
     >
       <header className={styles.requestHeader}>
         <Icon size={16} aria-hidden="true" />
-        <h3 id={titleId} className={styles.requestTitle}>
+        <h3 id={titleId} className={styles.requestTitle} tabIndex={-1}>
           {request.kind === 'approval' ? 'Approval needed: ' : 'Question: '}
           {request.title}
         </h3>

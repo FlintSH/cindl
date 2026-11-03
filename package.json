@@ -16,6 +16,7 @@
     "typecheck": "pnpm -r --workspace-concurrency=2 run typecheck",
     "test": "vitest run",
     "test:watch": "vitest",
+    "test:e2e": "pnpm --filter @cindl/web run test:e2e",
     "build": "pnpm -r --workspace-concurrency=1 run build",
     "check:tokens": "pnpm --filter @cindl/tokens run check",
     "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm check:tokens",

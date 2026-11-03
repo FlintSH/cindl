@@ -7,5 +7,6 @@ apps/android/.expo/
 **/dist/
 **/coverage/
 .agent-artifacts/
+.playwright-cli/
 docs/handbook/.vitepress/cache/
 docs/handbook/.vitepress/dist/

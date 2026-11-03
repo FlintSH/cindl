@@ -163,8 +163,13 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
       const known = activity.id in state.tools
       const withTool = { ...state, tools: { ...state.tools, [activity.id]: activity } }
       if (known) return withTool
-      // Anchor a new tool in the conversation's streaming assistant message so it renders in order.
+      // Anchor a new tool in the conversation's streaming assistant message so it renders in
+      // order, unless a loaded transcript already places it.
       return patchMessages(withTool, activity.conversationId, (messages) => {
+        const placed = messages.some((m) =>
+          m.parts.some((part) => part.type === 'tool' && part.toolId === activity.id),
+        )
+        if (placed) return messages
         const index = messages.findLastIndex(
           (m) => m.role === 'assistant' && m.status === 'streaming',
         )
