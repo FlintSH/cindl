@@ -45,6 +45,21 @@ Every name, message and status in the demo is invented (a fictional ceramics
 studio). A banner at the top says so on every screen. The demo exercises the
 real UI and client state code; it does not prove anything about a live Hermes.
 
+## What it looks like
+
+Screenshots of the synthetic demo (every name, message and status is
+invented; the banner says so).
+
+![Talk on a wide screen: an approval and a question set waiting, with the working margin listing both](/screenshots/web/talk-desktop-light.png)
+
+![Work on a phone in the dark theme: a sudo prompt Cindl does not answer, above an approval](/screenshots/web/work-phone-dark.png)
+
+![Library, Memory: an agent note open in the reviewed-diff editor](/screenshots/web/memory-entry-light.png)
+
+![Deleting a memory entry on a phone: Cindl warns that Hermes keeps no backup](/screenshots/web/memory-delete-phone-dark.png)
+
+![The desktop app's sign-in screen, which asks only for the Hermes address](/screenshots/web/desktop-sign-in-light.png)
+
 ## Build
 
 ```sh

@@ -34,6 +34,14 @@ state: every capability shows as unknown with the reason, and nothing is
 invented. `auth.signIn` answers "This build of Cindl desktop cannot connect to
 Hermes yet" and sends nothing.
 
+## What it looks like
+
+Both screenshots come from the packaged AppImages' smoke test.
+
+![Cindl, signed out: the sign-in screen and the notice that tokens stay in memory without an OS keyring](/screenshots/desktop/real-signed-out.png)
+
+![Cindl Demo: the synthetic demo, labelled by its banner and window title](/screenshots/desktop/demo.png)
+
 ## Install the AppImage
 
 1. Download `cindl-desktop-linux-x64-appimage` (or
