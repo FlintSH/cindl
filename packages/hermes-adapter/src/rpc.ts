@@ -1,4 +1,4 @@
-import { CindlError } from '@cindl/contracts'
+import { CindlError, type UnsupportedRequestKind } from '@cindl/contracts'
 import { safeText, silentDiagnostics, type Diagnostics } from './diagnostics.ts'
 import { NotSentError, offlineError, rpcError, timeoutError } from './errors.ts'
 import { SOCKET_OPEN, type SocketLike, type Timers } from './platform.ts'
@@ -48,9 +48,7 @@ export const windowOwnedRequests = [
  * (tui_gateway/server.py:1092-1097; agent_callbacks.py:231-279;
  * methods_display.py:202-206).
  */
-export type UnsupportedKind = 'sudo' | 'secret' | 'vault' | 'other'
-
-export function unsupportedKind(method: string): UnsupportedKind {
+export function unsupportedKind(method: string): UnsupportedRequestKind {
   if (method === 'sudo' || method === 'display.install.sudo') return 'sudo'
   if (method === 'secret') return 'secret'
   if (method.startsWith('vault.')) return 'vault'
@@ -79,7 +77,7 @@ export function unhandledRequestAction(
 export interface UnhandledServerRequest {
   id: string
   method: string
-  upstreamKind: UnsupportedKind
+  unsupportedKind: UnsupportedRequestKind
   sessionId: string | undefined
   replayed: boolean
   action: 'decline' | 'leave-open'
@@ -371,7 +369,7 @@ export class RpcChannel {
         this.#options.onUnhandledServerRequest?.({
           id,
           method,
-          upstreamKind: unsupportedKind(method),
+          unsupportedKind: unsupportedKind(method),
           sessionId:
             typeof params.session_id === 'string' ? params.session_id : undefined,
           replayed,

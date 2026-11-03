@@ -31,6 +31,7 @@ import {
   hermesReasonOf,
   isBaselineVersion,
   mapServerRequest,
+  mapUnsupportedRequest,
   mcpFromStatus,
   memoryOverviewFrom,
   NativeAuth,
@@ -38,7 +39,6 @@ import {
   NotSentError,
   RestClient,
   routineFromJob,
-  safeText,
   sendAnswer,
   skillFromRow,
   transcriptToHistory,
@@ -174,11 +174,8 @@ class DirectHermesClient implements DirectClient {
   readonly #historyLoaded = new Set<string>()
   readonly #requests = new Map<string, TrackedRequest>()
   readonly #noticed = new Set<string>()
-  /** Requests for a runtime session this socket has not bound yet, by session id. */
-  readonly #waiting = new Map<
-    string,
-    Array<{ inbound: InboundServerRequest; epoch: number }>
-  >()
+  /** Requests for a runtime session this socket has not bound yet: session id -> request id -> show it. */
+  readonly #waiting = new Map<string, Map<string, () => void>>()
   readonly #prompts = new Map<string, PendingPrompt>()
   readonly #accepted = new Set<string>()
   #main: string | undefined
@@ -409,7 +406,8 @@ class DirectHermesClient implements DirectClient {
         onReady: (handshake) => this.#onReady(handshake),
         onEvent: (params) => this.#onEvent(params),
         onServerRequest: (request, epoch) => this.#onServerRequest(request, epoch),
-        onUnhandledServerRequest: (request) => this.#onUnhandledServerRequest(request),
+        onUnhandledServerRequest: (request, epoch) =>
+          this.#onUnhandledServerRequest(request, epoch),
         onState: (state) => this.#onConnectionState(state),
       },
     })
@@ -805,6 +803,11 @@ class DirectHermesClient implements DirectClient {
       case 'session-reclaimed': {
         const storedId = this.#stored.get(effect.runtimeSessionId)
         if (storedId) {
+          // Hermes tore the runtime session down (session_lifecycle.py:545-560): nothing it
+          // held for it can be answered or re-listed any more.
+          for (const [requestId, tracked] of [...this.#requests])
+            if (tracked.conversationId === storedId)
+              this.#closeRequest(requestId, 'cancelled')
           this.#detachRuntime(storedId)
           this.#resetHistory(storedId, 'resync')
         }
@@ -855,7 +858,20 @@ class DirectHermesClient implements DirectClient {
       this.#upsert({ ...conversation, session: { storedId, runtimeId: sid } })
     const waiting = this.#waiting.get(sid)
     this.#waiting.delete(sid)
-    for (const { inbound, epoch } of waiting ?? []) this.#onServerRequest(inbound, epoch)
+    for (const show of waiting?.values() ?? []) show()
+  }
+
+  /**
+   * A request can beat the reply that binds its session (session.resume
+   * attaches before it answers): show it once the binding lands. It stays open
+   * in Hermes meanwhile. Only for the current socket; a reconnect re-lists it.
+   */
+  #waitForBinding(sid: string, requestId: string, epoch: number, show: () => void): void {
+    if (!sid || epoch !== this.#epoch) return
+    const waiting = this.#waiting.get(sid) ?? new Map<string, () => void>()
+    if (waiting.size >= 20 && !waiting.has(requestId)) return
+    waiting.set(requestId, show)
+    this.#waiting.set(sid, waiting)
   }
 
   #detachRuntime(storedId: string): void {
@@ -978,14 +994,9 @@ class DirectHermesClient implements DirectClient {
       typeof inbound.params.session_id === 'string' ? inbound.params.session_id : ''
     const conversationId = this.#stored.get(sid)
     if (!conversationId) {
-      // A request can beat the reply that binds its session (session.resume
-      // attaches before it answers); it is shown once the binding lands, and
-      // stays open in Hermes meanwhile.
-      if (sid && epoch === this.#epoch) {
-        const waiting = this.#waiting.get(sid) ?? []
-        if (!waiting.some((w) => w.inbound.id === inbound.id))
-          this.#waiting.set(sid, [...waiting.slice(-19), { inbound, epoch }])
-      }
+      this.#waitForBinding(sid, inbound.id, epoch, () =>
+        this.#onServerRequest(inbound, epoch),
+      )
       this.#log.log('info', 'direct.request-session-not-bound', {
         method: inbound.method,
       })
@@ -1017,22 +1028,52 @@ class DirectHermesClient implements DirectClient {
     this.#scheduleRequestSync()
   }
 
-  #onUnhandledServerRequest(request: UnhandledServerRequest): void {
-    if (request.action !== 'leave-open' || this.#noticed.has(request.id)) return
-    this.#noticed.add(request.id)
-    const asking =
-      request.upstreamKind === 'other'
-        ? `input Cindl does not handle (${safeText(request.method, 40)})`
-        : request.upstreamKind === 'secret'
-          ? 'a secret'
-          : request.upstreamKind === 'vault'
-            ? 'a password-manager code or password'
-            : 'a sudo password'
-    this.#emit({
-      type: 'notice',
-      level: 'warning',
-      message: `Hermes is waiting for ${asking}. Cindl never answers it: answer where Hermes asked, or it times out.`,
+  /**
+   * A request Cindl never answers. Nothing is sent; it is shown read-only as
+   * `unsupported` in its conversation so the owner knows Hermes is waiting,
+   * and closes like any other request (withdrawn, timed out, or gone from
+   * Hermes's open list once another surface answered it).
+   */
+  #onUnhandledServerRequest(request: UnhandledServerRequest, epoch: number): void {
+    if (request.action !== 'leave-open') return
+    const sid = request.sessionId ?? ''
+    const conversationId = this.#stored.get(sid)
+    if (!conversationId) {
+      if (sid) {
+        this.#waitForBinding(sid, request.id, epoch, () =>
+          this.#onUnhandledServerRequest(request, epoch),
+        )
+        return
+      }
+      // App-level prompts (display.install.sudo) belong to no conversation.
+      if (this.#noticed.has(request.id)) return
+      this.#noticed.add(request.id)
+      this.#emit({
+        type: 'notice',
+        level: 'warning',
+        message:
+          'Hermes is waiting for input Cindl does not answer. Answer it where Hermes asked, or it times out.',
+      })
+      return
+    }
+    const existing = this.#requests.get(request.id)
+    const mapped = mapUnsupportedRequest({
+      requestId: request.id,
+      method: request.method,
+      sessionId: sid,
+      lastSeenEpoch: epoch,
+      receivedAt: existing?.request.receivedAt ?? this.#now(),
+      conversationId,
     })
+    if (!mapped) return
+    this.#requests.set(request.id, {
+      request: mapped.request,
+      runtimeSessionId: mapped.runtimeSessionId,
+      conversationId,
+    })
+    this.#emit({ type: 'request.opened', request: mapped.request })
+    this.#emit({ type: 'session.status', conversationId, status: 'waiting-on-you' })
+    this.#scheduleRequestSync()
   }
 
   #closeRequest(
@@ -1403,6 +1444,12 @@ class DirectHermesClient implements DirectClient {
     'request.answer': async ({ requestId, answer }) => {
       const tracked = this.#requests.get(requestId)
       if (!tracked) throw new CindlError('not-found', 'This request is no longer open.')
+      // Nothing is ever sent for these: any reply could become the password.
+      if (tracked.request.kind === 'unsupported')
+        throw new CindlError(
+          'unsupported',
+          'Cindl does not answer this request. Answer it where Hermes asked.',
+        )
       this.#require(
         tracked.request.kind === 'approval' ? 'requests.approval' : 'requests.clarify',
       )

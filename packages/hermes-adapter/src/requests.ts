@@ -8,10 +8,12 @@ import {
   type ClarifyResponse,
   type RequestAnswer,
   type ServerRequest,
+  type UnsupportedRequestKind,
 } from '@cindl/contracts'
 import { z } from 'zod'
 import { boundedText, safeText } from './diagnostics.ts'
 import { asCindlError, NotSentError, protocolError } from './errors.ts'
+import { unsupportedKind } from './rpc.ts'
 import { parseWire, RequestAnswerResult } from './wire.ts'
 
 /**
@@ -185,6 +187,41 @@ export function mapServerRequest(input: InboundRequestInput): MappedRequest | un
   return undefined
 }
 
+const unsupportedTitles: Record<UnsupportedRequestKind, string> = {
+  sudo: 'Hermes is asking for a sudo password',
+  secret: 'Hermes is asking for a secret',
+  vault: 'Hermes is asking for a password-manager password or code',
+  other: 'Hermes is waiting for input Cindl does not handle',
+}
+
+/**
+ * A request Cindl never answers (sudo, secret, vault.*, any kind it does not
+ * know), shown read-only so the owner knows Hermes is waiting. It carries no
+ * value from Hermes's params (prompt text, variable names, commands): only
+ * what kind of input Hermes wants.
+ */
+export function mapUnsupportedRequest(
+  input: Omit<InboundRequestInput, 'params'> & { sessionId: string },
+): MappedRequest | undefined {
+  if (!RequestId.safeParse(input.requestId).success || !input.sessionId) return undefined
+  const kind = unsupportedKind(input.method)
+  const request: ServerRequest = {
+    requestId: input.requestId,
+    lastSeenEpoch: input.lastSeenEpoch,
+    receivedAt: input.receivedAt,
+    status: 'open',
+    conversationId: input.conversationId,
+    kind: 'unsupported',
+    unsupportedKind: kind,
+    title:
+      kind === 'other'
+        ? `${unsupportedTitles.other} (${safeText(input.method, 40)})`
+        : unsupportedTitles[kind],
+    choices: [],
+  }
+  return { request, runtimeSessionId: input.sessionId }
+}
+
 /**
  * The JSON-RPC `result` that answers `request` with `answer`, or a CindlError
  * when the answer does not fit what Hermes offered. Never produces `all`.
@@ -193,6 +230,11 @@ export function answerResult(
   request: ServerRequest,
   answer: RequestAnswer,
 ): Record<string, unknown> {
+  if (request.kind === 'unsupported')
+    throw new CindlError(
+      'unsupported',
+      'Cindl does not answer this request. Answer it where Hermes asked.',
+    )
   if (request.kind === 'approval') {
     if (answer.kind !== 'approval')
       throw new CindlError('invalid', 'This request expects an approval decision.')

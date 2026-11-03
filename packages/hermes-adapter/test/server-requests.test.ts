@@ -50,7 +50,7 @@ describe('server requests Cindl does not answer (S7)', () => {
     expect(unhandled[0]).toMatchObject({
       method: 'window.read',
       action: 'decline',
-      upstreamKind: 'other',
+      unsupportedKind: 'other',
     })
     expect(fake.gateway.open.has(asked.id)).toBe(true)
     other.send({ id: asked.id, result: { value: 'synthetic window text (fixture)' } })
@@ -83,7 +83,7 @@ describe('server requests Cindl does not answer (S7)', () => {
     }
     await until(() => unhandled.length === Object.keys(kinds).length)
     await new Promise((resolve) => setTimeout(resolve, 50))
-    expect(unhandled.map((u) => [u.method, u.upstreamKind, u.action])).toEqual(
+    expect(unhandled.map((u) => [u.method, u.unsupportedKind, u.action])).toEqual(
       Object.entries(kinds).map(([method, kind]) => [method, kind, 'leave-open']),
     )
     // No decline, no error, no empty value: every request is still open for the

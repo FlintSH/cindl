@@ -23,7 +23,8 @@ import { RestClient } from '../src/rest.ts'
 export interface ProbeOptions {
   origin: string
   token?: string
-  cookie?: string
+  /** A `Cookie` request header value for a web session (read from a file the operator provides). */
+  cookieHeader?: string
 }
 
 export interface ProbeIo {
@@ -73,12 +74,12 @@ export async function runProbe(options: ProbeOptions, io: ProbeIo): Promise<numb
     return 2
   }
   const baseFetch = io.fetch ?? ((url, init) => fetch(url, init))
-  const cookie = options.cookie
-  const probeFetch: FetchLike = cookie
+  const cookieHeader = options.cookieHeader
+  const probeFetch: FetchLike = cookieHeader
     ? (url, init) =>
         baseFetch(url, {
           ...init,
-          headers: { ...(init.headers as Record<string, string>), Cookie: cookie },
+          headers: { ...(init.headers as Record<string, string>), Cookie: cookieHeader },
         })
     : baseFetch
   const rest = new RestClient({
@@ -252,7 +253,7 @@ async function main(argv: string[]): Promise<number> {
     }
   }
   return runProbe(
-    { origin, ...(token ? { token } : {}), ...(cookieFile ? { cookie: raw } : {}) },
+    { origin, ...(token ? { token } : {}), ...(cookieFile ? { cookieHeader: raw } : {}) },
     { out: (line) => console.log(line) },
   )
 }

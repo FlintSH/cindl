@@ -1,7 +1,7 @@
 import { CindlError, ServerRequest } from '@cindl/contracts'
 import { HermesContract } from '@cindl/fixtures/fake-hermes'
 import { describe, expect, it } from 'vitest'
-import { answerResult, mapServerRequest } from '../src/index.ts'
+import { answerResult, mapServerRequest, mapUnsupportedRequest } from '../src/index.ts'
 
 const contract = new HermesContract()
 const receivedAt = '2026-06-02T08:00:00.000Z'
@@ -323,5 +323,77 @@ describe('clarify requests', () => {
         conversationId: 'c1',
       }),
     ).toBeUndefined()
+  })
+})
+
+describe('requests Cindl never answers', () => {
+  const unsupported = (method: string, sessionId = 'a1b2c3d4') =>
+    mapUnsupportedRequest({
+      requestId: 'srq-00000000beef',
+      method,
+      sessionId,
+      lastSeenEpoch: 2,
+      receivedAt,
+      conversationId: 'c1',
+    })
+
+  it('shows what Hermes wants and nothing from its params', () => {
+    const titles = Object.fromEntries(
+      ['sudo', 'display.install.sudo', 'secret', 'vault.code', 'setup_beat'].map(
+        (method) => {
+          const request = ServerRequest.parse(unsupported(method)?.request)
+          expect(request).toMatchObject({
+            kind: 'unsupported',
+            conversationId: 'c1',
+            status: 'open',
+            choices: [],
+            lastSeenEpoch: 2,
+          })
+          expect(Object.keys(request).sort()).toEqual([
+            'choices',
+            'conversationId',
+            'kind',
+            'lastSeenEpoch',
+            'receivedAt',
+            'requestId',
+            'status',
+            'title',
+            'unsupportedKind',
+          ])
+          return [method, [request.unsupportedKind, request.title]]
+        },
+      ),
+    )
+    expect(titles).toEqual({
+      sudo: ['sudo', 'Hermes is asking for a sudo password'],
+      'display.install.sudo': ['sudo', 'Hermes is asking for a sudo password'],
+      secret: ['secret', 'Hermes is asking for a secret'],
+      'vault.code': ['vault', 'Hermes is asking for a password-manager password or code'],
+      setup_beat: [
+        'other',
+        'Hermes is waiting for input Cindl does not handle (setup_beat)',
+      ],
+    })
+  })
+
+  it('maps nothing without a session or a Hermes request id', () => {
+    expect(unsupported('sudo', '')).toBeUndefined()
+    expect(
+      mapUnsupportedRequest({
+        requestId: 'srq-1',
+        method: 'sudo',
+        sessionId: 'a1b2c3d4',
+        lastSeenEpoch: 1,
+        receivedAt,
+        conversationId: 'c1',
+      }),
+    ).toBeUndefined()
+  })
+
+  it('refuses to build an answer for one', () => {
+    const request = ServerRequest.parse(unsupported('secret')?.request)
+    expect(
+      invalid(() => answerResult(request, { kind: 'approval', choice: 'deny' })),
+    ).toBe('unsupported')
   })
 })

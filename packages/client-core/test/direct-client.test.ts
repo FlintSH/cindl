@@ -360,18 +360,108 @@ describe('direct client: approvals and questions', () => {
     })
   })
 
-  it('tells the user about a credential prompt it leaves to other clients', async () => {
+  it('shows a credential prompt read-only, never answers it, and closes it with Hermes', async () => {
     const h = await harness()
     const c = await conversation(h)
     void h.fake.gateway.serverRequest(c.session.runtimeId ?? '', 'sudo', {
       command: 'apt list (fixture)',
     })
-    await h.waitFor(() =>
-      h.store.getState().notices.some((n) => n.message.includes('a sudo password')),
-    )
+    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+    expect(request).toMatchObject({
+      kind: 'unsupported',
+      unsupportedKind: 'sudo',
+      conversationId: c.id,
+      status: 'open',
+      title: 'Hermes is asking for a sudo password',
+      choices: [],
+    })
+    // Nothing from Hermes's params is shown, the command included.
+    expect(request.command).toBeUndefined()
+    expect(entry(h.store.getState().conversations, c.id)?.status).toBe('waiting-on-you')
+    expect(await codeOf(approve(h, request.requestId, 'deny'))).toBe('unsupported')
     // Nothing was sent: it stays open for the terminal or the desktop app.
+    expect(h.rpcCalls('request.answer')).toBe(0)
     expect([...h.fake.gateway.open.values()].map((r) => r.method)).toEqual(['sudo'])
     expect(h.fake.gateway.settled).toEqual([])
+    expect(h.store.getState().notices).toEqual([])
+    h.fake.gateway.expireRequest(request.requestId)
+    await h.waitFor(() => requestOf(h, request.requestId)?.status === 'expired')
+  })
+
+  it('closes an unsupported request once another surface answered it', async () => {
+    const fake = await fakeHermes()
+    const h = await harness({ fake, deps: { connection: { requestSyncMs: 40 } } })
+    const c = await conversation(h)
+    const pending = fake.gateway.serverRequest(
+      c.session.runtimeId ?? '',
+      'setup_beat',
+      {},
+    )
+    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+    expect(request).toMatchObject({ kind: 'unsupported', unsupportedKind: 'other' })
+    const other = await connectRawClient(fake, fake.signIn())
+    other.send({ id: request.requestId, result: { value: 'next (fixture)' } })
+    await expect(pending).resolves.toEqual({ value: 'next (fixture)' })
+    // The sidecar tells this client nothing; the open-requests check closes it.
+    await h.waitFor(
+      () => requestOf(h, request.requestId)?.status === 'resolved-elsewhere',
+    )
+    other.close()
+  })
+
+  it('reopens an unsupported request Hermes re-lists after a reconnect', async () => {
+    const h = await harness()
+    const c = await conversation(h)
+    void h.fake.gateway.serverRequest(c.session.runtimeId ?? '', 'secret', {})
+    const request = await h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+    expect(request).toMatchObject({ unsupportedKind: 'secret', lastSeenEpoch: 1 })
+    h.fake.gateway.dropConnections()
+    await online(h, 2)
+    await h.waitFor(() => requestOf(h, request.requestId)?.lastSeenEpoch === 2)
+    expect(requestOf(h, request.requestId)?.status).toBe('open')
+    expect(
+      h.events.some(
+        (e) =>
+          e.type === 'requests.synced' &&
+          e.conversationId === c.id &&
+          e.openRequestIds.includes(request.requestId),
+      ),
+    ).toBe(true)
+    expect(h.fake.gateway.settled).toEqual([])
+  })
+
+  it('closes the requests of a session Hermes reclaimed', async () => {
+    const h = await harness()
+    approvalScript(h)
+    const { c, request } = await openRequest(h)
+    h.fake.gateway.broadcast('session.reclaimed', {
+      session_id: c.session.runtimeId ?? '',
+      stored_session_id: c.id,
+      reason: 'idle_timeout',
+    })
+    await h.waitFor(() => requestOf(h, request.requestId)?.status === 'cancelled')
+    expect(
+      entry(h.store.getState().conversations, c.id)?.session.runtimeId,
+    ).toBeUndefined()
+  })
+
+  it('only notes an app-level prompt it cannot place in a conversation', async () => {
+    const h = await harness()
+    // display.install.sudo goes to the client that clicked Install, with no session
+    // (tui_gateway/methods_display.py:202-206).
+    for (const connection of h.fake.gateway.connections)
+      connection.send({
+        jsonrpc: '2.0',
+        id: 'srq-00000000cafe',
+        method: 'display.install.sudo',
+        params: { session_id: '', profile_key: 'default' },
+      })
+    await h.waitFor(() => h.store.getState().notices.length > 0)
+    expect(h.store.getState().notices.map((n) => n.message)).toEqual([
+      'Hermes is waiting for input Cindl does not answer. Answer it where Hermes asked, or it times out.',
+    ])
+    expect(Object.keys(h.store.getState().requests)).toEqual([])
+    expect(h.rpcCalls('request.answer')).toBe(0)
   })
 
   it('answers through request.answer and stays answering until Hermes acknowledges', async () => {
@@ -425,6 +515,11 @@ describe('direct client: approvals and questions', () => {
         status: 'resolved-elsewhere',
       },
     ])
+    // The answer this client sent is kept for display (contract v4).
+    expect(requestOf(h, request.requestId)).toMatchObject({
+      status: 'resolved-elsewhere',
+      answer: { kind: 'approval', choice: 'once' },
+    })
   })
 
   it('shows a request that arrives before the reply binding its session', async () => {
