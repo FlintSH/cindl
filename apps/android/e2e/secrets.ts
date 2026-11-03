@@ -65,29 +65,45 @@ export function logcatUid(line: string): string | undefined {
   )?.[1]
 }
 
+/** A line logged under another UID than `uid` (none when `uid` or the line's is unknown). */
+const othersLine = (line: string, uid: string | undefined) => {
+  const of = logcatUid(line)
+  return uid !== undefined && of !== undefined && of !== uid
+}
+
 /**
- * The lines of a device log that count as the app's: those logged under its
- * UID, and any line whose UID cannot be read (logcat's `--------- beginning
- * of` headers aside), so a line of an unknown shape is never let through.
- * Without the UID, every line counts.
+ * The kinds of secret a device log (read with `-v uid`) holds, as the run
+ * counts them: in every line, Cindl's own and other processes', with one
+ * exception. Android's window manager logs the link Cindl opened in the
+ * browser as `capturedLink=`, and that link carries the sign-in's state (CI
+ * run 41656607631: SystemUI and system_server). On another process's line,
+ * the state inside that link is the system's record and does not count. A
+ * token, ticket, code or verifier there counts, and so does the state
+ * anywhere else, in Cindl's own lines too. Without Cindl's UID, no line is
+ * another process's.
  */
-export function ownLines(raw: string, uid: string | undefined): string[] {
-  const lines = raw.split('\n')
-  if (uid === undefined) return lines
-  return lines.filter((line) => {
-    if (line.startsWith('--------- ')) return false
-    const of = logcatUid(line)
-    return of === undefined ? line.trim().length > 0 : of === uid
-  })
+export function heldKinds(
+  raw: string,
+  uid: string | undefined,
+  secrets: RunSecrets,
+): SecretKind[] {
+  const kinds = new Set<SecretKind>()
+  for (const line of raw.split('\n')) {
+    const stateSearched = othersLine(line, uid)
+      ? line.replaceAll(/capturedLink=\S*/g, 'capturedLink=')
+      : line
+    for (const kind of secrets.found(line))
+      if (kind !== 'state' || secrets.found(stateSearched).includes('state'))
+        kinds.add(kind)
+  }
+  return [...kinds].sort()
 }
 
 /**
  * The device logs of a run. Each is written only scrubbed, every line of it,
  * and kept raw in memory (never on disk), so the run can say which held a
- * secret in the app's own lines (`ownLines`), including one learned after the
- * log was written; `rewrite` then scrubs the files again with everything
- * known. Other processes' lines do not count: Android's window manager logs
- * the link the app opened in the browser, state and all (CI run 41656607631).
+ * secret (`heldKinds`), including one learned after the log was written;
+ * `rewrite` then scrubs the files again with everything known.
  */
 export class DeviceLogs {
   readonly #dir: string
@@ -109,10 +125,10 @@ export class DeviceLogs {
     writeFileSync(join(this.#dir, file), this.#secrets.scrub(raw))
   }
 
-  /** Each log whose own lines held a secret, with the kinds (never the values). */
+  /** Each log that held a secret (`heldKinds`), with the kinds (never the values). */
   holding(): Array<{ file: string; kinds: SecretKind[] }> {
     return this.#logs.flatMap(({ file, raw, uid }) => {
-      const kinds = this.#secrets.found(ownLines(raw, uid).join('\n'))
+      const kinds = heldKinds(raw, uid, this.#secrets)
       return kinds.length ? [{ file, kinds }] : []
     })
   }

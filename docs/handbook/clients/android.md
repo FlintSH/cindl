@@ -178,11 +178,13 @@ until the owner decides about those terms.
     the device, and no token issued during the run is in plain text in the
     app's files.
   - **Logs:** no token, ticket, code, state or PKCE verifier the run issued
-    or received is in Cindl's own lines of the device log (logcat with each
-    line's UID, read after every step and kept raw in memory only). Android's
-    window manager logs the link Cindl opened in the browser, with its state;
-    those system lines are scrubbed in the artifact but not counted. If no
-    line can be told to be Cindl's, the check fails rather than pass unchecked.
+    or received is in any line of the device log, Cindl's or another
+    process's (logcat with each line's UID, read after every step and kept
+    raw in memory only). One exception: Android's window manager logs the
+    link Cindl opened in the browser (`capturedLink=`), with its state; on
+    another process's line, the state inside that link is scrubbed in the
+    artifact but not counted. If no line can be told to be Cindl's, the check
+    fails rather than pass unchecked.
   - **The agent's screen:** the fake's synthetic screen, served over
     `/api/display/ws`, drawn by the Kotlin painter (a pixel of its desktop
     read back), and in control, a tap that reaches the fake through its lease

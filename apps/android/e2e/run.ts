@@ -128,7 +128,8 @@ async function step(name: string, body: (context: StepContext) => Promise<void>)
   }
   try {
     const file = `logcat-${String(steps.length + 1).padStart(2, '0')}-${slug(name)}.txt`
-    // With each line's UID, so only Cindl's own lines count (secrets.ts ownLines).
+    // With each line's UID, so the system's record of the link Cindl opened can be told
+    // apart (secrets.ts heldKinds).
     deviceLogs.keep(
       file,
       device.shell('logcat -d -v threadtime -v uid', 120_000),
@@ -1291,9 +1292,8 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
   await step('No issued value in the device log', ({ note }) => {
     needsSignIn()
     // Every step before this one kept its device log in memory (deviceLogs), and wrote
-    // it scrubbed. Cindl's own lines (by UID) are searched here for every value known
-    // now; Android's window manager logs the link Cindl opened, state and all, which is
-    // the system's record, not Cindl's.
+    // it scrubbed. Every line is searched here for every value known now, except the
+    // state in Android's record of the link Cindl opened (secrets.ts heldKinds).
     if (secrets.values('access token').length === 0)
       throw new Error('The fake issued no token to search the device log for')
     if (deviceLogs.attributed() === 0)
@@ -1308,7 +1308,7 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
           .join('; ')}`,
       )
     note(
-      `none of the ${secrets.size} tokens, tickets, codes, states and verifiers the run issued or received is in Cindl's own lines (${deviceLogs.attributed()}) of the device log of the ${deviceLogs.count} steps before this one; other processes' lines are scrubbed, not counted`,
+      `none of the ${secrets.size} tokens, tickets, codes, states and verifiers the run issued or received is in the device log of the ${deviceLogs.count} steps before this one (${deviceLogs.attributed()} lines of them Cindl's), the state in Android's record of the link Cindl opened aside`,
     )
     return Promise.resolve()
   })

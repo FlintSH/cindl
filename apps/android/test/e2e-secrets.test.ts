@@ -116,7 +116,7 @@ describe('the values a run must not publish', () => {
   })
 })
 
-describe("the device log's own lines (CI run 41656607631)", () => {
+describe('the device log lines that count (CI run 41656607631, delta check of c6ce4d3)', () => {
   // `logcat -v threadtime -v uid` lines. SystemUI (uid 10102) and system_server
   // (uid 1000) log the browser task Cindl opened, with the link's state, as
   // that run's signin/logcat-02 shows; Cindl's own lines carry its uid, 10151.
@@ -135,7 +135,7 @@ describe("the device log's own lines (CI run 41656607631)", () => {
     ).toBeUndefined()
   })
 
-  it("counts only Cindl's lines: the system's record of the link it opened is scrubbed, not counted", () => {
+  it("does not count the state in the system's record of the link Cindl opened; it is scrubbed", () => {
     const dir = scratch()
     const secrets = new RunSecrets()
     secrets.add('state', STATE)
@@ -156,6 +156,42 @@ describe("the device log's own lines (CI run 41656607631)", () => {
     expect(logs.holding()).toEqual([
       { file: 'logcat-03-chat.txt', kinds: ['access token'] },
     ])
+  })
+
+  it("counts every other value in other processes' lines, and the state anywhere but that record", () => {
+    const secrets = new RunSecrets()
+    for (const [kind, value] of [
+      ['access token', ACCESS],
+      ['ticket', TICKET],
+      ['code', CODE],
+      ['state', STATE],
+      ['verifier', VERIFIER],
+    ] as const)
+      secrets.add(kind, value)
+    const held = (line: string) => {
+      const logs = new DeviceLogs(scratch(), secrets)
+      logs.keep('logcat.txt', line, '10151')
+      return logs.holding().flatMap(({ kinds }) => kinds)
+    }
+    // A value Cindl handed to another process that the system logged.
+    expect(
+      held(`11-03 15:04:00.000  1000:   638   659 I ActivityManager: extra ${ACCESS}`),
+    ).toEqual(['access token'])
+    expect(
+      held(`11-03 15:04:00.000 10102:  1001  1092 D Browser: ticket=${TICKET}`),
+    ).toEqual(['ticket'])
+    // In the captured link itself: a code or verifier counts, the state does not.
+    expect(held(SHELL.replace(LINK, `${LINK}&code=${CODE}`))).toEqual(['code'])
+    expect(held(SERVER.replace(LINK, `${LINK}&v=${VERIFIER}`))).toEqual(['verifier'])
+    // The state on another process's line, outside a captured link.
+    expect(
+      held(`11-03 15:04:00.000  1000:   638   659 I ActivityManager: state ${STATE}`),
+    ).toEqual(['state'])
+    expect(held(`${SERVER} returned=${STATE}`)).toEqual(['state'])
+    // And on Cindl's own line, captured link or not.
+    expect(
+      held(`11-03 15:04:00.000 10151:  4321  4400 D ReactNativeJS: capturedLink=${LINK}`),
+    ).toEqual(['state'])
   })
 
   it("counts a line it cannot place, and every line when Cindl's uid is unknown (fail closed)", () => {
