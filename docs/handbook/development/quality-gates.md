@@ -46,13 +46,24 @@ need to load workspace sources from `--root` in their tests. Scripts never
 ship in a client; every other rule applies to them unchanged.
 
 The root config also encodes Cindl's invariants, each with a case in
-`apps/web/test/lint-rules.test.ts`: no raw HTML; no fixture code outside tests
-and the demo switch, including relative `node_modules` paths,
-`import.meta.glob` and fixture asset URLs (bundled sources also refuse computed
-`new URL(…, import.meta.url)` paths); and no browser storage or cookies outside
-`apps/web/src/platform/preferences.ts`, whether reached directly, through an
-alias or another window object, `Reflect`, a property descriptor or a computed
-key.
+`apps/web/test/lint-rules.test.ts`. ESLint replaces a rule's options per
+matching block, so each scope lists its complete set:
+
+- **Every file:** no raw HTML; no fixture code outside tests and the fixtures
+  package, including relative `node_modules` paths, repeated slashes,
+  `import.meta.glob` and fixture asset URLs; no browser storage or cookies by
+  name, computed key, destructuring or `Reflect`.
+- **Shipped sources** (`apps/*/src`, `packages/*/src`): also no computed
+  `new URL(…, import.meta.url)`, no aliases of global objects or
+  `document.defaultView`, no `Reflect` or property-descriptor calls on them,
+  and no `navigator.storage` through another object. Scripts and tests may
+  stub globals.
+- **Browser-facing sources:** also no storage or cookie property through any
+  object. Node code keeps legitimate `cookie` fields, such as HTTP headers.
+- **`apps/web/src/platform/client.ts`** (the demo switch): one literal
+  `import('@cindl/fixtures/scenario')`, and every other rule.
+- **`apps/web/src/platform/preferences.ts`:** `localStorage` only; every other
+  storage API stays off limits.
 
 ## Privacy and secret scan
 

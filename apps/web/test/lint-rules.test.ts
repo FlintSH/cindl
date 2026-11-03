@@ -106,6 +106,23 @@ describe('Cindl lint invariants', () => {
       "const k = ['local', 'Storage'].join('')\nexport const s: unknown = window[k as 'name']",
       'no-restricted-syntax',
     ],
+    // Review d2ace34c S-3: more routes to the same objects.
+    ['void window.navigator.storage.getDirectory()', 'no-restricted-syntax'],
+    ['void globalThis.navigator.storage.persist()', 'no-restricted-syntax'],
+    ['const n = navigator\nvoid n.storage.persist()', 'no-restricted-syntax'],
+    [
+      "const k = ['local', 'Storage'].join('')\nexport const v: unknown = document.defaultView?.[k as 'name']",
+      'no-restricted-syntax',
+    ],
+    ['const view = document.defaultView\nexport const v = view', 'no-restricted-syntax'],
+    [
+      "export const s: unknown = Reflect.get(window, ['local', 'Storage'].join(''))",
+      'no-restricted-syntax',
+    ],
+    [
+      "export const d = Object.getOwnPropertyDescriptor(Document.prototype, ['coo', 'kie'].join(''))",
+      'no-restricted-syntax',
+    ],
   ])('blocks browser storage: %s', async (code, rule) => {
     expect(await rulesFor(code)).toContain(rule)
   })
@@ -116,6 +133,65 @@ describe('Cindl lint invariants', () => {
       'apps/web/src/probe.tsx',
     )
     expect(rules).toContain('no-restricted-syntax')
+  })
+
+  it.each([
+    // Review d2ace34c S-4: the demo switch gets one literal import and nothing else.
+    [
+      "export const all = import.meta.glob('../../../packages/fixtures/src/**')",
+      'no-restricted-syntax',
+    ],
+    ["export { scenarioData } from '@cindl/fixtures'", 'no-restricted-imports'],
+    [
+      "const p = 'data'\nexport const url = new URL(`../${p}.ts`, import.meta.url)",
+      'no-restricted-syntax',
+    ],
+    ["export const load = () => import('@cindl/fixtures/other')", 'no-restricted-syntax'],
+    ['void localStorage.getItem("x")', 'no-restricted-globals'],
+  ])('keeps the demo switch narrow: %s', async (code, rule) => {
+    expect(await rulesFor(code, 'apps/web/src/platform/client.ts')).toContain(rule)
+  })
+
+  it.each([
+    [
+      "import { x } from '../../../packages//fixtures//src/index.ts'",
+      'no-restricted-imports',
+    ],
+    [
+      "export const load = () => import('../../../packages//fixtures//src/index.ts')",
+      'no-restricted-syntax',
+    ],
+  ])('blocks fixture paths with repeated slashes: %s', async (code, rule) => {
+    expect(await rulesFor(code)).toContain(rule)
+  })
+
+  it.each([
+    ["window.sessionStorage.setItem('t', 'x')", 'no-restricted-properties'],
+    ["void indexedDB.open('t')", 'no-restricted-globals'],
+    ["void window.caches.open('t')", 'no-restricted-properties'],
+    ["document.cookie = 't=1'", 'no-restricted-properties'],
+    ['void navigator.storage.persist()', 'no-restricted-properties'],
+    ["window['sessionStorage'].setItem('t', 'x')", 'no-restricted-syntax'],
+  ])('allows only localStorage in preferences.ts: %s', async (code, rule) => {
+    expect(await rulesFor(code, 'apps/web/src/platform/preferences.ts')).toContain(rule)
+  })
+
+  it('applies the any-object storage rule to browser code only', async () => {
+    const header =
+      'export const c = (req: { headers: { cookie?: string } }) => req.headers.cookie'
+    expect(await rulesFor(header, 'apps/desktop/src/main/probe.ts')).toEqual([])
+    expect(await rulesFor(header, 'apps/web/src/probe.ts')).toContain(
+      'no-restricted-syntax',
+    )
+  })
+
+  it('lets the demo switch load the labelled scenario', async () => {
+    expect(
+      await rulesFor(
+        "export const load = () => import('@cindl/fixtures/scenario')",
+        'apps/web/src/platform/client.ts',
+      ),
+    ).toEqual([])
   })
 
   it('lets Node scripts compute file URLs and preferences.ts use localStorage', async () => {
