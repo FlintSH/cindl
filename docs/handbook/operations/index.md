@@ -17,7 +17,10 @@ existing, authenticated Hermes `hermes serve` backend
 | Desktop | The Electron main process connects to the `hermes serve` origin you sign in to, using Hermes's native PKCE flow with a loopback redirect. Tokens stay in the main process. | Not built yet.                                                                                                                                                                                                                                 |
 | Android | The app connects to the `hermes serve` origin directly and signs in with the same native flow through the system browser. Tokens stay in Keystore-backed storage.          | Not built yet. No APK is produced.                                                                                                                                                                                                             |
 
-The authentication design is in
+Desktop and Android sign in only to an `https://` origin; plain `http://` is
+accepted only for a Hermes on the same machine (`127.0.0.1` or `[::1]`). The
+origin is the scheme, host and port alone: no credentials, path or query. The
+authentication design is in
 [ADR 0003](../architecture/decisions/0003-authentication.md) and the exact
 routes in the [Hermes v0.22.5 reference](../reference/hermes-v0.22.5.md).
 
