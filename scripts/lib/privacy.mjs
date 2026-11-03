@@ -197,6 +197,13 @@ function licenceSection(text) {
   return [start, next < 0 ? text.length : start + 3 + next]
 }
 
+/** The full line of `text` that contains `index`. */
+function lineText(text, index) {
+  const start = text.lastIndexOf('\n', index) + 1
+  const end = text.indexOf('\n', index)
+  return text.slice(start, end < 0 ? text.length : end)
+}
+
 function* contentFindings(path, text, { holder, markers }) {
   for (const [rule, pattern] of SECRET_PATTERNS)
     for (const match of text.matchAll(pattern))
@@ -237,9 +244,14 @@ function* contentFindings(path, text, { holder, markers }) {
 
   const emails =
     /(?<![\w.%+-])[A-Za-z0-9._%+-]+@((?:[A-Za-z0-9-]+\.)+[A-Za-z]{2,})(?![\w-])/g
+  // A lockfile's `deprecated:` notice is npm registry text written by the
+  // package's author (glob@7's names a support address), not this
+  // repository's data. Only that field is exempt, and only from this rule.
+  const lockfile = /(^|\/)pnpm-lock\.yaml$/.test(path)
   for (const match of text.matchAll(emails)) {
     const [address, domain] = match
     if (EXAMPLE_DOMAIN.test(domain) || FILE_EXTENSION_TLD.test(domain)) continue
+    if (lockfile && /^\s*deprecated:/.test(lineText(text, match.index))) continue
     if (
       ALLOWED_EMAILS.has(address.toLowerCase()) ||
       /users\.noreply\.github\.com$/i.test(domain)

@@ -50,6 +50,16 @@ describe('check-privacy', () => {
     assertFlagged(scan(t, { 'config/net.yml': `host: ${ula}\n` }), /IPv6 address/)
   })
 
+  it("ignores a lockfile's registry deprecation notice, and nothing else there", (t) => {
+    const email = ['someone', 'gmail.com'].join('@')
+    const notice = `  glob@7.2.3:\n    deprecated: Old versions are unsupported. Contact ${email}.\n`
+    const lock = (body) => `lockfileVersion: '9.0'\n\npackages:\n\n${body}`
+    const ok = scan(t, { 'pnpm-lock.yaml': lock(notice) })
+    assert.equal(ok.code, 0, ok.output)
+    assertFlagged(scan(t, { 'pnpm-lock.yaml': lock(`  # ${email}\n`) }), /email address/)
+    assertFlagged(scan(t, { 'docs/notes.md': `deprecated: ${email}\n` }), /email address/)
+  })
+
   it('flags personal email addresses', (t) => {
     const email = ['someone', 'gmail.com'].join('@')
     const result = scan(t, { 'docs/team.md': `Contact ${email}.\n` })
