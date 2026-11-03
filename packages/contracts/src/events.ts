@@ -93,19 +93,21 @@ export const CindlEvent = z.discriminatedUnion('type', [
    * `resolved-elsewhere`; Hermes cannot say whose answer it used.
    *
    * Producers:
-   * - Hermes v0.22.5 lists and re-sends open requests per session only, and
-   *   writes an app-level request and its cancel to the connection that started
-   *   the operation (tui_gateway/server.py `write_json`). A new connection
-   *   therefore holds no app-level requests: send the app-level event with an
-   *   empty list, so ones from an older connection close.
+   * - App-level scope: send exactly what Hermes lists. At v0.22.5
+   *   `session.events.since` with `session_id: ""` returns every connection's
+   *   open app-level requests (tui_gateway/methods_session.py,
+   *   server_requests.open_requests). Send it after every (re)connect and in any
+   *   periodic check. If the list cannot be read, send no app-level event: a
+   *   disconnect cancels nothing app-level (Hermes waits out the prompt's own
+   *   timeout), so a changed connection never closes one by itself.
    * - A list must not close a request whose frame arrived after the list call
    *   was sent (Hermes built the list before it existed): add such ids to
    *   `openRequestIds`.
    */
   z.object({
     type: z.literal('requests.synced'),
-    /** Missing: the app-level scope, requests without a conversation. */
-    conversationId: z.string().optional(),
+    /** Missing: the app-level scope, requests without a conversation. Never empty. */
+    conversationId: z.string().min(1).optional(),
     openRequestIds: z.array(z.string()),
     /** The connection the list came from; it cannot close a request seen on a newer one. */
     connectionEpoch: z.number().int().nonnegative().optional(),

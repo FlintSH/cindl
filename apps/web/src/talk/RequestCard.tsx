@@ -168,9 +168,9 @@ const asks: Record<UnsupportedRequestKind, string> = {
  * Hermes is blocked on a prompt that Cindl must never answer: any reply,
  * even a decline, can become the password or secret Hermes uses. The card
  * says what Hermes is waiting for and offers nothing to send, so the prompt
- * stays open for another Hermes surface. An app-level prompt (no
- * conversation) reaches only the connection that started its operation, and
- * closes on Hermes's cancel or the next reconnect's sync.
+ * stays open for another Hermes surface. That holds for app-level prompts
+ * (no conversation) too: Cindl starts no operation that asks one, so the ones
+ * it lists belong to the surface that did.
  */
 function UnsupportedCard({ request }: { request: ServerRequest }) {
   const titleId = useId()
@@ -197,9 +197,8 @@ function UnsupportedCard({ request }: { request: ServerRequest }) {
         {kind === 'other'
           ? 'Cindl does not support this kind of prompt and sends nothing for it.'
           : 'Cindl never collects passwords, secrets or codes and sends nothing for this prompt.'}{' '}
-        {request.conversationId === undefined
-          ? 'Hermes sent it to this connection only, so no other surface shows it. It closes when Hermes stops waiting, or when Cindl reconnects.'
-          : 'Answer it in another Hermes surface, such as the Hermes terminal. It stays open here until Hermes closes it.'}
+        Answer it in another Hermes surface, such as the Hermes terminal. It stays open
+        here until Hermes closes it.
       </p>
     </section>
   )

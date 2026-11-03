@@ -146,10 +146,12 @@ attempt, it carries that attempt's `connectionEpoch`. See
 ### `requests.synced`
 
 One event per conversation with open requests, after a reconnect, listing what
-Hermes still holds open there, and one without `conversationId` for app-level
-requests (those with no conversation). That scope's other open or answering
-requests close as `resolved-elsewhere`, because Hermes cannot say whose answer
-it used; other scopes are untouched. A list from an older connection cannot
+Hermes still holds open there, and one without `conversationId` listing the
+app-level requests (those with no conversation) Hermes holds. That scope's
+other open or answering requests close as `resolved-elsewhere`, because Hermes
+cannot say whose answer it used; other scopes are untouched. A changed
+connection alone never closes an app-level request: Hermes cancels none on a
+disconnect. A list from an older connection cannot
 close a request seen on a newer one. See
 [Server requests](server-requests.md#events).
 

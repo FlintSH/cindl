@@ -441,6 +441,18 @@ describe('request sync scopes', () => {
       }),
     ).toMatchObject({ conversationId: 'c1' })
   })
+
+  // Review 4ad97d1 N2: Hermes's empty session id must not become a scope that
+  // matches nothing. Absent is the app-level scope; '' is refused.
+  it('refuses an empty conversation id', () => {
+    expect(() =>
+      CindlEvent.parse({
+        type: 'requests.synced',
+        conversationId: '',
+        openRequestIds: [],
+      }),
+    ).toThrow()
+  })
 })
 
 describe('contract surface', () => {

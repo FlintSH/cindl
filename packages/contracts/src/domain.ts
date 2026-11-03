@@ -214,6 +214,9 @@ export const ServerRequest = z
      * Hermes `session_id` of the frame. Approvals and questions always have one;
      * only `unsupported` prompts may be app-level (`display.install.sudo` arrives
      * with an empty `session_id`, tui_gateway/methods_display.py at v0.22.5).
+     * Hermes sends such a prompt only to the connection that started the
+     * operation, and lists every connection's open ones; Cindl starts none, so
+     * the ones it shows belong to another Hermes surface.
      */
     conversationId: z.string().min(1).optional(),
     title: z.string(),

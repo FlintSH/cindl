@@ -240,12 +240,13 @@ describe('prompts Cindl never answers', () => {
     expect(screen.queryByRole('button')).toBeNull()
   })
 
-  // Review 91f30e07 SF4: no other surface ever shows an app-level prompt.
-  it('does not send the owner elsewhere for an app-level prompt', async () => {
+  // Review 4ad97d1 N1: an app-level prompt Cindl lists belongs to the Hermes
+  // surface that started its operation, and stays open until Hermes closes it.
+  it('treats an app-level prompt like any other: read-only, answered elsewhere', async () => {
     const { conversationId: _none, ...appLevel } = sudo()
     harness(appLevel)
-    expect(await screen.findByText(/to this connection only/)).toBeTruthy()
-    expect(screen.queryByText(/Answer it in another Hermes surface/)).toBeNull()
+    expect(await screen.findByText(/Answer it in another Hermes surface/)).toBeTruthy()
+    expect(screen.queryByText(/reconnects/)).toBeNull()
     expect(screen.queryByRole('button')).toBeNull()
   })
 })

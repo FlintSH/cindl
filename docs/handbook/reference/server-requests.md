@@ -81,14 +81,16 @@ these events.
    longer pending), or `request.answer-failed`. Give each the attempt's
    `connectionEpoch`, and give `answered` the `answer` Hermes acknowledged.
 5. After every reconnect, emit `requests.synced` for each conversation with
-   open requests on either side, and one without `conversationId` with an
-   empty list. Hermes lists and re-sends open requests per session only, and
-   writes an app-level request (`display.install.sudo`, whose `session_id` is
-   empty) and its cancel only to the connection that started the operation
-   (`tui_gateway/server.py` `write_json`). A new connection holds none, so
-   app-level requests from an older one close instead of waiting forever.
-   Cindl starts no such operation, so at v0.22.5 one only reaches Cindl if
-   that changes.
+   open requests on either side, and one without `conversationId` listing
+   exactly the app-level requests Hermes holds: `session.events.since` with
+   `session_id: ""` returns every connection's open app-level requests
+   (`display.install.sudo` has an empty `session_id`). Emit `request.opened`
+   for listed ones Cindl has not seen; they belong to the Hermes surface that
+   started the operation (Hermes sends the prompt only there, and Cindl starts
+   none). Use the same list in the periodic check. If the list cannot be read,
+   send nothing for that scope: a disconnect cancels nothing app-level (Hermes
+   waits out the prompt's own timeout), so a changed connection must never
+   close one by itself.
 6. A list must not close a request whose frame arrived after the list call
    was sent: Hermes built the list before that request existed, and the
    request would show as resolved elsewhere while the agent waits. Add such
