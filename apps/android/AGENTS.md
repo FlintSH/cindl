@@ -55,6 +55,11 @@ Working here:
   `src/talk/requests.ts` only; `sendAnswer` refuses prompts Cindl never
   answers (`assertAnswerable`) before anything is sent.
 - Keep pure logic out of components so it can be tested without React Native.
+  Test a component rendered, never by copying its wiring into a test: the
+  memory screen renders with react-dom in jsdom (`test/memoryScreen.tsx`), and
+  `test/render/react-native.tsx` stands in for React Native's host layer only
+  (DOM elements, ARIA from accessibility props, recorded native calls). Add a
+  primitive there only when a rendered screen needs it.
 - The agent screen: never log frames, input or the screen socket's URL (it
   holds the single-use display ticket), and never start, stop or install the
   screen.

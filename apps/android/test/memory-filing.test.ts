@@ -1,3 +1,4 @@
+/** @vitest-environment jsdom */
 import { afterEach, describe, expect, it } from 'vitest'
 import { forgetDrafts } from '../src/views/drafts.ts'
 import {
@@ -16,15 +17,15 @@ import {
   releaseList,
   type Entry,
   type Harness,
-} from './memoryScreen.ts'
+} from './memoryScreen.tsx'
 
 // Where a draft is filed when a save ends, which key an adoption carries, and
 // what a moved-entry lock says about where the draft goes (web e501a97):
 // P1d (apps/web/test/memory-drafts.test.tsx) and RT4, RT6, R10 and R11
 // (apps/web/test/memory-transport-2.test.tsx, there through the direct
-// client and the fake Hermes), ported to Android on the screen in
-// ./memoryScreen.ts with the web assertions. Writes answer like the adapter.
-// SYNTHETIC data only.
+// client and the fake Hermes), ported to Android with the web assertions on the
+// rendered screen (./memoryScreen.tsx: the shipped components in jsdom). Writes
+// answer like the adapter. SYNTHETIC data only.
 
 afterEach(() => forgetDrafts())
 

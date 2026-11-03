@@ -1,3 +1,4 @@
+/** @vitest-environment jsdom */
 import type { MemoryEntry, MemoryEntrySummary } from '@cindl/contracts'
 import { afterEach, describe, expect, it } from 'vitest'
 import {
@@ -43,13 +44,13 @@ import {
   openEntry,
   releaseList,
   type Harness,
-} from './memoryScreen.ts'
+} from './memoryScreen.tsx'
 
 // The web reviewer's probes of entry identity (apps/web/test/memory-identity.test.tsx
-// at 85a24f0), ported to Android on the screen in ./memoryScreen.ts, which runs
-// MemoryEntries.tsx's and DocumentEditor.tsx's wiring on the same functions: a draft,
-// a save and a delete stay bound to the entry the owner read, and text at a place
-// that may be another entry locks the editor instead of being followed.
+// at 85a24f0), ported to Android on the rendered screen (./memoryScreen.tsx:
+// MemoryEntries.tsx and DocumentEditor.tsx themselves, in jsdom): a draft, a save
+// and a delete stay bound to the entry the owner read, and text at a place that
+// may be another entry locks the editor instead of being followed.
 // SYNTHETIC data only; nothing here talks to Hermes.
 
 afterEach(() => forgetDrafts())

@@ -235,11 +235,19 @@ until the owner decides about those terms.
 The memory editor's lock, adoption and kept-draft flows need memory changed
 elsewhere while an entry is open, which the demo cannot do. Node tests run
 them instead (`apps/android/test/memory-identity.test.ts`,
-`memory-adoption.test.ts` and `memory-drafts.test.ts`, the web client's
-probes with their assertions) on `apps/android/test/memoryScreen.ts`, which
-keeps the editor's state and wiring and calls the same functions the
-components call. How those states render in React Native, where TalkBack
-focus lands and what TalkBack reads are not covered by an emulator test yet.
+`memory-adoption.test.ts`, `memory-drafts.test.ts` and
+`memory-filing.test.ts`, the web client's probes with their assertions) on the
+shipped components: `MemoryEntries`, `DocumentEditor` and the app's providers
+render with react-dom in jsdom (`apps/android/test/memoryScreen.tsx`), on a
+synthetic memory that answers like the adapter and can hold a request or its
+answer. Only React Native's host layer is replaced
+(`apps/android/test/render/react-native.tsx`), as React Native's own Jest
+preset does: views become DOM elements, accessibility props become ARIA (the
+label is the accessible name, the role and state what TalkBack reads), and a
+request to move TalkBack focus is recorded. The tests read the screen by role,
+name and text and see where focus is sent. They do not cover native drawing
+or layout, or what TalkBack itself announces; no emulator test covers those
+flows yet.
 
 Each step starts from a known screen, so one failure does not fail the steps
 after it: Cindl in front (relaunched when another app is, never system back

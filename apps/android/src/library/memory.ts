@@ -398,8 +398,7 @@ export interface EntryEditorView {
 
 /**
  * An open editor, from the entry it is bound to, the row listed at its place
- * and the text it read (MemoryEntries.tsx renders it as it is; tests drive it
- * without React Native).
+ * and the text it read (MemoryEntries.tsx renders it as it is).
  */
 export function entryEditorView(input: {
   binding: EditorBinding

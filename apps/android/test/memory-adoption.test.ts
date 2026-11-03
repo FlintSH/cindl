@@ -1,3 +1,4 @@
+/** @vitest-environment jsdom */
 import {
   CindlError,
   type CindlClientApi,
@@ -23,12 +24,13 @@ import {
   releaseList,
   type Harness,
   type Store,
-} from './memoryScreen.ts'
+} from './memoryScreen.tsx'
 
 // Re-check 5606b13: the reviewer's probes of adoption ("Use this draft for the
 // entry now here"), of what a delete confirmation names, and of drafts across
 // close, leave and return (apps/web/test/memory-adoption.test.tsx at 85a24f0),
-// ported to Android on the screen in ./memoryScreen.ts with the web assertions.
+// ported to Android with the web assertions on the rendered screen
+// (./memoryScreen.tsx: the shipped components in jsdom).
 // Where Android differs, the test says so. Entries with identical text share one
 // identity, a documented limit, so the record-only duplicate-text probe is not
 // here either. SYNTHETIC data only.
