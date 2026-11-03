@@ -1,6 +1,6 @@
 # 0012 Computer view: the RFB stream stays inside the client implementation
 
-**Status:** Proposed (the RFB client core, `packages/client-core/src/rfb.ts`, is built and tested against a synthetic byte stream; nothing is wired yet, so Cindl still shows only the screen's state and lease)
+**Status:** Proposed. Built: the contract operations, the RFB client core (`packages/client-core/src/rfb.ts`), the web viewer, and a synthetic screen that the labelled demo streams through the real RFB client. Not built: the Hermes transport (`display.observe` and `/api/display/ws`) and the desktop relay, so a real Hermes still shows only the screen's state and lease.
 
 **Context.** Hermes v0.22.5 shows a profile's agent-owned screen through
 three pieces (`tui_gateway/methods_display.py`, `hermes_cli/web_routers/display.py`):
@@ -40,15 +40,14 @@ React tree, for the same reason.
   - `display.watch {}` returns `{ viewId, width, height }` under
     `computer.view`. It fails `unavailable` when the screen is stopped and
     never starts it.
+  - `display.frame { viewId }` returns what changed since the viewer's last
+    call: `{ viewId, width, height, regions }`, each region being
+    `{ x, y, width, height, rgba }`. It waits briefly for a change. Frames are
+    results, not events, so pixels never pass through the reducer.
   - `display.unwatch { viewId }`.
-  - `display.input { viewId, events }` under `computer.control`, for pointer
-    and key events. It is refused unless this device holds the lease (Hermes
-    filters input as well).
-  - Event `display.frame { viewId, rects }`, each rect being
-    `{ x, y, width, height, rgba }`. The reducer ignores it; the viewer paints
-    it.
-  - Event `display.view-ended { viewId, reason }`, where reason is
-    `control-taken`, `closed`, `stopped` or `error`.
+  - `display.input { viewId, events }` under `computer.control`, for up to 64
+    pointer and key events (DOM `KeyboardEvent.key` values). It is refused
+    unless this device holds the lease, and Hermes filters input as well.
 - **Pull, not push.** The UI asks for the next update when it has painted.
   The client keeps only the newest pixels for each region, so a slow renderer
   (or IPC) never builds an unbounded queue. In the desktop app frames cross

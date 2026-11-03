@@ -455,6 +455,45 @@ describe('request sync scopes', () => {
   })
 })
 
+describe('screen view operations (ADR 0012)', () => {
+  const viewId = 'view-demo0001'
+  const move = { type: 'pointer', x: 10, y: 20, buttons: 1 }
+
+  it('accepts bounded pointer and key input for a view', () => {
+    expect(
+      parseOpArgs('display.input', {
+        viewId,
+        events: [move, { type: 'key', key: 'Enter', down: true }],
+      }),
+    ).toMatchObject({ viewId })
+  })
+
+  it.each([
+    ['no events', { viewId, events: [] }],
+    ['more than 64 events', { viewId, events: new Array(65).fill(move) }],
+    ['a coordinate off any screen', { viewId, events: [{ ...move, x: 8192 }] }],
+    ['a negative coordinate', { viewId, events: [{ ...move, y: -1 }] }],
+    ['an unknown button bit', { viewId, events: [{ ...move, buttons: 32 }] }],
+    [
+      'an over-long key name',
+      { viewId, events: [{ type: 'key', key: 'k'.repeat(33), down: true }] },
+    ],
+    [
+      'an event Cindl does not send',
+      { viewId, events: [{ type: 'clipboard', text: 'x' }] },
+    ],
+    ['a malformed view id', { viewId: '../view', events: [move] }],
+  ])('refuses %s', (_label, args) => {
+    expect(() => parseOpArgs('display.input', args)).toThrow(CindlError)
+  })
+
+  it('needs a well-formed view id to read or stop a view', () => {
+    expect(parseOpArgs('display.frame', { viewId })).toEqual({ viewId })
+    expect(() => parseOpArgs('display.frame', { viewId: 'view-x' })).toThrow(CindlError)
+    expect(() => parseOpArgs('display.unwatch', {})).toThrow(CindlError)
+  })
+})
+
 describe('contract surface', () => {
   it('is versioned and enumerable for docs coverage', () => {
     expect(CONTRACTS_VERSION).toBe(4)

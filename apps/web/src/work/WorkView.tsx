@@ -8,6 +8,7 @@ import {
 import { isCindlError, type Routine } from '@cindl/contracts'
 import { useState } from 'react'
 import { RequestCard } from '../talk/RequestCard.tsx'
+import { ScreenView } from './ScreenView.tsx'
 import { relativeDay } from '../talk/format.ts'
 import { Badge, Button, SectionTitle } from '../ui/primitives.tsx'
 import { RequireCapability } from '../views/Capability.tsx'
@@ -170,6 +171,8 @@ function Computer() {
   }
   const canControl = useCan('computer.control')
   const display = useCindlState((state) => state.display)
+  // `limited` means state and lease only: the live picture needs `available`.
+  const view = useCindlState((state) => state.capabilities['computer.view'])
   const [confirming, setConfirming] = useState(false)
   if (!display) return <p className={styles.note}>Screen status not checked yet.</p>
   const controllerCopy = {
@@ -238,6 +241,11 @@ function Computer() {
           Taking control pauses Hermes's input on its screen and evicts any other
           controller. Your keystrokes go to the agent's computer.
         </p>
+      ) : null}
+      {display.status === 'running' && view?.state === 'available' ? (
+        <ScreenView controlling={display.leaseHeldByThisDevice} />
+      ) : view?.state === 'limited' && view.reason ? (
+        <p className={styles.note}>{view.reason}</p>
       ) : null}
     </div>
   )

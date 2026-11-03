@@ -445,6 +445,70 @@ export const DisplayState = z.object({
 })
 export type DisplayState = z.infer<typeof DisplayState>
 
+/** Largest screen side a viewer accepts (an 8K screen is 7680 wide). */
+export const DISPLAY_MAX_SIDE = 8192
+const screenSide = z.number().int().min(1).max(DISPLAY_MAX_SIDE)
+const screenCoordinate = z
+  .number()
+  .int()
+  .min(0)
+  .max(DISPLAY_MAX_SIDE - 1)
+
+/** A client-minted handle for one viewer of the agent-owned screen (ADR 0012). */
+export const DisplayViewId = z
+  .string()
+  .regex(/^view-[a-z0-9]{8,32}$/, 'Not a screen view id')
+export type DisplayViewId = z.infer<typeof DisplayViewId>
+
+export const DisplayView = z.object({
+  viewId: DisplayViewId,
+  width: screenSide,
+  height: screenSide,
+})
+export type DisplayView = z.infer<typeof DisplayView>
+
+/** Current pixels of one changed region: RGBA, rows top to bottom. */
+export const DisplayRegion = z.object({
+  x: screenCoordinate,
+  y: screenCoordinate,
+  width: screenSide,
+  height: screenSide,
+  rgba: z.instanceof(Uint8Array),
+})
+export type DisplayRegion = z.infer<typeof DisplayRegion>
+
+/**
+ * What changed since the viewer's previous `display.frame` call. A size
+ * different from the last one means the screen was resized: repaint all.
+ */
+export const DisplayFrame = z.object({
+  viewId: DisplayViewId,
+  width: screenSide,
+  height: screenSide,
+  regions: z.array(DisplayRegion),
+})
+export type DisplayFrame = z.infer<typeof DisplayFrame>
+
+/**
+ * Input for the agent-owned screen, in screen pixels. `buttons` is a mask
+ * (1 left, 2 middle, 4 right, 8 wheel up, 16 wheel down); `key` is a DOM
+ * `KeyboardEvent.key` value. Never logged: typing can be secret entry.
+ */
+export const DisplayInputEvent = z.discriminatedUnion('type', [
+  z.object({
+    type: z.literal('pointer'),
+    x: screenCoordinate,
+    y: screenCoordinate,
+    buttons: z.number().int().min(0).max(31),
+  }),
+  z.object({
+    type: z.literal('key'),
+    key: z.string().min(1).max(32),
+    down: z.boolean(),
+  }),
+])
+export type DisplayInputEvent = z.infer<typeof DisplayInputEvent>
+
 export const Usage = z.object({
   inputTokens: z.number().int().nonnegative().optional(),
   outputTokens: z.number().int().nonnegative().optional(),

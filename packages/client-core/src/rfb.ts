@@ -36,7 +36,7 @@ export interface RfbRect {
 
 /** Current pixels of one changed region, RGBA, rows top to bottom. */
 export interface RfbRegion extends RfbRect {
-  rgba: Uint8Array
+  rgba: Uint8Array<ArrayBuffer>
 }
 
 export interface RfbClientOptions {

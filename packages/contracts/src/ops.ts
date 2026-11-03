@@ -3,7 +3,11 @@ import { CapabilityId, CapabilityMap } from './capabilities.ts'
 import {
   AccountCoverage,
   Conversation,
+  DisplayFrame,
+  DisplayInputEvent,
   DisplayState,
+  DisplayView,
+  DisplayViewId,
   McpServerStatus,
   MemoryEntry,
   MemoryEntryId,
@@ -350,6 +354,39 @@ export const clientOps = {
     capability: 'computer.control',
     mutates: true,
     summary: 'Return the input lease.',
+  }),
+  'display.watch': op({
+    args: z.object({}),
+    result: DisplayView,
+    capability: 'computer.view',
+    mutates: false,
+    summary: 'Start showing the agent-owned screen. Never starts the screen.',
+  }),
+  'display.frame': op({
+    args: z.object({ viewId: DisplayViewId }),
+    result: DisplayFrame,
+    capability: 'computer.view',
+    mutates: false,
+    summary:
+      'What changed on the screen since the last call; waits a few seconds for a change.',
+  }),
+  'display.unwatch': op({
+    args: z.object({ viewId: DisplayViewId }),
+    result: z.object({ stopped: z.boolean() }),
+    capability: 'computer.view',
+    mutates: false,
+    summary: 'Stop showing the screen.',
+  }),
+  'display.input': op({
+    args: z.object({
+      viewId: DisplayViewId,
+      events: z.array(DisplayInputEvent).min(1).max(64),
+    }),
+    result: z.object({ sent: z.number().int().nonnegative() }),
+    capability: 'computer.control',
+    mutates: true,
+    summary:
+      'Pointer and key input, sent only while this device holds control. Never logged.',
   }),
 } as const
 

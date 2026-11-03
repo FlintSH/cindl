@@ -5,7 +5,13 @@
  * banner. Integration tests of the real adapter will use a fake Hermes server
  * (in progress); this scenario only exercises UI behaviour.
  */
-import { sha256Hex } from '@cindl/client-core'
+import {
+  createRfbClient,
+  keysymForKey,
+  sha256Hex,
+  type RfbClient,
+} from '@cindl/client-core'
+import { createSyntheticScreen } from './screen.ts'
 import {
   assertAnswerable,
   type Capability,
@@ -65,7 +71,6 @@ const limited: Partial<Record<CapabilityId, string>> = {
     'No server-side compare-and-swap at v0.22.5: Cindl re-reads before saving to detect conflicts.',
   'skills.write':
     'No server-side compare-and-swap at v0.22.5: Cindl re-reads before saving to detect conflicts.',
-  'computer.view': 'Synthetic demo: no live screen is streamed.',
 }
 
 const unavailable: Partial<Record<CapabilityId, string>> = {
@@ -203,6 +208,36 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
   }
   const streams = new Map<string, unknown[]>()
   let sequence = 0
+  // Viewers of the SYNTHETIC screen, each through Cindl's real RFB client.
+  const screen = createSyntheticScreen()
+  /** A viewer and a pump that moves queued bytes both ways until both sides are quiet. */
+  interface View {
+    client: RfbClient
+    pump: () => void
+  }
+  const views = new Map<string, View>()
+  let viewCount = 0
+  const openView = (): View => {
+    // Queued, not direct: neither side is re-entered while it parses.
+    const toServer: Uint8Array[] = []
+    const toClient: Uint8Array[] = []
+    const session = screen.connect((bytes) => toClient.push(bytes))
+    const client = createRfbClient({ send: (bytes) => toServer.push(bytes) })
+    const pump = () => {
+      while (toServer.length || toClient.length) {
+        for (const bytes of toClient.splice(0)) client.receive(bytes)
+        for (const bytes of toServer.splice(0)) session.receive(bytes)
+      }
+    }
+    pump()
+    return { client, pump }
+  }
+  const viewOf = (viewId: string) => {
+    const view = views.get(viewId)
+    if (!view)
+      throw new CindlError('not-found', 'That screen view ended. Open the screen again.')
+    return view
+  }
 
   const doc = (key: string, content: string, source: string): VersionedDocument => ({
     key,
@@ -570,6 +605,7 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
         leaseHeldByThisDevice: true,
         checkedAt: iso(),
       }
+      for (const view of views.values()) view.client.setControlling(true)
       emit({ type: 'display.changed', display })
       return display
     },
@@ -580,8 +616,59 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
         leaseHeldByThisDevice: false,
         checkedAt: iso(),
       }
+      for (const view of views.values()) {
+        view.client.setControlling(false)
+        view.pump()
+      }
       emit({ type: 'display.changed', display })
       return display
+    },
+    'display.watch': () => {
+      if (display.status !== 'running')
+        throw new CindlError(
+          'unavailable',
+          'The agent’s screen is not running. Cindl never starts it.',
+        )
+      viewCount += 1
+      const viewId = `view-demo${String(viewCount).padStart(4, '0')}`
+      const view = openView()
+      views.set(viewId, view)
+      view.client.setControlling(display.leaseHeldByThisDevice)
+      return { viewId, width: screen.width, height: screen.height }
+    },
+    'display.frame': async ({ viewId }) => {
+      viewOf(viewId)
+      // A few frames a second is plenty for a synthetic screen.
+      await new Promise<void>((resolve) => later(250, resolve))
+      const { client, pump } = viewOf(viewId)
+      const regions = client.takeUpdate()
+      client.requestUpdate()
+      pump()
+      const size = client.size ?? { width: screen.width, height: screen.height }
+      return { viewId, ...size, regions: [...regions, ...client.takeUpdate()] }
+    },
+    'display.unwatch': ({ viewId }) => {
+      views.get(viewId)?.client.close()
+      return { stopped: views.delete(viewId) }
+    },
+    'display.input': ({ viewId, events }) => {
+      const { client, pump } = viewOf(viewId)
+      if (!display.leaseHeldByThisDevice)
+        throw new CindlError(
+          'forbidden',
+          'Take control first: this device does not hold the screen.',
+        )
+      let sent = 0
+      for (const event of events) {
+        if (event.type === 'pointer') {
+          if (client.pointer(event.x, event.y, event.buttons)) sent += 1
+          continue
+        }
+        const keysym = keysymForKey(event.key)
+        if (keysym !== undefined && client.key(keysym, event.down)) sent += 1
+      }
+      pump()
+      return { sent }
     },
   }
 

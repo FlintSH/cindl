@@ -23,7 +23,11 @@ synthetic record may ship in a build that connects to a real Hermes.
 - **Labelling.** Whenever a client's link reports `demo: true` it shows the
   persistent notice and a demo document or window title. Packaged demo
   flavours also carry the product name `Cindl Demo`. A demo is therefore
-  labelled twice: by the running UI and by the package identity.
+  labelled twice: by the running UI and by the package identity. The
+  synthetic agent screen (`scenario/screen.ts`) also says "SYNTHETIC DEMO
+  SCREEN" in its own pixels, so even a crop of the picture alone is labelled.
+  It is imported only by the scenario client, so the existing markers catch
+  it in any real build.
 - **Gates.** `scripts/check-dist.mjs` fails a real-flavour output that
   contains any fixture marker, and a demo-flavour output that lacks the label
   (`pnpm check:dist` for web, in `pnpm verify` and CI; desktop and Android

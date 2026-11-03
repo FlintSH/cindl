@@ -197,3 +197,92 @@ describe('synthetic scenario client', () => {
     expect(events.at(-1)).toMatchObject({ type: 'conversation.upserted' })
   })
 })
+
+describe('synthetic screen', () => {
+  // Frames wait on the scenario's timers; run them while a call is pending.
+  const settle = async <T>(flush: () => void, pending: Promise<T>) => {
+    for (let i = 0; i < 5; i++) {
+      await Promise.resolve()
+      flush()
+    }
+    return pending
+  }
+  type Frame = {
+    regions: Array<{
+      x: number
+      y: number
+      width: number
+      height: number
+      rgba: Uint8Array
+    }>
+  }
+  const pixel = (frame: Frame, x: number, y: number) => {
+    const region = frame.regions.find(
+      (r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height,
+    )
+    if (!region) return undefined
+    const at = ((y - region.y) * region.width + (x - region.x)) * 4
+    return [...region.rgba.subarray(at, at + 4)]
+  }
+
+  it('streams a labelled synthetic picture through the real RFB client', async () => {
+    const { client, flush } = harness()
+    const view = await client.call('display.watch', {})
+    expect(view).toEqual({ viewId: 'view-demo0001', width: 640, height: 400 })
+    const first = await settle(
+      flush,
+      client.call('display.frame', { viewId: view.viewId }),
+    )
+    // The first frame is the whole screen: the labelled top bar and the desktop.
+    expect(first.regions[0]).toMatchObject({ x: 0, y: 0, width: 640, height: 400 })
+    expect(pixel(first, 2, 2)).toEqual([31, 42, 48, 255])
+    expect(pixel(first, 10, 300)).toEqual([47, 93, 98, 255])
+    // Later frames carry only what changed (the progress bar).
+    const next = await settle(
+      flush,
+      client.call('display.frame', { viewId: view.viewId }),
+    )
+    expect(next.regions.length).toBeGreaterThan(0)
+    expect(next.regions.every((r) => r.width < 640 || r.height < 400)).toBe(true)
+  })
+
+  it('takes input only from the device holding control, and shows it', async () => {
+    const { client, flush } = harness()
+    const { viewId } = await client.call('display.watch', {})
+    await settle(flush, client.call('display.frame', { viewId }))
+    const move = {
+      viewId,
+      events: [{ type: 'pointer' as const, x: 300, y: 200, buttons: 0 }],
+    }
+    await expect(client.call('display.input', move)).rejects.toMatchObject({
+      code: 'forbidden',
+    })
+    await client.call('display.acquireControl', { confirm: true })
+    expect(await client.call('display.input', move)).toEqual({ sent: 1 })
+    const frame = await settle(flush, client.call('display.frame', { viewId }))
+    expect(pixel(frame, 300, 200)).toEqual([230, 120, 40, 255])
+    // Unknown keys are not forwarded.
+    const keys = await client.call('display.input', {
+      viewId,
+      events: [
+        { type: 'key', key: 'a', down: true },
+        { type: 'key', key: 'Dead', down: true },
+      ],
+    })
+    expect(keys).toEqual({ sent: 1 })
+  })
+
+  it('ends a view on unwatch and refuses its id afterwards', async () => {
+    const { client } = harness()
+    const { viewId } = await client.call('display.watch', {})
+    expect(await client.call('display.unwatch', { viewId })).toEqual({ stopped: true })
+    await expect(client.call('display.frame', { viewId })).rejects.toMatchObject({
+      code: 'not-found',
+    })
+    await expect(
+      client.call('display.frame', { viewId: 'not a view' }),
+    ).rejects.toMatchObject({
+      code: 'invalid',
+    })
+  })
+})
