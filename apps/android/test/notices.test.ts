@@ -1,5 +1,10 @@
 /// <reference types="node" />
-import { describe, expect, it } from 'vitest'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { crc32 } from 'node:zlib'
+import { afterAll, describe, expect, it } from 'vitest'
+import { archiveEntries, licenceFiles } from '../notices/archives.ts'
 import {
   formatNativeNotices,
   LICENCE_ENTRY,
@@ -115,5 +120,86 @@ describe('native library notices', () => {
     expect(text).toContain(
       'a:one:1 (META-INF/LICENSE)\nb:two:2 (classes.jar!/META-INF/LICENSE)\n\nSame text',
     )
+  })
+})
+
+describe('licence files in archives (CI run 41599393316)', () => {
+  // Real archives in a temporary directory: an AAR whose classes.jar is empty (resource-only
+  // AARs ship one) stopped that run, because `unzip -Z1` reports "Empty zipfile." with exit 1.
+  const work = mkdtempSync(join(tmpdir(), 'cindl-notices-test-'))
+  afterAll(() => rmSync(work, { recursive: true, force: true }))
+
+  /** A zip with stored (uncompressed) entries; an empty one is just the end record. */
+  const writeZip = (name: string, files: Record<string, string | Buffer>) => {
+    const local: Buffer[] = []
+    const central: Buffer[] = []
+    let offset = 0
+    for (const [entry, content] of Object.entries(files)) {
+      const data = Buffer.isBuffer(content) ? content : Buffer.from(content)
+      const fileName = Buffer.from(entry)
+      const header = Buffer.alloc(30)
+      header.writeUInt32LE(0x04034b50, 0)
+      header.writeUInt16LE(20, 4)
+      header.writeUInt32LE(crc32(data), 14)
+      header.writeUInt32LE(data.length, 18)
+      header.writeUInt32LE(data.length, 22)
+      header.writeUInt16LE(fileName.length, 26)
+      const record = Buffer.alloc(46)
+      record.writeUInt32LE(0x02014b50, 0)
+      record.writeUInt16LE(20, 4)
+      record.writeUInt16LE(20, 6)
+      record.writeUInt32LE(crc32(data), 16)
+      record.writeUInt32LE(data.length, 20)
+      record.writeUInt32LE(data.length, 24)
+      record.writeUInt16LE(fileName.length, 28)
+      record.writeUInt32LE(offset, 42)
+      local.push(header, fileName, data)
+      central.push(record, fileName)
+      offset += header.length + fileName.length + data.length
+    }
+    const directory = Buffer.concat(central)
+    const end = Buffer.alloc(22)
+    end.writeUInt32LE(0x06054b50, 0)
+    end.writeUInt16LE(Object.keys(files).length, 8)
+    end.writeUInt16LE(Object.keys(files).length, 10)
+    end.writeUInt32LE(directory.length, 12)
+    end.writeUInt32LE(offset, 16)
+    const path = join(work, name)
+    const bytes = Buffer.concat([...local, directory, end])
+    writeFileSync(path, bytes)
+    return { path, bytes }
+  }
+
+  it('treats an empty archive as having no files, and reads the AAR around it', () => {
+    const empty = writeZip('empty.jar', {})
+    expect(archiveEntries(empty.path)).toEqual([])
+    const aar = writeZip('resources.aar', {
+      'classes.jar': empty.bytes,
+      LICENSE: 'AAR licence',
+    })
+    expect(licenceFiles(aar.path)).toEqual([{ path: 'LICENSE', text: 'AAR licence' }])
+  })
+
+  it('finds licence files in a JAR and in the classes.jar inside an AAR', () => {
+    const jar = writeZip('lib.jar', {
+      'META-INF/LICENSE': 'Jar licence',
+      'com/example/A.class': 'x',
+    })
+    expect(licenceFiles(jar.path)).toEqual([
+      { path: 'META-INF/LICENSE', text: 'Jar licence' },
+    ])
+    const aar = writeZip('lib.aar', {
+      'classes.jar': jar.bytes,
+      'AndroidManifest.xml': '<m/>',
+    })
+    expect(licenceFiles(aar.path)).toEqual([
+      { path: 'classes.jar!/META-INF/LICENSE', text: 'Jar licence' },
+    ])
+  })
+
+  it('stops on an archive it cannot read', () => {
+    const broken = join(work, 'broken.jar')
+    writeFileSync(broken, 'not a zip')
+    expect(() => archiveEntries(broken)).toThrow(/Could not read .*broken\.jar/)
   })
 })

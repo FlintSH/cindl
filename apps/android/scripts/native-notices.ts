@@ -13,23 +13,19 @@
  * leaves out of the APK, are reproduced. CI runs this between two Gradle
  * builds so the file is packaged in the APK (assets/licenses).
  */
-import { execFileSync } from 'node:child_process'
 import {
   existsSync,
   mkdirSync,
-  mkdtempSync,
   readdirSync,
   readFileSync,
-  rmSync,
   statSync,
   writeFileSync,
 } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
+import { licenceFiles } from '../notices/archives.ts'
 import {
   coordinateId,
   formatNativeNotices,
-  LICENCE_ENTRY,
   parseDependencyReport,
   parsePom,
   type Coordinate,
@@ -46,7 +42,6 @@ const reportPath = reportArg
 const cacheDir = cacheArg
 const outFile = outArg
 const repoRoot = join(import.meta.dirname, '..', '..', '..')
-const MAX_BUFFER = 512 * 1024 * 1024
 
 /** Expo modules ship prebuilt AARs in local Maven repositories inside their npm packages. */
 function localMavenRepos(): string[] {
@@ -95,54 +90,6 @@ function licencesOf(c: Coordinate, depth = 0): Pom['licences'] {
   const pom = parsePom(readFileSync(pomFile, 'utf8'))
   if (pom.licences.length > 0 || !pom.parent || depth >= 5) return pom.licences
   return licencesOf(pom.parent, depth + 1)
-}
-
-/** Entries of a JAR or AAR. An archive that cannot be read stops the run: notices fail closed. */
-const entries = (archive: string) => {
-  try {
-    return execFileSync('unzip', ['-Z1', archive], {
-      encoding: 'utf8',
-      maxBuffer: MAX_BUFFER,
-    })
-      .split('\n')
-      .filter(Boolean)
-  } catch (error) {
-    throw new Error(`Could not read ${archive} to collect its licence files`, {
-      cause: error,
-    })
-  }
-}
-
-function licenceFiles(archive: string): NativeLibrary['files'] {
-  const all = entries(archive)
-  const files = all
-    .filter((entry) => LICENCE_ENTRY.test(entry))
-    .map((entry) => ({
-      path: entry,
-      text: execFileSync('unzip', ['-p', archive, entry], {
-        encoding: 'utf8',
-        maxBuffer: MAX_BUFFER,
-      }),
-    }))
-  if (!archive.endsWith('.aar')) return files
-  // An AAR's code (and its licence files) is in classes.jar and libs/*.jar.
-  for (const inner of all.filter(
-    (entry) => entry === 'classes.jar' || /^libs\/[^/]+\.jar$/.test(entry),
-  )) {
-    const work = mkdtempSync(join(tmpdir(), 'cindl-native-notices-'))
-    try {
-      const jar = join(work, 'inner.jar')
-      writeFileSync(
-        jar,
-        execFileSync('unzip', ['-p', archive, inner], { maxBuffer: MAX_BUFFER }),
-      )
-      for (const file of licenceFiles(jar))
-        files.push({ path: `${inner}!/${file.path}`, text: file.text })
-    } finally {
-      rmSync(work, { recursive: true, force: true })
-    }
-  }
-  return files
 }
 
 const coordinates = parseDependencyReport(readFileSync(reportPath, 'utf8'))
