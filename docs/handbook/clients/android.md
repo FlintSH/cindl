@@ -523,7 +523,11 @@ Hermes server, Chrome's Custom Tab, and a phone.
   back to it. Every overlay is the app's Dialog or Sheet (no native Modal).
   While one is open, everything beneath it is hidden from TalkBack (the app's
   content is marked "no-hide-descendants"), closed to a hardware keyboard's
-  focus, and its scrim takes every touch there. As it opens, TalkBack focus
+  focus, and its scrim takes every touch there. The scrim takes touches and
+  nothing else: it is neither clickable nor focusable to Android, so a
+  keyboard's focus never rests on it (React Native 0.88 makes a Pressable
+  focusable even with `accessible={false}`, unless it has `focusable={false}`
+  too). As it opens, TalkBack focus
   moves to its title and a keyboard's focus to its first control. As it
   closes, both go back to the control that opened it; if that control is
   gone, to the overlay's nearer one (the discard dialog: the draft, else
@@ -557,8 +561,10 @@ Hermes server, Chrome's Custom Tab, and a phone.
   rendered component tests check every step of this on the shipped Dialog and
   Sheet; what TalkBack itself announces is not tested. The emulator tests audit touch targets the same way: only what the
   owner can reach, so while an overlay is open only what is drawn above its
-  scrim (uiautomator's full dump still lists the hidden nodes beneath it;
-  its compressed dump, what TalkBack is given, does not). When
+  scrim, which they tell apart by its testID (Android reports it as the
+  node's resource-id; the scrim itself is no target). uiautomator's full dump
+  still lists the hidden nodes beneath it;
+  its compressed dump, what TalkBack is given, does not. When
   nothing is drawn above it (a dump without drawing orders), every node
   counts, and a screen where no target is measured fails the audit, as a run
   that measures none does. A link inside a sentence is

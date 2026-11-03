@@ -15,6 +15,7 @@ import { MemoryEntries } from '../src/library/MemoryEntries.tsx'
 import { MEMORY_DRAFT_PREFIX } from '../src/library/memory.ts'
 import { NavProvider } from '../src/nav/NavProvider.tsx'
 import { BehindOverlays, PortalHost } from '../src/overlay/Portal.tsx'
+import { SCRIM_ID } from '../src/overlay/scrim.ts'
 import { useSessionDrafts } from '../src/shell/sessionDrafts.ts'
 import { KeyboardProvider } from '../src/shell/keyboard.tsx'
 import { MotionProvider } from '../src/theme/motion.tsx'
@@ -365,6 +366,18 @@ export function memoryScreen(api: { call: Call }, options: { inSection?: boolean
       if (inDialog() && target.dialog === undefined)
         throw new Error(`${String(name)} is behind a dialog`)
       fireEvent.click(target.element)
+    },
+    /** The open overlay's scrim (by the testID a device dump reports), if one is open. */
+    scrim: () =>
+      mounted?.container.querySelector<HTMLElement>(`[data-testid="${SCRIM_ID}"]`) ??
+      undefined,
+    /** A tap on the open overlay's scrim, outside its frame. */
+    pressScrim: () => {
+      const scrim = mounted?.container.querySelector<HTMLElement>(
+        `[data-testid="${SCRIM_ID}"]`,
+      )
+      if (!scrim) throw new Error('no scrim: nothing is open')
+      fireEvent.click(scrim)
     },
     /** Types into the editor's text field. */
     change: (text: string, label?: string | RegExp) => {

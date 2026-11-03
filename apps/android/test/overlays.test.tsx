@@ -235,6 +235,22 @@ describe('the memory screen behind its dialogs', () => {
     ])
   })
 
+  it("has a scrim that takes a tap but no keyboard's focus, told apart by its id (delta check of 7dab9fe, B1)", async () => {
+    const h = harness(undefined, { inSection: true })
+    await openEntry(h, /Glaze/)
+    h.press('Delete entry…')
+    await h.settle()
+    // The id is what a device dump reports as the node's resource-id (e2e/ui.ts scrimOf).
+    const scrim = h.scrim()
+    expect(scrim?.getAttribute('data-testid')).toBe('cindl-scrim')
+    // CI run 41712256173: Tab went to the scrim first, before "Keep it".
+    expect(scrim?.getAttribute('data-focusable')).toBe('false')
+    h.pressScrim()
+    await h.settle()
+    expect(h.dialog('Delete this memory entry?')).toBeUndefined()
+    expect(h.scrim()).toBeUndefined()
+  })
+
   it('gives focus to the Entries heading once the entry is deleted (its editor is gone)', async () => {
     const h = harness(undefined, { inSection: true })
     await openEntry(h, /Glaze/)

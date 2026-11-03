@@ -403,12 +403,12 @@ if (verb === 'shell' && command.includes('mCurrentFocus') && env.FAKE_ADB_NO_WIN
 else if (verb === 'shell' && command.startsWith('uiautomator dump'))
   say('UI hierchary dumped to: /sdcard/cindl-ui.xml\\n')
 else if (verb === 'exec-out' && command === 'cat') {
-  const node = (more) => '<node resource-id="" package="' + front + '" content-desc="" long-clickable="false"' +
+  const node = (more, id = '') => '<node resource-id="' + id + '" package="' + front + '" content-desc="" long-clickable="false"' +
     ' checkable="false" checked="false" enabled="true" focused="false" scrollable="false" ' + more
   say("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\\"0\\">" +
     node('text="" class="android.widget.FrameLayout" clickable="false" bounds="[0,0][1080,2400]">') +
     node('text="' + env.FAKE_ADB_TEXT + '" class="android.widget.EditText" clickable="true" bounds="[0,0][1080,160]" />') +
-    (front === CINDL && read('scrim') ? node('text="" class="android.view.ViewGroup" clickable="true" bounds="[0,0][1080,2400]" />') : '') +
+    (front === CINDL && read('scrim') ? node('text="" class="android.view.ViewGroup" clickable="false" focusable="false" bounds="[0,0][1080,2400]" />', 'cindl-scrim') : '') +
     '</node></hierarchy>')
   if (state && env.FAKE_ADB_SWITCH_ON_DUMP && !read('switched')) {
     fs.writeFileSync(file('switched'), '1')

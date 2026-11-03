@@ -140,6 +140,8 @@ export function Pressable({
   children,
   onPress,
   disabled,
+  accessible,
+  focusable,
   ...props
 }: Omit<Props, 'children'> & {
   ref?: Ref<HTMLDivElement>
@@ -151,10 +153,16 @@ export function Pressable({
     typeof children === 'function'
       ? children({ pressed: false, hovered: false })
       : children
+  // Whether the view is a stop for a keyboard's focus on a device. Pressable
+  // passes `accessible` and `focusable` (each true unless false); React Native
+  // 0.88's view manager makes the view focusable for accessible={true}, and for
+  // focusable={true} (which it applies last), so it is no stop only when both are false.
+  const stop = accessible !== false || focusable !== false
   return (
     <div
       ref={ref}
       data-rn="Pressable"
+      data-focusable={String(stop)}
       {...a11y({ ...props, disabled: off })}
       {...(!off && onPress ? { onClick: () => onPress({ nativeEvent: {} }) } : {})}
     >

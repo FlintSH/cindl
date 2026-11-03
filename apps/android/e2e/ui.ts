@@ -4,6 +4,8 @@
  * so all of it is unit-tested (test/e2e.test.ts).
  */
 
+import { SCRIM_ID } from '../src/overlay/scrim.ts'
+
 export interface Rect {
   left: number
   top: number
@@ -16,7 +18,11 @@ export interface UiNode {
   desc: string
   className: string
   pkg: string
+  /** An Android view id, or a React Native testID (the scrim's: src/overlay/scrim.ts). */
+  resourceId: string
   clickable: boolean
+  /** A stop for a hardware keyboard's focus. */
+  focusable: boolean
   longClickable: boolean
   checkable: boolean
   checked: boolean
@@ -66,7 +72,9 @@ export function parseUi(xml: string): UiNode {
     desc: '',
     className: 'hierarchy',
     pkg: '',
+    resourceId: '',
     clickable: false,
+    focusable: false,
     longClickable: false,
     checkable: false,
     checked: false,
@@ -101,7 +109,9 @@ export function parseUi(xml: string): UiNode {
       desc: get('content-desc'),
       className: get('class'),
       pkg: get('package'),
+      resourceId: get('resource-id'),
       clickable: flag('clickable'),
+      focusable: flag('focusable'),
       longClickable: flag('long-clickable'),
       checkable: flag('checkable'),
       checked: flag('checked'),
@@ -149,31 +159,24 @@ export const onDestination = (root: UiNode, name: string) =>
   navItem(root, name)?.selected === true
 
 /**
- * A dialog or sheet is open: its scrim, a clickable node over the whole
- * window, takes every tap outside it (CI run 41656607631: a step's tap on the
- * bottom navigation closed the delete dialog left open instead).
+ * A dialog or sheet is open: its scrim takes every tap outside it (CI run
+ * 41656607631: a step's tap on the bottom navigation closed the delete dialog
+ * left open instead).
  */
 export function overlayOpen(root: UiNode): boolean {
   return scrimOf(root) !== undefined
 }
 
 /**
- * An open dialog's or sheet's scrim: a clickable node over the whole window
- * with nothing in it (the app's scrim is a bare Pressable). A clickable view
- * that holds the screen's content is not one.
+ * An open dialog's or sheet's scrim, by its resource-id (React Native reports
+ * the scrim's testID as one, src/overlay/scrim.ts). Nothing else tells it
+ * apart: it is neither clickable nor focusable, since a keyboard's focus must
+ * never rest on it (CI run 41712256173, 19-memory-delete-warning: Tab went to
+ * a focusable scrim first), and a view over the whole window may hold the
+ * screen's content instead.
  */
-function scrimOf(root: UiNode): UiNode | undefined {
-  const window = root.children[0]?.bounds
-  if (!window) return undefined
-  return flatten(root).find(
-    (node) =>
-      node.clickable &&
-      node.children.length === 0 &&
-      node.bounds.left <= window.left &&
-      node.bounds.top <= window.top &&
-      node.bounds.right >= window.right &&
-      node.bounds.bottom >= window.bottom,
-  )
+export function scrimOf(root: UiNode): UiNode | undefined {
+  return flatten(root).find((node) => node.resourceId === SCRIM_ID)
 }
 
 /**

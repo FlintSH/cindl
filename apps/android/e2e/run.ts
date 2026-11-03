@@ -46,6 +46,7 @@ import {
   near,
   onDestination,
   screenToDevice,
+  scrimOf,
   TERMS_PROMPT,
   touchTargetsRow,
   type Match,
@@ -681,6 +682,21 @@ async function demoSuite() {
       )
       shot('memory-delete-warning')
       await audit('Memory delete warning', warning.root)
+      // Its scrim takes every tap outside it and is told apart by its id alone:
+      // it is no stop for a keyboard's focus (delta check of 7dab9fe, B1; in CI
+      // run 41712256173 Tab went to it first).
+      const scrim = scrimOf(warning.root)
+      if (!scrim)
+        throw new Error(
+          'The delete warning has no scrim with its resource-id in the dump (src/overlay/scrim.ts)',
+        )
+      if (scrim.focusable)
+        throw new Error(
+          "The delete warning's scrim is focusable: a stop for a keyboard's focus",
+        )
+      note(
+        `the scrim is told by its resource-id and is not focusable (clickable: ${scrim.clickable})`,
+      )
       // A hardware keyboard (the emulator reports one) stays in the dialog: Tab and
       // the arrows move its focus only among the dialog's controls, since the screen
       // behind is closed to it (modules/cindl-focus; ui.ts keyboardFocusIn).

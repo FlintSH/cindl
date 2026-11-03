@@ -23,6 +23,7 @@ import {
   near,
   onDestination,
   overlayOpen,
+  scrimOf,
   rawPixel,
   reachable,
   resetMove,
@@ -203,10 +204,15 @@ describe('UI Automator dumps', () => {
 })
 
 describe('the screen each step starts from (CI run 41656607631)', () => {
-  // Lines from that run's dumps: the app's window, a dialog's scrim, Talk with
-  // no conversation yet (selected), and Work.
+  // Lines from that run's dumps: the app's window, Talk with no conversation
+  // yet (selected), and Work; and a dialog's scrim as the fixed build reports
+  // it (its testID as resource-id, neither clickable nor focusable; pending the
+  // next emulator run), beside the one that run had.
   const WINDOW = `<node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="${PKG}" content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[0,0][1080,2400]" drawing-order="0" hint="">`
-  const SCRIM = `<node NAF="true" index="0" text="" resource-id="" class="android.view.ViewGroup" package="${PKG}" content-desc="" checkable="false" checked="false" clickable="true" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[0,0][1080,2400]" drawing-order="1" hint="" />`
+  const SCRIM = `<node NAF="true" index="0" text="" resource-id="cindl-scrim" class="android.view.ViewGroup" package="${PKG}" content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[0,0][1080,2400]" drawing-order="1" hint="" />`
+  const OLD_SCRIM = SCRIM.replace('resource-id="cindl-scrim"', 'resource-id=""')
+    .replace('clickable="false"', 'clickable="true"')
+    .replace('focusable="false"', 'focusable="true"')
   const EMPTY = `<node index="0" text="No conversations yet." resource-id="" class="android.widget.TextView" package="${PKG}" content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[358,988][722,1041]" drawing-order="1" hint="" />`
   const TALK = `<node index="4" text="" resource-id="" class="android.view.View" package="${PKG}" content-desc="Talk" checkable="false" checked="false" clickable="true" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="true" bounds="[0,2127][270,2274]" drawing-order="4" hint=""></node>`
   const WORK = `<node index="5" text="" resource-id="" class="android.view.View" package="${PKG}" content-desc="Work" checkable="false" checked="false" clickable="true" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[270,2127][540,2274]" drawing-order="5" hint=""></node>`
@@ -219,10 +225,18 @@ describe('the screen each step starts from (CI run 41656607631)', () => {
   })
 
   it("sees a dialog or sheet left open by its scrim, which would take a step's first tap", () => {
-    expect(overlayOpen(parseUi(dump(`${WINDOW}${SCRIM}${TALK}${WORK}</node>`)))).toBe(
-      true,
-    )
+    const open = parseUi(dump(`${WINDOW}${SCRIM}${TALK}${WORK}</node>`))
+    expect(overlayOpen(open)).toBe(true)
+    expect(scrimOf(open)).toMatchObject({ clickable: false, focusable: false })
     expect(overlayOpen(parseUi(dump(`${WINDOW}${EMPTY}${TALK}${WORK}</node>`)))).toBe(
+      false,
+    )
+  })
+
+  it("takes no clickable view over the whole window for a scrim: only the scrim's id tells it", () => {
+    // The scrim as CI run 41712256173 had it, before focusable={false}: a bare
+    // clickable leaf over the window, as any full-window control could be.
+    expect(overlayOpen(parseUi(dump(`${WINDOW}${OLD_SCRIM}${TALK}${WORK}</node>`)))).toBe(
       false,
     )
   })
@@ -234,13 +248,14 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
   // container sit the app's content (drawing order 2), the scrim's branch (3)
   // and the dialog's card (4); the reply's paragraph and its link span are in
   // the content, beneath the scrim.
-  const attrs = (more: string) =>
-    `resource-id="" package="${PKG}" checkable="false" checked="false" enabled="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" hint="" ${more}`
+  const attrs = (more: string, id = '') =>
+    `resource-id="${id}" package="${PKG}" checkable="false" checked="false" enabled="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" hint="" ${more}`
   const WINDOW = `<node index="0" text="" class="android.widget.FrameLayout" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="0"')}>`
   const CONTAINER = `<node index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="1"')}>`
   const EMPTY = `<node index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="1"')} />`
   const SCRIM_BRANCH = `<node index="1" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="3"')}>`
-  const SCRIM = `<node NAF="true" index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="true" focusable="true" ${attrs('bounds="[0,0][1080,2400]" drawing-order="1"')} />`
+  // The scrim as the fixed build reports it (pending the next emulator run).
+  const SCRIM = `<node NAF="true" index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="1"', 'cindl-scrim')} />`
   const CONTENT = `<node index="2" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,0][1080,2400]" drawing-order="2"')}>`
   const PARAGRAPH = `<node index="2" text="Harbor Loft (fictional) has its directions on the venue page (harbor-loft.example.test). They also sent a floor plan:" class="android.widget.TextView" content-desc="" clickable="false" focusable="true" ${attrs('bounds="[42,784][1038,991]" drawing-order="3"')}>`
   const SPAN = `<node index="0" text="" class="android.widget.Button" content-desc="the venue page" clickable="true" focusable="true" ${attrs('bounds="[854,784][1038,853]" drawing-order="0"')} />`
@@ -276,8 +291,9 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
     const root = parseUi(dump(xml.replaceAll(/ drawing-order="\d+"/g, '')))
     expect(overlayOpen(root)).toBe(true)
     expect(reachable(root).map(label)).toContain('Cancel')
+    // Cancel and Open in browser: the scrim, no longer clickable, is no target.
     expect(auditTargets(root, DENSITY)).toMatchObject({
-      checked: 3,
+      checked: 2,
       exemptInline: 1,
       issues: [],
     })

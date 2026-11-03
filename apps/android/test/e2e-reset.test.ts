@@ -27,9 +27,12 @@ const TALK = screen(
     'content-desc="Talk" clickable="true" bounds="[0,2127][270,2274]" drawing-order="5"',
   ),
 )
-/** A sheet left open: Cindl's scrim, a clickable leaf over the whole window. */
+/** A sheet left open: Cindl's scrim, told by its resource-id (src/overlay/scrim.ts). */
 const SHEET = screen(
-  node(PKG, 'clickable="true" bounds="[0,0][1080,2400]" drawing-order="1"'),
+  node(
+    PKG,
+    'resource-id="cindl-scrim" clickable="false" focusable="false" bounds="[0,0][1080,2400]" drawing-order="1"',
+  ),
   node(
     PKG,
     'content-desc="Close" clickable="true" bounds="[900,1300][1050,1420]" drawing-order="2"',
