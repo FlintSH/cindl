@@ -1,6 +1,6 @@
 # 0012 Computer view: the RFB stream stays inside the client implementation
 
-**Status:** Proposed. Built: the contract operations, the RFB client core (`packages/client-core/src/rfb.ts`), the web viewer, and a synthetic screen that the labelled demo streams through the real RFB client. Not built: the Hermes transport (`display.observe` and `/api/display/ws`) and the desktop relay, so a real Hermes still shows only the screen's state and lease.
+**Status:** Proposed. Built: the contract operations, the RFB client core (`packages/client-core/src/rfb.ts`), the web viewer, the synthetic screen, and the Hermes transport in the direct client (`packages/client-core/src/direct/screen.ts`: `display.observe`, `/api/display/ws`, lease-gated input), tested against the fake Hermes. Not built: a `displaySocketFactory` in any app (desktop, Android, web), so real builds show `computer.view` as limited. Not validated against a live Hermes.
 
 **Context.** Hermes v0.22.5 shows a profile's agent-owned screen through
 three pieces (`tui_gateway/methods_display.py`, `hermes_cli/web_routers/display.py`):
