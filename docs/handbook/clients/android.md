@@ -229,8 +229,11 @@ with no Hermes session shows **Sign in to Hermes** (or **Signed out**):
    keeps the token set encrypted with a key held in the Android Keystore
    (`expo-secure-store`); it refreshes the tokens before they expire. Only then
    is the address stored (in app storage; it is not a secret), and the client
-   connects. Signing in to another Hermes forgets the previous one's tokens.
-   If the connection does not come up (for example `/api/ws` fails), the
+   connects. Signing in to another Hermes forgets the previous one's tokens,
+   once that sign-in succeeded. A sign-in that fails or is cancelled changes
+   nothing: a working session stays connected as it was, and without one the
+   screen shows the reason and stays signed out. If the connection does not
+   come up (for example `/api/ws` fails), the
    sign-in screen says so, with the reason, and offers **Continue to Cindl**:
    the app then shows the connection's state and keeps trying, and Agent can
    sign out.

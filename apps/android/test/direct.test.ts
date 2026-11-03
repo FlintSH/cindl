@@ -372,6 +372,66 @@ describe('the real Android client against a fake Hermes', () => {
     expect(await stores.keyValue.get(ORIGIN_KEY)).toBe(fake.origin)
   })
 
+  // Request #2 is in the direct client now (a failed sign-in keeps a working
+  // session, and a failed first one ends signed-out with its error), so the app
+  // no longer stops and restarts the client after a failed sign-in.
+  it('ends a failed first sign-in signed-out with its error, without restarting the client', async () => {
+    const fake = await fakeHermes()
+    const { browser, platform } = device()
+    browser.mode = 'hold'
+    const { client, store } = await launch(platform)
+    const links: string[] = []
+    client.api.subscribe((event) => {
+      if (event.type === 'link.changed') links.push(event.link.phase)
+    })
+    const signingIn = client.api.call('auth.signIn', { origin: fake.origin })
+    await until(() => browser.opened.length === 1)
+    links.length = 0
+    client.cancelSignIn()
+    await expect(signingIn).rejects.toMatchObject({
+      message: 'Sign-in was cancelled. Nothing was saved.',
+    })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      lastError: { message: 'Sign-in was cancelled. Nothing was saved.' },
+    })
+    expect(links).toEqual(['signed-out'])
+  })
+
+  it('keeps the working session when a sign-in to another Hermes fails', async () => {
+    const first = await fakeHermes()
+    const second = await fakeHermes()
+    const { stores, browser, platform } = device()
+    const { client, store } = await launch(platform)
+    await client.api.call('auth.signIn', { origin: first.origin })
+    await until(() => store.getState().link.phase === 'online')
+    await until(
+      () => store.getState().capabilities['computer.view']?.state === 'available',
+    )
+    const epoch = store.getState().link.connectionEpoch
+    browser.mode = 'hold'
+    const signingIn = client.api.call('auth.signIn', { origin: second.origin })
+    await until(() => browser.opened.length === 2)
+    client.cancelSignIn()
+    await expect(signingIn).rejects.toMatchObject({
+      message: 'Sign-in was cancelled. Nothing was saved.',
+    })
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    // Not stopped and reconnected: the same connection, still to the first Hermes.
+    expect(store.getState().link).toMatchObject({
+      phase: 'online',
+      connectionEpoch: epoch,
+      server: { origin: first.origin },
+    })
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBe(first.origin)
+    expect(stored(stores, nativeTokensKey(first.origin))).toMatch(/access_token/)
+    // The screen socket still goes to the Hermes this device is connected to.
+    const view = await client.api.call('display.watch', {})
+    expect(view).toMatchObject({ width: 640, height: 400 })
+    await client.api.call('display.unwatch', { viewId: view.viewId })
+  })
+
   it('forgets the previous origin tokens when signing in to another Hermes', async () => {
     const first = await fakeHermes()
     const second = await fakeHermes()

@@ -39,9 +39,9 @@ export interface AndroidClient {
  *   interrupted one is reported, before the client starts;
  * - the origin is stored only after a sign-in succeeded, and signing in to
  *   another origin forgets the previous origin's tokens;
- * - after a failed sign-in the client starts again from what is stored, so
- *   its link says what is true (signed out, or offline) instead of
- *   "connecting".
+ * - the screen socket goes only to the origin the client is connected to.
+ * A failed sign-in changes nothing here: the direct client keeps a working
+ * session as it was, and without one ends signed-out with the error.
  */
 export async function createAndroidClient(
   platform: AndroidPlatform,
@@ -120,18 +120,18 @@ export async function createAndroidClient(
     if (signingIn)
       throw new CindlError('unavailable', 'A sign-in is already waiting for the browser.')
     signingIn = true
+    // The screen socket may go to the new origin once the client uses it; a
+    // failed sign-in leaves the client on the origin it had.
+    const working = configured
     try {
       const previous = await readStoredOrigin(platform.keyValue)
-      // The direct client switches to this origin as the sign-in starts.
       configured = origin
       const link = await direct.call('auth.signIn', { origin })
       await platform.keyValue.set(ORIGIN_KEY, origin)
       if (previous !== undefined && previous !== origin) await forget(previous)
       return link
     } catch (error) {
-      direct.stop()
-      // start() reports its own failures through the link; this error is the one to show.
-      await direct.start().catch(() => undefined)
+      configured = working
       throw error
     } finally {
       signingIn = false
