@@ -9,8 +9,8 @@ What exists: `rest.ts` (REST client), `native-auth.ts` (RFC 8252 sign-in),
 `negotiate.ts` (capabilities), `wire.ts` (every upstream shape Cindl reads),
 `memory-entries.ts` (memory entries by fingerprinted id), `redact.ts`, and the read-only
 `scripts/live-probe.ts`. The direct client that uses them is in
-`packages/client-core/src/direct`. Planned, not built: canonical sessions,
-the RFB screen viewer, steer and process operations.
+`packages/client-core/src/direct`, including the live screen (`screen.ts`).
+Planned, not built: canonical sessions, steer and process operations.
 
 - Use only names in `src/upstream-surface.ts` and paths in `src/compat.ts`.
   Adding one is a contract change: cite the upstream file at the pinned commit,
@@ -38,5 +38,6 @@ the RFB screen viewer, steer and process operations.
   whose frames are validated against the vendored schemas. A test that only
   checks a mock it wrote proves nothing. Drive interleavings and failures with
   the fake's own controls (`beforeHandle`, `afterHandle`, `respondError`,
-  `failNext`, `frozen`, `dropConnections`, `appRequest` for app-level prompts)
-  rather than mocks.
+  `failNext`, `frozen`, `dropConnections`, `appRequest` for app-level prompts,
+  `stopScreen`/`startScreen` and `displayViewers` for the screen socket, whose
+  input passes the ported `RfbClientFilter`) rather than mocks.

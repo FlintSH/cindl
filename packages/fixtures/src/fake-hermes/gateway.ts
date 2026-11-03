@@ -17,6 +17,8 @@ import type { WebSocket } from 'ws'
 import type { FakeAuth, FakeClock } from './auth.ts'
 import type { HermesContract } from './contract.ts'
 import { hex, type FixtureStore, type StoredSession } from './store.ts'
+import { createSyntheticScreen, type SyntheticScreen } from '../scenario/screen.ts'
+import { RfbClientFilter } from './rfb-filter.ts'
 
 export interface FakeCall {
   kind: 'rest' | 'rpc' | 'ws'
@@ -114,6 +116,18 @@ export type FailMode =
   /** Never answer (the request times out on the client). */
   | 'no-response'
 
+/** One `/api/display/ws` viewer on the fake. */
+export interface DisplayViewer {
+  readonly ws: WebSocket
+  readonly viewerId: string
+  /** Held control during this connection (display.py:46-58). */
+  heldEver: boolean
+  /** Counts of input passed and dropped by the lease gate. */
+  readonly filter: RfbClientFilter
+  /** The close code the viewer's socket ended with, once it has. */
+  closedWith?: number
+}
+
 let connectionIds = 0
 
 export class FakeConnection {
@@ -195,6 +209,9 @@ export class FakeGateway {
   readonly advertisements: Json[] = []
   readonly droppedResponses: string[] = []
   readonly failNext = new Map<string, FailMode>()
+  /** Open `/api/display/ws` viewers, one RFB session each over the synthetic screen. */
+  readonly displayViewers = new Set<DisplayViewer>()
+  #screen: SyntheticScreen | undefined
   readonly #rings = new Map<string, Array<{ seq: number; params: Json }>>()
   readonly #nextSeq = new Map<string, number>()
   readonly #evictedThrough = new Map<string, number>()
@@ -602,6 +619,101 @@ export class FakeGateway {
       result,
     })
     request.settle(result)
+  }
+
+  // --- the agent screen (hermes_cli/web_routers/display.py) ------------------
+
+  #holds(viewerId: string): boolean {
+    const display = this.#store.display
+    return display.holder === 'human' && display.holderViewerId === viewerId
+  }
+
+  /**
+   * One `/api/display/ws` viewer: the synthetic screen's RFB session behind a
+   * lease-gated input filter (display.py:121-212). Closing the window cleanly
+   * hands control back; a dropped link keeps it (display.py:234-240).
+   */
+  attachDisplayViewer(ws: WebSocket, viewerId: string): DisplayViewer {
+    const screen = (this.#screen ??= createSyntheticScreen())
+    const filter = new RfbClientFilter(() => this.#holds(viewerId))
+    const viewer: DisplayViewer = {
+      ws,
+      viewerId,
+      heldEver: this.#holds(viewerId),
+      filter,
+    }
+    this.displayViewers.add(viewer)
+    const session = screen.connect((bytes) => {
+      if (ws.readyState === 1) ws.send(bytes, { binary: true })
+    })
+    ws.on('message', (data, isBinary) => {
+      if (!isBinary) {
+        ws.close(1003, 'RFB is binary')
+        return
+      }
+      const bytes = Array.isArray(data)
+        ? Buffer.concat(data)
+        : Buffer.isBuffer(data)
+          ? data
+          : Buffer.from(data)
+      let allowed: Uint8Array
+      try {
+        allowed = filter.feed(
+          new Uint8Array(bytes.buffer, bytes.byteOffset, bytes.byteLength),
+        )
+      } catch {
+        ws.close(1003, 'malformed RFB')
+        return
+      }
+      if (allowed.length) session.receive(allowed)
+    })
+    ws.on('close', (code) => {
+      viewer.closedWith = code
+      this.displayViewers.delete(viewer)
+      if ((code === 1000 || code === 1001) && this.#holds(viewerId)) this.#handBack()
+    })
+    return viewer
+  }
+
+  /** A lease change evicts a viewer that held control and lost it to another human (display.py:46-58). */
+  #leaseChanged(): void {
+    for (const viewer of this.displayViewers) {
+      const display = this.#store.display
+      if (display.holder !== 'human') viewer.heldEver = false
+      else if (display.holderViewerId === viewer.viewerId) viewer.heldEver = true
+      else if (viewer.heldEver) viewer.ws.close(4000, 'control-taken')
+    }
+  }
+
+  #handBack(): void {
+    const display = this.#store.display
+    display.holder = 'agent'
+    display.holderViewerId = undefined
+    display.since = this.#clock.now() / 1000
+    display.epoch += 1
+    this.broadcast('display.lease', {
+      profile_key: 'fixture-profile',
+      lease: this.#lease(),
+    })
+    this.#leaseChanged()
+  }
+
+  /**
+   * Test control: the screen stops outside Cindl while viewers watch. The
+   * bridge closes them with 4001 and the runtime watcher broadcasts the new
+   * state (tui_gateway/methods_display_watch.py:81-103).
+   */
+  stopScreen(): void {
+    this.#store.display.running = false
+    for (const viewer of this.displayViewers)
+      viewer.ws.close(4001, 'Bot Desktop is not running')
+    this.broadcast('display.status', this.#displaySnapshot())
+  }
+
+  /** Test control: the screen starts outside Cindl (the CLI or the agent started it). */
+  startScreen(): void {
+    this.#store.display.running = true
+    this.broadcast('display.status', this.#displaySnapshot())
   }
 
   // --- turns ----------------------------------------------------------------
@@ -1122,6 +1234,7 @@ export class FakeGateway {
         profile_key: 'fixture-profile',
         lease: this.#lease(),
       })
+      this.#leaseChanged()
       return ok(id, { lease: this.#lease() })
     },
     'display.lease.release': (connection, params, id) => {
@@ -1152,6 +1265,7 @@ export class FakeGateway {
             profile_key: 'fixture-profile',
             lease: this.#lease(),
           })
+          this.#leaseChanged()
         }
       }
       return ok(id, { lease: this.#lease() })
@@ -1196,7 +1310,8 @@ export class FakeGateway {
       installed: display.installed,
       missing: display.installed ? [] : ['Xvnc'],
       running: display.running,
-      geometry: '1280x800',
+      // The synthetic screen behind /api/display/ws (scenario/screen.ts).
+      geometry: '640x400',
       lease: this.#lease(),
       profile_key: 'fixture-profile',
     }

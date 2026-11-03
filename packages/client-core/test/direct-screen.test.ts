@@ -1,0 +1,374 @@
+import { CindlError, type DisplayFrame, type DisplayInputEvent } from '@cindl/contracts'
+import {
+  connectRawClient,
+  nodeBinarySocketFactory,
+  type DisplayViewer,
+} from '@cindl/fixtures/fake-hermes'
+import type { DiagnosticEntry } from '@cindl/hermes-adapter'
+import { describe, expect, it, vi } from 'vitest'
+import { LiveScreen } from '../src/direct/screen.ts'
+import {
+  systemClock,
+  type BinaryWebSocketFactory,
+  type BinaryWebSocketLike,
+  type DirectClientDeps,
+} from '../src/index.ts'
+import { harness, type Harness } from './direct-harness.ts'
+
+/** The synthetic screen (packages/fixtures/src/scenario/screen.ts). */
+const SCREEN = { width: 640, height: 400 }
+const BAR = [31, 42, 48]
+const POINTER = [230, 120, 40]
+
+const failure = (promise: Promise<unknown>) =>
+  promise.then(
+    () => undefined,
+    (error: unknown) => (error instanceof CindlError ? error : undefined),
+  )
+
+const codeOf = async (promise: Promise<unknown>) =>
+  (await failure(promise))?.code ?? 'resolved'
+
+/** A client whose platform can open the screen socket; every URL it opens is kept. */
+async function live(deps: Partial<DirectClientDeps> = {}) {
+  const urls: string[] = []
+  const base = nodeBinarySocketFactory()
+  const displaySocketFactory: BinaryWebSocketFactory = (url) => {
+    urls.push(url)
+    return base(url)
+  }
+  const h = await harness({ deps: { displaySocketFactory, ...deps } })
+  // Display operations wait for the screen probe, like any capability-gated call.
+  await h.waitFor(() => viewState(h) === 'available')
+  return { h, urls }
+}
+
+const viewers = (h: Harness): DisplayViewer[] => [...h.fake.gateway.displayViewers]
+
+/** The colour at (x, y), from whichever region of the frame covers it. */
+function pixel(frame: DisplayFrame, x: number, y: number): number[] | undefined {
+  for (const region of frame.regions) {
+    if (x < region.x || y < region.y) continue
+    if (x >= region.x + region.width || y >= region.y + region.height) continue
+    const at = ((y - region.y) * region.width + (x - region.x)) * 4
+    return [...region.rgba.subarray(at, at + 3)]
+  }
+  return undefined
+}
+
+/** Pull frames, as a viewer that keeps painting does, until one shows `colour` at (x, y). */
+async function frameShowing(
+  h: Harness,
+  viewId: string,
+  at: { x: number; y: number },
+  colour: number[],
+): Promise<DisplayFrame> {
+  for (let attempt = 0; attempt < 10; attempt++) {
+    const frame = await h.client.call('display.frame', { viewId })
+    if (JSON.stringify(pixel(frame, at.x, at.y)) === JSON.stringify(colour)) return frame
+  }
+  throw new Error(`no frame showed ${colour.join(',')} at ${at.x},${at.y}`)
+}
+
+const pointer = (x: number, y: number): DisplayInputEvent => ({
+  type: 'pointer',
+  x,
+  y,
+  buttons: 0,
+})
+
+const viewState = (h: Harness) => h.store.getState().capabilities['computer.view']?.state
+
+describe('direct client: live screen', () => {
+  it('shows the picture only on a platform that can open the screen socket', async () => {
+    const plain = await harness()
+    await plain.waitFor(() => viewState(plain) === 'limited')
+    expect(plain.store.getState().capabilities['computer.view']?.reason).toMatch(
+      /cannot open the screen socket/,
+    )
+    expect(await codeOf(plain.client.call('display.watch', {}))).toBe('unsupported')
+    expect(plain.rpcCalls('display.observe')).toBe(0)
+
+    const { h } = await live()
+    await h.waitFor(() => viewState(h) === 'available')
+    expect(h.store.getState().capabilities['computer.view']?.source).toMatchObject({
+      transport: 'rpc',
+      endpoint: 'display.observe → /api/display/ws',
+    })
+  })
+
+  it('watches the screen and pulls the whole picture, then only what changed', async () => {
+    const { h, urls } = await live()
+    const view = await h.client.call('display.watch', {})
+    expect(view).toMatchObject(SCREEN)
+    expect(view.viewId).toMatch(/^view-[a-z0-9]{8,32}$/)
+    // One socket, to the pinned route on the Hermes origin, with a fresh ticket.
+    expect(urls).toHaveLength(1)
+    const url = new URL(urls[0] ?? '')
+    expect(`${url.protocol}//${url.host}`).toBe(h.fake.origin.replace('http', 'ws'))
+    expect(url.pathname).toBe('/api/display/ws')
+    expect(url.searchParams.get('display_ticket')).toBeTruthy()
+    expect(viewers(h)).toHaveLength(1)
+
+    const first = await h.client.call('display.frame', { viewId: view.viewId })
+    expect(first).toMatchObject({ viewId: view.viewId, ...SCREEN })
+    const covered = first.regions.reduce((sum, r) => sum + r.width * r.height, 0)
+    expect(covered).toBeGreaterThanOrEqual(SCREEN.width * SCREEN.height)
+    expect(pixel(first, 0, 0)).toEqual(BAR)
+
+    // The synthetic progress bar moves on every update request.
+    const next = await h.client.call('display.frame', { viewId: view.viewId })
+    expect(next.regions.length).toBeGreaterThan(0)
+    for (const region of next.regions)
+      expect(region.width * region.height).toBeLessThan(SCREEN.width * SCREEN.height)
+    // Viewing never starts, stops or installs the screen.
+    expect(h.fake.calls.some((c) => /display\.(start|stop|install)/.test(c.name))).toBe(
+      false,
+    )
+  })
+
+  it('sends input only after taking control as the watching viewer', async () => {
+    const { h } = await live()
+    const { viewId } = await h.client.call('display.watch', {})
+    await h.client.call('display.frame', { viewId })
+    const [viewer] = viewers(h)
+    expect(viewer).toBeDefined()
+
+    expect(
+      await codeOf(
+        h.client.call('display.input', { viewId, events: [pointer(200, 150)] }),
+      ),
+    ).toBe('forbidden')
+    // Refused on this device: nothing reached Hermes's input gate.
+    expect(viewer?.filter.passedInput).toBe(0)
+    expect(viewer?.filter.droppedInput).toBe(0)
+
+    const held = await h.client.call('display.acquireControl', { confirm: true })
+    expect(held).toMatchObject({ controller: 'you', leaseHeldByThisDevice: true })
+    // The lease names the viewer whose socket shows the screen, so Hermes passes its input.
+    expect(h.fake.store.display.holderViewerId).toBe(viewer?.viewerId)
+    expect(h.rpcCalls('display.observe')).toBe(1)
+
+    const sent = await h.client.call('display.input', {
+      viewId,
+      events: [
+        pointer(200, 150),
+        { type: 'key', key: 'a', down: true },
+        { type: 'key', key: 'a', down: false },
+      ],
+    })
+    expect(sent).toEqual({ sent: 3 })
+    await h.waitFor(() => viewer?.filter.passedInput === 3)
+    expect(viewer?.filter.droppedInput).toBe(0)
+    await frameShowing(h, viewId, { x: 200, y: 150 }, POINTER)
+  })
+
+  it('keeps a lease taken before watching for the view', async () => {
+    const { h } = await live()
+    await h.client.call('display.acquireControl', { confirm: true })
+    const holder = h.fake.store.display.holderViewerId
+    const { viewId } = await h.client.call('display.watch', {})
+    expect(viewers(h).map((v) => v.viewerId)).toEqual([holder])
+    expect(
+      await h.client.call('display.input', { viewId, events: [pointer(10, 10)] }),
+    ).toEqual({ sent: 1 })
+  })
+
+  it('watches again after another viewer takes control', async () => {
+    const { h } = await live()
+    const { viewId } = await h.client.call('display.watch', {})
+    await h.client.call('display.acquireControl', { confirm: true })
+    const [mine] = viewers(h)
+    const other = await connectRawClient(h.fake, h.fake.signIn())
+    const observed = (await other.request('display.observe', {})) as {
+      result: { viewer_id: string }
+    }
+    const observes = h.rpcCalls('display.observe')
+    await other.request('display.lease.acquire', { viewer_id: observed.result.viewer_id })
+
+    // Hermes evicts the former holder with 4000; the view comes back in watch mode.
+    await h.waitFor(() => mine?.closedWith === 4000)
+    const again = await h.waitFor(() =>
+      viewers(h).find((v) => v !== mine && v.viewerId === mine?.viewerId),
+    )
+    expect(h.rpcCalls('display.observe')).toBe(observes + 1)
+    await h.waitFor(() => h.store.getState().display?.controller === 'another-viewer')
+    expect(
+      await codeOf(h.client.call('display.input', { viewId, events: [pointer(5, 5)] })),
+    ).toBe('forbidden')
+    const frame = await h.client.call('display.frame', { viewId })
+    expect(frame.regions.length).toBeGreaterThan(0)
+    expect(again.filter.passedInput).toBe(0)
+    other.close()
+  })
+
+  it('says unavailable for a stopped screen and never starts it', async () => {
+    const { h, urls } = await live()
+    h.fake.store.display.running = false
+    const refused = await failure(h.client.call('display.watch', {}))
+    expect(refused?.code).toBe('unavailable')
+    expect(refused?.message).toMatch(/not running\. Cindl never starts it/)
+    expect(urls).toHaveLength(0)
+    await h.waitFor(() => viewState(h) === 'unavailable')
+
+    // Hermes announces a screen started elsewhere; only then does Cindl watch again.
+    h.fake.gateway.startScreen()
+    await h.waitFor(() => viewState(h) === 'available')
+    const { viewId } = await h.client.call('display.watch', {})
+    await h.client.call('display.frame', { viewId })
+    h.fake.gateway.stopScreen()
+    // The view keeps pulling, as a painting viewer does, until the close lands.
+    const ended = await failure(
+      (async () => {
+        for (let pull = 0; pull < 20; pull++)
+          await h.client.call('display.frame', { viewId })
+      })(),
+    )
+    expect(ended?.code).toBe('unavailable')
+    expect(ended?.message).toMatch(/not running/)
+    expect(h.fake.calls.some((c) => /display\.(start|stop|install)/.test(c.name))).toBe(
+      false,
+    )
+  })
+
+  it('hands control back when the view stops, like closing the viewer window', async () => {
+    const { h } = await live()
+    const { viewId } = await h.client.call('display.watch', {})
+    await h.client.call('display.acquireControl', { confirm: true })
+    const [viewer] = viewers(h)
+    expect(await h.client.call('display.unwatch', { viewId })).toEqual({ stopped: true })
+    await h.waitFor(() => viewer?.closedWith === 1000)
+    await h.waitFor(() => h.fake.store.display.holder === 'agent')
+    expect(await codeOf(h.client.call('display.frame', { viewId }))).toBe('not-found')
+    expect(await h.client.call('display.unwatch', { viewId })).toEqual({ stopped: false })
+  })
+
+  it('takes control again under a new viewer id after a reconnect, keeping the human in control meanwhile', async () => {
+    const { h } = await live()
+    const { viewId } = await h.client.call('display.watch', {})
+    await h.client.call('display.acquireControl', { confirm: true })
+    const [before] = viewers(h)
+    const holder = h.fake.store.display.holderViewerId
+
+    h.fake.gateway.dropConnections()
+    await h.waitFor(() => h.store.getState().link.connectionEpoch >= 2)
+    await h.waitFor(() => h.store.getState().link.phase === 'online')
+    // The old viewer id cannot take or return control on this connection, so
+    // input waits; the screen stays the human's (display.py:234-240).
+    expect(
+      await codeOf(h.client.call('display.input', { viewId, events: [pointer(5, 5)] })),
+    ).toBe('forbidden')
+    expect(h.fake.store.display.holderViewerId).toBe(holder)
+
+    await h.client.call('display.acquireControl', { confirm: true })
+    const after = viewers(h).find((v) => v !== before)
+    expect(after?.viewerId).toBeDefined()
+    expect(after?.viewerId).not.toBe(holder)
+    expect(h.fake.store.display.holderViewerId).toBe(after?.viewerId)
+    // The old socket closed without a hand-back, so the agent never got the screen in between.
+    expect(before?.closedWith).toBeDefined()
+    expect([1000, 1001]).not.toContain(before?.closedWith)
+    expect(
+      await h.client.call('display.input', { viewId, events: [pointer(5, 5)] }),
+    ).toEqual({ sent: 1 })
+    expect(
+      (await h.client.call('display.frame', { viewId })).regions.length,
+    ).toBeGreaterThan(0)
+  })
+
+  it('ends the view when it cannot open again after a reconnect', async () => {
+    const { h } = await live()
+    const { viewId } = await h.client.call('display.watch', {})
+    await h.client.call('display.frame', { viewId })
+    h.fake.gateway.dropConnections()
+    await h.waitFor(() => h.store.getState().link.connectionEpoch >= 2)
+    await h.waitFor(() => h.store.getState().link.phase === 'online')
+    // The screen stops between the new ticket and the new socket, so the
+    // reopened socket is refused (4001) after the old one closed.
+    h.fake.gateway.afterHandle = (method) => {
+      if (method === 'display.observe') h.fake.store.display.running = false
+    }
+    const refused = await failure(
+      h.client.call('display.acquireControl', { confirm: true }),
+    )
+    expect(refused?.message).toMatch(/not running/)
+    expect(h.fake.store.display.holder).toBe('agent')
+    const ended = await failure(h.client.call('display.frame', { viewId }))
+    expect(ended?.code).toBe('unavailable')
+    expect(ended?.message).toMatch(/not running/)
+  })
+
+  it('never logs the ticket, the screen URL, frames or input', async () => {
+    const logs: DiagnosticEntry[] = []
+    const { h, urls } = await live({ log: (entry) => logs.push(entry) })
+    const { viewId } = await h.client.call('display.watch', {})
+    await h.client.call('display.frame', { viewId })
+    await h.client.call('display.acquireControl', { confirm: true })
+    await h.client.call('display.input', {
+      viewId,
+      events: [{ type: 'key', key: 's', down: true }],
+    })
+    h.fake.gateway.stopScreen()
+    await h.waitFor(() => logs.some((l) => l.event === 'direct.screen-closed'))
+    expect(logs.find((l) => l.event === 'direct.screen-closed')?.detail).toEqual({
+      code: 4001,
+    })
+    const ticket = new URL(urls[0] ?? '').searchParams.get('display_ticket') ?? ''
+    expect(ticket).not.toBe('')
+    const text = JSON.stringify([logs, h.events])
+    expect(text).not.toContain(ticket)
+    expect(text).not.toContain('display_ticket')
+    expect(text).not.toContain('/api/display/ws?')
+    expect(text).not.toContain('rgba')
+  })
+})
+
+describe('live screen: the ticket', () => {
+  function screen(path: string, opened: string[]) {
+    const sockets: BinaryWebSocketLike[] = []
+    const live = new LiveScreen({
+      factory: (url) => {
+        opened.push(url)
+        const socket: BinaryWebSocketLike = {
+          readyState: 0,
+          send: () => undefined,
+          close: () => undefined,
+          onopen: null,
+          onmessage: null,
+          onclose: null,
+          onerror: null,
+        }
+        sockets.push(socket)
+        return socket
+      },
+      clock: systemClock,
+      origin: () => 'https://hermes.example.test',
+      observe: () =>
+        Promise.resolve({ ticket: 'fixture-ticket', path, viewerId: 'fixture-viewer' }),
+      holdsLease: () => false,
+      newViewId: () => 'view-fixture01',
+      log: () => undefined,
+    })
+    return { live, sockets }
+  }
+
+  it('sends it only to the pinned route on the Hermes origin, over wss', async () => {
+    const opened: string[] = []
+    const { live, sockets } = screen('/api/display/ws', opened)
+    const watching = live.watch()
+    await vi.waitFor(() => expect(sockets).toHaveLength(1))
+    // Hermes refuses a spent ticket with 4401.
+    sockets[0]?.onclose?.({ code: 4401, reason: '' })
+    expect(await codeOf(watching)).toBe('unavailable')
+    expect(opened).toEqual([
+      'wss://hermes.example.test/api/display/ws?display_ticket=fixture-ticket',
+    ])
+  })
+
+  it('refuses a path Hermes v0.22.5 never returns, without opening anything', async () => {
+    const opened: string[] = []
+    const { live } = screen('wss://elsewhere.invalid/api/display/ws', opened)
+    expect(await codeOf(live.watch())).toBe('protocol')
+    expect(opened).toEqual([])
+  })
+})

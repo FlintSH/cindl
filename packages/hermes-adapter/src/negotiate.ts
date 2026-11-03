@@ -36,6 +36,8 @@ export interface NegotiationInput {
    * not probed or the probe failed for another reason.
    */
   memory?: 'responds' | 'missing'
+  /** The platform can open the screen's binary WebSocket (a `BinaryWebSocketFactory`). */
+  liveView?: boolean
 }
 
 /** Fixed v0.22.5 facts, independent of the connection. */
@@ -215,12 +217,15 @@ export function negotiateCapabilities(input: NegotiationInput): CapabilityMap {
     set('computer.view', 'unavailable', rpc('display.status', version), reason)
     set('computer.control', 'unavailable', rpc('display.status', version), reason)
   } else {
-    set(
-      'computer.view',
-      'limited',
-      rpc('display.status', version),
-      'Cindl shows the screen state and who controls it; the live picture (display.observe RFB stream) is not exposed through Cindl yet.',
-    )
+    if (input.liveView)
+      set('computer.view', 'available', rpc('display.observe → /api/display/ws', version))
+    else
+      set(
+        'computer.view',
+        'limited',
+        rpc('display.status', version),
+        'This client cannot open the screen socket, so it shows the screen state and who controls it, not the picture.',
+      )
     set('computer.control', 'available', rpc('display.lease.acquire', version))
   }
   return fillUnknown(map)

@@ -60,6 +60,7 @@ import {
   type UnhandledServerRequest,
 } from '@cindl/hermes-adapter'
 import type {
+  BinaryWebSocketFactory,
   Clock,
   KeyValueStore,
   LoopbackAuthorizer,
@@ -67,6 +68,7 @@ import type {
   WebSocketFactory,
 } from '../platform.ts'
 import { sha256Hex } from '../sha256.ts'
+import { LiveScreen, screenStoppedError } from './screen.ts'
 import { DirectStorage } from './storage.ts'
 
 /** Compile-time proof that client-core's platform types satisfy the adapter's structural ones. */
@@ -84,6 +86,11 @@ export interface DirectClientDeps {
   auth: 'same-origin-cookie' | 'native-pkce'
   fetch: FetchLike
   socketFactory: WebSocketFactory
+  /**
+   * Opens the agent screen's binary WebSocket for the live picture (ADR 0012).
+   * Without it computer.view stays `limited`: the screen state and lease only.
+   */
+  displaySocketFactory?: BinaryWebSocketFactory
   clock: Clock
   /** Non-secret device storage: outbox, accepted prompt ids, epoch counter, main pin. */
   kv: KeyValueStore
@@ -152,6 +159,8 @@ export function createDirectClient(deps: DirectClientDeps): DirectClient {
 class DirectHermesClient implements DirectClient {
   readonly #deps: DirectClientDeps
   readonly #log: Diagnostics
+  /** The live picture; undefined when the platform has no binary WebSocket. */
+  readonly #screen: LiveScreen | undefined
   readonly #listeners = new Set<(event: CindlEvent) => void>()
   readonly #profile: string
   readonly #requestSyncMs: number
@@ -208,6 +217,17 @@ class DirectHermesClient implements DirectClient {
     this.#normalizer = this.#newNormalizer()
     this.#profile = ProfileName.parse(deps.profile ?? 'default')
     this.#requestSyncMs = deps.connection?.requestSyncMs ?? 15_000
+    this.#screen = deps.displaySocketFactory
+      ? new LiveScreen({
+          factory: deps.displaySocketFactory,
+          clock: deps.clock,
+          origin: () => this.#origin ?? '',
+          observe: (viewerId) => this.#observeDisplay(viewerId ?? this.#display.viewerId),
+          holdsLease: (viewerId) => this.#holdsLease(viewerId),
+          newViewId: () => `view-${this.#id()}`,
+          log: (event, fields) => this.#log.log('info', event, fields),
+        })
+      : undefined
     if (deps.origin) this.#configure(HermesOrigin.parse(deps.origin))
   }
 
@@ -254,6 +274,7 @@ class DirectHermesClient implements DirectClient {
 
   stop(): void {
     this.#started = false
+    this.#screen?.close()
     this.#connection?.stop()
     this.#connection = undefined
     this.#handshake = undefined
@@ -466,6 +487,7 @@ class DirectHermesClient implements DirectClient {
       ...(online ? {} : { offlineReason: this.#offlineReason() }),
       ...(online && this.#display.status ? { display: this.#display.status } : {}),
       ...(this.#memoryProbe ? { memory: this.#memoryProbe } : {}),
+      liveView: this.#screen !== undefined,
     })
     const json = JSON.stringify(map)
     if (json === this.#capabilitiesJson) return
@@ -558,6 +580,7 @@ class DirectHermesClient implements DirectClient {
       this.#display.previous.add(sha256Hex(this.#display.viewerId).slice(0, 12))
       delete this.#display.viewerId
       delete this.#display.viewerEpoch
+      this.#screen?.leaseChanged()
     }
     if (handshake.authority !== 'legacy-sidecar-v8') return
     const epochChanged =
@@ -856,11 +879,13 @@ class DirectHermesClient implements DirectClient {
       case 'display-status':
         this.#display.status = effect.status
         this.#display.lease = effect.status.lease
+        this.#screen?.leaseChanged()
         this.#emitDisplay()
         this.#refreshCapabilities()
         return
       case 'display-lease':
         this.#display.lease = effect.lease
+        this.#screen?.leaseChanged()
         this.#emitDisplay()
         return
       case 'session-reclaimed': {
@@ -1282,6 +1307,60 @@ class DirectHermesClient implements DirectClient {
     )
   }
 
+  /**
+   * Whether `viewerId` holds the lease as this connection's viewer, which is
+   * what leaseHeldByThisDevice says. A view opened on an earlier connection
+   * takes control again before it sends input.
+   */
+  #holdsLease(viewerId: string): boolean {
+    const lease = this.#display.lease
+    return (
+      viewerId === this.#display.viewerId &&
+      lease?.holder === 'human' &&
+      lease.viewer_hash === sha256Hex(viewerId).slice(0, 12)
+    )
+  }
+
+  /** display.observe on this connection: a ticket for the screen socket and a viewer id. */
+  async #observeDisplay(
+    viewerId?: string,
+  ): Promise<{ ticket: string; path: string; viewerId: string }> {
+    let result: unknown
+    try {
+      result = await this.#rpc('display.observe', viewerId ? { viewer_id: viewerId } : {})
+    } catch (error) {
+      // Hermes mints no ticket for a stopped screen and suggests display.start,
+      // which Cindl never calls: say what is wrong instead.
+      if (error instanceof CindlError && error.code === 'unavailable') {
+        await this.#readDisplay().catch(() => undefined)
+        if (this.#display.status?.running === false) throw screenStoppedError()
+      }
+      throw error
+    }
+    const observed = wire.parseWire(wire.DisplayObserveResult, result)
+    if (!observed)
+      throw new CindlError(
+        'protocol',
+        'Hermes answered in an unexpected format.',
+        'display.observe',
+      )
+    this.#display.viewerId = observed.viewer_id
+    this.#display.viewerEpoch = this.#epoch
+    this.#display.status = observed
+    this.#display.lease = observed.lease
+    this.#emitDisplay()
+    return { ticket: observed.ticket, path: observed.path, viewerId: observed.viewer_id }
+  }
+
+  #screenOrThrow(): LiveScreen {
+    if (!this.#screen)
+      throw new CindlError(
+        'unsupported',
+        'This client cannot open the screen socket, so it shows the screen state and who controls it, not the picture.',
+      )
+    return this.#screen
+  }
+
   #emitDisplay(): DisplayState {
     const display = this.#displayState()
     this.#emit({ type: 'display.changed', display })
@@ -1692,45 +1771,26 @@ class DirectHermesClient implements DirectClient {
     'memory.delete': ({ id }) =>
       this.#memoryEntries().delete(id, { confirm: true, profile: this.#profile }),
     'display.status': () => this.#readDisplay(),
-    // The live picture (ADR 0012) is not wired in this client yet.
-    'display.watch': () => {
-      throw new CindlError(
-        'unsupported',
-        'The live screen is not wired in this client yet.',
-      )
-    },
-    'display.frame': () => {
-      throw new CindlError(
-        'unsupported',
-        'The live screen is not wired in this client yet.',
-      )
-    },
-    'display.unwatch': () => ({ stopped: false }),
-    'display.input': () => {
-      throw new CindlError(
-        'unsupported',
-        'The live screen is not wired in this client yet.',
-      )
-    },
+    // The live picture (ADR 0012). Never starts, stops or installs the screen.
+    'display.watch': () => this.#screenOrThrow().watch(),
+    'display.frame': ({ viewId }) => this.#screenOrThrow().frame(viewId),
+    'display.unwatch': ({ viewId }) =>
+      this.#screen?.unwatch(viewId) ?? { stopped: false },
+    'display.input': ({ viewId, events }) => this.#screenOrThrow().input(viewId, events),
     'display.acquireControl': async () => {
-      if (!this.#display.viewerId || this.#display.viewerEpoch !== this.#epoch) {
-        const observed = wire.parseWire(
-          wire.DisplayObserveResult,
-          await this.#rpc('display.observe', {}),
-        )
-        if (!observed)
-          throw new CindlError(
-            'protocol',
-            'Hermes answered in an unexpected format.',
-            'display.observe',
-          )
-        this.#display.viewerId = observed.viewer_id
-        this.#display.viewerEpoch = this.#epoch
-        this.#display.status = observed
-      }
+      // Control goes to the WATCHING viewer: Hermes passes input only from the
+      // viewer id that holds the lease. A view opened on an earlier connection
+      // opens again under an id this connection minted.
+      if (this.#screen?.viewerId && this.#display.viewerEpoch !== this.#epoch)
+        await this.#screen.rewatch()
+      const viewerId =
+        this.#screen?.viewerId ??
+        (this.#display.viewerId && this.#display.viewerEpoch === this.#epoch
+          ? this.#display.viewerId
+          : (await this.#observeDisplay()).viewerId)
       const leased = wire.parseWire(
         wire.DisplayLeaseResult,
-        await this.#rpc('display.lease.acquire', { viewer_id: this.#display.viewerId }),
+        await this.#rpc('display.lease.acquire', { viewer_id: viewerId }),
       )
       if (!leased)
         throw new CindlError(
@@ -1739,6 +1799,7 @@ class DirectHermesClient implements DirectClient {
           'display.lease.acquire',
         )
       this.#display.lease = leased.lease
+      this.#screen?.leaseChanged()
       return this.#emitDisplay()
     },
     'display.releaseControl': async () => {
@@ -1764,6 +1825,7 @@ class DirectHermesClient implements DirectClient {
           'display.lease.release',
         )
       this.#display.lease = leased.lease
+      this.#screen?.leaseChanged()
       return this.#emitDisplay()
     },
   }
@@ -1786,6 +1848,7 @@ class DirectHermesClient implements DirectClient {
     this.#deviceLoaded = false
     this.#epoch = 0
     this.#display = { previous: new Set() }
+    this.#screen?.close()
     this.#memoryProbe = undefined
     this.#normalizer = this.#newNormalizer()
   }

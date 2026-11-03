@@ -79,6 +79,26 @@ describe('capability negotiation', () => {
     expect(map['requests.approval']?.source).toMatchObject({ transport: 'rpc' })
   })
 
+  it('shows the live picture only where the platform can open the screen socket', () => {
+    const online = { checkedAt, signedIn: true, handshake: sidecar, display: running }
+    const limited = negotiateCapabilities(online)['computer.view']
+    expect(limited?.state).toBe('limited')
+    expect(limited?.reason).toMatch(/cannot open the screen socket/)
+    expect(
+      negotiateCapabilities({ ...online, liveView: true })['computer.view'],
+    ).toMatchObject({
+      state: 'available',
+      source: { transport: 'rpc', endpoint: 'display.observe → /api/display/ws' },
+    })
+    // A stopped screen stays unavailable either way: watching never starts it.
+    const stopped = negotiateCapabilities({
+      ...online,
+      liveView: true,
+      display: { ...running, running: false },
+    })
+    expect(stopped['computer.view']?.state).toBe('unavailable')
+  })
+
   it('reports approvals unavailable when Hermes does not offer them on this connection', () => {
     const map = negotiateCapabilities({
       checkedAt,

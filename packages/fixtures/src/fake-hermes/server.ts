@@ -814,10 +814,7 @@ export async function startFakeHermes(
           ws.close(4001, 'Bot Desktop is not running')
           return
         }
-        ws.send(Buffer.from('RFB 003.008\n'), { binary: true })
-        ws.on('message', (_data, isBinary) => {
-          if (!isBinary) ws.close(1003, 'RFB is binary')
-        })
+        gateway.attachDisplayViewer(ws, info.viewerId ?? '')
       })
       return
     }

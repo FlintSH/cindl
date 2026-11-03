@@ -7,7 +7,12 @@
  * bare JSON-RPC peer standing in for another Hermes client (e.g. the desktop
  * app) attached to the same session.
  */
-import type { WebSocketFactory, WebSocketLike } from '@cindl/client-core'
+import type {
+  BinaryWebSocketFactory,
+  BinaryWebSocketLike,
+  WebSocketFactory,
+  WebSocketLike,
+} from '@cindl/client-core'
 import WebSocket from 'ws'
 import type { FakeSession } from './auth.ts'
 import type { FakeHermes } from './server.ts'
@@ -50,6 +55,47 @@ export function nodeSocketFactory(options: NodeSocketOptions = {}): WebSocketFac
         ? Buffer.concat(data).toString('utf8')
         : Buffer.from(data as ArrayBuffer).toString('utf8')
       like.onmessage?.({ data: isBinary ? data : text })
+    })
+    ws.on('close', (code, reason) =>
+      like.onclose?.({ code, reason: reason.toString('utf8') }),
+    )
+    ws.on('error', (error) => like.onerror?.(error))
+    return like
+  }
+}
+
+/** The platform `BinaryWebSocketFactory` over the `ws` client: messages arrive as bytes. */
+export function nodeBinarySocketFactory(): BinaryWebSocketFactory {
+  return (url) => {
+    const ws = new WebSocket(url)
+    ws.binaryType = 'nodebuffer'
+    const like: BinaryWebSocketLike = {
+      get readyState() {
+        return ws.readyState
+      },
+      send: (data) => ws.send(data),
+      close: (code, reason) => {
+        try {
+          ws.close(code, reason)
+        } catch {
+          ws.terminate()
+        }
+      },
+      onopen: null,
+      onmessage: null,
+      onclose: null,
+      onerror: null,
+    }
+    ws.on('open', () => like.onopen?.({}))
+    ws.on('message', (data) => {
+      const buffer = Array.isArray(data)
+        ? Buffer.concat(data)
+        : Buffer.isBuffer(data)
+          ? data
+          : Buffer.from(data)
+      like.onmessage?.({
+        data: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength),
+      })
     })
     ws.on('close', (code, reason) =>
       like.onclose?.({ code, reason: reason.toString('utf8') }),

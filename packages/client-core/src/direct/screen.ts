@@ -1,0 +1,384 @@
+import {
+  CindlError,
+  type DisplayFrame,
+  type DisplayInputEvent,
+  type DisplayView,
+} from '@cindl/contracts'
+import { displayCloseCodes, wsPaths } from '@cindl/hermes-adapter'
+import type { BinaryWebSocketFactory, BinaryWebSocketLike, Clock } from '../platform.ts'
+import { createRfbClient, keysymForKey, type RfbClient } from '../rfb.ts'
+
+/** How long `display.frame` waits for a change, and `display.watch` for the RFB handshake. */
+const FRAME_WAIT_MS = 2_000
+const READY_TIMEOUT_MS = 10_000
+/** A deliberate close: Hermes hands control back if this viewer held it (display.py:234-240). */
+const CLOSE_DONE = 1000
+/** Any other close keeps a lease this viewer holds, as a dropped link does (display.py:234-240). */
+const CLOSE_KEEP_LEASE = 4100
+
+/** What `display.observe` gives a viewer (tui_gateway/methods_display.py). */
+export interface ObservedScreen {
+  ticket: string
+  path: string
+  viewerId: string
+}
+
+export interface LiveScreenOptions {
+  factory: BinaryWebSocketFactory
+  clock: Clock
+  /** The Hermes origin (`https://…`); the screen socket is `wss://` on it. */
+  origin(): string
+  /**
+   * `display.observe` on the current connection. Without a `viewerId` it keeps
+   * the id this connection already minted, so a lease taken before watching
+   * applies to the view.
+   */
+  observe(viewerId?: string): Promise<ObservedScreen>
+  /** Whether this viewer holds the input lease on the current connection. */
+  holdsLease(viewerId: string): boolean
+  newViewId(): string
+  /** Redacted diagnostics: never frames, input or the ticket URL. */
+  log(event: string, fields?: Record<string, unknown>): void
+}
+
+interface View {
+  readonly viewId: string
+  viewerId: string
+  socket: BinaryWebSocketLike | undefined
+  rfb: RfbClient | undefined
+  size: { width: number; height: number } | undefined
+  /** An update request is in flight. At most one is, so updates never pile up. */
+  requested: boolean
+  /** The server painted since this socket opened; until then the framebuffer is blank. */
+  painted: boolean
+  /** Why this view cannot show frames any more. */
+  ended: CindlError | undefined
+  /** Wakes a waiting `display.frame`. */
+  wake: (() => void) | undefined
+}
+
+export const screenStoppedError = () =>
+  new CindlError('unavailable', 'The agent screen is not running. Cindl never starts it.')
+
+/**
+ * The live picture of the agent-owned screen (ADR 0012). `display.observe`
+ * gives a single-use ticket and a viewer id; the ticket opens
+ * `/api/display/ws?display_ticket=…`, whose binary frames feed the shared RFB
+ * client. The ticket and the RFB stream never leave this object. Input goes
+ * only while this viewer holds the lease; Hermes filters it as well
+ * (hermes_cli/web_routers/display.py:1-18, tools/bot_desktop/rfb_filter.py).
+ */
+export class LiveScreen {
+  readonly #options: LiveScreenOptions
+  #view: View | undefined
+
+  constructor(options: LiveScreenOptions) {
+    this.#options = options
+  }
+
+  /** The viewer id of the open view, for taking control as the WATCHING viewer. */
+  get viewerId(): string | undefined {
+    return this.#view && !this.#view.ended ? this.#view.viewerId : undefined
+  }
+
+  /** One view at a time: watching again replaces the view and keeps its viewer id. */
+  async watch(): Promise<DisplayView> {
+    this.#end(CLOSE_KEEP_LEASE)
+    const observed = await this.#options.observe()
+    const view: View = {
+      viewId: this.#options.newViewId(),
+      viewerId: observed.viewerId,
+      socket: undefined,
+      rfb: undefined,
+      size: undefined,
+      requested: false,
+      painted: false,
+      ended: undefined,
+      wake: undefined,
+    }
+    this.#view = view
+    try {
+      await this.#connect(view, observed)
+    } catch (error) {
+      if (this.#view === view) this.#view = undefined
+      throw error
+    }
+    const size = view.size ?? { width: 1, height: 1 }
+    return { viewId: view.viewId, width: size.width, height: size.height }
+  }
+
+  /** What changed since the last call, waiting briefly for a change. */
+  async frame(viewId: string): Promise<DisplayFrame> {
+    const view = this.#viewFor(viewId)
+    if (!view.painted) {
+      // A new socket starts black: wait for the picture instead of showing that.
+      await this.#wait(view, FRAME_WAIT_MS)
+      if (view.ended) throw view.ended
+    }
+    let regions = view.rfb?.takeUpdate() ?? []
+    if (regions.length === 0) {
+      this.#request(view)
+      await this.#wait(view, FRAME_WAIT_MS)
+      if (view.ended) throw view.ended
+      regions = view.rfb?.takeUpdate() ?? []
+    }
+    // The caller paints these, then asks again: the next change is already on its way.
+    this.#request(view)
+    const size = view.rfb?.size ?? view.size ?? { width: 1, height: 1 }
+    return {
+      viewId,
+      width: size.width,
+      height: size.height,
+      regions: regions.map(({ x, y, width, height, rgba }) => ({
+        x,
+        y,
+        width,
+        height,
+        rgba,
+      })),
+    }
+  }
+
+  /** Pointer and key input, only while this viewer holds the lease. Never logged. */
+  input(viewId: string, events: readonly DisplayInputEvent[]): { sent: number } {
+    const view = this.#viewFor(viewId)
+    if (!this.#options.holdsLease(view.viewerId))
+      throw new CindlError(
+        'forbidden',
+        'Take control of the screen first: input goes only while this device holds it.',
+      )
+    const rfb = view.rfb
+    if (!rfb)
+      throw new CindlError('unavailable', 'The screen is reconnecting. Try again.')
+    rfb.setControlling(true)
+    let sent = 0
+    for (const event of events) {
+      if (event.type === 'pointer') {
+        if (rfb.pointer(event.x, event.y, event.buttons)) sent++
+      } else {
+        const keysym = keysymForKey(event.key)
+        if (keysym !== undefined && rfb.key(keysym, event.down)) sent++
+      }
+    }
+    return { sent }
+  }
+
+  /** Stop showing the screen. Like closing Hermes's viewer window, this hands control back. */
+  unwatch(viewId: string): { stopped: boolean } {
+    if (this.#view?.viewId !== viewId) return { stopped: false }
+    this.#end(CLOSE_DONE)
+    return { stopped: true }
+  }
+
+  /** The lease or the connection changed: input follows the lease. */
+  leaseChanged(): void {
+    const view = this.#view
+    if (view?.rfb) view.rfb.setControlling(this.#options.holdsLease(view.viewerId))
+  }
+
+  /**
+   * After the gateway connection changed, the view's viewer id cannot take
+   * control (Hermes binds it to the connection that minted it). Open the view
+   * again under an id this connection mints. The old socket closes without
+   * handing control back, so a lease it held stays with the human until
+   * `display.lease.acquire` moves it.
+   */
+  async rewatch(): Promise<void> {
+    const view = this.#view
+    if (!view) return
+    try {
+      const observed = await this.#options.observe()
+      if (this.#view !== view) return
+      view.viewerId = observed.viewerId
+      this.#closeSocket(view, CLOSE_KEEP_LEASE)
+      await this.#connect(view, observed)
+    } catch (error) {
+      if (this.#view === view && !view.socket) {
+        view.ended =
+          error instanceof CindlError && error.code === 'unavailable'
+            ? error
+            : new CindlError(
+                'unavailable',
+                'The screen connection ended. Watch the screen again.',
+              )
+        view.wake?.()
+      }
+      throw error
+    }
+  }
+
+  /** Sign-out, a new origin or stop(): close the view and hand control back. */
+  close(): void {
+    this.#end(CLOSE_DONE)
+  }
+
+  #end(code: number): void {
+    const view = this.#view
+    if (!view) return
+    this.#view = undefined
+    view.ended = new CindlError('not-found', 'That screen view was closed.')
+    this.#closeSocket(view, code)
+    view.wake?.()
+  }
+
+  #viewFor(viewId: string): View {
+    const view = this.#view
+    if (view?.viewId !== viewId)
+      throw new CindlError(
+        'not-found',
+        'That screen view is not open. Watch the screen again.',
+      )
+    if (view.ended) throw view.ended
+    return view
+  }
+
+  #request(view: View): void {
+    if (view.requested || !view.rfb) return
+    view.requested = true
+    view.rfb.requestUpdate()
+  }
+
+  #closeSocket(view: View, code: number): void {
+    const socket = view.socket
+    view.socket = undefined
+    view.rfb?.close()
+    view.rfb = undefined
+    view.requested = false
+    try {
+      socket?.close(code, code === CLOSE_DONE ? 'unwatch' : 'reconnect')
+    } catch {
+      // Already closed.
+    }
+  }
+
+  /** Opens the screen socket and runs the RFB handshake, which asks for the whole screen. */
+  #connect(view: View, observed: ObservedScreen): Promise<void> {
+    // Only the pinned route on the Hermes origin ever receives the ticket.
+    if (observed.path !== wsPaths.display)
+      return Promise.reject(
+        new CindlError(
+          'protocol',
+          'Hermes answered in an unexpected format.',
+          'display.observe path',
+        ),
+      )
+    const url = new URL(wsPaths.display, this.#options.origin())
+    url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
+    url.searchParams.set('display_ticket', observed.ticket)
+    const socket = this.#options.factory(url.toString())
+    view.socket = socket
+    view.painted = false
+    view.ended = undefined
+    return new Promise<void>((resolve, reject) => {
+      let settled = false
+      const timer = this.#options.clock.setTimeout(() => {
+        if (settled) return
+        settled = true
+        this.#closeSocket(view, CLOSE_KEEP_LEASE)
+        reject(new CindlError('timeout', 'The screen did not answer in time.'))
+      }, READY_TIMEOUT_MS)
+      const rfb = createRfbClient({
+        send: (bytes) => {
+          if (socket.readyState === 1) socket.send(bytes)
+        },
+        onReady: (size) => {
+          view.size = size
+          // The handshake ends with a request for the whole screen.
+          view.requested = true
+          if (settled) return
+          settled = true
+          this.#options.clock.clearTimeout(timer)
+          resolve()
+        },
+        onUpdate: () => {
+          view.requested = false
+          view.painted = true
+          view.wake?.()
+        },
+        // The update that resized the screen also repaints it; onUpdate wakes the viewer.
+        onResize: (size) => {
+          view.size = size
+        },
+        onError: () => {
+          this.#options.log('direct.screen-protocol-error')
+          socket.close(CLOSE_KEEP_LEASE, 'protocol error')
+        },
+      })
+      view.rfb = rfb
+      rfb.setControlling(this.#options.holdsLease(view.viewerId))
+      socket.onmessage = (event) => {
+        if (view.socket === socket) rfb.receive(event.data)
+      }
+      socket.onerror = () => undefined
+      socket.onclose = (event) => {
+        if (view.socket !== socket) return
+        view.socket = undefined
+        view.rfb?.close()
+        view.rfb = undefined
+        view.requested = false
+        if (!settled) {
+          settled = true
+          this.#options.clock.clearTimeout(timer)
+          reject(
+            event.code === displayCloseCodes.screenStopped
+              ? screenStoppedError()
+              : new CindlError('unavailable', 'Hermes closed the screen connection.'),
+          )
+          return
+        }
+        this.#closed(view, event.code)
+      }
+    })
+  }
+
+  /** The screen socket closed after the view was up. */
+  #closed(view: View, code: number): void {
+    this.#options.log('direct.screen-closed', { code })
+    if (this.#view !== view) return
+    if (code === displayCloseCodes.evictedController) {
+      // Another human took control: watch again with the same viewer id
+      // (Hermes keeps an id this connection minted, methods_display.py:127-136).
+      void this.#options
+        .observe(view.viewerId)
+        .then((observed) => {
+          if (this.#view !== view) return
+          view.viewerId = observed.viewerId
+          return this.#connect(view, observed)
+        })
+        .catch((error: unknown) => {
+          if (this.#view !== view) return
+          view.ended =
+            error instanceof CindlError && error.code === 'unavailable'
+              ? error
+              : new CindlError(
+                  'unavailable',
+                  'The screen connection ended. Watch the screen again.',
+                )
+          view.wake?.()
+        })
+      return
+    }
+    view.ended =
+      code === displayCloseCodes.screenStopped
+        ? screenStoppedError()
+        : new CindlError(
+            'unavailable',
+            'The screen connection ended. Watch the screen again.',
+          )
+    view.wake?.()
+  }
+
+  #wait(view: View, ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      const timer = this.#options.clock.setTimeout(done, ms)
+      function done() {
+        view.wake = undefined
+        resolve()
+      }
+      view.wake = () => {
+        this.#options.clock.clearTimeout(timer)
+        done()
+      }
+    })
+  }
+}

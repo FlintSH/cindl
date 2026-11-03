@@ -11,6 +11,7 @@ export {
 } from './auth.ts'
 export {
   connectRawClient,
+  nodeBinarySocketFactory,
   nodeSocketFactory,
   type NodeSocketOptions,
   type RawClient,
@@ -20,6 +21,7 @@ export {
   NOT_SHOWN_MESSAGE,
   defaultScript,
   type ClarifyQuestionWire,
+  type DisplayViewer,
   type FakeCall,
   type FakeGateway,
   type SettledRequest,
@@ -33,3 +35,4 @@ export {
   memoryFingerprint,
   type FixtureStore,
 } from './store.ts'
+export { RfbClientFilter } from './rfb-filter.ts'

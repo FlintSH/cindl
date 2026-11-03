@@ -441,12 +441,52 @@ calls it.
 ## Agent screen
 
 - `display.status` is a read-only snapshot with the lease
-  (`tui_gateway/methods_display.py:50-57`). Cindl never calls
+  (`tui_gateway/methods_display.py:50-57`). Hermes broadcasts the same
+  snapshot as a `display.status` event when the screen starts or stops
+  elsewhere (`methods_display_watch.py:81-103`). Cindl never calls
   `display.start`, `display.stop` or `display.install`.
 - `display.observe` mints a single-use 30 s ticket for `/api/display/ws`
   (`?display_ticket=`) and a viewer id bound to the calling connection
-  (`methods_display.py:113-168`). The RFB stream itself is not exposed through
-  Cindl's operations yet.
+  (`methods_display.py:113-168`). It refuses a stopped screen with error 5300
+  and a hint to call `display.start`; Cindl re-reads the status and reports
+  that the screen is not running instead.
+
+### Live picture
+
+The direct client shows the screen (ADR 0012) in
+`packages/client-core/src/direct/screen.ts` when the platform supplies a
+`BinaryWebSocketFactory`. Without one, `computer.view` stays limited and
+`display.watch` is refused.
+
+- `display.watch` calls `display.observe` and opens the pinned
+  `/api/display/ws` route on the Hermes origin (`wss:` for an `https:`
+  origin) with the ticket. Any other path in the reply is refused before a
+  socket opens, so the ticket never leaves that route. The binary frames feed
+  the shared RFB client.
+- One view at a time. Watching again keeps the viewer id this connection
+  minted (Hermes honours a requested id only for the connection that minted
+  it, `methods_display.py:127-136`), so a lease taken before watching applies
+  to the view.
+- `display.frame` returns what changed, waiting up to 2 s for a change. It
+  keeps at most one update request in flight, and it never returns the blank
+  framebuffer of a socket that has not painted yet.
+- `display.input` sends pointer and key events only while this connection's
+  viewer holds the lease, which is what `leaseHeldByThisDevice` reports.
+  Hermes's `RfbClientFilter` drops keyboard, pointer and clipboard messages
+  from every other viewer as well (`tools/bot_desktop/rfb_filter.py:42-120`).
+- `display.acquireControl` names the watching viewer's id. After a reconnect
+  that id belongs to a closed connection, so input waits; taking control opens
+  the view again under a fresh id and then acquires the lease for it.
+- Closing: `display.unwatch`, sign-out and `stop()` close the socket with
+  1000, which hands control back as closing Hermes's viewer window does.
+  Every other close Cindl makes (reopening the view, a stalled handshake, an
+  RFB protocol error) uses 4100. Hermes treats that as a dropped link and
+  keeps the human's control (`web_routers/display.py:234-240`).
+- When Hermes closes the view: on 4000 (another human took control) Cindl
+  observes again with the same viewer id and keeps watching without control.
+  4001 (screen stopped) and every other code end the view as unavailable.
+- Frames, input and the ticket URL are never logged. Diagnostics record the
+  close code only.
 - `display.lease.acquire {viewer_id}` and `display.lease.release {viewer_id}`
   accept only viewer ids minted on the same connection
   (`methods_display.py:234-262`). The lease shows the holder only as
