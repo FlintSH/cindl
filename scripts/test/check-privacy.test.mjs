@@ -147,6 +147,14 @@ describe('check-privacy', () => {
       assert.match(result.output, new RegExp(`docs/diag\\.md:\\d+: ${rule}`))
   })
 
+  // Hermes's screen viewer takes its single-use ticket as ?display_ticket=.
+  it('flags a display ticket in a viewer URL', (t) => {
+    const url = `wss://hermes.example.test/api/display/ws?${fake('display_tic', 'ket=', 'Zx9', 'w'.repeat(24))}`
+    const result = scan(t, { 'src/viewer.ts': `export const seen = '${url}'\n` })
+    assert.equal(result.code, 1, result.output)
+    assert.match(result.output, /src\/viewer\.ts:\d+: secret in a URL query/)
+  })
+
   it('leaves placeholders, prose and short test vectors alone', (t) => {
     const result = scan(t, {
       'docs/how.md': [

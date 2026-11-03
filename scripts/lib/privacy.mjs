@@ -118,7 +118,7 @@ export const DIAGNOSTIC_SECRETS = [
   {
     rule: 'secret in a URL query',
     pattern:
-      /[?&](?:ticket|token|access_token|refresh_token|code|code_verifier)=([^&#\s'"<>]+)/gi,
+      /[?&](?:(?:display_)?ticket|token|access_token|refresh_token|code|code_verifier)=([^&#\s'"<>]+)/gi,
     code: true,
   },
   {
