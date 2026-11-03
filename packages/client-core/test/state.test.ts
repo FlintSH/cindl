@@ -451,8 +451,9 @@ describe('server requests', () => {
     expect(current.requests[id]?.status).toBe('resolved-elsewhere')
   })
 
-  // Review 91f30e07 SF4: Hermes never lists or re-sends app-level prompts, so
-  // without their own sync scope they could never close.
+  // Review 91f30e07 SF4: app-level prompts have no conversation, so without
+  // their own sync scope (filled from Hermes's app-level list) they could never
+  // close.
   /** An app-level sudo prompt (`display.install.sudo` has no session). */
   const appLevel = (overrides: Partial<ServerRequest> = {}): ServerRequest => {
     const { conversationId: _none, ...request } = approval({

@@ -197,8 +197,9 @@ function UnsupportedCard({ request }: { request: ServerRequest }) {
         {kind === 'other'
           ? 'Cindl does not support this kind of prompt and sends nothing for it.'
           : 'Cindl never collects passwords, secrets or codes and sends nothing for this prompt.'}{' '}
-        Answer it in another Hermes surface, such as the Hermes terminal. It stays open
-        here until Hermes closes it.
+        {request.conversationId === undefined
+          ? 'Answer it in the Hermes app that started the operation: Hermes asks only there. It stays open here until Hermes closes it.'
+          : 'Answer it in another Hermes surface, such as the Hermes terminal. It stays open here until Hermes closes it.'}
       </p>
     </section>
   )

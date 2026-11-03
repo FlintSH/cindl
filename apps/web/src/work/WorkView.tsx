@@ -264,8 +264,9 @@ export function WorkView() {
             <p className={styles.empty}>Nothing is waiting on you.</p>
           )}
           <p className={styles.note}>
-            Covers command approvals and questions Hermes asks over this connection. It is
-            not a gate on every action Hermes can take.
+            Covers command approvals and questions Hermes asks Cindl, and prompts it is
+            waiting on elsewhere that Cindl can only show. It is not a gate on every
+            action Hermes can take.
           </p>
         </section>
         <section className={styles.section} aria-labelledby="running">

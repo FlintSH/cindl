@@ -94,7 +94,8 @@ from the desktop app's custom protocol.
   become the password Hermes uses. Answer it in another Hermes surface, such as
   the Hermes terminal; it stays open until Hermes closes it. Prompts that
   belong to no conversation, such as the sudo prompt of a screen install
-  started in another Hermes app, appear the same way while Hermes lists them.
+  started in another Hermes app, appear while Hermes lists them and point you
+  to the app that started the operation, the only place Hermes asks.
 - **Memory edits are explicit:** each entry changes only after you review a
   diff and confirm, and only if it has not changed in Hermes since you read it.
   A review belongs to the text it was made against: if the entry changes in
