@@ -210,7 +210,9 @@ focus lands and what TalkBack reads are not covered by an emulator test yet.
 Each step starts from a known screen, so one failure does not fail the steps
 after it: Cindl in front, nothing left open over it (system back closes a
 dialog or sheet a step left), and Talk selected, with or without a
-conversation. System animations are off during the tests so UI dumps are stable
+conversation. The sign-in cases start on the sign-in screen: if a step before
+left the app signed in, its data is cleared first. Sign-out is under Agent,
+This device. System animations are off during the tests so UI dumps are stable
 (the app then also reduces its own motion). The `cindl-android-emulator-evidence` artifact
 holds, per suite (`demo/`, `signin/`), screenshots, UI dumps, logcat per step,
 `report.json` (steps, device, the fake's request shapes) and `summary.md`, and

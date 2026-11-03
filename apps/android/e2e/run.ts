@@ -825,6 +825,20 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
   let exchangedAt = 0
   const isAddressField: Match = (text, node) =>
     /EditText$/.test(node.className) && text === 'Hermes address'
+  /**
+   * The sign-in cases start on the sign-in screen, whatever the steps before
+   * left. If the app is still signed in (a sign-out that failed), its data is
+   * cleared, which ends the session on this device.
+   */
+  const startSignedOut = async (note: (line: string) => void) => {
+    ensureApp()
+    await closeOverlays()
+    if (find(await device.dump(), isAddressField)) return
+    device.shell(`pm clear ${PACKAGE}`)
+    device.launch()
+    await device.waitFor(isAddressField, 'the sign-in screen', 90_000)
+    note('the app was still signed in, so its data was cleared to start signed out')
+  }
   // Connected: Talk with its composer, or Talk with no conversation yet (the fake starts empty).
   const isConnected: Match = (text, node) =>
     matches(node, isComposer) || text === 'No conversations yet.'
@@ -1027,7 +1041,7 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
 
   await step('Chat through the direct client', async ({ note, shot }) => {
     needsSignIn()
-    ensureApp()
+    await startOnTalk()
     const root = await device.dump()
     if (!find(root, isComposer)) {
       await tapRevealed('Start a conversation', 'Start a conversation')
@@ -1118,8 +1132,17 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
 
   await step('Sign out on this device', async ({ note, shot }) => {
     needsSignIn()
-    ensureApp()
+    await startOnTalk()
     await openDestination('Agent', named('SOUL.md'))
+    // Agent opens on Identity; sign-out is under its This device tab.
+    await tapRevealed(
+      (text, node) => node.clickable && text === 'This device',
+      'the This device tab',
+    )
+    await device.waitFor(
+      (text, node) => node.clickable && node.selected && text === 'This device',
+      'the This device tab, selected',
+    )
     await tapRevealed('Sign out on this device', 'Sign out on this device')
     const { root } = await device.waitFor(isAddressField, 'the sign-in screen', 30_000)
     if (!find(root, named('Signed out')))
@@ -1135,7 +1158,7 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
 
   await step('Process death while the browser is open', async ({ note, shot }) => {
     needsBrowser()
-    ensureApp()
+    await startSignedOut(note)
     const tokensBefore = holding.events.filter((event) => event.kind === 'token').length
     const authorizeBefore = holding.events.filter(
       (event) => event.kind === 'authorize',
@@ -1196,7 +1219,7 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
 
   await step('Cancel a sign-in in progress', async ({ note, shot }) => {
     needsBrowser()
-    ensureApp()
+    await startSignedOut(note)
     const tokensBefore = holding.events.filter((event) => event.kind === 'token').length
     const authorizeBefore = holding.events.filter(
       (event) => event.kind === 'authorize',
