@@ -14,9 +14,11 @@
     "extract-upstream": "node scripts/extract-upstream.ts"
   },
   "dependencies": {
-    "@cindl/contracts": "workspace:*"
+    "@cindl/contracts": "workspace:*",
+    "zod": "catalog:"
   },
   "devDependencies": {
+    "@cindl/fixtures": "workspace:*",
     "@types/node": "catalog:",
     "typescript": "catalog:"
   }

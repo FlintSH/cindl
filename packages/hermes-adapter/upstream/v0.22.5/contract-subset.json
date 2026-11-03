@@ -370,24 +370,6 @@
    }
   },
   {
-   "name": "approval.respond",
-   "summary": "Deliver the user's decision on a dangerous command (falls back to durable identity on a stale sid).",
-   "params": [
-    {
-     "name": "params",
-     "schema": {
-      "$ref": "#/components/schemas/ApprovalRespondParams"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/ApprovalRespondResult"
-    }
-   }
-  },
-  {
    "name": "request.answer",
    "summary": "Answer an open server→client request from a client that never received the frame.",
    "params": [
@@ -800,42 +782,6 @@
     "name": "result",
     "schema": {
      "$ref": "#/components/schemas/AdmissionStatus"
-    }
-   }
-  },
-  {
-   "name": "approval.respond",
-   "summary": "",
-   "params": [
-    {
-     "name": "params",
-     "schema": {
-      "$ref": "#/components/schemas/CanonicalApprovalParams"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/PromptResponseResult"
-    }
-   }
-  },
-  {
-   "name": "clarify.respond",
-   "summary": "Generation-fenced answer to a pending clarify prompt (empty answer = skipped).",
-   "params": [
-    {
-     "name": "params",
-     "schema": {
-      "$ref": "#/components/schemas/ClarifyRespondParams"
-     }
-    }
-   ],
-   "result": {
-    "name": "result",
-    "schema": {
-     "$ref": "#/components/schemas/PromptResponseResult"
     }
    }
   },
@@ -1542,83 +1488,6 @@
     "title": "ApprovalRequestParams",
     "type": "object"
    },
-   "ApprovalRespondParams": {
-    "additionalProperties": false,
-    "description": "``choice`` is one of the offered ``approval`` choices (once / session / always / deny); ``all``\nresolves every pending approval, ``request_id`` a specific one, neither the oldest.",
-    "properties": {
-     "session_id": {
-      "title": "Session Id",
-      "type": "string"
-     },
-     "profile": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "default": null,
-      "title": "Profile"
-     },
-     "choice": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "default": null,
-      "title": "Choice"
-     },
-     "all": {
-      "anyOf": [
-       {
-        "type": "boolean"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "default": null,
-      "title": "All"
-     },
-     "request_id": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "default": null,
-      "title": "Request Id"
-     }
-    },
-    "required": [
-     "session_id"
-    ],
-    "title": "ApprovalRespondParams",
-    "type": "object"
-   },
-   "ApprovalRespondResult": {
-    "additionalProperties": false,
-    "properties": {
-     "resolved": {
-      "title": "Resolved",
-      "type": "integer"
-     }
-    },
-    "required": [
-     "resolved"
-    ],
-    "title": "ApprovalRespondResult",
-    "type": "object"
-   },
    "ApprovalResult": {
     "additionalProperties": false,
     "properties": {
@@ -1721,47 +1590,6 @@
      "message"
     ],
     "title": "BillingBlock",
-    "type": "object"
-   },
-   "CanonicalApprovalParams": {
-    "additionalProperties": false,
-    "properties": {
-     "profile": {
-      "anyOf": [
-       {
-        "type": "string"
-       },
-       {
-        "type": "null"
-       }
-      ],
-      "default": null,
-      "title": "Profile"
-     },
-     "session_id": {
-      "title": "Session Id",
-      "type": "string"
-     },
-     "execution_generation": {
-      "title": "Execution Generation",
-      "type": "integer"
-     },
-     "prompt_id": {
-      "title": "Prompt Id",
-      "type": "string"
-     },
-     "choice": {
-      "title": "Choice",
-      "type": "string"
-     }
-    },
-    "required": [
-     "session_id",
-     "execution_generation",
-     "prompt_id",
-     "choice"
-    ],
-    "title": "CanonicalApprovalParams",
     "type": "object"
    },
    "CanonicalAttachment": {
@@ -4737,35 +4565,6 @@
      "questions"
     ],
     "title": "ClarifyRequestParams",
-    "type": "object"
-   },
-   "ClarifyRespondParams": {
-    "additionalProperties": false,
-    "properties": {
-     "session_id": {
-      "title": "Session Id",
-      "type": "string"
-     },
-     "execution_generation": {
-      "title": "Execution Generation",
-      "type": "integer"
-     },
-     "prompt_id": {
-      "title": "Prompt Id",
-      "type": "string"
-     },
-     "answer": {
-      "title": "Answer",
-      "type": "string"
-     }
-    },
-    "required": [
-     "session_id",
-     "execution_generation",
-     "prompt_id",
-     "answer"
-    ],
-    "title": "ClarifyRespondParams",
     "type": "object"
    },
    "ClarifyResult": {
@@ -9073,29 +8872,6 @@
      "execution_generation"
     ],
     "title": "PromptResolveUnknownParams",
-    "type": "object"
-   },
-   "PromptResponseResult": {
-    "additionalProperties": false,
-    "properties": {
-     "status": {
-      "enum": [
-       "resolved",
-       "already_resolved"
-      ],
-      "title": "Status",
-      "type": "string"
-     },
-     "prompt_id": {
-      "title": "Prompt Id",
-      "type": "string"
-     }
-    },
-    "required": [
-     "status",
-     "prompt_id"
-    ],
-    "title": "PromptResponseResult",
     "type": "object"
    },
    "PromptSubmitParams": {
