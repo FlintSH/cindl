@@ -14,6 +14,7 @@ import {
   View,
   type HostInstance,
 } from 'react-native'
+import { giveKeyboardFocus } from '../overlay/keyboardFocus.ts'
 import { useTheme } from '../theme/theme.tsx'
 import {
   Check,
@@ -58,7 +59,10 @@ export function RequestCard({
   onFocused,
 }: {
   request: ServerRequest
-  /** Move TalkBack focus to this card's title (from the working margin's Show). */
+  /**
+   * Move TalkBack focus to this card's title and a keyboard's to its first
+   * control (the title takes none), from the working margin's Show.
+   */
   focusRequested?: boolean
   onFocused?: () => void
 }) {
@@ -66,8 +70,10 @@ export function RequestCard({
   useEffect(() => {
     if (!focusRequested) return
     const timer = setTimeout(() => {
-      if (titleRef.current)
+      if (titleRef.current) {
         AccessibilityInfo.sendAccessibilityEvent(titleRef.current, 'focus')
+        giveKeyboardFocus(titleRef.current)
+      }
       onFocused?.()
     }, 250)
     return () => clearTimeout(timer)

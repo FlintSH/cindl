@@ -103,16 +103,19 @@ describe('Talk: what opens an overlay gets focus back when it closes', () => {
     expect(talkBack[0]).toMatch(/^button: Checked the studio calendar for Thursday\. /)
   })
 
-  it("the margin's Show moves TalkBack focus to the card, and the margin gives none back (P3)", async () => {
+  it("the margin's Show moves focus to the card, TalkBack's and a keyboard's, and the margin gives none back (S2, P3)", async () => {
     const s = await talk()
     await s.press('Show the working margin')
     expect(s.sent().talkBack).toEqual(['heading: Waiting on you'])
     await s.press('Show approval: Run the inventory export script')
     await s.wait(300)
-    // The card's title only: no focus back to "Show the working margin".
-    expect(s.sent().talkBack).toEqual([
-      'heading: Approval needed: Run the inventory export script',
-    ])
+    // The card's title only: no focus back to "Show the working margin". A
+    // keyboard's goes to the title too, which hands it to the card's first
+    // control (modules/cindl-focus).
+    expect(s.sent()).toEqual({
+      talkBack: ['heading: Approval needed: Run the inventory export script'],
+      keyboard: ['heading: Approval needed: Run the inventory export script'],
+    })
   })
 
   it('the conversation switcher, for the conversations it opens, though another press came just before (P4)', async () => {

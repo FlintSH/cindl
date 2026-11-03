@@ -537,7 +537,9 @@ Hermes server, Chrome's Custom Tab, and a phone.
   gone, to the overlay's nearer one (the discard dialog: the draft, else
   Edit), else to the section's heading (a deleted memory entry: Entries), the
   page's heading or Talk's conversation switcher, never to nothing. An action
-  that moves focus itself (the working margin's Show) keeps it there. Android
+  that moves focus itself keeps it there: the working margin's Show gives
+  TalkBack focus to the card it shows and a keyboard's to the card's first
+  control. Android
   does not tell the app where TalkBack focus is, so the opener is the control
   pressed in the second before the overlay opened (a TalkBack double tap
   presses it too); an overlay system back opened has none. A keyboard's
