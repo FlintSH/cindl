@@ -49,8 +49,12 @@ export interface RfbClientOptions {
   send(bytes: Uint8Array): void
   /** The handshake finished and the first full update was requested. */
   onReady?(size: { width: number; height: number }): void
-  /** A framebuffer update completed; call `takeUpdate` when ready to paint. */
-  onUpdate?(): void
+  /**
+   * A framebuffer update completed; call `takeUpdate` when ready to paint.
+   * `painted` says whether it carried pixels (a Raw or CopyRect rectangle):
+   * an update holding only a DesktopSize rectangle, or none, paints nothing.
+   */
+  onUpdate?(update: { painted: boolean }): void
   /** The screen changed size; the whole framebuffer is dirty. */
   onResize?(size: { width: number; height: number }): void
   /** The session failed. The platform closes the socket; nothing more is sent. */
@@ -62,8 +66,13 @@ export interface RfbClient {
   receive(chunk: Uint8Array): void
   /** Changed regions since the last call, with their current pixels. */
   takeUpdate(): RfbRegion[]
-  /** Asks the server for what changed (call after painting). */
-  requestUpdate(): void
+  /**
+   * Asks the server for what changed (call after painting), or with `whole`
+   * for the whole screen. Does nothing while a request is in flight: an
+   * update answers every request made before it (TigerVNC clears them all),
+   * so a second one would only have the server send twice.
+   */
+  requestUpdate(whole?: boolean): void
   /**
    * Whether this viewer holds the input lease. Hermes drops input from any
    * other viewer; Cindl does not send it at all. Giving control up releases
@@ -211,6 +220,12 @@ export function createRfbClient(options: RfbClientOptions): RfbClient {
   let height = 0
   let framebuffer = new Uint8Array(0)
   let dirty: RfbRect[] = []
+  /** An update request is in flight: sent and not answered by a completed update. */
+  let requested = false
+  /** The update being read: whether a request went out during it, and whether it painted. */
+  let inUpdate = false
+  let requestedDuringUpdate = false
+  let paintedDuringUpdate = false
   let controlling = false
   let buttonsDown = 0
   const keysDown = new Set<number>()
@@ -231,6 +246,13 @@ export function createRfbClient(options: RfbClientOptions): RfbClient {
     // Opaque black until the server paints.
     for (let i = 3; i < framebuffer.length; i += BYTES_PER_PIXEL) framebuffer[i] = 255
     dirty = [{ x: 0, y: 0, width: w, height: h }]
+  }
+
+  /** Sends an update request; one sent while an update is read is still in flight after it. */
+  const request = (incremental: boolean) => {
+    send(updateRequest(incremental))
+    requested = true
+    if (inUpdate) requestedDuringUpdate = true
   }
 
   const updateRequest = (incremental: boolean) => {
@@ -263,7 +285,7 @@ export function createRfbClient(options: RfbClientOptions): RfbClient {
     putU16(set, 2, encodings.length)
     encodings.forEach((encoding, i) => putU32(set, 4 + 4 * i, encoding >>> 0))
     send(set)
-    send(updateRequest(false))
+    request(false)
     state = 'ready'
     options.onReady?.({ width, height })
   }
@@ -415,8 +437,11 @@ export function createRfbClient(options: RfbClientOptions): RfbClient {
         if (queue.length < 3) return false
         const head = queue.read(3)
         const count = u16(head, 1)
-        step = count === 0 ? { kind: 'message' } : { kind: 'rect-header', left: count }
-        if (count === 0) options.onUpdate?.()
+        inUpdate = true
+        requestedDuringUpdate = false
+        paintedDuringUpdate = false
+        if (count === 0) return endUpdate()
+        step = { kind: 'rect-header', left: count }
         return true
       }
       case 'rect-header': {
@@ -437,7 +462,9 @@ export function createRfbClient(options: RfbClientOptions): RfbClient {
           }
           allocate(rect.width, rect.height)
           options.onResize?.({ width, height })
-          send(updateRequest(false))
+          // The new framebuffer is black: ask for all of it. TigerVNC sends the
+          // resize in an update of its own and repaints in a later one.
+          request(false)
           return finishRect(left)
         }
         if (!insideFramebuffer(rect)) {
@@ -457,8 +484,10 @@ export function createRfbClient(options: RfbClientOptions): RfbClient {
       }
       case 'raw': {
         if (!drainRaw(step)) return false
-        if (step.rect.width > 0 && step.rect.height > 0)
+        if (step.rect.width > 0 && step.rect.height > 0) {
           dirty = addDirty(dirty, step.rect)
+          paintedDuringUpdate = true
+        }
         return finishRect(step.left)
       }
       case 'copy-rect': {
@@ -474,6 +503,7 @@ export function createRfbClient(options: RfbClientOptions): RfbClient {
         if (rect.width > 0 && rect.height > 0) {
           copyRect(rect, sourceX, sourceY)
           dirty = addDirty(dirty, rect)
+          paintedDuringUpdate = true
         }
         return finishRect(step.left)
       }
@@ -503,11 +533,19 @@ export function createRfbClient(options: RfbClientOptions): RfbClient {
   }
 
   const finishRect = (left: number) => {
-    if (left > 0) step = { kind: 'rect-header', left }
-    else {
-      step = { kind: 'message' }
-      options.onUpdate?.()
+    if (left > 0) {
+      step = { kind: 'rect-header', left }
+      return true
     }
+    return endUpdate()
+  }
+
+  /** The update answered every request sent before it; one sent while reading it is still pending. */
+  const endUpdate = () => {
+    step = { kind: 'message' }
+    inUpdate = false
+    requested = requestedDuringUpdate
+    options.onUpdate?.({ painted: paintedDuringUpdate })
     return true
   }
 
@@ -533,8 +571,8 @@ export function createRfbClient(options: RfbClientOptions): RfbClient {
       dirty = []
       return regions
     },
-    requestUpdate() {
-      if (state === 'ready') send(updateRequest(true))
+    requestUpdate(whole = false) {
+      if (state === 'ready' && !requested) request(!whole)
     },
     setControlling(next) {
       if (controlling && !next && state === 'ready') {

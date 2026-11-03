@@ -64,9 +64,10 @@ interface View {
   socket: BinaryWebSocketLike | undefined
   rfb: RfbClient | undefined
   size: { width: number; height: number } | undefined
-  /** An update request is in flight. At most one is, so updates never pile up. */
-  requested: boolean
-  /** The server painted since this socket opened; until then the framebuffer is blank. */
+  /**
+   * An update with pixels (Raw or CopyRect) arrived since this socket opened
+   * or the screen last changed size; until then the framebuffer is black.
+   */
   painted: boolean
   /** Why this view cannot show frames any more. */
   ended: CindlError | undefined
@@ -135,7 +136,6 @@ export class LiveScreen {
       socket: undefined,
       rfb: undefined,
       size: undefined,
-      requested: false,
       painted: false,
       ended: undefined,
       wake: undefined,
@@ -158,20 +158,24 @@ export class LiveScreen {
     const view = this.#viewFor(viewId)
     if (!view.painted) {
       // A new or resized framebuffer is black until the server paints it:
-      // wait for the picture, and show nothing rather than that.
+      // wait for the picture, and show nothing rather than that. Ask for the
+      // whole screen unless a request is already in flight (one after an
+      // empty update keeps the pull going).
+      view.rfb?.requestUpdate(true)
       await this.#wait(view, FRAME_WAIT_MS)
       if (view.ended) throw view.ended
       if (!view.painted) return this.#frame(view, [])
     }
     let regions = view.rfb?.takeUpdate() ?? []
     if (regions.length === 0) {
-      this.#request(view)
+      view.rfb?.requestUpdate()
       await this.#wait(view, FRAME_WAIT_MS)
       if (view.ended) throw view.ended
       regions = view.rfb?.takeUpdate() ?? []
     }
-    // The caller paints these, then asks again: the next change is already on its way.
-    this.#request(view)
+    // The caller paints these, then asks again: the next change is already on
+    // its way. The RFB client keeps at most one request in flight.
+    view.rfb?.requestUpdate()
     return this.#frame(view, regions)
   }
 
@@ -292,19 +296,12 @@ export class LiveScreen {
     return view
   }
 
-  #request(view: View): void {
-    if (view.requested || !view.rfb) return
-    view.requested = true
-    view.rfb.requestUpdate()
-  }
-
   #closeSocket(view: View, code: number): void {
     const socket = view.socket
     view.socket = undefined
     this.#options.clock.clearTimeout(view.idle)
     view.rfb?.close()
     view.rfb = undefined
-    view.requested = false
     try {
       socket?.close(code, code === CLOSE_DONE ? 'unwatch' : 'reconnect')
     } catch {
@@ -354,17 +351,16 @@ export class LiveScreen {
         },
         onReady: (size) => {
           view.size = size
-          // The handshake ends with a request for the whole screen.
-          view.requested = true
           ready = true
           settle()
         },
-        onUpdate: () => {
-          view.requested = false
-          view.painted = true
+        // Only pixels count as a paint: TigerVNC sends a resize in an update of
+        // its own and repaints later, and an empty update paints nothing.
+        onUpdate: ({ painted }) => {
+          if (painted) view.painted = true
           view.wake?.()
         },
-        // The resized framebuffer is black until the rest of that update paints it.
+        // The resized framebuffer is black until an update paints it.
         onResize: (size) => {
           view.size = size
           view.painted = false
@@ -388,7 +384,6 @@ export class LiveScreen {
         this.#options.clock.clearTimeout(view.idle)
         view.rfb?.close()
         view.rfb = undefined
-        view.requested = false
         const failed = settle(
           event.code === displayCloseCodes.screenStopped
             ? screenStoppedError()

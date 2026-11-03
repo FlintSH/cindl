@@ -64,7 +64,8 @@ function session() {
   const client = createRfbClient({
     send: (bytes) => sent.push(bytes),
     onReady: (size) => events.push(`ready ${size.width}x${size.height}`),
-    onUpdate: () => events.push('update'),
+    onUpdate: ({ painted }) =>
+      events.push(painted ? 'update' : 'update, nothing painted'),
     onResize: (size) => events.push(`resize ${size.width}x${size.height}`),
     onError: (error) => errors.push(error),
   })
@@ -300,15 +301,59 @@ describe('RFB framebuffer', () => {
   it('follows a new screen size and asks for a full picture', () => {
     const { client, events, sent } = ready()
     client.receive(update(desktopSize(8, 2)))
-    expect(events).toEqual(['resize 8x2', 'update'])
+    expect(events).toEqual(['resize 8x2', 'update, nothing painted'])
     expect([...(sent.at(-1) as Uint8Array)]).toEqual([3, 0, 0, 0, 0, 0, 0, 8, 0, 2])
     expect(client.takeUpdate()[0]).toMatchObject({ width: 8, height: 2 })
   })
 
   it('asks for incremental updates when the viewer has painted', () => {
     const { client, sent } = ready()
+    // The answer to the handshake's whole-screen request.
+    client.receive(update(raw(0, 0, 1, 1, [[1, 2, 3]])))
     client.requestUpdate()
     expect([...(sent.at(-1) as Uint8Array)]).toEqual([3, 1, 0, 0, 0, 0, 0, 4, 0, 3])
+  })
+
+  it('counts an update as painted only when it carries Raw or CopyRect pixels', () => {
+    const { client, events } = ready()
+    client.receive(update(raw(0, 0, 1, 1, [[1, 2, 3]])))
+    client.receive(update(copy(1, 0, 1, 1, 0, 0)))
+    client.receive(update())
+    client.receive(update(desktopSize(4, 3)))
+    expect(events).toEqual([
+      'update',
+      'update',
+      'update, nothing painted',
+      'resize 4x3',
+      'update, nothing painted',
+    ])
+  })
+
+  it('keeps one update request in flight, its own after a resize included', () => {
+    const { client, sent } = ready()
+    const requests = () => sent.filter((bytes) => bytes[0] === 3).map((bytes) => bytes[1])
+    // The handshake's whole-screen request is still unanswered.
+    client.requestUpdate()
+    expect(requests()).toEqual([])
+    client.receive(update(raw(0, 0, 1, 1, [[1, 2, 3]])))
+    client.requestUpdate()
+    client.requestUpdate()
+    expect(requests()).toEqual([1])
+    // TigerVNC announces a resize in an update of its own; the client asks for
+    // the new screen while reading it, so that request is still in flight after.
+    client.receive(update(desktopSize(8, 2)))
+    client.requestUpdate()
+    expect(requests()).toEqual([1, 0])
+    client.receive(update(raw(0, 0, 8, 2, new Array<Pixel>(16).fill([4, 5, 6]))))
+    client.requestUpdate()
+    expect(requests()).toEqual([1, 0, 1])
+  })
+
+  it('keeps the pull going after an empty update', () => {
+    const { client, sent } = ready()
+    client.receive(update())
+    client.requestUpdate(true)
+    expect([...(sent.at(-1) as Uint8Array)]).toEqual([3, 0, 0, 0, 0, 0, 0, 4, 0, 3])
   })
 
   it('drops clipboard text and colour maps and ignores the bell', () => {

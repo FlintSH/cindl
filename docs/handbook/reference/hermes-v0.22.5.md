@@ -507,11 +507,15 @@ The direct client shows the screen (ADR 0012) in
   to the view. Watches run one after another, so two racing calls leave one
   socket and the later view; ending a view settles its handshake at once, and
   sign-out or `stop()` also cancels a watch still waiting for its ticket.
-- `display.frame` returns what changed, waiting up to 2 s for a change. It
-  keeps at most one update request in flight. A new socket, and a screen that
-  just changed size, start as a black framebuffer: until the server paints
-  it, a frame has no regions rather than that black (a first Raw frame of a
-  1280x800 screen is 4 MB, so slow links wait).
+- `display.frame` returns what changed, waiting up to 2 s for a change. A new
+  socket, and a screen that just changed size, start as a black framebuffer,
+  and a frame has no regions until an update carries pixels (a Raw or
+  CopyRect rectangle); a first Raw frame of a 1280x800 screen is 4 MB, so
+  slow links wait. TigerVNC, Hermes's Xvnc, announces a resize in an update
+  holding only the DesktopSize rectangle and repaints in a later one, so that
+  update paints nothing; neither does an empty update, though the pull goes
+  on after it. At most one update request is in flight, the client's own
+  whole-screen request after a resize included.
 - `display.input` sends pointer and key events only while this connection's
   viewer holds the lease, which is what `leaseHeldByThisDevice` reports.
   Hermes's `RfbClientFilter` drops keyboard, pointer and clipboard messages

@@ -393,24 +393,25 @@ interface StubSocket extends BinaryWebSocketLike {
   drop(code: number): void
 }
 
-/** A clock whose timers fire only when the test says so. */
-function manualClock(): Clock & { fire(): void } {
-  const timers = new Map<number, () => void>()
+/** A clock whose timers fire only when the test says so: all of them, or those set for at most `ms`. */
+function manualClock(): Clock & { fire(ms?: number): void } {
+  const timers = new Map<number, { callback: () => void; ms: number }>()
   let next = 0
   return {
     now: () => Date.now(),
-    setTimeout(callback) {
+    setTimeout(callback, ms) {
       next += 1
-      timers.set(next, callback)
+      timers.set(next, { callback, ms })
       return next
     },
     clearTimeout(handle) {
       timers.delete(handle as number)
     },
-    fire() {
-      for (const [id, callback] of [...timers]) {
+    fire(ms = Infinity) {
+      for (const [id, timer] of [...timers]) {
+        if (timer.ms > ms) continue
         timers.delete(id)
-        callback()
+        timer.callback()
       }
     },
   }
@@ -543,6 +544,53 @@ describe('live screen: frames', () => {
       ...rawRect({ x: 1, y: 0, width: 1, height: 1 }, [10, 20, 30]),
     ])
     expect(pixel(await live.frame(viewId), 1, 0)).toEqual([10, 20, 30])
+  })
+
+  it('shows nothing after a resize sent alone, as TigerVNC sends it, and asks once', async () => {
+    const clock = manualClock()
+    const { live, socket, viewId } = await watchedStub(clock)
+    socket.feed([
+      ...updateHeader(1),
+      ...rawRect({ x: 0, y: 0, width: 4, height: 2 }, [1, 2, 3]),
+    ])
+    expect(pixel(await live.frame(viewId), 0, 0)).toEqual([1, 2, 3])
+    socket.sent.length = 0
+    // VNCSConnectionST::writeNoDataUpdate: an update holding only DesktopSize;
+    // the repaint follows in a later update.
+    socket.feed([...updateHeader(1), ...desktopSize(6, 2)])
+    const waiting = live.frame(viewId)
+    clock.fire(2_000)
+    const resized = await waiting
+    expect(resized).toMatchObject({ width: 6, height: 2, regions: [] })
+    // Only the client's own whole-screen request is in flight.
+    expect(
+      socket.sent.filter((bytes) => bytes[0] === 3).map((bytes) => bytes[1]),
+    ).toEqual([0])
+    socket.feed([
+      ...updateHeader(1),
+      ...rawRect({ x: 0, y: 0, width: 6, height: 2 }, [4, 5, 6]),
+    ])
+    expect(pixel(await live.frame(viewId), 5, 1)).toEqual([4, 5, 6])
+  })
+
+  it('keeps pulling after an empty update without calling it a paint', async () => {
+    const clock = manualClock()
+    const { live, socket, viewId } = await watchedStub(clock)
+    // The first answer holds no rectangles.
+    socket.feed(updateHeader(0))
+    socket.sent.length = 0
+    const waiting = live.frame(viewId)
+    clock.fire(2_000)
+    expect((await waiting).regions).toEqual([])
+    // Still unpainted: it asked for the whole screen again.
+    expect(
+      socket.sent.filter((bytes) => bytes[0] === 3).map((bytes) => bytes[1]),
+    ).toEqual([0])
+    socket.feed([
+      ...updateHeader(1),
+      ...rawRect({ x: 0, y: 0, width: 4, height: 2 }, [7, 8, 9]),
+    ])
+    expect(pixel(await live.frame(viewId), 3, 1)).toEqual([7, 8, 9])
   })
 
   it('shows nothing between a resize and the paint that follows it', async () => {
