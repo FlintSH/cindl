@@ -106,6 +106,14 @@ export interface DirectClientDeps {
    * learning routes, and for SOUL.md the name display.status reports.
    */
   profile?: string
+  /**
+   * Cookie mode (web): the platform's cue that this browser's Hermes session
+   * may have changed elsewhere, such as the page becoming visible again or
+   * another tab announcing its sign-out. The client then asks
+   * GET /api/auth/me at once instead of at its next request tick. Returns an
+   * unsubscribe; the client subscribes while connected.
+   */
+  watchSession?: (check: () => void) => () => void
   /** Redacted diagnostics. */
   log?: DiagnosticSink
   /** Jitter source in [0, 1). */
@@ -234,6 +242,9 @@ class DirectHermesClient implements DirectClient {
   #listRefresh: unknown
   #requestSync: unknown
   #started = false
+  /** Cookie mode: the session check in flight, so a tick and a cue share one request. */
+  #sessionCheck: Promise<void> | undefined
+  #unwatchSession: (() => void) | undefined
   #deviceLoaded = false
 
   constructor(deps: DirectClientDeps) {
@@ -369,6 +380,8 @@ class DirectHermesClient implements DirectClient {
 
   stop(): void {
     this.#started = false
+    this.#unwatchSession?.()
+    this.#unwatchSession = undefined
     this.#screen?.close()
     this.#connection?.stop()
     this.#connection = undefined
@@ -575,6 +588,36 @@ class DirectHermesClient implements DirectClient {
       },
     })
     this.#connection.start()
+    if (!this.#native && !this.#unwatchSession && this.#deps.watchSession)
+      this.#unwatchSession = this.#deps.watchSession(() => void this.#checkSession())
+  }
+
+  /**
+   * Cookie mode: does this browser still have its Hermes session? Hermes
+   * checks one only when a socket opens (chat_ws.py:137-171), so a tab whose
+   * cookies another tab's sign-out cleared would otherwise keep talking on
+   * its open socket. Asked on the request tick and on the platform's cue; the
+   * gate's 401 ends the session here, any other failure waits for the next
+   * check.
+   */
+  #checkSession(): Promise<void> {
+    const rest = this.#rest
+    if (this.#native || !rest || !this.#started || !this.#signedIn)
+      return Promise.resolve()
+    this.#sessionCheck ??= this.#askSession(rest).finally(() => {
+      this.#sessionCheck = undefined
+    })
+    return this.#sessionCheck
+  }
+
+  async #askSession(rest: RestClient): Promise<void> {
+    try {
+      await rest.me()
+    } catch (error) {
+      const cause = asCindlError(error, 'auth.me')
+      if (rest === this.#rest && this.#sessionEndedByHermes(cause))
+        this.#sessionEnded(cause)
+    }
   }
 
   // --- link and capabilities ---------------------------------------------------
@@ -936,6 +979,8 @@ class DirectHermesClient implements DirectClient {
   }
 
   async #syncOpenRequests(): Promise<void> {
+    await this.#checkSession()
+    if (!this.#started || !this.#signedIn) return
     const conversations = new Set(
       [...this.#requests.values()].flatMap((tracked) =>
         tracked.conversationId ? [tracked.conversationId] : [],

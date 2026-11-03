@@ -6,7 +6,7 @@ import {
 } from '@cindl/fixtures/fake-hermes'
 import { loginPagePath, type FetchLike } from '@cindl/hermes-adapter'
 import { describe, expect, it } from 'vitest'
-import { entry } from '../src/index.ts'
+import { entry, type DirectClientDeps } from '../src/index.ts'
 import { fakeHermes, harness, type Harness } from './direct-harness.ts'
 
 const failure = (promise: Promise<unknown>) =>
@@ -107,6 +107,52 @@ function assistantText(h: Harness, conversationId: string): string {
 /** Requests the fake saw: REST as `METHOD /path`, sockets by path. */
 const requests = (fake: FakeHermes, name: string) =>
   fake.calls.filter((c) => c.name === name).length
+
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+/**
+ * Two tabs of one browser: two cookie clients on one jar, both signed in.
+ * `deps` go to both, `onlyB` to the second.
+ */
+async function twoTabs(
+  deps: Partial<DirectClientDeps> = {},
+  onlyB: Partial<DirectClientDeps> = {},
+) {
+  const fake = await fakeHermes()
+  const jar = cookieJar(fake.origin)
+  await passwordLogin(fake, jar)
+  const tab = async (extra: Partial<DirectClientDeps>) => {
+    const h = await harness({
+      fake,
+      signIn: false,
+      deps: { auth: 'same-origin-cookie', fetch: jar.fetch, ...deps, ...extra },
+    })
+    await h.waitFor(() => h.store.getState().link.phase === 'online')
+    return h
+  }
+  const a = await tab({})
+  const b = await tab(onlyB)
+  return { fake, jar, a, b }
+}
+
+/** A page's cue, fired by hand where a browser would fire visibilitychange. */
+function pageCue() {
+  const checks = new Set<() => void>()
+  return {
+    fire: () => {
+      for (const check of checks) check()
+    },
+    get listening() {
+      return checks.size
+    },
+    watchSession: (check: () => void) => {
+      checks.add(check)
+      return () => {
+        checks.delete(check)
+      }
+    },
+  }
+}
 
 /** The gate's answer once a browser session is over (middleware.py:72-87). */
 const SESSION_EXPIRED = {
@@ -349,5 +395,70 @@ describe('direct client in native mode, unchanged', () => {
     expect((await call)?.code).toBe('unauthenticated')
     expect(requests(h.fake, 'POST /auth/native/refresh')).toBe(1)
     expect(h.store.getState().link.phase).toBe('online')
+  })
+})
+
+describe('direct client in cookie mode: a sign-out in another tab', () => {
+  it("ends this tab's session at its next request tick", async () => {
+    const { fake, a, b } = await twoTabs({ connection: { requestSyncMs: 30 } })
+    await a.client.call('auth.signOut', {})
+    // Hermes checked b's socket only when it opened (chat_ws.py:137-171).
+    await b.waitFor(() => b.store.getState().link.phase === 'signed-out')
+    expect(b.store.getState().link.lastError?.code).toBe('unauthenticated')
+    await b.waitFor(() => fake.gateway.connections.size === 0)
+    const refused = await failure(
+      b.client.call('conversations.create', { title: 'After sign-out (fixture)' }),
+    )
+    expect(refused?.message).toMatch(/Sign in/)
+  })
+
+  it('ends it at once on the platform cue, as a page coming back into view', async () => {
+    const page = pageCue()
+    // No tick (requestSyncMs 0): only the cue can tell b.
+    const { fake, a, b } = await twoTabs(
+      { connection: { requestSyncMs: 0 } },
+      { watchSession: page.watchSession },
+    )
+    expect(page.listening).toBe(1)
+    await a.client.call('auth.signOut', {})
+    await pause(40)
+    expect(b.store.getState().link.phase).toBe('online')
+    const checks = requests(fake, 'GET /api/auth/me')
+    page.fire()
+    page.fire()
+    page.fire()
+    await b.waitFor(() => b.store.getState().link.phase === 'signed-out')
+    // Three cues, one check; and a client that stopped no longer listens.
+    expect(requests(fake, 'GET /api/auth/me')).toBe(checks + 1)
+    expect(page.listening).toBe(0)
+  })
+
+  it('keeps the session when the check finds it, or Hermes does not answer it', async () => {
+    const page = pageCue()
+    const { fake, b } = await twoTabs(
+      { connection: { requestSyncMs: 0 } },
+      { watchSession: page.watchSession },
+    )
+    const checks = requests(fake, 'GET /api/auth/me')
+    page.fire()
+    await b.waitFor(() => requests(fake, 'GET /api/auth/me') === checks + 1)
+    fake.failNextRest('GET /api/auth/me', 503)
+    page.fire()
+    await b.waitFor(() => requests(fake, 'GET /api/auth/me') === checks + 2)
+    await pause(20)
+    expect(b.store.getState().link.phase).toBe('online')
+  })
+})
+
+describe('direct client in native mode: no cookie session to check', () => {
+  it('neither listens for the cue nor asks GET /api/auth/me on its tick', async () => {
+    const page = pageCue()
+    const h = await harness({
+      deps: { watchSession: page.watchSession, connection: { requestSyncMs: 20 } },
+    })
+    const checks = requests(h.fake, 'GET /api/auth/me')
+    await pause(120)
+    expect(page.listening).toBe(0)
+    expect(requests(h.fake, 'GET /api/auth/me')).toBe(checks)
   })
 })
