@@ -161,7 +161,10 @@ streams rebase. Never fork contract types inside an app.
 A change is done when all of these hold, and the evidence is in the PR or
 hand-off:
 
-1. `pnpm verify` passes locally (and any stream-specific build it touches).
+1. `pnpm verify` passes locally (and any stream-specific build it touches), and
+   so does `pnpm docs:build` when the change touches `docs/handbook`: verify
+   does not render the handbook, and VitePress rejects some Markdown that every
+   other gate accepts.
 2. Behaviour changes have tests that would fail without the change.
 3. Docs impact is mapped (user, operator, integration personas) and the
    handbook pages are updated in the same commit, or the commit explains why

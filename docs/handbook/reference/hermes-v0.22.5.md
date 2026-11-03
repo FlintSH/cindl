@@ -57,8 +57,8 @@ the browser.
 | `PUT /api/profiles/{name}/soul`            | session | `{content}`, atomic full rewrite                                           | `profiles.py:1015-1034`                    |
 | `GET /api/memory`                          | session | `{active, providers[], builtin_files{memory, user}}`, sizes only           | `web_routers/ops.py:494-509`               |
 
-Session endpoints accept the cookie session or `Authorization: Bearer
-<access token>` from the native flow, verified by the same provider stack
+Session endpoints accept the cookie session, or
+`Authorization: Bearer <access token>` from the native flow, verified by the same provider stack
 (`dashboard_auth/middleware.py:160-184`). That includes the ws-ticket route,
 which only needs `request.state.session`. A missing or rejected credential on
 `/api/*` answers `401 {error: "unauthenticated" | "session_expired", detail,
