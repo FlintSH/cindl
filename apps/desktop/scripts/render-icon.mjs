@@ -1,4 +1,4 @@
-// Renders build-resources/icon.png (512x512, transparent corners) from the
+// Renders resources/icon.png (512x512, transparent corners) from the
 // web app's favicon mark, so the desktop icon is the same original glyph.
 // Run: pnpm --filter @cindl/desktop exec electron scripts/render-icon.mjs --ozone-platform=headless
 // (add --no-sandbox where Chromium's sandbox cannot start; it only renders this local file).
@@ -7,7 +7,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 
 const SIZE = 512
 const svg = readFileSync(new URL('../../web/public/favicon.svg', import.meta.url))
-const output = new URL('../build-resources/icon.png', import.meta.url)
+const output = new URL('../resources/icon.png', import.meta.url)
 
 app.whenReady().then(async () => {
   const window = new BrowserWindow({

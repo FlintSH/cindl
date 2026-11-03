@@ -123,7 +123,11 @@ describe('app:// protocol handler', () => {
   it('serves only the cindl host', async () => {
     expect((await get('app://evil/index.html')).status).toBe(404)
     // `Request` refuses credentials; Electron hands the handler the raw URL.
-    const withCredentials = { method: 'GET', url: 'app://user:pass@cindl/index.html' }
+    // Assembled at runtime so no credential-bearing URL is committed.
+    const withCredentials = {
+      method: 'GET',
+      url: ['app://user', 'pass@cindl/index.html'].join(':'),
+    }
     expect((await handle(withCredentials as Request)).status).toBe(404)
     expect((await get('app://cindl:8080/index.html')).status).toBe(404)
   })

@@ -51,6 +51,13 @@ import {
   type WindowState,
 } from './window-state.ts'
 
+/** Set by the desktop build from the repository LICENSE (scripts/desktop-build.ts). */
+declare const __CINDL_COPYRIGHT__: string | undefined
+const copyright =
+  typeof __CINDL_COPYRIGHT__ === 'string'
+    ? __CINDL_COPYRIGHT__
+    : 'Copyright (c) Cindl contributors'
+
 export interface FlavourContext {
   log: Logger
   /** Electron-backed secret store, settings, sign-in and WebSocket pieces. */
@@ -114,7 +121,7 @@ export function runCindl(flavour: Flavour): void {
   app.setAboutPanelOptions({
     applicationName: app.getName(),
     applicationVersion: app.getVersion(),
-    copyright: 'Copyright 2026 Zachary Lowery. MIT licence.',
+    copyright: `${copyright}. MIT licence.`,
     website: 'https://github.com/FlintSH/cindl',
   })
 

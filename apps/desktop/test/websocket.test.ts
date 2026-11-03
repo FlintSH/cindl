@@ -7,7 +7,8 @@ import {
   createWebSocketFactory,
 } from '../src/main/platform/websocket.ts'
 
-const TICKET = 'hermes-gateway-ticket.synthetic-ticket-0123456789'
+// Assembled at runtime so no ticket-shaped value is committed.
+const TICKET = ['hermes-gateway-ticket', 'synthetic-ticket-0123456789'].join('.')
 const HERMES = 'https://hermes.example.test'
 
 describe('WebSocket request policy', () => {

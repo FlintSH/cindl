@@ -29,6 +29,23 @@ import { bundledPackages, renderLicenses, runtimeClosure } from './licenses.ts'
 
 export const appDir = path.resolve(fileURLToPath(new URL('..', import.meta.url)))
 const repoDir = path.resolve(appDir, '../..')
+
+/**
+ * The copyright line, read from the repository's LICENSE so the holder's name
+ * lives in one place (the privacy gate allows it only in the licence files).
+ */
+export function copyrightLine(): string {
+  const line = /^Copyright \(c\) .+$/m.exec(
+    readFileSync(path.join(repoDir, 'LICENSE'), 'utf8'),
+  )?.[0]
+  if (!line) throw new BuildError('LICENSE has no "Copyright (c) ..." line')
+  return line
+}
+
+/** The copyright holder named in LICENSE, for package metadata. */
+export function copyrightHolder(): string {
+  return copyrightLine().replace(/^Copyright \(c\) \d{4}(?:-\d{4})? /, '')
+}
 const webDir = path.join(repoDir, 'apps/web')
 const webDist = path.join(webDir, 'dist')
 
@@ -80,7 +97,10 @@ export async function buildDesktop(flavour: FlavourBuild): Promise<string> {
     logLevel: 'warning',
     metafile: true,
     absWorkingDir: appDir,
-    define: { 'process.env.NODE_ENV': '"production"' },
+    define: {
+      'process.env.NODE_ENV': '"production"',
+      __CINDL_COPYRIGHT__: JSON.stringify(copyrightLine()),
+    },
   } as const
   const main = await build({
     ...common,
@@ -137,7 +157,7 @@ export async function buildDesktop(flavour: FlavourBuild): Promise<string> {
   const inputs = (metafile: Metafile) => Object.keys(metafile.inputs)
   const fonts = path.join(repoDir, 'packages/tokens/fonts')
   const { text, missing } = renderLicenses({
-    header: `${flavour.productName} desktop third-party licences\n\nCindl itself is MIT licensed, Copyright 2026 Zachary Lowery.\n${readFileSync(path.join(repoDir, 'LICENSE'), 'utf8').trim()}\n\nThe packages below are bundled into the main process, the preload or the renderer, under their own licences.`,
+    header: `${flavour.productName} desktop third-party licences\n\nCindl itself is MIT licensed, ${copyrightLine()}.\n${readFileSync(path.join(repoDir, 'LICENSE'), 'utf8').trim()}\n\nThe packages below are bundled into the main process, the preload or the renderer, under their own licences.`,
     packages: [
       ...bundledPackages(inputs(main.metafile), appDir),
       ...bundledPackages(inputs(preload.metafile), appDir),

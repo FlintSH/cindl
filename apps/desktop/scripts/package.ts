@@ -6,7 +6,13 @@
  */
 import builder, { type Configuration } from 'electron-builder'
 import path from 'node:path'
-import { appDir, BuildError, buildDesktop } from './desktop-build.ts'
+import {
+  appDir,
+  BuildError,
+  buildDesktop,
+  copyrightHolder,
+  copyrightLine,
+} from './desktop-build.ts'
 import { flavourFromArgs, type FlavourBuild } from './flavours.ts'
 import { gateProblems } from './gates.ts'
 
@@ -16,9 +22,9 @@ function packageConfig(flavour: FlavourBuild): Configuration {
     appId: flavour.appId,
     productName: flavour.productName,
     executableName: flavour.executableName,
-    copyright: 'Copyright 2026 Zachary Lowery',
+    copyright: copyrightLine(),
     artifactName: flavour.artifactName,
-    directories: { output: flavour.releaseDir, buildResources: 'build-resources' },
+    directories: { output: flavour.releaseDir, buildResources: 'resources' },
     // app.asar holds only the bundled main process and preload. Every
     // dependency is a devDependency bundled by esbuild, so no node_modules ship.
     files: ['package.json', `${out}/main.cjs`, `${out}/preload.cjs`],
@@ -26,6 +32,8 @@ function packageConfig(flavour: FlavourBuild): Configuration {
       name: flavour.packageName,
       productName: flavour.productName,
       main: `${out}/main.cjs`,
+      // From LICENSE, so package.json does not repeat the holder's name.
+      author: copyrightHolder(),
     },
     extraResources: [
       { from: `${out}/renderer`, to: 'renderer' },
@@ -52,7 +60,7 @@ function packageConfig(flavour: FlavourBuild): Configuration {
     },
     linux: {
       target: [{ target: 'AppImage', arch: ['x64'] }],
-      icon: 'build-resources/icon.png',
+      icon: 'resources/icon.png',
       // Sets desktopName, so desktop environments match the window to its .desktop entry.
       syncDesktopName: true,
       category: 'Utility',
