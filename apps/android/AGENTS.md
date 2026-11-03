@@ -47,7 +47,8 @@ Working here:
 - Sheets and dialogs use `src/overlay` (in-tree, so keyboard insets and back
   order work); handle back with `useBackHandler`, never `BackHandler` directly.
 - Request identity, clarify drafts and answers go through
-  `src/talk/requests.ts` only.
+  `src/talk/requests.ts` only; `sendAnswer` refuses prompts Cindl never
+  answers (`assertAnswerable`) before anything is sent.
 - Keep pure logic out of components so it can be tested without React Native.
 - `eslint.config.mjs` never sets a root rule's options again (that replaces the
   root's list for those files); Android checks are rules in `lint/rules.mjs`,

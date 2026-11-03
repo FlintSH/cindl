@@ -1,12 +1,14 @@
 import {
   clarifyAnswersComplete,
   clientOps,
+  type CindlClientApi,
   type ClarifyQuestion,
   type ServerRequest,
 } from '@cindl/contracts'
 import { describe, expect, it } from 'vitest'
 import {
   answerArgs,
+  answerOnce,
   buildClarifyAnswer,
   chooseOther,
   clarifyDraftStore,
@@ -16,11 +18,14 @@ import {
   isQuickQuestion,
   pickChoice,
   requestKeyOf,
+  requestNoun,
   responseFor,
+  sendAnswer,
   setSkipped,
   skipAllAnswer,
   splitQuestions,
   typeAnswer,
+  unsupportedCopy,
   withDraft,
   type ClarifyDrafts,
 } from '../src/talk/requests.ts'
@@ -243,5 +248,127 @@ describe('request identity', () => {
       requestId: 'srq-00000000dea1',
       answer: { kind: 'approval', choice: 'deny' },
     })
+  })
+})
+
+describe('prompts Cindl never answers (contract v4)', () => {
+  const sudo: ServerRequest = {
+    requestId: 'srq-00000000dea3',
+    lastSeenEpoch: 1,
+    kind: 'unsupported',
+    unsupportedKind: 'sudo',
+    conversationId: 'demo-inventory',
+    title: 'sudo password to restart the label printer (fictional)',
+    choices: [],
+    receivedAt: '2026-06-02T08:00:00.000Z',
+    status: 'open',
+  }
+  const approval: ServerRequest = {
+    ...sudo,
+    requestId: 'srq-00000000dea1',
+    kind: 'approval',
+    unsupportedKind: undefined,
+    title: 'Run the export',
+    choices: ['once', 'deny'],
+  }
+  const recorder = () => {
+    const calls: unknown[][] = []
+    const api: Pick<CindlClientApi, 'call'> = {
+      call: (...args: unknown[]) => {
+        calls.push(args)
+        return Promise.resolve(approval as never)
+      },
+    }
+    return { api, calls }
+  }
+
+  it('sends nothing for them, not even a decline or an empty reply', async () => {
+    const { api, calls } = recorder()
+    await expect(
+      sendAnswer(api, sudo, { kind: 'approval', choice: 'deny' }),
+    ).rejects.toMatchObject({ code: 'unsupported' })
+    const appLevel: ServerRequest = { ...sudo, conversationId: undefined }
+    await expect(
+      sendAnswer(api, appLevel, { kind: 'clarify', answers: {} }),
+    ).rejects.toMatchObject({ code: 'unsupported' })
+    expect(calls).toEqual([])
+    await sendAnswer(api, approval, { kind: 'approval', choice: 'once' })
+    expect(calls).toEqual([
+      [
+        'request.answer',
+        { requestId: 'srq-00000000dea1', answer: { kind: 'approval', choice: 'once' } },
+      ],
+    ])
+  })
+
+  it('says what Hermes waits for and where to answer it', () => {
+    expect(unsupportedCopy(sudo)).toBe(
+      'Hermes is waiting for a sudo password. Cindl never collects passwords, secrets or codes and sends nothing for this prompt. Answer it in another Hermes surface, such as the Hermes terminal. It stays open here until Hermes closes it.',
+    )
+    expect(unsupportedCopy({ unsupportedKind: 'secret' })).toMatch(
+      /^Hermes is waiting for a secret value\./,
+    )
+    expect(unsupportedCopy({ unsupportedKind: 'vault' })).toMatch(
+      /a vault password or code/,
+    )
+    expect(unsupportedCopy({})).toMatch(
+      /^Hermes is waiting for an answer Cindl cannot send\. Cindl does not support this kind of prompt and sends nothing for it\./,
+    )
+    expect(requestNoun(sudo)).toBe('prompt to answer outside Cindl')
+    expect(requestNoun(approval)).toBe('approval')
+    expect(requestNoun({ kind: 'clarify' })).toBe('question')
+  })
+})
+
+describe('the answer lock covers the call only (contract v4)', () => {
+  it('sends one answer per burst of taps and unlocks when the call returns', async () => {
+    const lock = { current: false }
+    const sent: string[] = []
+    let finish: () => void = () => undefined
+    const first = answerOnce(
+      lock,
+      { status: 'open' },
+      () =>
+        new Promise<void>((resolve) => {
+          sent.push('first')
+          finish = resolve
+        }),
+    )
+    expect(
+      await answerOnce(lock, { status: 'open' }, () => {
+        sent.push('second')
+        return Promise.resolve()
+      }),
+    ).toBe(false)
+    finish()
+    expect(await first).toBe(true)
+    // The answer then failed and the store reopened the request: answerable again.
+    expect(
+      await answerOnce(lock, { status: 'open' }, () => {
+        sent.push('again')
+        return Promise.resolve()
+      }),
+    ).toBe(true)
+    expect(sent).toEqual(['first', 'again'])
+  })
+
+  it('sends nothing while the store says an answer is on its way', async () => {
+    const lock = { current: false }
+    let sent = 0
+    expect(
+      await answerOnce(lock, { status: 'answering' }, () => {
+        sent += 1
+        return Promise.resolve()
+      }),
+    ).toBe(false)
+    expect(sent).toBe(0)
+  })
+
+  it('unlocks after a call that fails', async () => {
+    const lock = { current: false }
+    await expect(
+      answerOnce(lock, { status: 'open' }, () => Promise.reject(new Error('lost'))),
+    ).rejects.toThrow('lost')
+    expect(lock.current).toBe(false)
   })
 })

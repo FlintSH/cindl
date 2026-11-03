@@ -1,5 +1,10 @@
 import type { ConversationActivity } from '@cindl/client-core'
-import { SYNTHETIC_DEMO_LABEL, type LinkPhase, type LinkState } from '@cindl/contracts'
+import {
+  SYNTHETIC_DEMO_LABEL,
+  type LinkPhase,
+  type LinkState,
+  type ServerRequest,
+} from '@cindl/contracts'
 import type { Tone } from '../ui/primitives.tsx'
 
 const phaseCopy: Record<LinkPhase, { label: string; tone: Tone }> = {
@@ -39,11 +44,13 @@ export function presenceCopy(
     aside ? { ...copy, aside } : copy
   switch (activity.phase) {
     case 'waiting-on-you': {
-      const approvals = activity.openRequests.filter((r) => r.kind === 'approval').length
-      const questions = activity.openRequests.length - approvals
+      const count = (kind: ServerRequest['kind']) =>
+        activity.openRequests.filter((r) => r.kind === kind).length
+      const elsewhere = count('unsupported')
       const parts = [
-        approvals ? plural(approvals, 'approval') : '',
-        questions ? plural(questions, 'question') : '',
+        count('approval') ? plural(count('approval'), 'approval') : '',
+        count('clarify') ? plural(count('clarify'), 'question') : '',
+        elsewhere ? `${plural(elsewhere, 'prompt')} outside Cindl` : '',
       ]
       return withAside({
         tone: 'accent',
@@ -70,7 +77,9 @@ export function presenceCopy(
 export function composerHint(activity: ConversationActivity): string | undefined {
   switch (activity.phase) {
     case 'waiting-on-you':
-      return 'Hermes is waiting for your answer above. You can still send a message.'
+      return activity.openRequests.every((r) => r.kind === 'unsupported')
+        ? 'Hermes is waiting for an answer outside Cindl. You can still send a message.'
+        : 'Hermes is waiting for your answer above. You can still send a message.'
     case 'executing':
       return 'Hermes is working. New messages queue or steer the current turn.'
     case 'queued':

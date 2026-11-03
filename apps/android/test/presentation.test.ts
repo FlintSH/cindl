@@ -44,6 +44,29 @@ describe('presence line', () => {
     )
   })
 
+  it('counts prompts Cindl does not answer as waiting on the owner, outside Cindl', async () => {
+    const store = createStore(online)
+    const client = createScenarioClient({ speed: 0 })
+    client.subscribe((event) => store.dispatch(event))
+    client.start()
+    await Promise.resolve()
+    const activity = selectConversationActivity(store.getState(), 'demo-inventory')
+    expect(activity.phase).toBe('waiting-on-you')
+    expect(presenceCopy(online, activity).text).toBe(
+      'Waiting on you: 1 prompt outside Cindl',
+    )
+    expect(composerHint(activity)).toBe(
+      'Hermes is waiting for an answer outside Cindl. You can still send a message.',
+    )
+    const main = selectConversationActivity(store.getState(), 'demo-main')
+    expect(
+      presenceCopy(online, {
+        ...main,
+        openRequests: [...main.openRequests, ...activity.openRequests],
+      }).text,
+    ).toBe('Waiting on you: 1 approval, 1 question, 1 prompt outside Cindl')
+  })
+
   it('reports the connection when it is not online, and the demo honestly', () => {
     expect(presenceCopy({ ...online, phase: 'reconnecting' }, idle).text).toBe(
       'Reconnecting',

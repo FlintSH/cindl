@@ -5,7 +5,7 @@ import {
   type RequestAnswer,
   type ServerRequest,
 } from '@cindl/contracts'
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
 import {
   AccessibilityInfo,
   Pressable,
@@ -15,12 +15,20 @@ import {
   type HostInstance,
 } from 'react-native'
 import { useTheme } from '../theme/theme.tsx'
-import { Check, ChevronDown, ChevronRight, HelpCircle, ShieldAlert } from '../ui/icons.ts'
+import {
+  Check,
+  ChevronDown,
+  ChevronRight,
+  HelpCircle,
+  KeyRound,
+  ShieldAlert,
+  type LucideIcon,
+} from '../ui/icons.ts'
 import { Button, focusRing, Note, Txt } from '../ui/primitives.tsx'
 import { unavailableCopy } from '../views/RequireCapability.tsx'
 import { ANSWER_REFUSED, ANSWER_UNCERTAIN, describeFailure } from './failures.ts'
 import {
-  answerArgs,
+  answerOnce,
   buildClarifyAnswer,
   chooseOther,
   clarifyDraftStore,
@@ -28,22 +36,21 @@ import {
   draftFor,
   isQuickQuestion,
   pickChoice,
+  sendAnswer,
   setSkipped,
   skipAllAnswer,
   splitQuestions,
   typeAnswer,
+  unsupportedCopy,
   withDraft,
   type ClarifyDrafts,
   type QuestionDraft,
 } from './requests.ts'
 
 /**
- * Structured decision card (web parity: apps/web/src/talk/RequestCard.tsx).
- * Shows exactly what will run, as Hermes redacted it, and only the choices
- * Hermes offered that Cindl may send. A clarify set is answered in one
- * submission; answers another device already locked are shown, never
- * overridden. The first tap locks the card synchronously, so a quick Deny then
- * Allow can never send two answers.
+ * One card per open request (web parity: apps/web/src/talk/RequestCard.tsx).
+ * Prompts Cindl never answers (sudo, secret, vault, unknown) get a read-only
+ * card; approvals and questions get a decision card.
  */
 export function RequestCard({
   request,
@@ -55,19 +62,7 @@ export function RequestCard({
   focusRequested?: boolean
   onFocused?: () => void
 }) {
-  const api = useCindlApi()
-  const theme = useTheme()
-  const approval = request.kind === 'approval'
-  const capability = useCapability(approval ? 'requests.approval' : 'requests.clarify')
-  const canAnswer = capabilityUsable(capability)
-  // A ref, not state: two taps in the same frame must not both send.
-  const sending = useRef(false)
   const titleRef = useRef<HostInstance>(null)
-  const [submitting, setSubmitting] = useState(false)
-  const [error, setError] = useState<string>()
-  const busy = submitting || request.status === 'answering'
-  const { open, locked } = splitQuestions(request)
-
   useEffect(() => {
     if (!focusRequested) return
     const timer = setTimeout(() => {
@@ -77,28 +72,17 @@ export function RequestCard({
     }, 250)
     return () => clearTimeout(timer)
   }, [focusRequested, onFocused])
+  return request.kind === 'unsupported' ? (
+    <UnsupportedCard request={request} titleRef={titleRef} />
+  ) : (
+    <DecisionCard request={request} titleRef={titleRef} />
+  )
+}
 
-  const send = async (answer: RequestAnswer) => {
-    if (sending.current || request.status === 'answering') return
-    sending.current = true
-    setSubmitting(true)
-    setError(undefined)
-    try {
-      await api.call('request.answer', answerArgs(request, answer))
-    } catch (failure) {
-      // Hermes keeps the first reply only, so unlocking cannot produce a second answer.
-      setError(describeFailure(failure, ANSWER_UNCERTAIN, ANSWER_REFUSED).message)
-      sending.current = false
-      setSubmitting(false)
-    }
-  }
+type TitleRef = RefObject<HostInstance | null>
 
-  const Icon = approval ? ShieldAlert : HelpCircle
-  const kindLabel = approval
-    ? 'Approval needed'
-    : open.length > 1
-      ? `${open.length} questions`
-      : 'Question'
+function CardFrame({ children }: { children: ReactNode }) {
+  const theme = useTheme()
   return (
     <View
       style={{
@@ -113,27 +97,132 @@ export function RequestCard({
         boxShadow: theme.shadow.raised,
       }}
     >
-      <View style={{ gap: theme.space[1] }}>
-        <View
-          style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1.5] }}
-        >
-          <Icon size={14} color={theme.colors.accentText} strokeWidth={1.75} />
-          <Txt variant="label" tone="accent" weight="semibold">
-            {kindLabel}
-          </Txt>
-        </View>
-        <Text
-          ref={titleRef}
-          accessibilityRole="header"
-          accessibilityLabel={`${approval ? 'Approval needed' : 'Question'}: ${request.title}`}
-          style={[
-            theme.text.ui,
-            { fontFamily: theme.fonts.semibold, color: theme.colors.text },
-          ]}
-        >
-          {request.title}
-        </Text>
+      {children}
+    </View>
+  )
+}
+
+function CardHeader({
+  icon: Icon,
+  kindLabel,
+  spokenKind,
+  title,
+  titleRef,
+}: {
+  icon: LucideIcon
+  kindLabel: string
+  /** What TalkBack says before the title. */
+  spokenKind: string
+  title: string
+  titleRef: TitleRef
+}) {
+  const theme = useTheme()
+  return (
+    <View style={{ gap: theme.space[1] }}>
+      <View style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1.5] }}>
+        <Icon size={14} color={theme.colors.accentText} strokeWidth={1.75} />
+        <Txt variant="label" tone="accent" weight="semibold">
+          {kindLabel}
+        </Txt>
       </View>
+      <Text
+        ref={titleRef}
+        accessibilityRole="header"
+        accessibilityLabel={`${spokenKind}: ${title}`}
+        style={[
+          theme.text.ui,
+          { fontFamily: theme.fonts.semibold, color: theme.colors.text },
+        ]}
+      >
+        {title}
+      </Text>
+    </View>
+  )
+}
+
+/**
+ * Hermes is blocked on a prompt Cindl must never answer: any reply, even a
+ * decline, can become the password or secret Hermes uses. The card says what
+ * Hermes waits for and offers nothing to send, so the prompt stays open for
+ * another Hermes surface.
+ */
+function UnsupportedCard({
+  request,
+  titleRef,
+}: {
+  request: ServerRequest
+  titleRef: TitleRef
+}) {
+  return (
+    <CardFrame>
+      <CardHeader
+        icon={KeyRound}
+        kindLabel="Answer outside Cindl"
+        spokenKind="Answer outside Cindl"
+        title={request.title}
+        titleRef={titleRef}
+      />
+      <Txt variant="body">{unsupportedCopy(request)}</Txt>
+    </CardFrame>
+  )
+}
+
+/**
+ * Structured decision card. Shows exactly what will run, as Hermes redacted
+ * it, and only the choices Hermes offered that Cindl may send. A clarify set
+ * is answered in one submission; answers another device already locked are
+ * shown, never overridden. The first tap locks the card synchronously, so a
+ * quick Deny then Allow can never send two answers; after the call, the
+ * request's status in the shared store decides (an answer that fails later
+ * reopens it).
+ */
+function DecisionCard({
+  request,
+  titleRef,
+}: {
+  request: ServerRequest
+  titleRef: TitleRef
+}) {
+  const api = useCindlApi()
+  const theme = useTheme()
+  const approval = request.kind === 'approval'
+  const capability = useCapability(approval ? 'requests.approval' : 'requests.clarify')
+  const canAnswer = capabilityUsable(capability)
+  // A ref, not state: two taps in the same frame must not both send.
+  const sending = useRef(false)
+  const [submitting, setSubmitting] = useState(false)
+  const [error, setError] = useState<string>()
+  const busy = submitting || request.status === 'answering'
+  const { open, locked } = splitQuestions(request)
+
+  const send = async (answer: RequestAnswer) => {
+    await answerOnce(sending, request, async () => {
+      setSubmitting(true)
+      setError(undefined)
+      try {
+        await sendAnswer(api, request, answer)
+      } catch (failure) {
+        setError(describeFailure(failure, ANSWER_UNCERTAIN, ANSWER_REFUSED).message)
+      } finally {
+        setSubmitting(false)
+      }
+    })
+  }
+
+  const kindLabel = approval
+    ? 'Approval needed'
+    : open.length > 1
+      ? `${open.length} questions`
+      : 'Question'
+  return (
+    <CardFrame>
+      <CardHeader
+        icon={approval ? ShieldAlert : HelpCircle}
+        kindLabel={kindLabel}
+        spokenKind={approval ? 'Approval needed' : 'Question'}
+        title={request.title}
+        titleRef={titleRef}
+      />
       {!approval && locked.length ? (
         <View
           accessibilityLabel="Answered on another device"
@@ -190,7 +279,7 @@ export function RequestCard({
           {error}
         </Txt>
       ) : null}
-    </View>
+    </CardFrame>
   )
 }
 

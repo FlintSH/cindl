@@ -125,7 +125,8 @@ until the owner decides about those terms.
 
 - **Demo APK:** the four destinations; system back closing a skill detail, a
   sheet and a side conversation before leaving the app; the approval card
-  (Allow once and Deny only) and the question set; sending a message with the
+  (Allow once and Deny only) and the question set; the sudo prompt's card
+  offering nothing to send; sending a message with the
   on-screen keyboard open (composer above the keyboard, navigation hidden);
   every touch target at least 48dp; 200% font size and dark theme; a draft
   surviving background, rotation, activity recreation; a cold start after the
@@ -231,7 +232,16 @@ Hermes server and on a phone.
   all** skips every open question in one reply. There is no decline: an empty
   reply would reach the agent like an interrupt. Answers another device
   already gave are shown as such and never overridden, and nothing typed is
-  lost by picking or skipping.
+  lost by picking or skipping. An answer shows as sending until Hermes
+  acknowledges it; if it fails, the card can be answered again. A message
+  that starts with "Not sent:" is shown as it is: nothing reached Hermes.
+- **Prompts Cindl does not answer** (a sudo password, a secret, a vault code,
+  or a kind Cindl does not know) show as read-only **Answer outside Cindl**
+  cards: what Hermes is waiting for, and nothing to send, not even a decline,
+  because any reply could become the password Hermes uses. Answer them in
+  another Hermes surface, such as the Hermes terminal; the card stays until
+  Hermes closes the prompt. Prompts that belong to no conversation are listed
+  under Work, Needs you.
 - **System back** closes an open sheet or dialog first, then steps out of an
   editor review, then a skill detail, then returns to Talk, then from a side
   conversation to the main one, and only then leaves the app.

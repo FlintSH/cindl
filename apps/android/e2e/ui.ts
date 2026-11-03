@@ -208,6 +208,21 @@ const isInteractive = (node: UiNode) =>
   node.checkable ||
   /EditText$/.test(node.className)
 
+/** The innermost node holding both `a` and `b`: for a card's title and text, the card. */
+export function commonAncestor(a: UiNode, b: UiNode): UiNode | undefined {
+  const above = new Set<UiNode>()
+  for (let current: UiNode | undefined = a; current; current = current.parent)
+    above.add(current)
+  for (let current: UiNode | undefined = b; current; current = current.parent)
+    if (above.has(current)) return current
+  return undefined
+}
+
+/** Everything in `node` (itself included) that responds to a tap or takes text. */
+export function interactiveWithin(node: UiNode): UiNode[] {
+  return [node, ...flatten(node)].filter(isInteractive)
+}
+
 /**
  * Inline links inside a paragraph are exempt (as in WCAG 2.5.8): React Native
  * renders them as spans of one TextView, which then reports as clickable.

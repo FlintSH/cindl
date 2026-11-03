@@ -2,11 +2,11 @@ import { useOpenRequests, useTool } from '@cindl/client-react'
 import { ScrollView, Text, View } from 'react-native'
 import { Sheet } from '../overlay/Sheet.tsx'
 import { useTheme } from '../theme/theme.tsx'
-import { HelpCircle, ShieldAlert } from '../ui/icons.ts'
+import { HelpCircle, KeyRound, ShieldAlert } from '../ui/icons.ts'
 import { Button, Facts, SectionTitle, Txt } from '../ui/primitives.tsx'
 import { duration } from './format.ts'
 import { Notice } from './MessageView.tsx'
-import { requestKeyOf } from './requests.ts'
+import { requestKeyOf, requestNoun } from './requests.ts'
 import { toolStatusLabel, ToolStatusIcon } from './ToolRow.tsx'
 
 function Evidence({ toolId, blocked }: { toolId: string; blocked: boolean }) {
@@ -124,8 +124,12 @@ export function WorkingMargin({
           />
         ) : requests.length ? (
           requests.map((request) => {
-            const Icon = request.kind === 'approval' ? ShieldAlert : HelpCircle
-            const kind = request.kind === 'approval' ? 'approval' : 'question'
+            const Icon =
+              request.kind === 'approval'
+                ? ShieldAlert
+                : request.kind === 'clarify'
+                  ? HelpCircle
+                  : KeyRound
             return (
               <View
                 key={requestKeyOf(request)}
@@ -139,7 +143,7 @@ export function WorkingMargin({
                 <Txt style={{ flex: 1 }}>{request.title}</Txt>
                 <Button
                   label="Show"
-                  accessibilityLabel={`Show ${kind}: ${request.title}`}
+                  accessibilityLabel={`Show ${requestNoun(request)}: ${request.title}`}
                   variant="quiet"
                   onPress={() => onShowRequest(request.requestId)}
                 />

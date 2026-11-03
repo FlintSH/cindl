@@ -32,11 +32,16 @@ export const NOT_APPLIED: ReadonlySet<ErrorCode> = new Set([
   'unauthenticated',
 ])
 
-/** A request answer Hermes or the client refused (already closed, not offered, gone). */
+/**
+ * A request answer Hermes or the client refused before it took effect (already
+ * closed, not offered, gone, a prompt Cindl does not answer, or "Not sent: …"
+ * from validation). Their messages are shown as they are.
+ */
 export const ANSWER_REFUSED: ReadonlySet<ErrorCode> = new Set([
   'conflict',
   'invalid',
   'not-found',
+  'unsupported',
 ])
 
 export const SEND_UNCERTAIN =

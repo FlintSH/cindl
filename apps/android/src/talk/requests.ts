@@ -1,11 +1,14 @@
 import {
+  assertAnswerable,
   clarifyAnswersComplete,
   openQuestionIds,
+  type CindlClientApi,
   type ClarifyQuestion,
   type ClarifyResponse,
   type OpArgs,
   type RequestAnswer,
   type ServerRequest,
+  type UnsupportedRequestKind,
 } from '@cindl/contracts'
 
 /**
@@ -22,6 +25,71 @@ export function answerArgs(
   answer: RequestAnswer,
 ): OpArgs<'request.answer'> {
   return { requestId: request.requestId, answer }
+}
+
+/**
+ * The one way the app answers a request. A prompt Cindl never answers (sudo,
+ * secret, vault, unknown) is refused here, before anything is sent: any
+ * reply, even a decline, can become the password Hermes uses (ADR 0005).
+ */
+export async function sendAnswer(
+  api: Pick<CindlClientApi, 'call'>,
+  request: ServerRequest,
+  answer: RequestAnswer,
+): Promise<ServerRequest> {
+  assertAnswerable(request)
+  return api.call('request.answer', answerArgs(request, answer))
+}
+
+/**
+ * One answer at a time from a card: a second tap while an answer is on its
+ * way sends nothing. The lock covers the call only. While Hermes acknowledges,
+ * the shared reducer says `answering`; if the answer then fails, it reopens
+ * the request and the card must be usable again (there is no terminal
+ * failure). Resolves false when nothing was sent.
+ */
+export async function answerOnce(
+  lock: { current: boolean },
+  request: Pick<ServerRequest, 'status'>,
+  send: () => Promise<void>,
+): Promise<boolean> {
+  if (lock.current || request.status === 'answering') return false
+  lock.current = true
+  try {
+    await send()
+    return true
+  } finally {
+    lock.current = false
+  }
+}
+
+/** How the working margin and TalkBack name a request. */
+export function requestNoun(request: Pick<ServerRequest, 'kind'>): string {
+  if (request.kind === 'approval') return 'approval'
+  if (request.kind === 'clarify') return 'question'
+  return 'prompt to answer outside Cindl'
+}
+
+const asks: Record<UnsupportedRequestKind, string> = {
+  sudo: 'a sudo password',
+  secret: 'a secret value',
+  vault: 'a vault password or code',
+  other: 'an answer Cindl cannot send',
+}
+
+/**
+ * The read-only card for a prompt Cindl never answers (web parity): what
+ * Hermes waits for and where to answer it. Nothing is offered to send, so the
+ * prompt stays open for another Hermes surface; that holds for app-level
+ * prompts (no conversation) too.
+ */
+export function unsupportedCopy(request: Pick<ServerRequest, 'unsupportedKind'>): string {
+  const kind = request.unsupportedKind ?? 'other'
+  const refusal =
+    kind === 'other'
+      ? 'Cindl does not support this kind of prompt and sends nothing for it.'
+      : 'Cindl never collects passwords, secrets or codes and sends nothing for this prompt.'
+  return `Hermes is waiting for ${asks[kind]}. ${refusal} Answer it in another Hermes surface, such as the Hermes terminal. It stays open here until Hermes closes it.`
 }
 
 /**

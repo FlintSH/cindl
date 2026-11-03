@@ -1,4 +1,4 @@
-import { CindlError } from '@cindl/contracts'
+import { CindlError, parseOpArgs } from '@cindl/contracts'
 import { describe, expect, it } from 'vitest'
 import {
   ANSWER_REFUSED,
@@ -61,5 +61,45 @@ describe('failure copy never overstates certainty', () => {
         ANSWER_REFUSED,
       ).message,
     ).toBe(ANSWER_UNCERTAIN)
+  })
+
+  // Contract v4: validation says "Not sent: …" and Cindl shows it as it is.
+  it('shows "Not sent" validation messages as they are, for messages and answers', () => {
+    const rejection = (name: 'prompt.submit' | 'request.answer', args: unknown) => {
+      try {
+        parseOpArgs(name, args)
+      } catch (error) {
+        return error
+      }
+      throw new Error('expected a validation failure')
+    }
+    const longMessage = rejection('prompt.submit', {
+      conversationId: 'demo-main',
+      clientId: 'client-1',
+      text: 'x'.repeat(100_001),
+    })
+    expect(describeFailure(longMessage, SEND_UNCERTAIN, NOT_APPLIED)).toEqual({
+      certain: true,
+      message: 'Not sent: the text is longer than 100,000 characters.',
+    })
+    const longAnswer = rejection('request.answer', {
+      requestId: 'srq-00000000dea2',
+      answer: { kind: 'clarify', answers: { q0: { text: 'x'.repeat(20_001) } } },
+    })
+    expect(describeFailure(longAnswer, ANSWER_UNCERTAIN, ANSWER_REFUSED)).toEqual({
+      certain: true,
+      message: 'Not sent: the text is longer than 20,000 characters.',
+    })
+  })
+
+  it('says plainly that Cindl does not answer a prompt it never answers', () => {
+    const refusal = new CindlError(
+      'unsupported',
+      'Cindl does not answer this kind of prompt. Answer it in another Hermes surface.',
+    )
+    expect(describeFailure(refusal, ANSWER_UNCERTAIN, ANSWER_REFUSED)).toEqual({
+      certain: true,
+      message: refusal.message,
+    })
   })
 })

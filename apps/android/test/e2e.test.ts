@@ -6,9 +6,11 @@ import { startFakeHermesAuth, type FakeHermesAuth } from '../e2e/fakeHermesAuth.
 import {
   auditTargets,
   center,
+  commonAncestor,
   find,
   findAll,
   findTappable,
+  interactiveWithin,
   label,
   parseKeyboard,
   parseUi,
@@ -350,5 +352,68 @@ describe('fake Hermes auth server (SYNTHETIC test double)', () => {
     url.searchParams.set('code_challenge_method', 'plain')
     url.searchParams.set('state', 's')
     expect((await fetch(url, { redirect: 'manual' })).status).toBe(400)
+  })
+})
+
+describe('read-only cards', () => {
+  // Two cards in a list: a prompt Cindl does not answer, then an approval with buttons.
+  const list = parseUi(
+    dump(
+      node(
+        {
+          class: 'android.widget.ScrollView',
+          scrollable: 'true',
+          bounds: '[0,0][1080,2000]',
+        },
+        [
+          node(
+            { bounds: '[32,100][1048,500]' },
+            [
+              node({
+                class: 'android.widget.TextView',
+                'content-desc': 'Answer outside Cindl: sudo password',
+                text: 'sudo password',
+                bounds: '[64,140][1000,200]',
+              }),
+              node({
+                class: 'android.widget.TextView',
+                text: 'Hermes is waiting for a sudo password.',
+                bounds: '[64,220][1000,400]',
+              }),
+            ].join(''),
+          ),
+          node(
+            { bounds: '[32,540][1048,900]' },
+            [
+              node({
+                class: 'android.widget.TextView',
+                'content-desc': 'Approval needed: Run the export',
+                text: 'Run the export',
+                bounds: '[64,580][1000,640]',
+              }),
+              node({
+                'content-desc': 'Deny',
+                clickable: 'true',
+                bounds: '[600,780][800,876]',
+              }),
+            ].join(''),
+          ),
+        ].join(''),
+      ),
+    ),
+  )
+
+  it('finds the card around a title and its text, and what can be tapped in it', () => {
+    const title = find(list, 'Answer outside Cindl: sudo password')
+    const text = find(list, (t) => t.startsWith('Hermes is waiting'))
+    if (!title || !text) throw new Error('fixture nodes missing')
+    const card = commonAncestor(title, text)
+    expect(card?.bounds).toEqual({ left: 32, top: 100, right: 1048, bottom: 500 })
+    expect(card && interactiveWithin(card)).toEqual([])
+    const approval = find(list, 'Approval needed: Run the export')
+    const deny = find(list, 'Deny')
+    if (!approval || !deny) throw new Error('fixture nodes missing')
+    const other = commonAncestor(approval, deny)
+    expect(other && interactiveWithin(other).map(label)).toEqual(['Deny'])
   })
 })

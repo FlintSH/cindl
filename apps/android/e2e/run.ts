@@ -19,9 +19,11 @@ import { SYNTHETIC_DEMO_LABEL } from '@cindl/contracts'
 import { createDevice, PACKAGE } from './device.ts'
 import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
 import {
+  commonAncestor,
   find,
   findAll,
   flatten,
+  interactiveWithin,
   label,
   TERMS_PROMPT,
   type Match,
@@ -123,6 +125,10 @@ const slug = (text: string) =>
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-|-$/g, '')
+
+/** The synthetic sudo prompt in the "Kiln inventory sheet" conversation, as TalkBack reads its title. */
+const SUDO_PROMPT =
+  'Answer outside Cindl: sudo password to restart the label printer (fictional)'
 
 const isComposer: Match = (text, node) =>
   /EditText$/.test(node.className) && text.startsWith('Message ')
@@ -277,6 +283,21 @@ async function demoSuite() {
         'the side conversation',
       )
       shot('side-conversation')
+      // A prompt Cindl never answers: what Hermes waits for, and nothing to send.
+      const prompt = await device.reveal(SUDO_PROMPT, 'the prompt Cindl does not answer')
+      const promptText = find(prompt.root, (text) =>
+        text.startsWith('Hermes is waiting for a sudo password.'),
+      )
+      const promptCard = promptText && commonAncestor(prompt.node, promptText)
+      if (!promptCard)
+        throw new Error('The sudo prompt card does not say what Hermes waits for')
+      const offered = interactiveWithin(promptCard)
+      if (offered.length)
+        throw new Error(
+          `The sudo prompt card offers something to send: ${offered.map((n) => label(n) || n.className).join(', ')}`,
+        )
+      shot('prompt-outside-cindl')
+      note('the sudo prompt reads "Answer outside Cindl" and offers nothing to send')
       await device.key('KEYCODE_BACK')
       await device.waitFor(
         (text) => text.endsWith(', Main. Switch conversation'),
