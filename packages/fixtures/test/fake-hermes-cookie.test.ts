@@ -39,6 +39,27 @@ const setCookies = (response: Response) =>
 
 const cookieHeader = (response: Response) => setCookies(response).join('; ')
 
+/** cookies.py:109-128: the deletions for every variant of these names. */
+const variantsOf = (...names: string[]) =>
+  names.flatMap((name) => [`__Host-${name}=`, `__Secure-${name}=`, `${name}=`])
+
+const SESSION_NAMES = [
+  'hermes_session_at',
+  'hermes_session_rt',
+  'hermes_session_provider',
+]
+
+/** Every line deletes (Max-Age=0), and every prefixed one is Secure, as browsers require. */
+function deletesOnly(response: Response): boolean {
+  return response.headers
+    .getSetCookie()
+    .every(
+      (line) =>
+        /Max-Age=0/.test(line) &&
+        (!/^__(Host|Secure)-/.test(line) || /Secure/.test(line)),
+    )
+}
+
 describe('fake Hermes: the login page (routes.py:195-200)', () => {
   it('threads a safe next into its form, decoded once more, and drops the rest', async () => {
     const f = await fake()
@@ -109,14 +130,11 @@ describe('fake Hermes: sign-out (routes.py:496-512)', () => {
     })
     expect(logout.status).toBe(302)
     expect(logout.headers.get('location')).toBe('/login')
-    expect(setCookies(logout)).toEqual([
-      'hermes_session_at=',
-      'hermes_session_rt=',
-      'hermes_session_provider=',
-    ])
-    expect(logout.headers.getSetCookie().every((line) => /Max-Age=0/.test(line))).toBe(
-      true,
+    // The session cookies and the PKCE cookie, every name variant (routes.py:510-511).
+    expect(setCookies(logout)).toEqual(
+      variantsOf(...SESSION_NAMES, 'hermes_session_pkce'),
     )
+    expect(deletesOnly(logout)).toBe(true)
     // The password provider's tokens are stateless (basic/__init__.py:165-167):
     // a copy of the cookies still works until it expires.
     const copied = await fetch(`${f.origin}/api/auth/me`, {
@@ -147,10 +165,30 @@ describe('fake Hermes: the cookie gate (middleware.py:150-219)', () => {
     expect([first.status, second.status]).toEqual([200, 200])
     expect(setCookies(first)).toHaveLength(3)
     expect(setCookies(second)).toEqual(setCookies(first))
-    // refresh_singleflight.py:24-28: the replay lasts 30 s; then the rotated
-    // refresh token is spent.
+    // refresh_singleflight.py:24-28: the replay lasts 30 s. The password
+    // provider's tokens are stateless, so then the same refresh token rotates
+    // again, into a new session.
     f.advance(31_000)
-    expect((await me()).status).toBe(401)
+    const later = await me()
+    expect(later.status).toBe(200)
+    expect(setCookies(later)).toHaveLength(3)
+    expect(setCookies(later)).not.toEqual(setCookies(first))
+  })
+
+  it('keeps an access token working after it rotated, as stateless tokens do', async () => {
+    const f = await fake()
+    const session = f.signIn()
+    const refreshed = await fetch(`${f.origin}/auth/native/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: session.refreshToken }),
+    })
+    expect(refreshed.status).toBe(200)
+    // basic/__init__.py:151-163: nothing is spent, so the old pair still verifies.
+    const me = await fetch(`${f.origin}/api/auth/me`, {
+      headers: { Authorization: `Bearer ${session.accessToken}` },
+    })
+    expect(me.status).toBe(200)
   })
 
   it('forgets those replays when every session is revoked', async () => {
@@ -172,10 +210,7 @@ describe('fake Hermes: the cookie gate (middleware.py:150-219)', () => {
     })
     expect(response.status).toBe(401)
     expect(await response.json()).toMatchObject({ error: 'session_expired' })
-    expect(setCookies(response)).toEqual([
-      'hermes_session_at=',
-      'hermes_session_rt=',
-      'hermes_session_provider=',
-    ])
+    expect(setCookies(response)).toEqual(variantsOf(...SESSION_NAMES))
+    expect(deletesOnly(response)).toBe(true)
   })
 })

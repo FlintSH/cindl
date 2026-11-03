@@ -115,20 +115,22 @@ export class FakeAuth {
   }
 
   /**
-   * Rotate: the presented refresh token and its access token stop working.
-   * The same refresh token presented again within 30 s gets the same rotated
-   * session, as Hermes coalesces a burst of requests that all carried it
-   * (refresh_singleflight.py:1-11, 53-75; the cookie gate and the native route
-   * share it).
+   * Rotate, as Hermes's password provider does (basic/__init__.py:157-163):
+   * its tokens are signed and stateless, so nothing is spent. The presented
+   * refresh token and its access token keep working until they expire, and
+   * the refresh token rotates again later. Within 30 s Hermes hands the same
+   * refresh token the same rotated session instead, as it coalesces a burst
+   * of requests that all carried it (refresh_singleflight.py:1-11, 53-75; the
+   * cookie gate and the native route share it).
    */
   refresh(refreshToken: string): FakeSession | undefined {
     const now = this.#seconds()
+    for (const [token, replay] of this.#rotated)
+      if (replay.until <= now) this.#rotated.delete(token)
     const replay = this.#rotated.get(refreshToken)
-    if (replay && replay.until > now) return replay.session
+    if (replay) return replay.session
     const session = this.#byRefresh.get(refreshToken)
     if (!session || session.refreshExpiresAt <= now) return undefined
-    this.#byRefresh.delete(refreshToken)
-    this.#byAccess.delete(session.accessToken)
     const rotated = this.mintSession()
     this.#rotated.set(refreshToken, { until: now + 30, session: rotated })
     return rotated

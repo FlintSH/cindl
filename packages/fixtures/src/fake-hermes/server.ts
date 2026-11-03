@@ -322,17 +322,41 @@ export async function startFakeHermes(
     return rotated
   }
 
-  /** cookies.py:123-128 `clear_session_cookies`. */
+  /** Add Set-Cookie lines to a response, after any it already has. */
+  const addCookies = (res: ServerResponse, lines: string[]) => {
+    const before = res.getHeader('Set-Cookie')
+    res.setHeader('Set-Cookie', [
+      ...(Array.isArray(before) ? before : before === undefined ? [] : [String(before)]),
+      ...lines,
+    ])
+  }
+
+  /**
+   * cookies.py:109-121 `_clear_cookie_variants`: a deletion for every name a
+   * browser may hold. Prefixed names need Secure (and `__Host-` Path=/); the
+   * bare one mirrors how this plain-HTTP fake sets it.
+   */
+  const deletions = (name: string, prefixedSameSite: 'lax' | 'none') => [
+    `__Host-${name}=; Max-Age=0; Path=/; HttpOnly; SameSite=${prefixedSameSite}; Secure`,
+    `__Secure-${name}=; Max-Age=0; Path=/; HttpOnly; SameSite=${prefixedSameSite}; Secure`,
+    `${name}=; Max-Age=0; HttpOnly; SameSite=Lax; Path=/`,
+  ]
+
+  /** cookies.py:123-128 `clear_session_cookies`, every variant. */
   const clearSessionCookies = (res: ServerResponse) =>
-    res.setHeader(
-      'Set-Cookie',
-      ['hermes_session_at', 'hermes_session_rt', 'hermes_session_provider'].map(
-        (name) => `${name}=; Max-Age=0; HttpOnly; SameSite=Lax; Path=/`,
+    addCookies(
+      res,
+      ['hermes_session_at', 'hermes_session_rt', 'hermes_session_provider'].flatMap(
+        (name) => deletions(name, 'lax'),
       ),
     )
 
+  /** cookies.py:147-151 `clear_pkce_cookie`, every variant. */
+  const clearPkceCookie = (res: ServerResponse) =>
+    addCookies(res, deletions('hermes_session_pkce', 'none'))
+
   const setSessionCookies = (res: ServerResponse, session: FakeSession) =>
-    res.setHeader('Set-Cookie', [
+    addCookies(res, [
       `hermes_session_at=${session.accessToken}; HttpOnly; SameSite=Lax; Path=/`,
       `hermes_session_rt=${session.refreshToken}; HttpOnly; SameSite=Lax; Path=/`,
       `hermes_session_provider=${session.provider}; HttpOnly; SameSite=Lax; Path=/`,
@@ -590,10 +614,12 @@ export async function startFakeHermes(
       return { ok: true, next: safeNext(body.next) || '/' }
     }
     if (method === 'POST' && path === '/auth/logout') {
-      // routes.py:496-512: clear the cookies and 302 to /login. Its revoke is
-      // a no-op for the password provider (basic/__init__.py:165-167, stateless
-      // tokens), so the tokens themselves last until they expire.
+      // routes.py:496-512: clear the session and PKCE cookies and 302 to
+      // /login. Its revoke is a no-op for the password provider
+      // (basic/__init__.py:165-167, stateless tokens), so the tokens
+      // themselves last until they expire.
       clearSessionCookies(res)
+      clearPkceCookie(res)
       res.writeHead(302, { Location: '/login' })
       res.end()
       return undefined

@@ -46,10 +46,12 @@ Planned, not built: canonical sessions, steer and process operations.
   `store.serveAs` and `store.otherProfileScopes` for the served profile; the
   `providers` option for registered auth providers (`session: false` is a
   token-only one, no sign-in option); `auth.expireAccessTokens` and
-  `auth.revokeAll` to age or end sessions. A rotation replays to the same
-  refresh token for 30 s, as Hermes coalesces a burst. For the web's cookie
-  flow the fake serves a SYNTHETIC `/login` page, `/auth/password-login` and
-  `/auth/logout`, which clears the cookies and, like Hermes's password
-  provider, revokes nothing.
+  `auth.revokeAll` to age or end sessions. Its tokens are stateless like
+  Hermes's password provider's: a rotation spends nothing, replays to the
+  same refresh token for 30 s as Hermes coalesces a burst, and after that
+  the old refresh token rotates again. For the web's cookie flow the fake
+  serves a SYNTHETIC `/login` page, `/auth/password-login` and
+  `/auth/logout`, which revokes nothing; logout and a failed rotation delete
+  every cookie name variant (`__Host-`, `__Secure-`, bare).
   Close fakes with `closeFakes`, which closes them all before it reports a
   contract violation, so a failing check never leaves one listening.
