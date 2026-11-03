@@ -200,9 +200,15 @@ with no Hermes session shows **Sign in to Hermes** (or **Signed out**):
    `state` matches the attempt (compared in constant time) and whose `Host` is
    that listener, records it, answers with a static page (no scripts, no remote
    resources, `Referrer-Policy: no-referrer`) and closes. Any other request gets
-   an error page, and a connection that closes, resets or stalls is dropped;
-   the listener keeps waiting either way, for at most 5 minutes.
-4. `/auth/native/authorize` opens in a Custom Tab in Cindl's own task. The
+   an error page, and a connection that closes, resets or stalls is dropped.
+   Connections are served one at a time, each read waits at most 2 seconds and
+   a request head may be 8 KiB; the attempt's 5-minute limit is checked between
+   connections. So a local app that sends a byte every couple of seconds can
+   keep the listener busy, and the sign-in waiting, past 5 minutes until the
+   owner presses **Cancel sign-in**. It cannot finish the sign-in: the callback
+   must carry the attempt's state, and only Cindl holds the PKCE verifier.
+4. `/auth/native/authorize` opens in a Custom Tab in Cindl's own task (on a
+   device whose browser offers no Custom Tabs, in that browser). The
    owner signs in on Hermes's page (passwords and second factors are never
    typed into Cindl). The page Cindl shows afterwards says to **close the tab**:
    Android 15 and later do not let an app bring itself back over the browser.
@@ -212,6 +218,10 @@ with no Hermes session shows **Sign in to Hermes** (or **Signed out**):
    (`expo-secure-store`); it refreshes the tokens before they expire. Only then
    is the address stored (in app storage; it is not a secret), and the client
    connects. Signing in to another Hermes forgets the previous one's tokens.
+   If the connection does not come up (for example `/api/ws` fails), the
+   sign-in screen says so, with the reason, and offers **Continue to Cindl**:
+   the app then shows the connection's state and keeps trying, and Agent can
+   sign out.
 
 While the browser is open, the app keeps a marker of the attempt (an id and a
 time, no verifier, state or code). **If Android closes Cindl meanwhile**, the
@@ -230,17 +240,26 @@ A device that signed in with an earlier build (which ran its own PKCE before
 the direct client existed) keeps its sign-in: on the first start, its tokens
 move to where `NativeAuth` reads them and the old record is deleted; an
 unfinished earlier attempt, whose PKCE verifier is deleted with it, is
-reported as interrupted.
+reported as interrupted. This only applies to an update signed with the same
+key as the earlier build. Every CI test APK is signed with its own throwaway
+key, so no CI APK installs over another, and no build distributed so far can
+carry a sign-in over.
 
-If the device cannot encrypt secrets, Cindl says so: after a sign-in it keeps
-the tokens in memory only and forgets them when the app closes.
+Cindl checks at start whether the Keystore can encrypt, by writing, reading
+back and deleting a canary value (expo-secure-store's own check only says its
+module is there). If it cannot, Cindl says so: after a sign-in it keeps the
+tokens in memory only and forgets them when the app closes. If the Keystore
+refuses a write later, the sign-in still finishes, the tokens stay in memory
+only (never in plaintext on disk), and Cindl says so then.
 
 Evidence: unit tests run the real client, with the app's own storage, socket,
 crypto and loopback pieces, against the fixtures' fake Hermes
-(`apps/android/test/direct.test.ts`); the listener's JUnit tests run on a plain
-JVM in CI; and the emulator tests run it through a real Custom Tab, including
-process death. Still missing: a run against a real Hermes server and on a
-phone.
+(`apps/android/test/direct.test.ts`), including a Keystore that cannot encrypt;
+the listener's JUnit tests run on a plain JVM in CI; and the emulator tests
+run it through the emulator's browser, including process death (see
+[Emulator tests](#emulator-tests): WebView Shell, not a Custom Tab, and a
+step stopped by terms fails the job). Still missing: a run against a real
+Hermes server, Chrome's Custom Tab, and a phone.
 
 ## Permissions and network policy
 

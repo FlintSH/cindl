@@ -4,6 +4,11 @@ import type { LinkState } from '@cindl/contracts'
 import { fontFamily } from '@cindl/tokens'
 import { createStore } from '@cindl/client-core'
 import { describe, expect, it } from 'vitest'
+import {
+  afterSignIn,
+  CONNECTING_AFTER_SIGN_IN,
+  REFUSED_AFTER_SIGN_IN,
+} from '../src/shell/afterSignIn.ts'
 import { keyboardOverlap } from '../src/shell/keyboardOverlap.ts'
 import { duration, fuzzyScore } from '../src/talk/format.ts'
 import { composerHint, linkCopy, presenceCopy } from '../src/talk/presence.ts'
@@ -128,5 +133,37 @@ describe('keyboard overlap', () => {
     expect(keyboardOverlap(1500, 1500)).toBe(0)
     expect(keyboardOverlap(1480, 1500)).toBe(0)
     expect(keyboardOverlap(2400, undefined)).toBe(0)
+  })
+})
+
+describe('after the browser leg of sign-in (review of 636a2dd, N12)', () => {
+  it('says it is connecting, then why it could not, and lets the owner leave the sign-in screen', () => {
+    expect(afterSignIn(false, { phase: 'offline' })).toEqual({ kind: 'none' })
+    expect(afterSignIn(true, { phase: 'online' })).toEqual({ kind: 'none' })
+    expect(afterSignIn(true, { phase: 'connecting' })).toEqual({
+      kind: 'connecting',
+      message: CONNECTING_AFTER_SIGN_IN,
+    })
+    expect(
+      afterSignIn(true, {
+        phase: 'reconnecting',
+        lastError: { code: 'offline', message: 'The connection to Hermes closed.' },
+      }),
+    ).toEqual({
+      kind: 'stuck',
+      message:
+        'Signed in, but Cindl could not connect to Hermes: The connection to Hermes closed.',
+      canContinue: true,
+    })
+    expect(afterSignIn(true, { phase: 'incompatible' })).toMatchObject({
+      kind: 'stuck',
+      canContinue: true,
+    })
+    // Hermes refused the tokens after all: nothing to continue to.
+    expect(afterSignIn(true, { phase: 'signed-out' })).toEqual({
+      kind: 'stuck',
+      message: REFUSED_AFTER_SIGN_IN,
+      canContinue: false,
+    })
   })
 })

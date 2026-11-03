@@ -38,7 +38,8 @@ export async function readStoredOrigin(
 /**
  * Moves an earlier build's sign-in to where NativeAuth reads it, once: the
  * token set goes to NativeAuth's key for the stored origin (unless NativeAuth
- * already has one there) and the old record is deleted, readable or not. An
+ * already has one there) and the old record is deleted, readable or not,
+ * unless the Keystore refused the new write (then it stays for a later start). An
  * earlier attempt still in progress holds a PKCE verifier and cannot finish
  * any more (its listener did not survive the update): it is deleted and
  * reported as interrupted.
@@ -57,7 +58,8 @@ export async function migrateEarlierSignIn(deps: {
       const tokens = parseTokens(legacy)
       if (tokens && (await deps.secrets.get(nativeTokensKey(origin))) === undefined)
         await deps.secrets.set(nativeTokensKey(origin), JSON.stringify(tokens))
-      await deps.secrets.delete(legacyTokensKey(origin))
+      // A write the Keystore refused stayed in memory only: keep the old record.
+      if (deps.secrets.available) await deps.secrets.delete(legacyTokensKey(origin))
     }
   }
   return { origin, interrupted }

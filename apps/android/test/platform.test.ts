@@ -19,9 +19,11 @@ import {
 import {
   createSecretStore,
   MAX_SECRET_LENGTH,
+  secureStoreAvailable,
   secureStoreKey,
 } from '../src/platform/secretStore.ts'
 import { createWebSocketFactory } from '../src/platform/webSocket.ts'
+import { deviceStores } from './support.ts'
 
 function memoryStorage() {
   const data = new Map<string, string>()
@@ -102,6 +104,16 @@ describe('secret store on expo-secure-store', () => {
     )
     await store.delete('tokens:https://hermes.example.test')
     expect(await store.get('tokens:https://hermes.example.test')).toBeUndefined()
+  })
+
+  // Review of 636a2dd, S3: isAvailableAsync() is true whenever expo-secure-store's
+  // module exists, so availability comes from a canary write, read and delete.
+  it('S3: reads a Keystore that cannot write as unavailable, and leaves nothing behind when it can', async () => {
+    const refusing = deviceStores(true, { refuseWrites: () => true })
+    expect(await secureStoreAvailable(refusing.native)).toBe(false)
+    const working = deviceStores()
+    expect(await secureStoreAvailable(working.native)).toBe(true)
+    expect([...working.secure.keys()]).toEqual([])
   })
 
   it('never falls back to plaintext when the device cannot encrypt', async () => {

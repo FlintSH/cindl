@@ -27,17 +27,27 @@ import {
   ORIGIN_KEY,
 } from '../src/auth/migrate.ts'
 import type { AndroidPlatform } from '../src/platform/android.ts'
-import { createAndroidClient, type AndroidClient } from '../src/platform/direct.ts'
+import {
+  createAndroidClient,
+  MEMORY_ONLY_NOTICE,
+  MEMORY_ONLY_NOW_NOTICE,
+  type AndroidClient,
+} from '../src/platform/direct.ts'
 import { guardFetch } from '../src/platform/origin.ts'
 import {
   createBinaryWebSocketFactory,
   type RnWebSocketConstructor,
 } from '../src/platform/screenSocket.ts'
-import { secureStoreKey } from '../src/platform/secretStore.ts'
+import {
+  createSecretStore,
+  secureStoreAvailable,
+  secureStoreKey,
+} from '../src/platform/secretStore.ts'
 import {
   createWebSocketFactory,
   type WebSocketConstructor,
 } from '../src/platform/webSocket.ts'
+import { afterSignIn } from '../src/shell/afterSignIn.ts'
 import { sendAnswer } from '../src/talk/requests.ts'
 import { createGestures, createInputQueue, fitScreen } from '../src/work/screenInput.ts'
 import { deviceStores, fakeListener, nodeCrypto } from './support.ts'
@@ -71,8 +81,7 @@ const NodeWebSocket = function (url: string, protocols: string[]) {
 } as unknown as WebSocketConstructor
 
 /** One device: its storage survives a restart (a new client on the same stores). */
-function device() {
-  const stores = deviceStores()
+function device(stores = deviceStores()) {
   const listener = fakeListener()
   const browser = { mode: 'approve' as 'approve' | 'hold', opened: [] as string[] }
   const platform: AndroidPlatform = {
@@ -171,6 +180,81 @@ describe('the real Android client against a fake Hermes', () => {
     // With the screen socket, the client negotiates the live picture itself.
     const view = await until(() => store.getState().capabilities['computer.view'])
     expect(view.state).toBe('available')
+  })
+
+  // Review of 636a2dd, S3: expo-secure-store's isAvailableAsync() is true whenever the
+  // module exists, so the memory-only mode the handbook promises could never start.
+  it('S3: on a device whose Keystore cannot encrypt, says tokens stay in memory, then signs in without an error or a stored token', async () => {
+    const fake = await fakeHermes()
+    const stores = deviceStores(true, { refuseWrites: () => true })
+    const { platform } = device(stores)
+    platform.secrets = createSecretStore(
+      stores.native,
+      await secureStoreAvailable(stores.native),
+    )
+    const { client, store } = await launch(platform)
+    expect(platform.secrets.available).toBe(false)
+    expect(store.getState().notices.map((n) => n.message)).toEqual([MEMORY_ONLY_NOTICE])
+    await client.api.call('auth.signIn', { origin: fake.origin })
+    await until(() => store.getState().link.phase === 'online')
+    expect([...stores.secure.keys()]).toEqual([])
+    expect([...stores.async.values()].join('\n')).not.toMatch(/access_token/)
+  })
+
+  it('S3: when the Keystore stops encrypting during sign-in, the sign-in finishes in memory only and says so', async () => {
+    const fake = await fakeHermes()
+    let refuse = false
+    const stores = deviceStores(true, { refuseWrites: () => refuse })
+    const { platform } = device(stores)
+    platform.secrets = createSecretStore(
+      stores.native,
+      await secureStoreAvailable(stores.native),
+    )
+    const { client, store } = await launch(platform)
+    expect(store.getState().notices).toEqual([])
+    refuse = true
+    // No raw Keystore error: the tokens stay in memory, and the owner is told.
+    await client.api.call('auth.signIn', { origin: fake.origin })
+    await until(() => store.getState().link.phase === 'online')
+    expect(store.getState().notices.map((n) => n.message)).toEqual([
+      MEMORY_ONLY_NOW_NOTICE,
+    ])
+    expect(platform.secrets.available).toBe(false)
+    expect([...stores.secure.keys()]).toEqual([])
+    client.stop()
+    // Memory only: after a restart the sign-in is gone, and the start says why.
+    const again = { ...platform }
+    again.secrets = createSecretStore(
+      stores.native,
+      await secureStoreAvailable(stores.native),
+    )
+    const second = await launch(again)
+    await until(() => second.store.getState().link.phase === 'signed-out')
+    expect(second.store.getState().notices.map((n) => n.message)).toEqual([
+      MEMORY_ONLY_NOTICE,
+    ])
+  })
+
+  // Review of 636a2dd, N12: a sign-in whose connection never came up left the bare form.
+  it('N12: after a sign-in whose connection does not come up, the sign-in screen says so and can be left', async () => {
+    const fake = await fakeHermes()
+    const { platform } = device()
+    // /api/ws goes to a port nothing listens on; REST (the sign-in) still works.
+    platform.webSocket = createWebSocketFactory(function (
+      url: string,
+      protocols: string[],
+    ) {
+      return nodeSockets(url.replace(/:\d+\//, ':9/'), protocols)
+    } as unknown as WebSocketConstructor)
+    const { client, store } = await launch(platform)
+    await client.api.call('auth.signIn', { origin: fake.origin })
+    const shown = await until(() => {
+      const after = afterSignIn(true, store.getState().link)
+      return after.kind === 'stuck' ? after : undefined
+    })
+    expect(shown.canContinue).toBe(true)
+    expect(shown.message).toMatch(/^Signed in, but Cindl could not connect to Hermes/)
+    expect(store.getState().link.phase).not.toBe('online')
   })
 
   it('is still signed in after a restart, without another sign-in', async () => {

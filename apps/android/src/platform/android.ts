@@ -3,7 +3,6 @@ import {
   type BinaryWebSocketFactory,
   type Clock,
   type KeyValueStore,
-  type SecretStore,
   type WebSocketFactory,
 } from '@cindl/client-core'
 import { CindlError } from '@cindl/contracts'
@@ -26,7 +25,11 @@ import {
   createBinaryWebSocketFactory,
   type RnWebSocketConstructor,
 } from './screenSocket.ts'
-import { createSecretStore } from './secretStore.ts'
+import {
+  createSecretStore,
+  secureStoreAvailable,
+  type AndroidSecretStore,
+} from './secretStore.ts'
 import { deviceKeyValueStore } from './storage.ts'
 import { createWebSocketFactory, type WebSocketConstructor } from './webSocket.ts'
 
@@ -38,8 +41,11 @@ import { createWebSocketFactory, type WebSocketConstructor } from './webSocket.t
  */
 export interface AndroidPlatform {
   keyValue: KeyValueStore
-  /** Keystore-backed; `available` false means tokens stay in memory only. */
-  secrets: SecretStore
+  /**
+   * Keystore-backed; `available` false means tokens stay in memory only, from
+   * the start (the Keystore failed its canary at launch) or from a refused write.
+   */
+  secrets: AndroidSecretStore
   webSocket: WebSocketFactory
   /** The agent screen's binary socket, only to `/api/display/ws` on the origin given. */
   screenSocket: (hermesOrigin: () => string | undefined) => BinaryWebSocketFactory
@@ -82,7 +88,7 @@ export async function createAndroidPlatform(): Promise<AndroidPlatform> {
   })
   return {
     keyValue,
-    secrets: createSecretStore(SecureStore, await SecureStore.isAvailableAsync()),
+    secrets: createSecretStore(SecureStore, await secureStoreAvailable(SecureStore)),
     // React Native's WebSocket (OkHttp) has the WebSocketLike shape; DOM typings differ only in `this`.
     webSocket: createWebSocketFactory(WebSocket as unknown as WebSocketConstructor),
     screenSocket: (hermesOrigin) =>

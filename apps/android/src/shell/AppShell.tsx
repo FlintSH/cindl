@@ -84,7 +84,10 @@ export function AppShell() {
         <Notices />
         {signedOut ? (
           <View style={{ flex: 1, paddingLeft: insets.left, paddingRight: insets.right }}>
-            <SignIn onAttempt={() => setSigningIn(true)} />
+            <SignIn
+              onAttempt={() => setSigningIn(true)}
+              onContinue={() => setSigningIn(false)}
+            />
           </View>
         ) : (
           <View style={{ flex: 1, paddingLeft: insets.left, paddingRight: insets.right }}>

@@ -80,21 +80,32 @@ export function fakeListener() {
   }
 }
 
-/** expo-secure-store and AsyncStorage stand-ins, wrapped by the app's own stores. */
-export function deviceStores(secretsAvailable = true) {
+/**
+ * expo-secure-store and AsyncStorage stand-ins, wrapped by the app's own stores.
+ * `refuseWrites` makes the Keystore refuse to encrypt (as on a device whose
+ * Keystore cannot), while `isAvailableAsync` still says true, as
+ * expo-secure-store 58 does whenever its module exists.
+ */
+export function deviceStores(
+  secretsAvailable = true,
+  keystore: { refuseWrites?: () => boolean } = {},
+) {
   const secure = new Map<string, string>()
   const async = new Map<string, string>()
+  const native = {
+    isAvailableAsync: () => Promise.resolve(true),
+    getItemAsync: (key: string) => Promise.resolve(secure.get(key) ?? null),
+    setItemAsync: (key: string, value: string) =>
+      keystore.refuseWrites?.()
+        ? Promise.reject(new Error('Could not encrypt the value (fixture Keystore).'))
+        : Promise.resolve(void secure.set(key, value)),
+    deleteItemAsync: (key: string) => Promise.resolve(void secure.delete(key)),
+  }
   return {
     secure,
     async,
-    secrets: createSecretStore(
-      {
-        getItemAsync: (key) => Promise.resolve(secure.get(key) ?? null),
-        setItemAsync: (key, value) => Promise.resolve(void secure.set(key, value)),
-        deleteItemAsync: (key) => Promise.resolve(void secure.delete(key)),
-      },
-      secretsAvailable,
-    ),
+    native,
+    secrets: createSecretStore(native, secretsAvailable),
     keyValue: createKeyValueStore({
       getItem: (key) => Promise.resolve(async.get(key) ?? null),
       setItem: (key, value) => Promise.resolve(void async.set(key, value)),

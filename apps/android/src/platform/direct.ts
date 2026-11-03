@@ -15,6 +15,8 @@ import type { AndroidPlatform } from './android.ts'
 
 export const MEMORY_ONLY_NOTICE =
   'This device cannot encrypt secrets, so after you sign in Cindl keeps the Hermes tokens in memory only and forgets them when the app closes.'
+export const MEMORY_ONLY_NOW_NOTICE =
+  'This device could not encrypt the Hermes tokens, so Cindl keeps them in memory only and forgets them when the app closes.'
 
 /** The real build's Hermes client and what the app does with it besides calling it. */
 /** Property signatures: every member is safe to pass around unbound. */
@@ -89,6 +91,17 @@ export async function createAndroidClient(
   const listeners = new Set<(event: CindlEvent) => void>()
   direct.subscribe((event) => {
     for (const listener of [...listeners]) listener(event)
+  })
+  // The Keystore refused a write after all (secretStore.ts): the tokens stay in
+  // memory only, and the owner is told, now and on every later subscription.
+  platform.secrets.onDegraded(() => {
+    const notice: CindlEvent = {
+      type: 'notice',
+      level: 'warning',
+      message: MEMORY_ONLY_NOW_NOTICE,
+    }
+    notices.push(notice)
+    for (const listener of [...listeners]) listener(notice)
   })
 
   /** Tokens are kept per origin by NativeAuth; forget another origin's through it. */

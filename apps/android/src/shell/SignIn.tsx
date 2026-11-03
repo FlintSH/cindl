@@ -6,6 +6,7 @@ import { normalizeOrigin } from '../platform/origin.ts'
 import { useTheme } from '../theme/theme.tsx'
 import { Mark } from '../ui/Mark.tsx'
 import { Button, ErrorText, Note, Txt } from '../ui/primitives.tsx'
+import { afterSignIn } from './afterSignIn.ts'
 import { useSignInControls } from './signInControls.ts'
 
 export const SIGN_IN_FAILED = 'Sign-in did not finish. Nothing was saved. Try again.'
@@ -16,7 +17,14 @@ export const SIGN_IN_FAILED = 'Sign-in did not finish. Nothing was saved. Try ag
  * the password and any second factor go to Hermes's own page in the browser,
  * and the adapter's NativeAuth (run by the direct client) exchanges the code.
  */
-export function SignIn({ onAttempt }: { onAttempt: () => void }) {
+export function SignIn({
+  onAttempt,
+  onContinue,
+}: {
+  onAttempt: () => void
+  /** Leave the sign-in screen after a sign-in whose connection did not come up. */
+  onContinue: () => void
+}) {
   const api = useCindlApi()
   const theme = useTheme()
   const link = useLink()
@@ -24,6 +32,9 @@ export function SignIn({ onAttempt }: { onAttempt: () => void }) {
   const [address, setAddress] = useState(link.server?.origin ?? '')
   const [error, setError] = useState<string>()
   const [pending, setPending] = useState(false)
+  // The browser leg finished; until the link is online this says what is happening.
+  const [signedIn, setSignedIn] = useState(false)
+  const after = afterSignIn(signedIn, link)
   // Only the latest attempt may change this screen.
   const attempt = useRef(0)
   const submit = () => {
@@ -35,11 +46,14 @@ export function SignIn({ onAttempt }: { onAttempt: () => void }) {
     }
     const mine = ++attempt.current
     setError(undefined)
+    setSignedIn(false)
     setPending(true)
     onAttempt()
     api.call('auth.signIn', { origin: check.origin }).then(
       () => {
-        if (mine === attempt.current) setPending(false)
+        if (mine !== attempt.current) return
+        setPending(false)
+        setSignedIn(true)
       },
       (failure: unknown) => {
         if (mine !== attempt.current) return
@@ -106,6 +120,24 @@ export function SignIn({ onAttempt }: { onAttempt: () => void }) {
         </Note>
       </View>
       {error ? <ErrorText>{error}</ErrorText> : null}
+      {after.kind === 'connecting' ? (
+        <Txt tone="tertiary" accessibilityLiveRegion="polite">
+          {after.message}
+        </Txt>
+      ) : null}
+      {after.kind === 'stuck' ? (
+        <View style={{ gap: theme.space[2] }}>
+          <ErrorText>{after.message}</ErrorText>
+          {after.canContinue ? (
+            <Button
+              label="Continue to Cindl"
+              variant="quiet"
+              style={{ alignSelf: 'flex-start' }}
+              onPress={onContinue}
+            />
+          ) : null}
+        </View>
+      ) : null}
       {pending ? (
         <Txt tone="tertiary" accessibilityLiveRegion="polite">
           Finish signing in in your browser, then close the tab to return here.
