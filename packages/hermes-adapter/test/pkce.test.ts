@@ -105,3 +105,13 @@ describe('authorize URL and callback', () => {
     })
   })
 })
+
+describe('callback state', () => {
+  it('rejects every callback when the expected state is empty', () => {
+    expect(parseCallback('/callback?code=abc&state=', '')).toEqual({
+      ok: false,
+      reason: 'state-mismatch',
+    })
+    expect(parseCallback('/callback?code=abc', '')).toMatchObject({ ok: false })
+  })
+})
