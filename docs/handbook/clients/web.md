@@ -7,14 +7,46 @@ is the renderer of the desktop app.
 
 Hermes v0.22.5 accepts browser requests only from the `hermes serve` origin:
 its Origin, Host and CORS checks stay as they are, and Cindl does not ask for
-wildcard CORS. The web client therefore works against a live Hermes only when it
-is served from that same origin and signed in through Hermes's own `/login`
-page. That mount is a pending owner decision, so today:
+wildcard CORS. The web client therefore reaches a live Hermes only when it is
+served from that same origin, under a sub-path such as `/cindl/`, and signed
+in through Hermes's own `/login` page.
 
-- A production build opened anywhere else shows **"Cindl is not connected"**,
-  explains why, and points to the desktop and Android apps. It never shows demo
-  data in that state.
-- Developers use the **synthetic demo** (below).
+### Served by Hermes's origin
+
+- **How it decides.** A production build asks its own origin's public
+  `GET /api/status` once at start. It talks to Hermes only when the answer is
+  Hermes's (a version and the `cookie` sign-in flow) and the origin is one
+  Cindl accepts for Hermes (https, or plain http on 127.0.0.1 or [::1]).
+  Anything else, including a 404, a page or a network error, leaves it
+  showing **"Cindl is not connected"**, never demo data.
+- **Signing in.** "Sign in on Hermes" opens Hermes's own sign-in page with
+  `next` set to the view you were on, so you come back to it. Cindl never sees
+  the password: the session is Hermes's HttpOnly cookie, which the page cannot
+  read. "Check again" asks Hermes whether this browser is signed in now.
+- **Talking to Hermes.** Every request goes to the page's own origin with the
+  browser's cookie. Each connection (and each reconnect) gets a fresh
+  single-use ticket from `POST /api/auth/ws-ticket` and opens `/api/ws` with
+  it as a subprotocol; the agent's screen opens `/api/display/ws` with its own
+  display ticket. Hermes must be at the root of the origin: Cindl does not
+  follow a proxy prefix.
+- **What it keeps.** Nothing in browser storage except the theme and margin
+  preferences. Its device state (messages waiting to send, which sent messages
+  Hermes accepted, and how many times it has connected) lives in memory for
+  the tab, so a reload starts from what Hermes holds.
+- **Signing out (known gap, being fixed).** Today "Sign out on this device"
+  closes this tab's connection but does not end Hermes's browser session: the
+  cookie stays, so a reload signs straight back in. Ending the session through
+  Hermes's `POST /auth/logout` is in progress in the transport.
+- **What the mount must do.** Serve the build's files under the sub-path with
+  their content types, redirect the bare sub-path (`/cindl`) to the one with
+  a trailing slash (the build's asset paths are relative), send
+  `Content-Security-Policy: frame-ancestors 'none'` with Cindl's pages, and
+  pass every other path to Hermes unchanged. Cindl uses hash routes, so no
+  other path needs rewriting.
+
+Opened anywhere else, the production build says it is not connected,
+explains why, and points to the desktop and Android apps. Developers use the
+**synthetic demo** (below).
 
 ## Inside the desktop app
 
@@ -191,6 +223,15 @@ CINDL_E2E_CHANNEL=chrome pnpm test:e2e     # use an installed Chrome
 CINDL_E2E_PORT=4291 pnpm test:e2e          # when another checkout holds 4173
 CINDL_CAPTURE=1 pnpm test:e2e              # also capture the screenshot matrix
 ```
+
+`e2e/live.spec.ts` builds the production web client (no demo data) and serves
+it at `/cindl/` on one loopback origin with a fake Hermes (test-only,
+synthetic; everything outside `/cindl/` goes to the fake, sockets included).
+In a real browser it signs in with the fake's cookie, starts a conversation,
+answers an approval once, reconnects with a fresh ticket after the network
+drops, reloads into a deep link and watches and controls the synthetic screen.
+It also checks that nothing leaves the origin and nothing lands in browser
+storage. It is not proof against a real Hermes.
 
 The flow tests fail on any console error, page error or CSP violation.
 Screenshots go to the git-ignored `.agent-artifacts/web-qa/capture/`; review

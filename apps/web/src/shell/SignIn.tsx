@@ -1,16 +1,77 @@
 import { useCindlApi, useLink } from '@cindl/client-react'
 import { HermesOrigin, isCindlError } from '@cindl/contracts'
 import { useId, useRef, useState } from 'react'
+import { useClientKind } from '../platform/clientKind.ts'
 import { Mark } from '../ui/Mark.tsx'
 import { Button } from '../ui/primitives.tsx'
 import styles from './notconnected.module.css'
+
+/** Shown when this client has no Hermes session; how it signs in depends on the client. */
+export function SignIn() {
+  return useClientKind() === 'hermes' ? <SameOriginSignIn /> : <NativeSignIn />
+}
+
+/**
+ * Cindl served from its Hermes's own origin: the browser signs in on Hermes's
+ * own login page, which sets Hermes's HttpOnly session cookie and sends the
+ * browser back here (`next`). Cindl never sees the password or the session.
+ */
+function SameOriginSignIn() {
+  const api = useCindlApi()
+  const link = useLink()
+  const [error, setError] = useState<string>()
+  const [busy, setBusy] = useState(false)
+  const signIn = () => {
+    const here = `${window.location.pathname}${window.location.search}${window.location.hash}`
+    window.location.assign(`/login?next=${encodeURIComponent(here)}`)
+  }
+  // Signed in elsewhere (another tab): check this browser's session again.
+  const retry = async () => {
+    setError(undefined)
+    setBusy(true)
+    try {
+      await api.call('auth.signIn', { origin: window.location.origin })
+    } catch (err) {
+      setError(isCindlError(err) ? err.message : 'Sign-in did not complete.')
+    } finally {
+      setBusy(false)
+    }
+  }
+  return (
+    <div className={styles.region}>
+      <div className={styles.card}>
+        <Mark size={28} />
+        <h1 className={styles.title}>
+          {link.phase === 'signed-out' ? 'Signed out' : 'Sign in to Hermes'}
+        </h1>
+        <p>
+          This Cindl is served by your Hermes. Sign in on Hermes's own page and you come
+          back here. Cindl never sees your password; your session stays in this browser.
+        </p>
+        {error ? (
+          <p className={styles.fieldError} role="alert">
+            {error}
+          </p>
+        ) : null}
+        <div className={styles.actions}>
+          <Button variant="primary" onClick={signIn}>
+            Sign in on Hermes
+          </Button>
+          <Button variant="quiet" disabled={busy} onClick={() => void retry()}>
+            {busy ? 'Checking…' : 'Check again'}
+          </Button>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 /**
  * Shown when a native client (desktop, later Android) has no Hermes session.
  * Sign-in happens in the system browser on Hermes's own page: Cindl never sees
  * or asks for a password or a 2FA code.
  */
-export function SignIn() {
+function NativeSignIn() {
   const api = useCindlApi()
   const link = useLink()
   const fieldId = useId()

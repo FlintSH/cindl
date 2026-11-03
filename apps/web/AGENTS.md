@@ -26,3 +26,6 @@ The responsive web client and the Electron renderer. Read `DESIGN.md` first.
   later. Focus behaviour goes in `e2e/focus.spec.ts`, which runs the real
   views on the test-only harness `e2e/harness/focus.html` (its own dev server,
   never built; `CINDL_E2E_HARNESS_PORT`, default the e2e port plus one).
+  Same-origin client behaviour goes in `e2e/live.spec.ts`: the production
+  build at `/cindl/` and the fake Hermes behind one loopback origin
+  (`e2e/live/sameOrigin.ts`, test-only).

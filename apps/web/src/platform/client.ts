@@ -1,6 +1,8 @@
+import type { DirectClient } from '@cindl/client-core'
 import {
   CindlError,
   CindlErrorShape,
+  HermesOrigin,
   type CindlClientApi,
   type DesktopBridge,
 } from '@cindl/contracts'
@@ -14,7 +16,39 @@ declare global {
 export type ClientResolution =
   | { kind: 'desktop'; api: CindlClientApi; bridge: DesktopBridge }
   | { kind: 'demo'; api: CindlClientApi }
+  /** Served from its Hermes's own origin: Hermes's session cookie signs it in. */
+  | { kind: 'hermes'; api: DirectClient }
   | { kind: 'unavailable'; reason: 'same-origin-pending' }
+
+/**
+ * Whether this page's own origin is a `hermes serve` that signs browsers in
+ * with its session cookie: its public `GET /api/status` answers with Hermes's
+ * shape and offers the `cookie` flow. Anything else (a 404, another server, a
+ * network error, no cookie flow) means Cindl is not mounted under Hermes.
+ */
+export async function hermesAtThisOrigin(
+  fetchStatus: (url: string, init: RequestInit) => Promise<Response> = (url, init) =>
+    window.fetch(url, init),
+  origin: string = window.location.origin,
+): Promise<boolean> {
+  try {
+    const response = await fetchStatus(`${origin}/api/status`, {
+      credentials: 'same-origin',
+      headers: { accept: 'application/json' },
+      signal: AbortSignal.timeout(5000),
+    })
+    if (!response.ok) return false
+    const status: unknown = await response.json()
+    if (typeof status !== 'object' || status === null) return false
+    const { version, auth_flows: flows } = status as {
+      version?: unknown
+      auth_flows?: unknown
+    }
+    return typeof version === 'string' && Array.isArray(flows) && flows.includes('cookie')
+  } catch {
+    return false
+  }
+}
 
 export function reviveError(err: unknown): Error {
   if (err instanceof Error) return err
@@ -49,7 +83,14 @@ export async function resolveClient(): Promise<ClientResolution> {
     const { createScenarioClient } = await import('@cindl/fixtures/scenario')
     return { kind: 'demo', api: createScenarioClient() }
   }
-  // A same-origin Hermes client needs Cindl mounted under `hermes serve`, which
-  // is a deployment decision that has not been made (see the handbook).
+  // Mounted under `hermes serve` (same origin): the browser's own Hermes session.
+  // Only on an origin Cindl accepts for Hermes (https, or http on a loopback IP).
+  const origin = HermesOrigin.safeParse(window.location.origin)
+  if (origin.success && (await hermesAtThisOrigin(undefined, origin.data))) {
+    const { createSameOriginClient } = await import('./browser.ts')
+    return { kind: 'hermes', api: createSameOriginClient(origin.data) }
+  }
+  // Served anywhere else, a browser cannot reach Hermes (no CORS, by design):
+  // Cindl needs mounting on Hermes's own origin (see the handbook).
   return { kind: 'unavailable', reason: 'same-origin-pending' }
 }
