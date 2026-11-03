@@ -191,6 +191,50 @@ describe('notices', () => {
     expect(screen.getByRole('alert').textContent).toBe('Hermes refused the sign-in.')
   })
 
+  // Review 4ad97d1 N6: the attempt is abandoned at the click, not when the
+  // next sign-in starts.
+  it('stays quiet when an abandoned attempt fails before any new one', async () => {
+    const pending: Array<(error: Error) => void> = []
+    const api: CindlClientApi = {
+      call: () =>
+        new Promise((_resolve, reject) => {
+          pending.push(reject)
+        }),
+      subscribe(listener) {
+        queueMicrotask(() =>
+          listener({
+            type: 'link.changed',
+            link: {
+              phase: 'unconfigured',
+              since: '2026-01-01T00:00:00.000Z',
+              connectionEpoch: 0,
+            },
+          }),
+        )
+        return () => undefined
+      },
+    }
+    render(
+      <CindlProvider api={api}>
+        <SignIn />
+      </CindlProvider>,
+    )
+    await settle()
+    fireEvent.change(screen.getByLabelText('Hermes address'), {
+      target: { value: 'https://hermes.example.test' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+    await settle()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop waiting' }))
+    pending[0]?.(new CindlError('unauthenticated', 'Sign-in was cancelled.'))
+    await settle()
+    expect(screen.queryByRole('alert')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Sign in' })).toHaveProperty(
+      'disabled',
+      false,
+    )
+  })
+
   it('shows client notices until dismissed', async () => {
     const { api } = testApi({ phase: 'online' }, [
       {

@@ -36,8 +36,9 @@ export const DEAD_PROXY = {
 
 /**
  * Session-wide defaults for the renderer: every permission request and check
- * is denied, device pickers are cancelled, downloads and spellchecker
- * dictionary fetches never happen, no HTTP(S)/WS(S) request leaves the
+ * is denied, device pickers are cancelled, downloads are blocked, the
+ * spellchecker is off (Chromium's per-launch component request still goes to
+ * the dead proxy, which refuses it), no HTTP(S)/WS(S) request leaves the
  * renderer (the CSP already forbids it; this holds even if the CSP did not),
  * and anything else goes to a proxy that cannot connect.
  */

@@ -83,8 +83,8 @@ repository or account setting is changed on the owner's behalf.
 ### Android SDK licence and device validation
 
 **Decided:** Google's Android SDK licence approved for Cindl APK builds and
-emulator tests on existing GitHub build runners only; no APK built yet
-([ADR 0008](../architecture/decisions/0008-android.md)).
+emulator tests on existing GitHub build runners only; test APKs built in CI on
+PR #4, none on `main` yet ([ADR 0008](../architecture/decisions/0008-android.md)).
 
 The approval covers only the SDK packages those builds need, each checked
 before acceptance. It does not cover development machines, the Hermes host or

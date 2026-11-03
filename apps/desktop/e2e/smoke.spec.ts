@@ -27,7 +27,7 @@ import {
   type ElectronApplication,
   type Page,
 } from '@playwright/test'
-import { spawn } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import {
   mkdirSync,
   mkdtempSync,
@@ -37,7 +37,9 @@ import {
   statSync,
   writeFileSync,
 } from 'node:fs'
+import { createSocket } from 'node:dgram'
 import { createRequire } from 'node:module'
+import { createServer, type Server } from 'node:net'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import type * as Electron from 'electron'
@@ -377,6 +379,158 @@ test.describe('Cindl (real flavour)', () => {
       loopback: await session.defaultSession.resolveProxy('https://127.0.0.1:3478'),
     }))
     expect(proxy).toEqual({ remote: 'PROXY 127.0.0.1:9', loopback: 'PROXY 127.0.0.1:9' })
+    // The second layer: WebRTC may use no UDP except through a proxy.
+    const policy = await app.evaluate(({ BrowserWindow }: typeof Electron) =>
+      BrowserWindow.getAllWindows()[0]?.webContents.getWebRTCIPHandlingPolicy(),
+    )
+    expect(policy).toBe('disable_non_proxied_udp')
+  })
+
+  // Review 4ad97d1 and f7f5925: a child frame keeps WebRTC (known gap), and
+  // three settings contain it: the dead proxy (TCP to other machines), its
+  // `<-loopback>` bypass rule (TCP straight to loopback) and the IP-handling
+  // policy (UDP). The child frame aims TURN and ICE at loopback listeners and at
+  // 192.0.2.1, a documentation address where a dial shows up as a socket. Other
+  // local processes probe new loopback ports (on a dev VM, T3 Code's server
+  // sends HTTP and TLS hellos), so only connections that carry STUN (magic
+  // cookie 0x2112A442, at offset 4 for TURN over TCP, 6 after ICE-TCP's length
+  // prefix) count as WebRTC.
+  test('keeps WebRTC in a child frame off the network', async () => {
+    const { page } = launched as Launched
+    const listeners: Server[] = []
+    let stunConnections = 0
+    const carriesStun = (bytes: Buffer) =>
+      [4, 6].some(
+        (at) =>
+          bytes.length >= at + 4 &&
+          bytes[at] === 0x21 &&
+          bytes[at + 1] === 0x12 &&
+          bytes[at + 2] === 0xa4 &&
+          bytes[at + 3] === 0x42,
+      )
+    const listen = () =>
+      new Promise<number>((resolve) => {
+        const server = createServer((socket) => {
+          socket.setTimeout(1000, () => socket.destroy())
+          socket.once('data', (chunk) => {
+            if (carriesStun(chunk)) stunConnections += 1
+            socket.destroy()
+          })
+        })
+        listeners.push(server)
+        server.listen(0, '127.0.0.1', () =>
+          resolve((server.address() as { port: number }).port),
+        )
+      })
+    const udp = createSocket('udp4')
+    let udpHits = 0
+    udp.on('message', () => (udpHits += 1))
+    // Sockets this machine opens to the documentation address, in any state.
+    const remoteDials = new Set<string>()
+    const hasSs = (() => {
+      try {
+        execFileSync('ss', ['-V'])
+        return true
+      } catch {
+        return false
+      }
+    })()
+    const watch = hasSs
+      ? setInterval(() => {
+          const out = execFileSync('ss', ['-tnH', 'dst', '192.0.2.1']).toString()
+          for (const line of out.split('\n'))
+            if (/\s192\.0\.2\.1:\d+/.test(line))
+              remoteDials.add(line.trim().split(/\s+/).at(-1) ?? '')
+        }, 50)
+      : undefined
+    try {
+      const turnPort = await listen()
+      const icePort = await listen()
+      await new Promise<void>((resolve) => udp.bind(0, '127.0.0.1', resolve))
+      const udpPort = udp.address().port
+      const ran = await page.evaluate(
+        async ([turn, ice, datagram]) => {
+          const frame = document.createElement('iframe')
+          document.body.append(frame)
+          const PC = (
+            frame.contentWindow as unknown as {
+              RTCPeerConnection?: typeof RTCPeerConnection
+            }
+          ).RTCPeerConnection
+          if (!PC) return 'no WebRTC in the child frame'
+          const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+          const relay = new PC({
+            iceServers: [
+              {
+                urls: `turn:127.0.0.1:${turn}?transport=tcp`,
+                username: 'u',
+                credential: 'p',
+              },
+            ],
+            iceTransportPolicy: 'relay',
+          })
+          relay.createDataChannel('probe')
+          await relay.setLocalDescription(await relay.createOffer())
+          const direct = new PC()
+          direct.createDataChannel('probe')
+          const offer = await direct.createOffer()
+          await direct.setLocalDescription(offer)
+          const sdp = (offer.sdp ?? '')
+            .replace(/a=setup:actpass/g, 'a=setup:active')
+            .replace(/a=ice-ufrag:.*\r\n/g, 'a=ice-ufrag:prob\r\n')
+            .replace(/a=ice-pwd:.*\r\n/g, 'a=ice-pwd:probeprobeprobeprobepr\r\n')
+          await direct.setRemoteDescription({ type: 'answer', sdp })
+          await direct.addIceCandidate({
+            candidate: `candidate:1 1 tcp 1518280447 127.0.0.1 ${ice} typ host tcptype passive`,
+            sdpMid: '0',
+            sdpMLineIndex: 0,
+          })
+          await direct.addIceCandidate({
+            candidate: `candidate:2 1 udp 2122260223 127.0.0.1 ${datagram} typ host`,
+            sdpMid: '0',
+            sdpMLineIndex: 0,
+          })
+          // The same two TCP paths aimed at another machine.
+          const remoteRelay = new PC({
+            iceServers: [
+              {
+                urls: 'turn:192.0.2.1:3478?transport=tcp',
+                username: 'u',
+                credential: 'p',
+              },
+            ],
+            iceTransportPolicy: 'relay',
+          })
+          remoteRelay.createDataChannel('probe')
+          await remoteRelay.setLocalDescription(await remoteRelay.createOffer())
+          await direct.addIceCandidate({
+            candidate:
+              'candidate:3 1 tcp 1518280447 192.0.2.1 9443 typ host tcptype passive',
+            sdpMid: '0',
+            sdpMLineIndex: 0,
+          })
+          await wait(5000)
+          relay.close()
+          remoteRelay.close()
+          direct.close()
+          frame.remove()
+          return 'ran'
+        },
+        [turnPort, icePort, udpPort],
+      )
+      expect(ran).toBe('ran')
+      expect({ stunConnections, udpHits }).toEqual({ stunConnections: 0, udpHits: 0 })
+      if (hasSs) expect([...remoteDials]).toEqual([])
+      else
+        test.info().annotations.push({
+          type: 'skipped',
+          description: 'no ss: remote dials not checked',
+        })
+    } finally {
+      if (watch) clearInterval(watch)
+      udp.close()
+      for (const server of listeners) server.close()
+    }
   })
 
   test('denies permission requests', async () => {

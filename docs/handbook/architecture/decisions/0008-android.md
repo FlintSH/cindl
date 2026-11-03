@@ -20,6 +20,7 @@ licence for Cindl APK builds and emulator tests on GitHub-hosted build runners
 - No other terms, no paid services, no Play Store enrollment, and no
   production signing or release. Builds are signed with a debug key only.
 
-Approval is not a build result: no APK has been built yet, and an APK or
-emulator run counts only with its CI run and artifact as evidence.
+Approval is not a build result: an APK or emulator run counts only with its CI
+run and artifact as evidence. Test APKs have been built in CI on PR #4; none
+is on `main` yet.
 JavaScript bundling and unit tests run anywhere.

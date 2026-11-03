@@ -74,10 +74,14 @@ flock /tmp/cindl-heavy-build.lock pnpm --filter @cindl/desktop run package:demo
   `.desktop` entry must keep `executableArgs: []`.
 - `safeStorage` reports libsecret/encryption available even when it fell back
   to Chromium's built-in key: probe-encrypt and reject `v10`.
-- WebRTC opens TCP to loopback even through a fixed proxy; it is removed from
-  the top frame with `contextBridge.executeInMainWorld`. Preloads never run in
-  `about:blank` child frames, even with `nodeIntegrationInSubFrames`, so those
-  keep it.
+- WebRTC is removed from the top frame with `contextBridge.executeInMainWorld`.
+  Preloads never run in `about:blank` child frames, even with
+  `nodeIntegrationInSubFrames`, so those keep it. Three settings contain it,
+  each checked by behaviour in the smoke test: without the dead proxy its TCP
+  dials other machines, without `<-loopback>` it connects straight to
+  loopback, and without the IP-handling policy its UDP leaves.
+- Measure WebRTC by STUN framing or by process, never by raw connection
+  counts: other local processes probe new loopback ports.
 - Headless ozone reports a 1x1 screen: pass `--ozone-override-screen-size`.
 - The `EnableNodeCliInspectArguments` fuse stays on (Playwright drives the
   packaged binary through `--inspect`); turn it off before any signed macOS

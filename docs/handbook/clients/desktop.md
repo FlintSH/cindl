@@ -40,7 +40,7 @@ Both screenshots come from the packaged AppImages' smoke test.
 
 ![Cindl, signed out: the sign-in screen and the notice that tokens stay in memory without an OS keyring](/screenshots/desktop/real-signed-out.png)
 
-![Cindl Demo: the synthetic demo, labelled by its banner and window title](/screenshots/desktop/demo.png)
+![Cindl Demo: the synthetic demo, labelled by its banner](/screenshots/desktop/demo.png)
 
 ## Install the AppImage
 
@@ -128,7 +128,9 @@ uses `~/.config/Cindl Demo` and stores no tokens.
 
 - **Two trust levels.** Main is trusted. The renderer is not: it displays agent
   output. It runs with `contextIsolation`, `sandbox`, `webSecurity`, no Node
-  integration, no `<webview>` and no spellchecker (so no dictionary downloads).
+  integration, no `<webview>` and no spellchecker. Chromium still asks for a
+  component download (`redirector.gvt1.com`) once per launch; the renderer
+  session's dead proxy refuses it.
   `app.enableSandbox()` sandboxes every renderer.
 - **No sandbox, no start.** Cindl refuses to run when Chromium's sandbox is
   turned off (`--no-sandbox`, `--no-zygote-sandbox`,
@@ -160,18 +162,22 @@ uses `~/.config/Cindl Demo` and stores no tokens.
   `ws` and `wss` request, and sends anything else to a proxy that cannot
   connect (the discard port on loopback, with loopback not exempted). WebRTC,
   which the CSP cannot restrict, is removed from the top frame before any
-  script runs; as a second layer it may only use that dead proxy, which stops
-  it from reaching any other machine (Chromium still lets WebRTC open TCP
-  connections to loopback directly). Main's own Hermes traffic does not use
-  this session.
+  script runs. Where it remains (see the known gap below), three settings
+  contain it, and the packaged smoke test checks each by behaviour: the dead
+  proxy keeps its TCP off other machines, its `<-loopback>` rule keeps that TCP
+  from going straight to loopback, and the IP-handling policy
+  (`disable_non_proxied_udp`) keeps its UDP off the network. Main's own Hermes
+  traffic does not use this session.
 - **Known gap: WebRTC in child frames.** Electron runs no preload in a
   same-origin `about:blank` child frame, even with `nodeIntegrationInSubFrames`,
-  so script in a compromised renderer can create one and use WebRTC from it.
-  The dead proxy still keeps it off other machines; what remains is TCP to
-  loopback with ICE/STUN framing, mainly port probing. A page cannot be
-  stopped from reaching a child frame's window (`window[0]`), and Electron has
-  no switch that turns WebRTC off. The smoke test pins this behaviour, and the
-  threat model tracks it.
+  so script in a compromised renderer can create one and create peer
+  connections from it. Measured in the packaged smoke test (and under strace in
+  review): from a child frame, TURN and ICE over TCP reach only the dead proxy
+  (127.0.0.1:9, refused), loopback targets included, no other machine is
+  dialled, and no UDP is sent. What remains is the API itself, contained by
+  those three settings. A page cannot be stopped from reaching a child frame's
+  window (`window[0]`), and Electron has no switch that turns WebRTC off. The
+  smoke test checks the containment, and the threat model tracks it.
 - **Permissions and devices.** Every permission request and check is denied,
   device pickers (HID, serial, USB, Bluetooth) are cancelled, screen capture
   is refused and downloads are blocked.
