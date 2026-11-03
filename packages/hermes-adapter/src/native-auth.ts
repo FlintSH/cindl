@@ -161,12 +161,23 @@ export class NativeAuth {
     return this.#refreshing
   }
 
-  /** Local sign-out: forget tokens on this device. Hermes cannot revoke them remotely. */
+  /**
+   * Local sign-out: forget tokens on this device. Hermes cannot revoke them
+   * remotely. The stored record is always deleted, whatever `available` says:
+   * a store that can no longer encrypt may still delete, and a record left
+   * behind would sign this origin back in after a restart. If the delete
+   * itself fails, the tokens are still gone from memory and the failure is
+   * logged.
+   */
   async signOut(): Promise<void> {
     this.#generation++
     this.#tokens = undefined
     this.#loading = Promise.resolve()
-    if (this.#options.secrets.available) await this.#options.secrets.delete(this.#key)
+    try {
+      await this.#options.secrets.delete(this.#key)
+    } catch {
+      this.#log.log('warn', 'auth.stored-tokens-not-deleted')
+    }
   }
 
   async #doRefresh(): Promise<boolean> {

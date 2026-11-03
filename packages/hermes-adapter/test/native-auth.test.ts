@@ -15,8 +15,16 @@ const crypto = webCryptoProvider()
 function vault(available = true) {
   const map = new Map<string, string>()
   const writes: string[] = []
-  const store: SecretVault & { map: Map<string, string>; writes: string[] } = {
-    available,
+  const state = { available }
+  const store: SecretVault & {
+    map: Map<string, string>
+    writes: string[]
+    state: { available: boolean }
+  } = {
+    get available() {
+      return state.available
+    },
+    state,
     map,
     writes,
     get: (key) => Promise.resolve(map.get(key)),
@@ -184,6 +192,27 @@ describe('native PKCE sign-in', () => {
       code: 'unauthenticated',
       message: 'Hermes sign-in was cancelled or failed.',
     })
+  })
+
+  it('deletes the stored tokens on sign-out even after the store stopped encrypting', async () => {
+    const { auth, secrets } = await signedIn()
+    expect(secrets.map.size).toBe(1)
+    // The desktop store reports itself unavailable after one failed encrypt,
+    // while its delete still works.
+    secrets.state.available = false
+    await auth.signOut()
+    expect(secrets.map.size).toBe(0)
+  })
+
+  it('signs out when the store cannot delete, and logs that it could not', async () => {
+    const { auth, secrets, log } = await signedIn()
+    secrets.delete = () => Promise.reject(new Error('disk full (fixture)'))
+    await expect(auth.signOut()).resolves.toBeUndefined()
+    expect(await auth.identity()).toBeUndefined()
+    expect(log.entries.map((entry) => entry.event)).toContain(
+      'auth.stored-tokens-not-deleted',
+    )
+    expect(log.text()).not.toContain('disk full')
   })
 
   it('keeps tokens in memory only when the OS secret store is unavailable', async () => {

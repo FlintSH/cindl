@@ -89,7 +89,9 @@ bearer to public endpoints.
 - Tokens live in the OS-backed store only (Electron `safeStorage`, Android
   Keystore). Without one, Cindl keeps them in memory and says so. Sign-out is
   local: logout does not revoke native tokens, which are stateless (basic
-  provider defaults: 12 h access, 30 d refresh).
+  provider defaults: 12 h access, 30 d refresh). Sign-out always deletes the
+  stored record, even when the store has stopped encrypting, since its
+  delete may still work; a delete that fails is logged.
 - Signing in to another origin is all or nothing in the direct client. A
   working session, with its link, tokens and connection, stays as it is
   until the new sign-in succeeds; a failed or cancelled one leaves it usable
