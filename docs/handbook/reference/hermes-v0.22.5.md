@@ -90,6 +90,12 @@ bearer to public endpoints.
   Keystore). Without one, Cindl keeps them in memory and says so. Sign-out is
   local: logout does not revoke native tokens, which are stateless (basic
   provider defaults: 12 h access, 30 d refresh).
+- Signing in to another origin is all or nothing in the direct client. A
+  working session, with its link, tokens and connection, stays as it is
+  until the new sign-in succeeds; a failed or cancelled one leaves it usable
+  and the error is rethrown. Without a working session the attempt shows as
+  `connecting`, and a failure ends `signed-out` (or `incompatible` for a
+  loopback-token Hermes) with the error as `lastError`.
 
 ## WebSocket `/api/ws`
 

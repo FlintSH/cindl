@@ -160,6 +160,14 @@ export function createDirectClient(deps: DirectClientDeps): DirectClient {
   return new DirectHermesClient(deps)
 }
 
+/** The pieces that talk to one Hermes origin. */
+interface OriginParts {
+  origin: string
+  storage: DirectStorage
+  native: NativeAuth | undefined
+  rest: RestClient
+}
+
 class DirectHermesClient implements DirectClient {
   readonly #deps: DirectClientDeps
   readonly #log: Diagnostics
@@ -338,19 +346,20 @@ class DirectHermesClient implements DirectClient {
     })
   }
 
-  #configure(origin: string): void {
-    this.#origin = origin
-    this.#storage = new DirectStorage(this.#deps.kv, origin, (name) =>
+  /** What talks to one Hermes origin, built before a sign-in and installed once it succeeds. */
+  #parts(origin: string): OriginParts {
+    const storage = new DirectStorage(this.#deps.kv, origin, (name) =>
       this.#log.log('warn', 'direct.storage-failed', { name }),
     )
     const timers: Timers = this.#deps.clock
+    let native: NativeAuth | undefined
     if (this.#deps.auth === 'native-pkce') {
       if (!this.#deps.secrets || !this.#deps.crypto)
         throw new CindlError(
           'invalid',
           'Native sign-in needs a secret store and crypto provider.',
         )
-      this.#native = new NativeAuth({
+      native = new NativeAuth({
         origin,
         fetch: this.#deps.fetch,
         timers,
@@ -358,14 +367,34 @@ class DirectHermesClient implements DirectClient {
         crypto: this.#deps.crypto,
         diagnostics: this.#log,
       })
-    } else this.#native = undefined
-    this.#rest = new RestClient({
+    }
+    const rest = new RestClient({
       origin,
       fetch: this.#deps.fetch,
       timers,
-      auth: this.#native ? this.#native.restAuth() : { kind: 'cookie' },
+      auth: native ? native.restAuth() : { kind: 'cookie' },
       diagnostics: this.#log,
     })
+    return { origin, storage, native, rest }
+  }
+
+  #install(parts: OriginParts): void {
+    this.#origin = parts.origin
+    this.#storage = parts.storage
+    this.#native = parts.native
+    this.#rest = parts.rest
+  }
+
+  #configure(origin: string): void {
+    this.#install(this.#parts(origin))
+  }
+
+  /** Leave the current origin and take up `parts`: nothing of the old session survives. */
+  async #switchTo(parts: OriginParts): Promise<void> {
+    this.stop()
+    this.#reset()
+    this.#install(parts)
+    await this.#loadDevice()
   }
 
   async #loadDevice(): Promise<void> {
@@ -429,14 +458,28 @@ class DirectHermesClient implements DirectClient {
 
   async #checkSignedIn(): Promise<boolean> {
     if (this.#native) return (await this.#native.identity()) !== undefined
+    return this.#rest ? this.#cookieSignedIn(this.#rest) : false
+  }
+
+  /** The web session cookie still answers `GET /api/auth/me`. */
+  async #cookieSignedIn(rest: RestClient): Promise<boolean> {
     try {
-      await this.#rest?.me()
+      await rest.me()
       return true
     } catch (error) {
       const cause = asCindlError(error, 'auth.me')
       if (cause.code === 'unauthenticated') return false
       throw cause
     }
+  }
+
+  #currentParts(): OriginParts {
+    const origin = this.#origin
+    const storage = this.#storage
+    const rest = this.#rest
+    if (!origin || !storage || !rest)
+      throw new CindlError('unavailable', 'Choose a Hermes server first.')
+    return { origin, storage, native: this.#native, rest }
   }
 
   #connect(): void {
@@ -1508,47 +1551,57 @@ class DirectHermesClient implements DirectClient {
     'link.get': () => this.#link,
     'capabilities.get': () => this.#capabilities,
     'auth.signIn': async ({ origin }) => {
-      if (origin !== this.#origin) {
-        this.stop()
-        this.#reset()
-        this.#configure(origin)
-        await this.#loadDevice()
+      // A working session (its link, tokens and connection) stays exactly as
+      // it is until the new sign-in succeeds; a failed or cancelled one leaves
+      // it usable. Without one, the attempt shows on the link and a failure
+      // ends signed-out with the error.
+      const keep = this.#signedIn
+      const switching = origin !== this.#origin
+      const parts = switching ? this.#parts(origin) : this.#currentParts()
+      if (!keep) {
+        if (switching) await this.#switchTo(parts)
+        this.#started = true
+        this.#setLink('connecting')
       }
-      this.#started = true
-      const rest = this.#restOrThrow()
-      this.#setLink('connecting')
-      this.#status = await rest.status()
-      if (this.#status.auth_required === false) {
-        const error = new CindlError('unsupported', LOOPBACK_MODE)
-        this.#setLink('incompatible', error)
-        this.#refreshCapabilities()
-        throw error
-      }
-      if (this.#native) {
-        if (!(this.#status.auth_flows ?? []).includes('native_pkce')) {
-          const error = new CindlError(
-            'unsupported',
-            'This Hermes server does not offer native sign-in (auth_flows has no native_pkce).',
-          )
-          this.#setLink('signed-out', error)
-          throw error
+      let status: wire.StatusResponse | undefined
+      let failed: LinkPhase = 'signed-out'
+      try {
+        status = await parts.rest.status()
+        if (status.auth_required === false) {
+          failed = 'incompatible'
+          throw new CindlError('unsupported', LOOPBACK_MODE)
         }
-        if (!(await this.#native.identity())) {
-          if (!this.#deps.authorizer)
+        if (parts.native) {
+          if (!(status.auth_flows ?? []).includes('native_pkce'))
             throw new CindlError(
-              'unavailable',
-              'This device cannot open the Hermes sign-in page.',
+              'unsupported',
+              'This Hermes server does not offer native sign-in (auth_flows has no native_pkce).',
             )
-          await this.#native.signIn(this.#deps.authorizer)
+          if (!(await parts.native.identity())) {
+            if (!this.#deps.authorizer)
+              throw new CindlError(
+                'unavailable',
+                'This device cannot open the Hermes sign-in page.',
+              )
+            await parts.native.signIn(this.#deps.authorizer)
+          }
+        } else if (!(await this.#cookieSignedIn(parts.rest)))
+          throw new CindlError(
+            'unauthenticated',
+            'Sign in on the Hermes login page, then try again.',
+          )
+      } catch (error) {
+        const cause = asCindlError(error, 'auth.signIn')
+        if (!keep) {
+          if (status) this.#status = status
+          this.#setLink(failed, cause)
+          this.#refreshCapabilities()
         }
-      } else if (!(await this.#checkSignedIn())) {
-        const error = new CindlError(
-          'unauthenticated',
-          'Sign in on the Hermes login page, then try again.',
-        )
-        this.#setLink('signed-out', error)
-        throw error
+        throw cause
       }
+      if (keep && switching) await this.#switchTo(parts)
+      this.#status = status
+      this.#started = true
       this.#signedIn = true
       this.#connect()
       return this.#link

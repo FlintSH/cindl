@@ -119,6 +119,66 @@ describe('direct client: start', () => {
   })
 })
 
+describe('direct client: signing in to another origin', () => {
+  /** Nothing listens on 127.0.0.1:1, so a request there is refused at once. */
+  const UNREACHABLE = 'http://127.0.0.1:1'
+
+  it('keeps the working session when a sign-in elsewhere fails, and rethrows', async () => {
+    const h = await harness()
+    const before = h.store.getState().link
+    const handshakes = h.rpcCalls('client.capabilities')
+    expect(await codeOf(h.client.call('auth.signIn', { origin: UNREACHABLE }))).toBe(
+      'offline',
+    )
+    // A sign-in the owner cancels on another Hermes fails the same way.
+    const other = await fakeHermes({ nativeSignIn: 'deny' })
+    expect(await codeOf(h.client.call('auth.signIn', { origin: other.origin }))).not.toBe(
+      'resolved',
+    )
+    const link = h.store.getState().link
+    expect(link).toMatchObject({
+      phase: 'online',
+      connectionEpoch: before.connectionEpoch,
+    })
+    expect(link.server?.origin).toBe(h.fake.origin)
+    expect(link.lastError).toBeUndefined()
+    // The same connection carries on: no reconnect, and calls still work.
+    expect(h.rpcCalls('client.capabilities')).toBe(handshakes)
+    expect(await h.client.call('conversations.list', {})).toBeDefined()
+  })
+
+  it('switches only once the new sign-in succeeds', async () => {
+    const h = await harness()
+    const other = await fakeHermes()
+    await h.client.call('auth.signIn', { origin: other.origin })
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === other.origin,
+    )
+    await h.waitFor(() => h.fake.gateway.connections.size === 0)
+  })
+
+  it('ends a failed first sign-in signed out with the error, not connecting', async () => {
+    const fake = await fakeHermes({ nativeSignIn: 'deny' })
+    const h = await harness({ fake, signIn: false })
+    const refused = await codeOf(h.client.call('auth.signIn', { origin: fake.origin }))
+    expect(refused).not.toBe('resolved')
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      lastError: { code: refused },
+    })
+    expect(await codeOf(h.client.call('auth.signIn', { origin: UNREACHABLE }))).toBe(
+      'offline',
+    )
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      lastError: { code: 'offline' },
+      server: { origin: UNREACHABLE },
+    })
+  })
+})
+
 describe('direct client: sign-in, capabilities and conversations', () => {
   it('signs in, goes online and negotiates honest capabilities', async () => {
     const h = await harness()
