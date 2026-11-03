@@ -6,7 +6,7 @@ import {
 } from '@cindl/fixtures/fake-hermes'
 import type { DiagnosticEntry } from '@cindl/hermes-adapter'
 import { describe, expect, it, vi } from 'vitest'
-import { LiveScreen } from '../src/direct/screen.ts'
+import { LiveScreen, type ObservedScreen } from '../src/direct/screen.ts'
 import {
   systemClock,
   type BinaryWebSocketFactory,
@@ -316,6 +316,23 @@ describe('direct client: live screen', () => {
     expect(ended?.message).toMatch(/not running/)
   })
 
+  it('keeps one screen socket when two watches race, and only the last view', async () => {
+    const { h } = await live()
+    const [first, second] = await Promise.all([
+      h.client.call('display.watch', {}),
+      h.client.call('display.watch', {}),
+    ])
+    expect(first.viewId).not.toBe(second.viewId)
+    await h.waitFor(() => viewers(h).length === 1)
+    expect(await codeOf(h.client.call('display.frame', { viewId: first.viewId }))).toBe(
+      'not-found',
+    )
+    const frame = await h.client.call('display.frame', { viewId: second.viewId })
+    expect(frame.regions.length).toBeGreaterThan(0)
+    await h.client.call('display.unwatch', { viewId: second.viewId })
+    await h.waitFor(() => viewers(h).length === 0)
+  })
+
   it('ignores screen events for another Hermes profile', async () => {
     const { h } = await live()
     const { viewId } = await h.client.call('display.watch', {})
@@ -365,42 +382,70 @@ describe('direct client: live screen', () => {
   })
 })
 
-describe('live screen: the ticket', () => {
-  function screen(path: string, opened: string[]) {
-    const sockets: BinaryWebSocketLike[] = []
-    const live = new LiveScreen({
-      factory: (url) => {
-        opened.push(url)
-        const socket: BinaryWebSocketLike = {
-          readyState: 0,
-          send: () => undefined,
-          close: () => undefined,
-          onopen: null,
-          onmessage: null,
-          onclose: null,
-          onerror: null,
-        }
-        sockets.push(socket)
-        return socket
-      },
-      clock: systemClock,
-      origin: () => 'https://hermes.example.test',
-      observe: () =>
-        Promise.resolve({ ticket: 'fixture-ticket', path, viewerId: 'fixture-viewer' }),
-      holdsLease: () => false,
-      newViewId: () => 'view-fixture01',
-      log: () => undefined,
-    })
-    return { live, sockets }
-  }
+/** A stub screen socket: records what LiveScreen sends and how it closes it. */
+interface StubSocket extends BinaryWebSocketLike {
+  readonly closes: Array<[number | undefined, string | undefined]>
+  /** Server bytes, as if they arrived on the socket. */
+  feed(bytes: ArrayLike<number>): void
+  /** Hermes closes the socket. */
+  drop(code: number): void
+}
 
+/** A LiveScreen over stub sockets; `observe` defaults to an immediate ticket. */
+function stubScreen(
+  options: { path?: string; observe?: () => Promise<ObservedScreen> } = {},
+) {
+  const opened: string[] = []
+  const sockets: StubSocket[] = []
+  const logs: string[] = []
+  const live = new LiveScreen({
+    factory: (url) => {
+      opened.push(url)
+      const socket: StubSocket = {
+        readyState: 1,
+        closes: [],
+        send: () => undefined,
+        close(code, reason) {
+          this.closes.push([code, reason])
+        },
+        feed(bytes) {
+          this.onmessage?.({ data: Uint8Array.from(bytes) })
+        },
+        drop(code) {
+          this.onclose?.({ code, reason: '' })
+        },
+        onopen: null,
+        onmessage: null,
+        onclose: null,
+        onerror: null,
+      }
+      sockets.push(socket)
+      return socket
+    },
+    clock: systemClock,
+    origin: () => 'https://hermes.example.test',
+    observe:
+      options.observe ??
+      (() =>
+        Promise.resolve({
+          ticket: 'fixture-ticket',
+          path: options.path ?? '/api/display/ws',
+          viewerId: 'fixture-viewer',
+        })),
+    holdsLease: () => false,
+    newViewId: () => 'view-fixture01',
+    log: (event) => logs.push(event),
+  })
+  return { live, opened, sockets, logs }
+}
+
+describe('live screen: the ticket', () => {
   it('sends it only to the pinned route on the Hermes origin, over wss', async () => {
-    const opened: string[] = []
-    const { live, sockets } = screen('/api/display/ws', opened)
+    const { live, opened, sockets } = stubScreen()
     const watching = live.watch()
     await vi.waitFor(() => expect(sockets).toHaveLength(1))
     // Hermes refuses a spent ticket with 4401.
-    sockets[0]?.onclose?.({ code: 4401, reason: '' })
+    sockets[0]?.drop(4401)
     expect(await codeOf(watching)).toBe('unavailable')
     expect(opened).toEqual([
       'wss://hermes.example.test/api/display/ws?display_ticket=fixture-ticket',
@@ -408,9 +453,43 @@ describe('live screen: the ticket', () => {
   })
 
   it('refuses a path Hermes v0.22.5 never returns, without opening anything', async () => {
-    const opened: string[] = []
-    const { live } = screen('wss://elsewhere.invalid/api/display/ws', opened)
+    const { live, opened } = stubScreen({
+      path: 'wss://elsewhere.invalid/api/display/ws',
+    })
     expect(await codeOf(live.watch())).toBe('protocol')
+    expect(opened).toEqual([])
+  })
+})
+
+describe('live screen: closing', () => {
+  it('closes a socket still in its handshake at once and settles the watch', async () => {
+    const { live, sockets } = stubScreen()
+    const watching = live.watch()
+    await vi.waitFor(() => expect(sockets).toHaveLength(1))
+    const started = Date.now()
+    live.close()
+    expect(await codeOf(watching)).toBe('not-found')
+    expect(Date.now() - started).toBeLessThan(1_000)
+    expect(sockets[0]?.closes).toEqual([[1000, 'unwatch']])
+  })
+
+  it('opens nothing for a watch still waiting for its ticket when the screen closes', async () => {
+    let answer: (observed: ObservedScreen) => void = () => undefined
+    const { live, opened } = stubScreen({
+      observe: () =>
+        new Promise((resolve) => {
+          answer = resolve
+        }),
+    })
+    const watching = live.watch()
+    await vi.waitFor(() => expect(answer).not.toBe(undefined))
+    live.close()
+    answer({
+      ticket: 'fixture-ticket',
+      path: '/api/display/ws',
+      viewerId: 'fixture-viewer',
+    })
+    expect(await codeOf(watching)).toBe('not-found')
     expect(opened).toEqual([])
   })
 })

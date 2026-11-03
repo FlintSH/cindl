@@ -55,7 +55,11 @@ interface View {
   ended: CindlError | undefined
   /** Wakes a waiting `display.frame`. */
   wake: (() => void) | undefined
+  /** Settles a handshake still in progress when the view ends. */
+  abort: ((error: CindlError) => void) | undefined
 }
+
+const closedError = () => new CindlError('not-found', 'That screen view was closed.')
 
 export const screenStoppedError = () =>
   new CindlError('unavailable', 'The agent screen is not running. Cindl never starts it.')
@@ -71,6 +75,13 @@ export const screenStoppedError = () =>
 export class LiveScreen {
   readonly #options: LiveScreenOptions
   #view: View | undefined
+  /**
+   * Watches run one at a time and a view that ends aborts its handshake, so
+   * the only open socket is the current view's: ending it closes them all.
+   */
+  #queue: Promise<unknown> = Promise.resolve()
+  /** Bumped by close(): a watch still waiting for its ticket then opens nothing. */
+  #generation = 0
 
   constructor(options: LiveScreenOptions) {
     this.#options = options
@@ -82,9 +93,21 @@ export class LiveScreen {
   }
 
   /** One view at a time: watching again replaces the view and keeps its viewer id. */
-  async watch(): Promise<DisplayView> {
+  watch(): Promise<DisplayView> {
+    return this.#serial(() => this.#watch())
+  }
+
+  #serial<T>(task: () => Promise<T>): Promise<T> {
+    const run = this.#queue.then(task, task)
+    this.#queue = run.catch(() => undefined)
+    return run
+  }
+
+  async #watch(): Promise<DisplayView> {
+    const generation = this.#generation
     this.#end(CLOSE_KEEP_LEASE)
     const observed = await this.#options.observe()
+    if (generation !== this.#generation) throw closedError()
     const view: View = {
       viewId: this.#options.newViewId(),
       viewerId: observed.viewerId,
@@ -95,6 +118,7 @@ export class LiveScreen {
       painted: false,
       ended: undefined,
       wake: undefined,
+      abort: undefined,
     }
     this.#view = view
     try {
@@ -187,7 +211,11 @@ export class LiveScreen {
    * handing control back, so a lease it held stays with the human until
    * `display.lease.acquire` moves it.
    */
-  async rewatch(): Promise<void> {
+  rewatch(): Promise<void> {
+    return this.#serial(() => this.#rewatch())
+  }
+
+  async #rewatch(): Promise<void> {
     const view = this.#view
     if (!view) return
     try {
@@ -211,8 +239,9 @@ export class LiveScreen {
     }
   }
 
-  /** Sign-out, a new origin or stop(): close the view and hand control back. */
+  /** Sign-out, a new origin or stop(): close the view, handing control back, and cancel any watch. */
   close(): void {
+    this.#generation++
     this.#end(CLOSE_DONE)
   }
 
@@ -220,8 +249,10 @@ export class LiveScreen {
     const view = this.#view
     if (!view) return
     this.#view = undefined
-    view.ended = new CindlError('not-found', 'That screen view was closed.')
+    const why = closedError()
+    view.ended = why
     this.#closeSocket(view, code)
+    view.abort?.(why)
     view.wake?.()
   }
 
@@ -277,10 +308,19 @@ export class LiveScreen {
       let settled = false
       const timer = this.#options.clock.setTimeout(() => {
         if (settled) return
-        settled = true
         this.#closeSocket(view, CLOSE_KEEP_LEASE)
-        reject(new CindlError('timeout', 'The screen did not answer in time.'))
+        settle(new CindlError('timeout', 'The screen did not answer in time.'))
       }, READY_TIMEOUT_MS)
+      const settle = (error?: CindlError): boolean => {
+        if (settled) return false
+        settled = true
+        view.abort = undefined
+        this.#options.clock.clearTimeout(timer)
+        if (error) reject(error)
+        else resolve()
+        return true
+      }
+      view.abort = (error) => settle(error)
       const rfb = createRfbClient({
         send: (bytes) => {
           if (socket.readyState === 1) socket.send(bytes)
@@ -289,10 +329,7 @@ export class LiveScreen {
           view.size = size
           // The handshake ends with a request for the whole screen.
           view.requested = true
-          if (settled) return
-          settled = true
-          this.#options.clock.clearTimeout(timer)
-          resolve()
+          settle()
         },
         onUpdate: () => {
           view.requested = false
@@ -320,17 +357,12 @@ export class LiveScreen {
         view.rfb?.close()
         view.rfb = undefined
         view.requested = false
-        if (!settled) {
-          settled = true
-          this.#options.clock.clearTimeout(timer)
-          reject(
-            event.code === displayCloseCodes.screenStopped
-              ? screenStoppedError()
-              : new CindlError('unavailable', 'Hermes closed the screen connection.'),
-          )
-          return
-        }
-        this.#closed(view, event.code)
+        const failed = settle(
+          event.code === displayCloseCodes.screenStopped
+            ? screenStoppedError()
+            : new CindlError('unavailable', 'Hermes closed the screen connection.'),
+        )
+        if (!failed) this.#closed(view, event.code)
       }
     })
   }

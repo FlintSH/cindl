@@ -488,7 +488,9 @@ The direct client shows the screen (ADR 0012) in
 - One view at a time. Watching again keeps the viewer id this connection
   minted (Hermes honours a requested id only for the connection that minted
   it, `methods_display.py:127-136`), so a lease taken before watching applies
-  to the view.
+  to the view. Watches run one after another, so two racing calls leave one
+  socket and the later view; ending a view settles its handshake at once, and
+  sign-out or `stop()` also cancels a watch still waiting for its ticket.
 - `display.frame` returns what changed, waiting up to 2 s for a change. It
   keeps at most one update request in flight, and it never returns the blank
   framebuffer of a socket that has not painted yet.
