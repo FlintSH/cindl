@@ -142,7 +142,9 @@ tooling never enters the runtime workspace. Commands are in
   working tree had uncommitted changes, and the build time, all read from Git
   at build time. The same data is in `build-info.json` at the site root. There
   is no hardcoded version or branch. A build from a source archive without Git
-  says the commit is unknown, or uses `GITHUB_SHA` in CI.
+  says the commit is unknown, or uses `GITHUB_SHA` in CI. On a pull request, CI
+  builds GitHub's merge of the branch into `main`, so the stamp and the
+  `handbook-<commit>` artifact name show that merge commit, not the branch head.
 - **Look.** The theme maps VitePress onto Cindl's semantic tokens and bundled
   fonts from `packages/tokens`. Text and interface colours use only the colour
   pairings the token tests check for contrast; code block syntax colours come
