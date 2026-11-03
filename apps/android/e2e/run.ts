@@ -33,6 +33,7 @@ import {
   findAll,
   flatten,
   height,
+  hiddenBeneath,
   interactiveWithin,
   label,
   linkTapPoints,
@@ -86,6 +87,8 @@ const audits: Array<{ screen: string } & TargetAudit> = []
 interface StepContext {
   note: (line: string) => void
   shot: (name: string) => void
+  /** Keeps a dump as evidence (device.keepDump), or says why it was not kept. */
+  keep: (name: string, dumped: { root: UiNode; xml: string }) => void
   audit: (screen: string, root?: UiNode) => Promise<void>
 }
 
@@ -104,6 +107,11 @@ async function step(name: string, body: (context: StepContext) => Promise<void>)
   const context: StepContext = {
     note: detail,
     shot: capture,
+    keep: (dumpName, dumped) => {
+      const file = device.keepDump(dumpName, dumped)
+      if (file) record.evidence.push(file)
+      else detail(`${dumpName}: not kept, the dump shows another app than Cindl`)
+    },
     audit: async (screen, root) => {
       const result = await device.audit(root)
       audits.push({ screen, ...result })
@@ -538,7 +546,7 @@ async function demoSuite() {
 
   await step(
     'Agent output: a link asks before opening, an image is withheld',
-    async ({ note, shot, audit }) => {
+    async ({ note, shot, keep, audit }) => {
       await startOnTalk()
       await device.tap(
         (text) => text.endsWith('Switch conversation'),
@@ -578,6 +586,24 @@ async function demoSuite() {
           throw new Error(`The link confirmation does not show "${expected}"`)
       shot('link-confirmation')
       await audit('Link confirmation', dialog.root)
+      // What TalkBack is given: a compressed dump lists only the views important for
+      // accessibility, so it must hold the dialog and nothing of the reply or the
+      // navigation beneath it (AppShell hides them; ui.ts hiddenBeneath).
+      const talkback = await device.accessibilityDump()
+      keep('link-confirmation-talkback', talkback)
+      const hiding = hiddenBeneath(dialog.root, talkback.root)
+      if (!hiding.ok)
+        throw new Error(
+          `TalkBack is not given the link confirmation alone: ${hiding.leaked.length} labels from beneath it (${hiding.leaked
+            .slice(0, 5)
+            .map((text) => `"${text}"`)
+            .join(', ')}), ${hiding.missing.length} of its own missing (${hiding.missing
+            .map((text) => `"${text}"`)
+            .join(', ')})`,
+        )
+      note(
+        `TalkBack is given the link confirmation alone: a compressed dump holds its ${hiding.shown.length} labels and none of the ${hiding.beneath} beneath it`,
+      )
       await device.tap('Cancel', 'Cancel')
       await device.waitUntilGone('Open this link?', 'The link confirmation')
       const focus = device.shell('dumpsys window | grep -E "mCurrentFocus" || true')

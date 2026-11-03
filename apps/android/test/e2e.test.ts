@@ -13,6 +13,7 @@ import {
   find,
   findAll,
   findTappable,
+  hiddenBeneath,
   interactiveWithin,
   label,
   linkTapPoints,
@@ -298,6 +299,48 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
       exemptInline: 1,
       issues: [],
     })
+  })
+
+  it('sees in a compressed dump that TalkBack is given the dialog alone', () => {
+    const full = parseUi(
+      dump(
+        `${WINDOW}${CONTAINER}${EMPTY}${SCRIM_BRANCH}${SCRIM}</node>${CONTENT}${PARAGRAPH}${SPAN}</node></node>${CARD}${TITLE}${CANCEL}${OPEN}</node></node></node>`,
+      ),
+    )
+    // A compressed dump keeps only what is important for accessibility: the dialog.
+    expect(
+      hiddenBeneath(full, parseUi(dump(`${WINDOW}${TITLE}${CANCEL}${OPEN}</node>`))),
+    ).toEqual({
+      ok: true,
+      shown: ['Open this link?', 'Cancel', 'Open in browser'],
+      missing: [],
+      leaked: [],
+      beneath: 2,
+    })
+    // The reply beneath still given to TalkBack.
+    expect(
+      hiddenBeneath(
+        full,
+        parseUi(
+          dump(`${WINDOW}${TITLE}${CANCEL}${OPEN}${PARAGRAPH}${SPAN}</node></node>`),
+        ),
+      ),
+    ).toMatchObject({
+      ok: false,
+      leaked: [
+        'Harbor Loft (fictional) has its directions on the venue page (harbor-loft.example.test). They also sent a floor plan:',
+        'the venue page',
+      ],
+    })
+    // One of the dialog's own labels not given.
+    expect(
+      hiddenBeneath(full, parseUi(dump(`${WINDOW}${TITLE}${OPEN}</node>`))),
+    ).toMatchObject({ ok: false, missing: ['Cancel'] })
+    // Nothing open: there is no overlay to hide anything.
+    const reply = parseUi(
+      dump(`${WINDOW}${CONTENT}${PARAGRAPH}${SPAN}</node></node></node>`),
+    )
+    expect(hiddenBeneath(reply, reply).ok).toBe(false)
   })
 
   // 22dp at density 420 (2.625px per dp).

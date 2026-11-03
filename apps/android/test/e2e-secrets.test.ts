@@ -310,6 +310,7 @@ const FAKE_ADB = `#!/usr/bin/env node
 const fs = require('node:fs')
 const [verb, command = ''] = process.argv.slice(2)
 const env = process.env
+if (env.FAKE_ADB_CALLS) fs.appendFileSync(env.FAKE_ADB_CALLS, verb + ' ' + command + '\\n')
 const front = env.FAKE_ADB_FRONT
 const switched = env.FAKE_ADB_MARK !== undefined && fs.existsSync(env.FAKE_ADB_MARK)
 const now = switched ? env.FAKE_ADB_AFTER : front
@@ -490,6 +491,43 @@ describe('what the device helper keeps', () => {
         'FAKE_ADB_MARK',
         'FAKE_ADB_AFTER',
       ])
+        Reflect.deleteProperty(process.env, key)
+    }
+  })
+
+  it('keeps what TalkBack is given apart from the last dump, scrubbed, and only when it is Cindl alone', async () => {
+    const dir = scratch()
+    const adb = join(dir, 'adb')
+    writeFileSync(adb, FAKE_ADB, { mode: 0o755 })
+    const out = join(dir, 'out')
+    mkdirSync(out)
+    const secrets = new RunSecrets()
+    secrets.add('code', CODE)
+    const device = createDevice({ adb, out, scrub: (text) => secrets.scrub(text) })
+    try {
+      process.env.FAKE_ADB_CALLS = join(dir, 'calls')
+      process.env.FAKE_ADB_FRONT = 'dev.fl1nt.cindl'
+      process.env.FAKE_ADB_TEXT = 'Open this link?'
+      await device.dump()
+      process.env.FAKE_ADB_TEXT = `Signed in with ${CODE}`
+      const talkback = await device.accessibilityDump()
+      expect(readFileSync(join(dir, 'calls'), 'utf8')).toContain(
+        'shell uiautomator dump --compressed /sdcard/cindl-ui.xml',
+      )
+      expect(talkback.xml).toContain(`Signed in with ${CODE}`)
+      // The last full dump, which a screenshot keeps beside it, is still the dialog's.
+      expect(device.lastXml()).toContain('Open this link?')
+      expect(device.keepDump('link-confirmation-talkback', talkback)).toBe(
+        '01-link-confirmation-talkback.xml',
+      )
+      const kept = readFileSync(join(out, '01-link-confirmation-talkback.xml'), 'utf8')
+      expect(kept).toContain('Signed in with [issued-code]')
+      expect(kept).not.toContain(CODE)
+      process.env.FAKE_ADB_FRONT = 'org.chromium.webview_shell'
+      expect(device.keepDump('browser', await device.accessibilityDump())).toBeUndefined()
+      expect(readdirSync(out)).toEqual(['01-link-confirmation-talkback.xml'])
+    } finally {
+      for (const key of ['FAKE_ADB_CALLS', 'FAKE_ADB_FRONT', 'FAKE_ADB_TEXT'])
         Reflect.deleteProperty(process.env, key)
     }
   })

@@ -201,6 +201,48 @@ export function reachable(root: UiNode): UiNode[] {
   return all
 }
 
+/**
+ * What TalkBack is given of a screen with a dialog or sheet open, from a
+ * compressed dump of it (`uiautomator dump --compressed` lists only the views
+ * important for accessibility) against the full dump of the same moment. The
+ * overlay's labels (what `reachable` gives) must all be in it, and none of
+ * the labels beneath it (a label in both counts as the overlay's). `ok` when
+ * there is an overlay with labels, all of them shown and none from beneath.
+ */
+export function hiddenBeneath(
+  full: UiNode,
+  compressed: UiNode,
+): {
+  ok: boolean
+  shown: string[]
+  missing: string[]
+  leaked: string[]
+  beneath: number
+} {
+  const above = new Set(reachable(full))
+  const labels = (nodes: UiNode[]) =>
+    new Set(nodes.map(label).filter((text) => text.trim() !== ''))
+  const overlay = labels([...above])
+  const beneath = [...labels(flatten(full).filter((node) => !above.has(node)))].filter(
+    (text) => !overlay.has(text),
+  )
+  const given = labels(flatten(compressed))
+  const shown = [...overlay].filter((text) => given.has(text))
+  const missing = [...overlay].filter((text) => !given.has(text))
+  const leaked = beneath.filter((text) => given.has(text))
+  return {
+    ok:
+      overlayOpen(full) &&
+      shown.length > 0 &&
+      missing.length === 0 &&
+      leaked.length === 0,
+    shown,
+    missing,
+    leaked,
+    beneath: beneath.length,
+  }
+}
+
 export type Match = string | RegExp | ((label: string, node: UiNode) => boolean)
 
 export function matches(node: UiNode, match: Match): boolean {

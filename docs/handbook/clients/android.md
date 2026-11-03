@@ -144,7 +144,10 @@ until the owner decides about those terms.
   (Allow once and Deny only) and the question set; the sudo prompt's card
   offering nothing to send; agent output with a link (its host shown, a
   confirmation with the full address before anything opens, from a tap on the
-  link's text on either of its two lines) and a withheld remote image; a memory entry's delete warning and a reviewed
+  link's text on either of its two lines, and while it is open, all TalkBack
+  is given: a compressed uiautomator dump, which lists only the views
+  important for accessibility, holds every label of the dialog and none of
+  the screen beneath it) and a withheld remote image; a memory entry's delete warning and a reviewed
   edit; the demo's synthetic screen drawn live in Work, Computer (a pixel
   of its desktop read back from the screen) and, after taking control, a tap
   drawing its orange pointer marker where it landed; sending a message with the
@@ -472,7 +475,8 @@ Hermes server, Chrome's Custom Tab, and a phone.
   scrim takes every touch there; focus moves to the overlay's title when it
   opens. The emulator tests audit touch targets the same way: only what the
   owner can reach, so while an overlay is open only what is drawn above its
-  scrim (uiautomator's dump still lists the hidden nodes beneath it). When
+  scrim (uiautomator's full dump still lists the hidden nodes beneath it;
+  its compressed dump, what TalkBack is given, does not). When
   nothing is drawn above it (a dump without drawing orders), every node
   counts, and a screen where no target is measured fails the audit, as a run
   that measures none does. A link inside a sentence is

@@ -48,21 +48,47 @@ export function createDevice(options: {
   let lastRoot: UiNode | undefined
   let shots = 0
 
-  const dump = async (): Promise<UiNode> => {
+  /** A uiautomator dump's XML, retried while the device has none to give. */
+  const hierarchy = async (flags: string): Promise<string> => {
     for (let attempt = 1; ; attempt++) {
       try {
-        shell('uiautomator dump /sdcard/cindl-ui.xml', 30_000)
-        lastXml = run(['exec-out', 'cat', '/sdcard/cindl-ui.xml'])
-        if (lastXml.includes('<hierarchy')) {
-          lastRoot = parseUi(lastXml)
-          return lastRoot
-        }
+        shell(`uiautomator dump ${flags}/sdcard/cindl-ui.xml`, 30_000)
+        const xml = run(['exec-out', 'cat', '/sdcard/cindl-ui.xml'])
+        if (xml.includes('<hierarchy')) return xml
       } catch (error) {
         if (attempt >= 6) throw error
       }
       if (attempt >= 6) throw new Error('uiautomator dump returned no hierarchy')
       await sleep(1000)
     }
+  }
+
+  const dump = async (): Promise<UiNode> => {
+    lastXml = await hierarchy('')
+    lastRoot = parseUi(lastXml)
+    return lastRoot
+  }
+
+  /**
+   * What TalkBack is given: a dump of only the views important for
+   * accessibility (`--compressed`). It is not the last dump the other helpers
+   * read, nor the one kept beside a screenshot.
+   */
+  const accessibilityDump = async (): Promise<{ root: UiNode; xml: string }> => {
+    const xml = await hierarchy('--compressed ')
+    return { root: parseUi(xml), xml }
+  }
+
+  /** A dump as a file in the output directory, scrubbed, only when it shows Cindl alone. */
+  const keepDump = (
+    name: string,
+    { root, xml }: { root: UiNode; xml: string },
+  ): string | undefined => {
+    if (!onlyApp(root, PACKAGE)) return undefined
+    shots += 1
+    const file = `${String(shots).padStart(2, '0')}-${name}.xml`
+    writeFileSync(join(options.out, file), scrub(xml))
+    return file
   }
 
   /** Slow emulators sometimes show "… isn't responding" for system UI; keep waiting. */
@@ -257,6 +283,8 @@ export function createDevice(options: {
     run,
     shell,
     dump,
+    accessibilityDump,
+    keepDump,
     waitFor,
     reveal,
     tapAt,
