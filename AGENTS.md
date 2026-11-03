@@ -46,22 +46,29 @@ Toolchain: Node `24.21.0` (`.node-version`), pnpm `11.18.0` (`packageManager`).
 
 ```sh
 pnpm install --frozen-lockfile     # one lockfile for all runtime packages
-pnpm verify                        # format:check, lint, typecheck, test, check:tokens
+pnpm verify                        # all of the below except docs impact, docs build and e2e
 pnpm test                          # every package/app with a vitest.config.ts
 pnpm typecheck                     # tsc per workspace package
 pnpm lint                          # ESLint, zero warnings allowed
 pnpm format                        # Prettier write
 pnpm check:tokens                  # generated tokens.css/fonts.css are current
+pnpm check:privacy                 # secrets, private hosts and personal data in tracked files
+pnpm check:license                 # MIT line, package licences, third-party notices
+pnpm check:docs                    # handbook covers the contract; generated tables current
+pnpm check:dist                    # both web builds, then fixture markers and demo label
+pnpm test:gates                    # tests of the gate scripts themselves
+pnpm check:docs-impact --base <sha> # each commit updates its docs or says why not
+pnpm docs:build                    # the handbook site (docs/handbook is its own pnpm project)
 pnpm --filter @cindl/web dev:demo  # web UI on 127.0.0.1:5173 with the SYNTHETIC demo
 pnpm --filter @cindl/web build     # production web build (no demo data)
 pnpm test:e2e                      # web flow tests on the demo build (Playwright)
 ```
 
-Gates that are **not built yet** (owned by the docs/quality stream; do not claim
-them): privacy/secret scan, the dist gate for fixture markers and the demo
-label, per-commit docs-impact check, docs site build and link check,
-contract/docs coverage check, CI workflows, desktop and Android builds. Until
-they exist, run the commands above and review privacy by hand.
+CI (`.github/workflows/ci.yml`, `docs.yml`) runs these gates and the web
+end-to-end suite on GitHub-hosted runners; see
+[`docs/handbook/development/quality-gates.md`](docs/handbook/development/quality-gates.md).
+Not built yet (do not claim them): desktop and Android CI builds, which land
+with their streams, and the dist gate for desktop and Android outputs.
 
 pnpm refuses dependency install scripts unless listed in `allowBuilds`
 (`pnpm-workspace.yaml`) and refuses releases younger than its minimum release
@@ -93,8 +100,8 @@ age. Keep both protections: pick an older version instead of adding exclusions.
    a universal spending/sending policy engine.
 5. **Fixtures are synthetic and labelled.** Synthetic records exist only in
    demo flavours (web `build:demo`, desktop and Android demo builds); real
-   builds contain no fixture records (`SYNTHETIC_FIXTURE_MARKERS`; the dist
-   gate is not built yet). The demo label (`SYNTHETIC_DEMO_LABEL`/`SYNTHETIC_DEMO_NOTICE`) stays in
+   builds contain no fixture records (`SYNTHETIC_FIXTURE_MARKERS`, checked by
+   `pnpm check:dist` for web). The demo label (`SYNTHETIC_DEMO_LABEL`/`SYNTHETIC_DEMO_NOTICE`) stays in
    every renderer and shows whenever `link.demo` is true; never compile it out.
    A test double is never a silent production fallback (ADR 0011).
 6. **Owner edits are explicit and versioned.** SOUL/skill writes go through

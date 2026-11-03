@@ -19,7 +19,15 @@
     "test:e2e": "pnpm --filter @cindl/web run test:e2e",
     "build": "pnpm -r --workspace-concurrency=1 run build",
     "check:tokens": "pnpm --filter @cindl/tokens run check",
-    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm check:tokens",
+    "check:privacy": "node scripts/check-privacy.mjs",
+    "check:license": "node scripts/check-license.mjs",
+    "check:docs": "node scripts/check-docs-coverage.mjs && node scripts/generate-docs-reference.mjs --check",
+    "check:docs-impact": "node scripts/check-docs-impact.mjs",
+    "check:dist": "pnpm --filter @cindl/web build && pnpm --filter @cindl/web build:demo && node scripts/check-dist.mjs --real apps/web/dist --demo apps/web/dist-demo",
+    "docs:reference": "node scripts/generate-docs-reference.mjs",
+    "docs:build": "pnpm --dir docs/handbook build",
+    "test:gates": "node --test \"scripts/test/*.test.mjs\"",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm check:tokens && pnpm check:privacy && pnpm check:license && pnpm check:docs && pnpm test:gates && pnpm check:dist",
     "dev:web:demo": "pnpm --filter @cindl/web run dev:demo"
   },
   "devDependencies": {

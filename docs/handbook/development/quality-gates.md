@@ -33,8 +33,11 @@ for 14 days). Nothing is deployed or published anywhere.
 ## Verify
 
 `pnpm verify` runs Prettier in check mode, ESLint with zero warnings allowed,
-`tsc` for every workspace package, every Vitest project, and the check that the
-generated token CSS matches `packages/tokens/src`. Fix formatting with
+`tsc` for every workspace package, every Vitest project, the check that the
+generated token CSS matches `packages/tokens/src`, then the privacy scan, the
+licence check, docs coverage with the generated tables, the gates' own tests,
+and both web builds followed by the build-output gate. Each gate also has its
+own `pnpm check:*` alias in the root `package.json`. Fix formatting with
 `pnpm format`. See [Testing](testing.md) for the test layout.
 
 The gates themselves are linted by `scripts/eslint.config.mjs`, which spreads

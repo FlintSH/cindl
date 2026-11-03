@@ -24,11 +24,11 @@ synthetic record may ship in a build that connects to a real Hermes.
   persistent notice and a demo document or window title. Packaged demo
   flavours also carry the product name `Cindl Demo`. A demo is therefore
   labelled twice: by the running UI and by the package identity.
-- **Gates.** A dist gate is to fail a real-flavour output that contains any
-  fixture marker, and a demo-flavour output that lacks the label. It is not
-  built yet (the docs/quality stream owns it); until it runs, the check is
-  manual. Lint forbids importing fixtures from production code paths except
-  the explicit, build-flag-gated demo switches.
+- **Gates.** `scripts/check-dist.mjs` fails a real-flavour output that
+  contains any fixture marker, and a demo-flavour output that lacks the label
+  (`pnpm check:dist` for web, in `pnpm verify` and CI; desktop and Android
+  outputs join as their builds land). Lint forbids importing fixtures from
+  production code paths except the explicit, build-flag-gated demo switches.
 - Integration tests of the real adapter use a fake Hermes server built from
   the vendored upstream contract (in progress), never this scenario.
 

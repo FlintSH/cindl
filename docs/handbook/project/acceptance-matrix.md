@@ -36,14 +36,14 @@ re-run or inspect.
 
 ## Security and privacy
 
-| Requirement                                                                           | Status      | Evidence / gap                                                          |
-| ------------------------------------------------------------------------------------- | ----------- | ----------------------------------------------------------------------- |
-| No tokens in renderer/browser storage                                                 | partial     | Lint rules; platform storage implementations pending                    |
-| Redaction of tickets, tokens, keys in diagnostics                                     | partial     | Review found gaps; fixes and regressions in progress (transport stream) |
-| Safe rendering of agent output                                                        | partial     | Web: `apps/web/test/markdown.test.tsx`; Android in progress             |
-| Auth denial, origin/CSRF, traversal, approval replay/expiry, reconnect, offline tests | not started | Adapter/desktop/android streams                                         |
-| Automated privacy/secret scan                                                         | not started | Docs/quality stream                                                     |
-| Threat model                                                                          | done        | `docs/handbook/security/threat-model.md`                                |
+| Requirement                                                                           | Status      | Evidence / gap                                                                                    |
+| ------------------------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------------------------------------- |
+| No tokens in renderer/browser storage                                                 | partial     | Lint rules; platform storage implementations pending                                              |
+| Redaction of tickets, tokens, keys in diagnostics                                     | partial     | Review found gaps; fixes and regressions in progress (transport stream)                           |
+| Safe rendering of agent output                                                        | partial     | Web: `apps/web/test/markdown.test.tsx`; Android in progress                                       |
+| Auth denial, origin/CSRF, traversal, approval replay/expiry, reconnect, offline tests | not started | Adapter/desktop/android streams                                                                   |
+| Automated privacy/secret scan                                                         | done        | `scripts/check-privacy.mjs` in `pnpm verify` and `ci.yml`; screenshots are still reviewed by hand |
+| Threat model                                                                          | done        | `docs/handbook/security/threat-model.md`                                                          |
 
 ## Quality, docs and delivery
 
@@ -51,8 +51,8 @@ re-run or inspect.
 | ------------------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | Reproducible bootstrap and `pnpm verify`                      | done                  | Root `package.json`, lockfile, `AGENTS.md`                                                                                                                                                                          |
 | Contrast-tested design tokens                                 | done                  | `packages/tokens/test/tokens.test.ts`                                                                                                                                                                               |
-| AI-native guidance: root + scoped `AGENTS.md`, handbook, ADRs | partial               | Present; docs site, coverage and docs-impact gates pending                                                                                                                                                          |
-| CI that reflects tested support only                          | not started           | Docs/quality, desktop, Android streams                                                                                                                                                                              |
+| AI-native guidance: root + scoped `AGENTS.md`, handbook, ADRs | done                  | Root and scoped `AGENTS.md`, VitePress handbook built in `docs.yml`, docs coverage and per-commit docs-impact gates in CI                                                                                           |
+| CI that reflects tested support only                          | partial               | Web and docs: `ci.yml` (verify, gates, both web builds, `check-dist`, e2e) and `docs.yml` on GitHub-hosted runners; desktop and Android CI land with their streams                                                  |
 | Downloadable APK and desktop artifact                         | in progress / partial | APK: SDK licences approved for GitHub-hosted builds only (ADR 0008); no APK built yet. Desktop: Linux AppImage built by the desktop stream; packaged smoke at the final SHA pending                                 |
 | Browser QA with screenshots at phone/tablet/desktop           | partial               | Web: `apps/web/e2e` (flows, 44px targets, contrast, axe, scroll) on the synthetic demo; desktop/Android pending                                                                                                     |
 | Electron launch smoke, Android emulator smoke                 | partial / in progress | Electron: unpacked and packaged smoke reported by the desktop stream, sandbox-on case not runnable on the dev VM, rerun at the final SHA pending; Android emulator: approved for GitHub-hosted runners, not run yet |
