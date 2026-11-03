@@ -541,7 +541,11 @@ Hermes server, Chrome's Custom Tab, and a phone.
 
   React Native 0.88 cannot hold a keyboard's focus in an overlay on its own,
   so a small local Expo module does (`apps/android/modules/cindl-focus`: one
-  call blocks the focus of everything in a view, one gives focus to a view):
+  call blocks the focus of everything in a view, one gives focus to a view).
+  Blocking also takes focus from a view beneath that has it already (text
+  tapped, or a field), or keys would still reach it there; and a blocked view
+  is unblocked as it leaves the window, so React Native never reuses one still
+  blocked. Why plain React Native is not enough:
   - `importantForAccessibility` and `accessibilityElementsHidden` (iOS only)
     hide from TalkBack, not from Android's focus search, which goes by
     focusability alone;
@@ -555,8 +559,10 @@ Hermes server, Chrome's Custom Tab, and a phone.
     and `hasTVPreferredFocus` makes the view focusable in touch mode for good,
     so it would then take two taps.
 
-  The emulator tests send Tab and the four arrow keys with the memory delete
-  warning open, check after each that the keyboard's focus is in the dialog,
+  The emulator tests tap the memory entry's text, so it has focus as the
+  delete warning opens, and check that it gives that focus up. They then send
+  Tab and the four arrow keys with the warning open, check after each that
+  the keyboard's focus is in the dialog,
   then close it with back and check that focus is on "Delete entry…". The
   rendered component tests check every step of this on the shipped Dialog and
   Sheet; what TalkBack itself announces is not tested. The emulator tests audit touch targets the same way: only what the

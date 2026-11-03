@@ -191,6 +191,10 @@ const MARKER_ORANGE = [230, 120, 40]
 const SUDO_PROMPT =
   'Answer outside Cindl: sudo password to restart the label printer (fictional)'
 
+/** The synthetic kiln log entry's text (packages/fixtures/src/scenario/data.ts). */
+const KILN_TEXT =
+  'The kiln firing log lives in the studio inventory sheet, tab "Firings".'
+
 const isComposer: Match = (text, node) =>
   /EditText$/.test(node.className) && text.startsWith('Message ')
 
@@ -671,6 +675,18 @@ async function demoSuite() {
         (text) => text.startsWith('Open memory entry: The kiln firing log'),
         'the kiln firing log entry',
       )
+      // The entry's text is selectable, so a tap gives it focus even in touch
+      // mode: a view that has focus as the warning opens, to give it up then.
+      const entryText = await device.reveal(
+        (text, node) => node.text === KILN_TEXT && /TextView$/.test(node.className),
+        "the entry's text",
+      )
+      await device.tapNode(entryText.node)
+      const tapped = focusedNode(await device.dump())
+      if (tapped?.text !== KILN_TEXT)
+        throw new Error(
+          `A tap on the entry's text gave focus to ${tapped ? `"${label(tapped)}"` : 'nothing'}, so it cannot show a focused view giving focus up beneath the warning`,
+        )
       // Deleting asks first and says it is permanent; keeping the entry sends nothing.
       await tapRevealed('Delete entry…', 'Delete entry')
       // The confirmation names the entry it deletes.
@@ -696,6 +712,20 @@ async function demoSuite() {
         )
       note(
         `the scrim is told by its resource-id and is not focusable (clickable: ${scrim.clickable})`,
+      )
+      // The entry's text had focus beneath it, and gives it up as the warning
+      // opens, or keys would still reach it (delta check of 7dab9fe, S1).
+      let held = keyboardFocusIn(await device.dump())
+      for (let tries = 0; tries < 6 && held === 'beneath'; tries++) {
+        await sleep(500)
+        held = keyboardFocusIn(await device.dump())
+      }
+      if (held === 'beneath')
+        throw new Error(
+          "With the delete warning open, the entry's text beneath it keeps focus",
+        )
+      note(
+        `the entry's text had focus and gave it up as the warning opened (focus now ${held === 'none' ? 'on nothing' : 'in the dialog'})`,
       )
       // A hardware keyboard (the emulator reports one) stays in the dialog: Tab and
       // the arrows move its focus only among the dialog's controls, since the screen
