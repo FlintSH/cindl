@@ -1,5 +1,4 @@
 import type { WebSocketFactory, WebSocketLike } from '@cindl/client-core'
-import { GATEWAY_SUBPROTOCOL, ticketSubprotocol } from '@cindl/hermes-adapter'
 import { isAllowedHermesUrl } from './origin.ts'
 
 export type WebSocketConstructor = new (url: string, protocols: string[]) => WebSocketLike
@@ -16,9 +15,4 @@ export function createWebSocketFactory(Socket: WebSocketConstructor): WebSocketF
       throw new Error('Refusing a WebSocket to a non-https, non-loopback address.')
     return new Socket(url, protocols)
   }
-}
-
-/** Subprotocols for Hermes `/api/ws` with a freshly minted single-use ticket. */
-export function gatewayProtocols(ticket: string): string[] {
-  return [GATEWAY_SUBPROTOCOL, ticketSubprotocol(ticket)]
 }

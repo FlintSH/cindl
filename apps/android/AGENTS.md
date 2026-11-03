@@ -38,10 +38,13 @@ Working here:
   `scripts/check-native-project.ts` (run heavy builds under the shared build
   lock on shared machines).
 - UI talks only to `CindlClientApi` via `@cindl/client-react`; read client
-  state maps only through `entry`/`hasEntry`. Platform pieces (storage,
-  sockets, crypto, sign-in) live in `src/platform` and `src/auth`; the Kotlin
-  loopback listener in `modules/cindl-loopback` has JUnit tests that CI runs on
-  a plain JVM.
+  state maps only through `entry`/`hasEntry`. Real builds run client-core's
+  `createDirectClient` (`src/platform/direct.ts`) with one PKCE
+  implementation, the adapter's `NativeAuth`; `src/auth/loopback.ts` is only
+  the browser leg. Platform pieces (storage, sockets, crypto) live in
+  `src/platform`; the Kotlin loopback listener in `modules/cindl-loopback` has
+  JUnit tests that CI runs on a plain JVM. Client tests run against
+  `@cindl/fixtures/fake-hermes` (read-only to this stream).
 - Synthetic fixtures load only in `src/platform/client.ts` behind
   `EXPO_PUBLIC_CINDL_DEMO=1`; `metro.config.cjs` empties them in other bundles.
 - Sheets and dialogs use `src/overlay` (in-tree, so keyboard insets and back

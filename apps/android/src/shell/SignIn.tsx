@@ -1,39 +1,50 @@
 import { useCindlApi, useLink } from '@cindl/client-react'
-import { useState } from 'react'
-import { ScrollView, Text, TextInput, View } from 'react-native'
 import { isCindlError } from '@cindl/contracts'
+import { useRef, useState } from 'react'
+import { ScrollView, Text, TextInput, View } from 'react-native'
 import { normalizeOrigin } from '../platform/origin.ts'
 import { useTheme } from '../theme/theme.tsx'
 import { Mark } from '../ui/Mark.tsx'
 import { Button, ErrorText, Note, Txt } from '../ui/primitives.tsx'
+import { useSignInControls } from './signInControls.ts'
+
+export const SIGN_IN_FAILED = 'Sign-in did not finish. Nothing was saved. Try again.'
 
 /**
- * Sign-in for a signed-out or unconfigured link. Only the server address is
- * entered here; the password (and any second factor) goes to Hermes's own
- * login page in the system browser.
+ * Sign-in for a real build with no Hermes session (web parity:
+ * apps/web/src/shell/SignIn.tsx). Only the server address is entered here;
+ * the password and any second factor go to Hermes's own page in the browser,
+ * and the adapter's NativeAuth (run by the direct client) exchanges the code.
  */
-export function SignIn() {
+export function SignIn({ onAttempt }: { onAttempt: () => void }) {
   const api = useCindlApi()
   const theme = useTheme()
   const link = useLink()
-  const [address, setAddress] = useState('')
+  const controls = useSignInControls()
+  const [address, setAddress] = useState(link.server?.origin ?? '')
   const [error, setError] = useState<string>()
   const [pending, setPending] = useState(false)
+  // Only the latest attempt may change this screen.
+  const attempt = useRef(0)
   const submit = () => {
+    if (pending) return
     const check = normalizeOrigin(address)
     if (!check.ok) {
       setError(check.reason)
       return
     }
+    const mine = ++attempt.current
     setError(undefined)
     setPending(true)
+    onAttempt()
     api.call('auth.signIn', { origin: check.origin }).then(
-      () => setPending(false),
+      () => {
+        if (mine === attempt.current) setPending(false)
+      },
       (failure: unknown) => {
+        if (mine !== attempt.current) return
         setPending(false)
-        setError(
-          isCindlError(failure) ? failure.message : 'Sign-in did not finish. Try again.',
-        )
+        setError(isCindlError(failure) ? failure.message : SIGN_IN_FAILED)
       },
     )
   }
@@ -91,7 +102,7 @@ export function SignIn() {
           ]}
         />
         <Note>
-          Use https://. Plain http works only for this device itself (127.0.0.1).
+          Use https://. Plain http works only for this device itself (127.0.0.1 or [::1]).
         </Note>
       </View>
       {error ? <ErrorText>{error}</ErrorText> : null}
@@ -100,14 +111,22 @@ export function SignIn() {
           Finish signing in in your browser, then close the tab to return here.
         </Txt>
       ) : null}
-      <Button
-        label="Sign in"
-        variant="primary"
-        disabled={pending || !address.trim()}
-        busy={pending}
-        style={{ alignSelf: 'flex-start' }}
-        onPress={submit}
-      />
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: theme.space[2] }}>
+        <Button
+          label="Sign in"
+          variant="primary"
+          disabled={pending || !address.trim()}
+          busy={pending}
+          onPress={submit}
+        />
+        {pending && controls ? (
+          <Button label="Cancel sign-in" variant="quiet" onPress={controls.cancel} />
+        ) : null}
+      </View>
+      <Note>
+        Signing out later is local to this device: Hermes v0.22.5 cannot revoke tokens it
+        already issued.
+      </Note>
     </ScrollView>
   )
 }

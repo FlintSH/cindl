@@ -3,8 +3,8 @@
 Cindl for Android is a native React Native app on Expo SDK 58 (React Native
 0.88, React 19.3). It renders native views, not a WebView of the web client,
 and has the same four destinations: Talk, Work, Library and Agent. It shares
-the client contract, state, React bindings, Hermes adapter helpers and design
-tokens with the web client.
+the client contract, the direct Hermes client, state, React bindings and
+design tokens with the other clients.
 
 ## Status
 
@@ -14,13 +14,13 @@ tokens with the web client.
   [Test APKs](#test-apks)).
 - **Emulator tests in CI.** Each run installs both APKs on an Android 16
   emulator and drives them (see [Emulator tests](#emulator-tests)).
-- **Real builds** show **"Cindl is not connected"** and never show demo data.
-  The direct Hermes connection (`createDirectClient`, transport stream) is not
-  in this version yet. Real builds can already sign in on the device, so the
-  tokens are ready when the connection lands.
-- **Sign-in** has been exercised on the emulator against a synthetic fake
-  Hermes auth server only. It has not been validated against a real Hermes
-  server or on a phone.
+- **Real builds** connect to your Hermes server through the direct client
+  (client-core `createDirectClient`), signed in on the device with native PKCE
+  (see [Sign-in](#sign-in)). They never show demo data.
+- **Tested against synthetic servers only.** The real build's client runs
+  against the fixtures' fake `hermes serve` in unit tests and, in CI, on the
+  emulator. It has not been validated against a real Hermes server or on a
+  phone.
 
 ## Android SDK licence
 
@@ -135,13 +135,16 @@ until the owner decides about those terms.
   every touch target at least 48dp; 200% font size and dark theme; a draft
   surviving background, rotation, activity recreation; a cold start after the
   process is killed.
-- **Real APK:** sign-in through a Custom Tab against a fake Hermes auth server
-  on the runner (reached through `adb reverse`, so the app sees
-  `http://127.0.0.1`), with the authorize request and code exchange checked
-  for PKCE S256 and the loopback redirect; sign-in surviving process death;
-  sign-out; the app process killed while the browser shows the authorize
-  page, which must end in the "interrupted" notice with nothing exchanged;
-  and cancelling a sign-in in progress.
+- **Real APK:** the sign-in screen (no demo data); sign-in through a Custom
+  Tab against the fixtures' fake `hermes serve` on the runner (reached through
+  `adb reverse`, so the app sees `http://127.0.0.1`), which refuses an
+  authorize request without S256 PKCE or a loopback redirect and a code
+  exchange whose verifier does not match; the direct client connecting
+  (`/api/ws`) and a message answered by the fake; the sign-in surviving
+  process death; sign-out. Against a second stand-in whose authorize page can
+  be held open: the app process killed while the browser shows that page,
+  which must end in the "interrupted" notice with nothing exchanged, and
+  cancelling a sign-in in progress.
 
 System animations are off during the tests so UI dumps are stable (the app then
 also reduces its own motion). The `cindl-android-emulator-evidence` artifact
@@ -169,43 +172,58 @@ The build decides, never the running app:
 Hermes v0.22.5 must run in login mode (the native PKCE flow). Its redirect
 validator accepts only `http://127.0.0.1[:port]/…` or `http://[::1][:port]/…`,
 so Cindl does not use custom schemes, App Links or `localhost`. A real build
-offers **Sign in on this device** on its "not connected" screen:
+with no Hermes session shows **Sign in to Hermes** (or **Signed out**):
 
 1. The owner enters the Hermes address. Only `https://` addresses are accepted,
    or `http://` for `127.0.0.1` and `[::1]` on the device itself; no user name,
-   password, path, query or fragment. Only the origin is stored.
-2. A small Kotlin listener (`apps/android/modules/cindl-loopback`) binds
+   password, path, query or fragment.
+2. The direct client checks that Hermes offers native sign-in, then the
+   adapter's `NativeAuth` (the same PKCE code the desktop app runs) creates the
+   PKCE verifier and state in memory.
+3. A small Kotlin listener (`apps/android/modules/cindl-loopback`) binds
    `127.0.0.1` on an ephemeral port. It accepts one `GET /callback` whose
    `state` matches the attempt (compared in constant time) and whose `Host` is
    that listener, records it, answers with a static page (no scripts, no remote
    resources, `Referrer-Policy: no-referrer`) and closes. Any other request gets
    an error page, and a connection that closes, resets or stalls is dropped;
    the listener keeps waiting either way, for at most 5 minutes.
-3. The PKCE verifier and state are written to secure storage for the attempt,
-   then `/auth/native/authorize` opens in a Custom Tab in Cindl's own task.
-4. The owner signs in on Hermes's page (passwords and second factors are never
+4. `/auth/native/authorize` opens in a Custom Tab in Cindl's own task. The
+   owner signs in on Hermes's page (passwords and second factors are never
    typed into Cindl). The page Cindl shows afterwards says to **close the tab**:
    Android 15 and later do not let an app bring itself back over the browser.
-   **Cancel sign-in** stops a waiting attempt.
-5. Cindl exchanges the one-time code with `POST /auth/native/token` and stores
-   the token set encrypted with a key held in the Android Keystore
-   (`expo-secure-store`); the signed-in origin, which is not a secret, is kept
-   in app storage. The screen then says **"Signed in to … on this device."**
+   **Cancel sign-in** stops a waiting attempt; nothing is saved.
+5. `NativeAuth` exchanges the one-time code with `POST /auth/native/token` and
+   keeps the token set encrypted with a key held in the Android Keystore
+   (`expo-secure-store`); it refreshes the tokens before they expire. Only then
+   is the address stored (in app storage; it is not a secret), and the client
+   connects. Signing in to another Hermes forgets the previous one's tokens.
 
-**If Android closes Cindl while the browser is open**, the listener ends with
-the app. On the next start Cindl finds the saved attempt, sees that no listener
-survived, deletes the verifier and says "Cindl stopped waiting for the browser
-(the app was closed during sign-in). Nothing was saved. Start again." If only
-the JavaScript runtime restarted, the attempt resumes. **Signing out** deletes
-this device's tokens only: Hermes v0.22.5 cannot revoke tokens it already
-issued. It also forgets drafts the app kept in memory (an edit kept after a
-conflict, unsent answers to questions).
+While the browser is open, the app keeps a marker of the attempt (an id and a
+time, no verifier, state or code). **If Android closes Cindl meanwhile**, the
+listener and the verifier end with the app. On the next start Cindl finds the
+marker and says "Cindl stopped waiting for the browser (the app was closed
+during sign-in). Nothing was saved. Start again." The same happens if only the
+JavaScript runtime restarted: the verifier was in its memory. **Signing out**
+deletes this device's tokens only: Hermes v0.22.5 cannot revoke tokens it
+already issued. It also forgets drafts the app kept in memory (an edit kept
+after a conflict, unsent answers to questions). The address stays, ready to
+sign in again.
 
-Evidence: unit tests run the whole flow against a fake Hermes server
-(`apps/android/test/signin.test.ts`), the listener's JUnit tests run on a plain
-JVM in CI, and the emulator tests run it through a real Custom Tab against the
-fake auth server, including process death. Still missing: a run against a real
-Hermes server and on a phone.
+A device that signed in with an earlier build (which ran its own PKCE before
+the direct client existed) keeps its sign-in: on the first start, its tokens
+move to where `NativeAuth` reads them and the old record is deleted; an
+unfinished earlier attempt, whose PKCE verifier is deleted with it, is
+reported as interrupted.
+
+If the device cannot encrypt secrets, Cindl says so: after a sign-in it keeps
+the tokens in memory only and forgets them when the app closes.
+
+Evidence: unit tests run the real client, with the app's own storage, socket,
+crypto and loopback pieces, against the fixtures' fake Hermes
+(`apps/android/test/direct.test.ts`); the listener's JUnit tests run on a plain
+JVM in CI; and the emulator tests run it through a real Custom Tab, including
+process death. Still missing: a run against a real Hermes server and on a
+phone.
 
 ## Permissions and network policy
 
@@ -305,6 +323,9 @@ resolves pnpm's isolated `node_modules` and the TypeScript sources of
 
 - **"Cindl stopped waiting for the browser":** Android closed Cindl during
   sign-in. Start again; nothing was saved.
+- **"This Hermes server does not offer native sign-in":** Hermes is not in
+  login mode (no `native_pkce` in its status). Cindl does not read the
+  loopback-token mode's per-process token.
 - **An `http://` address is refused:** use `https://`; plain HTTP works only
   for `127.0.0.1` or `[::1]` on the device itself.
 - **An APK from another run will not install over the current one:** each run
@@ -316,8 +337,10 @@ resolves pnpm's isolated `node_modules` and the TypeScript sources of
 
 ## Known limits
 
-- Not connected to a real Hermes yet (transport pending); sign-in not
-  validated against a real Hermes server or on a phone.
+- Not validated against a real Hermes server or on a phone: the client has
+  run against synthetic servers only.
+- No live picture of the agent's screen (Work, Computer shows its state and
+  who controls it).
 - Test APKs only: no store distribution, no production signing.
 - Native libraries are listed with the licence their POM declares. A library
   whose POM declares no licence and that ships no licence file stops the APK

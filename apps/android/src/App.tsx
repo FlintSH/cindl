@@ -1,18 +1,20 @@
 import { CindlProvider } from '@cindl/client-react'
+import type { CindlClientApi } from '@cindl/contracts'
 import * as SplashScreen from 'expo-splash-screen'
 import * as SystemUI from 'expo-system-ui'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useMemo, useState, type ReactNode } from 'react'
 import { SafeAreaProvider } from 'react-native-safe-area-context'
 import { NavProvider } from './nav/NavProvider.tsx'
 import { PortalHost } from './overlay/Portal.tsx'
 import { resolveClient, type ClientResolution } from './platform/client.ts'
+import type { AndroidClient } from './platform/direct.ts'
 import { createPreferencesStore, type PreferencesStore } from './platform/preferences.ts'
 import { PreferencesProvider, usePreference } from './platform/PreferencesProvider.tsx'
 import { deviceKeyValueStore } from './platform/storage.ts'
 import { AppShell } from './shell/AppShell.tsx'
 import { ErrorBoundary } from './shell/ErrorBoundary.tsx'
 import { KeyboardProvider } from './shell/keyboard.tsx'
-import { NotConnected } from './shell/NotConnected.tsx'
+import { SignInControlsProvider, type SignInControls } from './shell/signInControls.ts'
 import { MotionProvider } from './theme/motion.tsx'
 import { ThemeProvider, useTheme } from './theme/theme.tsx'
 
@@ -78,16 +80,10 @@ export function App() {
         <Themed>
           <MotionProvider>
             <KeyboardProvider>
-              {ready.client.kind === 'unavailable' ? (
-                <NotConnected />
+              {ready.client.kind === 'demo' ? (
+                <Connected api={ready.client.api} />
               ) : (
-                <CindlProvider api={ready.client.api}>
-                  <NavProvider>
-                    <PortalHost>
-                      <AppShell />
-                    </PortalHost>
-                  </NavProvider>
-                </CindlProvider>
+                <Direct client={ready.client.client} />
               )}
             </KeyboardProvider>
           </MotionProvider>
@@ -95,6 +91,34 @@ export function App() {
       </PreferencesProvider>
     </SafeAreaProvider>
   )
+}
+
+function Connected({ api, signIn }: { api: CindlClientApi; signIn?: SignInControls }) {
+  return (
+    <CindlProvider api={api}>
+      <SignInControlsProvider value={signIn}>
+        <NavProvider>
+          <PortalHost>
+            <AppShell />
+          </PortalHost>
+        </NavProvider>
+      </SignInControlsProvider>
+    </CindlProvider>
+  )
+}
+
+/**
+ * The real build. The client starts in this component's effect, which React
+ * runs after CindlProvider's (a child's effects run first), so the store has
+ * subscribed before the first link arrives.
+ */
+function Direct({ client }: { client: AndroidClient }) {
+  useEffect(() => {
+    void client.start()
+    return () => client.stop()
+  }, [client])
+  const signIn = useMemo(() => ({ cancel: client.cancelSignIn }), [client])
+  return <Connected api={client.api} signIn={signIn} />
 }
 
 export function Root() {

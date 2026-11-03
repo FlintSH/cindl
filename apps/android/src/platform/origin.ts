@@ -1,3 +1,6 @@
+import { CindlError } from '@cindl/contracts'
+import type { FetchLike } from '@cindl/hermes-adapter'
+
 /**
  * Hermes origins Cindl for Android may contact. HTTPS everywhere; plain HTTP
  * only for the device's own loopback IP literals (127.0.0.1, [::1]), matching
@@ -54,4 +57,20 @@ export function isAllowedHermesUrl(raw: string): boolean {
   return (
     (url.protocol === 'http:' || url.protocol === 'ws:') && isLoopbackHost(url.hostname)
   )
+}
+
+/**
+ * Requests reach only https origins, or http on this device's own loopback
+ * address (the same rule as sockets and the network security config).
+ */
+export function guardFetch(fetch: FetchLike): FetchLike {
+  return (url, init) =>
+    isAllowedHermesUrl(url)
+      ? fetch(url, init)
+      : Promise.reject(
+          new CindlError(
+            'invalid',
+            'Not sent: Cindl only talks to Hermes over https (or http on this device).',
+          ),
+        )
 }

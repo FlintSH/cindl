@@ -142,6 +142,13 @@ export function createDevice(options: { adb: string; out: string }) {
     await sleep(600)
   }
 
+  /** Deletes up to `count` characters before the cursor, after moving it to the end. */
+  const clearText = async (count: number) => {
+    shell('input keyevent KEYCODE_MOVE_END')
+    if (count > 0) shell(`input keyevent ${Array(count).fill('KEYCODE_DEL').join(' ')}`)
+    await sleep(600)
+  }
+
   const key = async (code: string) => {
     shell(`input keyevent ${code}`)
     await sleep(900)
@@ -206,6 +213,7 @@ export function createDevice(options: { adb: string; out: string }) {
     tap,
     tapNode,
     type,
+    clearText,
     key,
     screenshot,
     pid,

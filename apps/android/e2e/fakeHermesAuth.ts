@@ -5,7 +5,9 @@ import { base64Url, canonicalLoopbackRedirect } from '@cindl/hermes-adapter'
 
 /**
  * A SYNTHETIC stand-in for `hermes serve`'s native sign-in routes at v0.22.5
- * (pinned surface in packages/hermes-adapter): GET /auth/native/authorize
+ * (pinned surface in packages/hermes-adapter), for the sign-in cases the
+ * fixtures' fake Hermes cannot hold open: GET /api/status offers native_pkce,
+ * GET /auth/native/authorize
  * redirects to the app's loopback listener with a one-time code, POST
  * /auth/native/token checks the PKCE verifier (S256) and issues a fake token
  * set, POST /auth/native/refresh rotates it. It is a test double for the
@@ -78,6 +80,16 @@ export async function startFakeHermesAuth(port = 0): Promise<FakeHermesAuth> {
   const server = createServer((request, response) => {
     void (async () => {
       const url = new URL(request.url ?? '/', 'http://127.0.0.1')
+      // What the direct client reads before it starts a native sign-in.
+      if (request.method === 'GET' && url.pathname === '/api/status') {
+        record({ kind: 'other', status: 200, detail: { path: url.pathname } })
+        return send(response, 200, {
+          version: '0.22.5',
+          auth_required: true,
+          auth_providers: ['basic'],
+          auth_flows: ['native_pkce'],
+        })
+      }
       if (request.method === 'GET' && url.pathname === '/auth/native/authorize') {
         const params = url.searchParams
         const state = params.get('state')

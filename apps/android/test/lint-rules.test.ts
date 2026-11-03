@@ -43,7 +43,7 @@ describe('Android lint rules', () => {
       "import AsyncStorage from '@react-native-async-storage/async-storage'\nexport const s = AsyncStorage",
     ],
     [
-      'apps/android/src/auth/tokens.ts',
+      'apps/android/src/auth/migrate.ts',
       "import * as SecureStore from 'expo-secure-store'\nexport const s = SecureStore",
     ],
     [

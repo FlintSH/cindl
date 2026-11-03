@@ -1,7 +1,12 @@
 /// <reference types="node" />
 import { createHash, randomBytes } from 'node:crypto'
 import type { WebSocketLike } from '@cindl/client-core'
-import { createPkcePair, base64Url } from '@cindl/hermes-adapter'
+import {
+  base64Url,
+  createPkcePair,
+  GATEWAY_SUBPROTOCOL,
+  ticketSubprotocol,
+} from '@cindl/hermes-adapter'
 import { describe, expect, it } from 'vitest'
 import { createCryptoProvider } from '../src/platform/crypto.ts'
 import { createKeyValueStore } from '../src/platform/keyValueStore.ts'
@@ -16,7 +21,7 @@ import {
   MAX_SECRET_LENGTH,
   secureStoreKey,
 } from '../src/platform/secretStore.ts'
-import { createWebSocketFactory, gatewayProtocols } from '../src/platform/webSocket.ts'
+import { createWebSocketFactory } from '../src/platform/webSocket.ts'
 
 function memoryStorage() {
   const data = new Map<string, string>()
@@ -176,7 +181,10 @@ describe('WebSocket factory', () => {
 
   it('passes the gateway and ticket subprotocols through, keeping the ticket out of the URL', () => {
     const factory = createWebSocketFactory(FakeSocket)
-    factory('wss://hermes.example.test/api/ws', gatewayProtocols('t1ck3t'))
+    factory('wss://hermes.example.test/api/ws', [
+      GATEWAY_SUBPROTOCOL,
+      ticketSubprotocol('t1ck3t'),
+    ])
     expect(FakeSocket.created).toEqual([
       {
         url: 'wss://hermes.example.test/api/ws',

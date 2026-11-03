@@ -18,6 +18,7 @@ import { setTimeout as sleep } from 'node:timers/promises'
 import { SYNTHETIC_DEMO_LABEL } from '@cindl/contracts'
 import { NO_LIVE_PICTURE } from '../src/work/screen.ts'
 import { createDevice, PACKAGE } from './device.ts'
+import { startFakeHermes, type FakeHermes } from '@cindl/fixtures/fake-hermes'
 import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
 import {
   center,
@@ -28,6 +29,7 @@ import {
   height,
   interactiveWithin,
   label,
+  matches,
   TERMS_PROMPT,
   type Match,
   type TargetAudit,
@@ -640,21 +642,28 @@ async function tapRevealed(match: Match, what: string) {
   await device.tapAt((await device.reveal(match, what)).point)
 }
 
-async function signinSuite(hermes: FakeHermesAuth) {
-  const signedIn = `Signed in to ${hermes.origin} on this device.`
-  const count = (kind: string) =>
-    hermes.events.filter((event) => event.kind === kind).length
+/**
+ * The real build against two SYNTHETIC servers on the runner, reached through adb
+ * reverse: the fixtures' fake `hermes serve` (sign-in, then the direct client
+ * connected), and the e2e auth stand-in, whose authorize page can be held open so the
+ * app can be killed or the sign-in cancelled while the browser waits.
+ */
+async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
+  const restCalls = (name: string) =>
+    hermes.calls.filter((call) => call.name === name).length
+  const isAddressField: Match = (text, node) =>
+    /EditText$/.test(node.className) && text === 'Hermes address'
+  // Connected: Talk with its composer, or Talk with no conversation yet (the fake starts empty).
+  const isConnected: Match = (text, node) =>
+    matches(node, isComposer) || text === 'No conversations yet.'
 
-  const startSignIn = async () => {
-    const field = await device.reveal(
-      (text, node) =>
-        /EditText$/.test(node.className) &&
-        (text === 'Hermes address' || node.text === hermes.origin),
-      'the Hermes address field',
-    )
-    if (field.node.text !== hermes.origin) {
+  const startSignIn = async (origin: string) => {
+    const field = await device.reveal(isAddressField, 'the Hermes address field')
+    if (field.node.text !== origin) {
       await device.tapAt(field.point)
-      await device.type(hermes.origin)
+      // The field may hold the last address (or show its hint): clear it first.
+      await device.clearText(Math.max(field.node.text.length, 64))
+      await device.type(origin)
     }
     if (device.keyboard().shown) await device.key('KEYCODE_BACK')
     await tapRevealed((text, node) => text === 'Sign in' && node.clickable, 'Sign in')
@@ -672,19 +681,29 @@ async function signinSuite(hermes: FakeHermesAuth) {
     if (!signedInOnce) throw new Blocked('Needs the PKCE sign-in step to have passed')
   }
 
-  const expectAuthorize = async (n: number) => {
-    if (await hermes.waitFor('authorize', n, 45_000)) return
+  const browserStopped = async () => {
     const root = await device.dump()
     const terms = flatten(root).find((node) => TERMS_PROMPT.test(label(node)))
-    if (terms) {
-      browserBlocked = `its own terms ("${label(terms).slice(0, 80)}")`
-      // Leave the terms screen without answering it and return to Cindl.
-      await device.key('KEYCODE_BACK')
-      ensureApp()
-      throw new Blocked(
-        `The browser asks to accept ${browserBlocked}. The tests never accept terms; this needs the owner's approval.`,
-      )
+    if (!terms) return
+    browserBlocked = `its own terms ("${label(terms).slice(0, 80)}")`
+    // Leave the terms screen without answering it and return to Cindl.
+    await device.key('KEYCODE_BACK')
+    ensureApp()
+    throw new Blocked(
+      `The browser asks to accept ${browserBlocked}. The tests never accept terms; this needs the owner's approval.`,
+    )
+  }
+  const waitForCount = async (count: () => number, target: number, timeoutMs: number) => {
+    const deadline = Date.now() + timeoutMs
+    while (Date.now() < deadline) {
+      if (count() >= target) return true
+      await sleep(500)
     }
+    return false
+  }
+  const expectAuthorize = async (reached: Promise<boolean>) => {
+    if (await reached) return
+    await browserStopped()
     throw new Error('The browser never requested /auth/native/authorize')
   }
 
@@ -692,38 +711,23 @@ async function signinSuite(hermes: FakeHermesAuth) {
     'Install and launch the real (non-demo) APK',
     async ({ note, shot, audit }) => {
       installApk(apk as string)
-      device.run(['reverse', `tcp:${hermes.port}`, `tcp:${hermes.port}`])
+      for (const port of [hermes.port, holding.port])
+        device.run(['reverse', `tcp:${port}`, `tcp:${port}`])
       device.launch()
-      const { root } = await device.waitFor(
-        'Sign in on this device',
-        'the sign-in section',
-        90_000,
-      )
-      if (!find(root, 'Cindl is not connected'))
-        throw new Error('The real build does not say it is not connected')
+      const { root } = await device.waitFor(isAddressField, 'the sign-in screen', 90_000)
+      if (!find(root, named('Sign in to Hermes')))
+        throw new Error('The real build does not ask to sign in to Hermes')
       if (findAll(root, (text) => text.startsWith(SYNTHETIC_DEMO_LABEL)).length > 0)
         throw new Error('The real build shows the synthetic demo notice')
-      shot('not-connected')
-      await audit('Not connected / sign-in', root)
-      note('real build: "Cindl is not connected", no demo data, sign-in offered')
+      shot('sign-in')
+      await audit('Sign in', root)
+      note('real build: asks for the Hermes address, no demo data')
       const handlers = device.shell(
         'cmd package query-activities --brief -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d https://example.test/',
       )
       note(
         `browsers for https links: ${
           handlers
-            .split('\n')
-            .filter((line) => line.includes('/'))
-            .map((line) => line.trim())
-            .join(', ') || 'none'
-        }`,
-      )
-      const loopback = device.shell(
-        'cmd package query-activities --brief -a android.intent.action.VIEW -c android.intent.category.BROWSABLE -d http://127.0.0.1/',
-      )
-      note(
-        `browsers for http://127.0.0.1 links: ${
-          loopback
             .split('\n')
             .filter((line) => line.includes('/'))
             .map((line) => line.trim())
@@ -738,86 +742,136 @@ async function signinSuite(hermes: FakeHermesAuth) {
   )
 
   await step(
-    'PKCE sign-in through the loopback callback',
+    'Sign in with PKCE through the loopback callback, then connect',
     async ({ note, shot, audit }) => {
       ensureApp()
-      const authorizeBefore = count('authorize')
-      await startSignIn()
-      await expectAuthorize(authorizeBefore + 1)
-      const authorize = hermes.events.find((event) => event.kind === 'authorize')
-      note(`authorize: ${JSON.stringify(authorize?.detail)}`)
-      if (
-        authorize?.detail.challengeMethod !== 'S256' ||
-        authorize.detail.hasState !== true
+      const authorizeBefore = restCalls('GET /auth/native/authorize')
+      const tokensBefore = restCalls('POST /auth/native/token')
+      await startSignIn(hermes.origin)
+      await expectAuthorize(
+        waitForCount(
+          () => restCalls('GET /auth/native/authorize'),
+          authorizeBefore + 1,
+          45_000,
+        ),
       )
-        throw new Error('The authorize request lacked S256 PKCE or state')
+      // The fake refuses an authorize request without S256 PKCE or a 127.0.0.1 redirect,
+      // and a code exchange whose verifier does not match the challenge.
       if (
-        !/^http:\/\/127\.0\.0\.1:\d+\/callback$/.test(
-          String(authorize.detail.redirectUri),
-        )
+        !(await waitForCount(
+          () => restCalls('POST /auth/native/token'),
+          tokensBefore + 1,
+          45_000,
+        ))
       )
-        throw new Error(`Unexpected redirect_uri ${String(authorize.detail.redirectUri)}`)
-      if (!(await hermes.waitFor('token', 1, 45_000)))
         throw new Error('Cindl never exchanged the code')
-      const token = hermes.events.find((event) => event.kind === 'token')
-      note(`token exchange: ${JSON.stringify(token?.detail)}`)
-      if (token?.detail.issued !== true)
-        throw new Error('The code exchange failed PKCE verification')
       await device
         .waitFor('Signed in', "the listener's reply page in the browser", 20_000)
         .catch(() => undefined)
       shot('browser-signed-in')
       await device.key('KEYCODE_BACK')
       let result = await device
-        .waitFor(signedIn, 'the signed-in state', 20_000)
+        .waitFor(isConnected, 'Talk, connected to the fake Hermes', 30_000)
         .catch(() => undefined)
       if (!result) {
         device.launch()
-        result = await device.waitFor(signedIn, 'the signed-in state', 20_000)
+        result = await device.waitFor(
+          isConnected,
+          'Talk, connected to the fake Hermes',
+          30_000,
+        )
       }
-      shot('signed-in')
-      await audit('Signed in', result.root)
+      if (!hermes.calls.some((call) => call.kind === 'ws' && call.name === '/api/ws'))
+        throw new Error('The app never opened the Hermes gateway socket')
+      if (restCalls('POST /auth/native/token') !== tokensBefore + 1)
+        throw new Error('The code was exchanged more than once')
+      shot('connected')
+      await audit('Connected', result.root)
       note(
-        'callback received by the loopback listener, code exchanged once, tokens stored',
+        'callback received by the loopback listener; the adapter exchanged the code once and the direct client connected (/api/ws)',
       )
       signedInOnce = true
     },
   )
 
+  await step('Chat through the direct client', async ({ note, shot }) => {
+    needsSignIn()
+    ensureApp()
+    const root = await device.dump()
+    if (!find(root, isComposer)) {
+      await tapRevealed('Start a conversation', 'Start a conversation')
+      await device.waitFor(isComposer, 'the composer of the new conversation', 30_000)
+    }
+    await device.tap(isComposer, 'the composer')
+    await device.type('Hello from the emulator')
+    if (device.keyboard().shown) await device.key('KEYCODE_BACK')
+    await device.tap((text, node) => text === 'Send' && node.clickable, 'Send')
+    await device.waitFor(
+      (text) => text.includes('Synthetic reply (fixture) to: Hello from the emulator'),
+      "the fake Hermes's reply",
+      45_000,
+    )
+    if (
+      !hermes.calls.some((call) => call.kind === 'rpc' && call.name === 'prompt.submit')
+    )
+      throw new Error('The message did not reach Hermes as prompt.submit')
+    shot('chat-reply')
+    note(
+      'a message went to the fake Hermes over the gateway socket and its reply streamed back',
+    )
+  })
+
   await step('Sign-in survives process death', async ({ note, shot }) => {
     needsSignIn()
+    const authorizeBefore = restCalls('GET /auth/native/authorize')
     await device.key('KEYCODE_HOME')
     await sleep(1000)
     device.shell(`am kill ${PACKAGE}`)
     await sleep(2000)
     if (device.pid()) throw new Error('am kill did not end the background process')
     device.launch()
-    await device.waitFor(signedIn, 'the signed-in state after restart', 60_000)
-    shot('signed-in-after-restart')
-    note('tokens read back from Keystore-backed storage after a cold start')
+    await device.waitFor(isConnected, 'Talk, connected again after a cold start', 60_000)
+    if (restCalls('GET /auth/native/authorize') !== authorizeBefore)
+      throw new Error('A cold start asked to sign in again')
+    shot('connected-after-restart')
+    note(
+      'tokens read back from Keystore-backed storage after a cold start; connected again',
+    )
   })
 
   await step('Sign out on this device', async ({ note, shot }) => {
     needsSignIn()
     ensureApp()
+    await openDestination('Agent', named('SOUL.md'))
     await tapRevealed('Sign out on this device', 'Sign out on this device')
-    await device.waitUntilGone(signedIn, 'The signed-in state')
-    await device.waitFor(
-      (text, node) => text === 'Sign in' && node.clickable,
-      'the Sign in button',
-    )
+    const { root } = await device.waitFor(isAddressField, 'the sign-in screen', 30_000)
+    if (!find(root, named('Signed out')))
+      throw new Error('After signing out, the screen does not say so')
     shot('signed-out')
-    note('signed out; the sign-in form is back')
+    note('signed out on this device; the sign-in screen is back')
   })
 
   await step('Process death while the browser is open', async ({ note, shot }) => {
     needsBrowser()
     ensureApp()
-    const authorizeBefore = count('authorize')
-    const tokensBefore = count('token')
-    hermes.hold()
-    await startSignIn()
-    await expectAuthorize(authorizeBefore + 1)
+    const tokensBefore = holding.events.filter((event) => event.kind === 'token').length
+    const authorizeBefore = holding.events.filter(
+      (event) => event.kind === 'authorize',
+    ).length
+    holding.hold()
+    await startSignIn(holding.origin)
+    await expectAuthorize(holding.waitFor('authorize', authorizeBefore + 1, 45_000))
+    const authorize = holding.events.filter((event) => event.kind === 'authorize').at(-1)
+    note(`authorize: ${JSON.stringify(authorize?.detail)}`)
+    if (
+      authorize?.detail.challengeMethod !== 'S256' ||
+      authorize.detail.hasState !== true
+    )
+      throw new Error('The authorize request lacked S256 PKCE or state')
+    if (
+      !/^http:\/\/127\.0\.0\.1:\d+\/callback$/.test(String(authorize.detail.redirectUri))
+    )
+      throw new Error(`Unexpected redirect_uri ${String(authorize.detail.redirectUri)}`)
     await sleep(1500)
     shot('browser-waiting')
     device.shell(`am kill ${PACKAGE}`)
@@ -826,18 +880,19 @@ async function signinSuite(hermes: FakeHermesAuth) {
     if (device.pid()) {
       device.run(['root'], 60_000)
       device.run(['wait-for-device'], 60_000)
-      // adbd restarted as root, which drops the reverse port forward.
-      device.run(['reverse', `tcp:${hermes.port}`, `tcp:${hermes.port}`])
+      // adbd restarted as root, which drops the reverse port forwards.
+      for (const port of [hermes.port, holding.port])
+        device.run(['reverse', `tcp:${port}`, `tcp:${port}`])
       device.shell(`kill -9 ${device.pid()}`)
       await sleep(1500)
       method = 'kill -9 as root (am kill left it running)'
     }
     if (device.pid()) throw new Error('Could not end the app process')
     note(`app process ended with ${method} while the browser showed the authorize page`)
-    hermes.release()
+    holding.release()
     await sleep(3000)
     shot('browser-callback-refused')
-    if (count('token') !== tokensBefore)
+    if (holding.events.filter((event) => event.kind === 'token').length !== tokensBefore)
       throw new Error('A code was exchanged for the interrupted attempt')
     await device.key('KEYCODE_BACK')
     await sleep(2000)
@@ -847,47 +902,50 @@ async function signinSuite(hermes: FakeHermesAuth) {
       'the interrupted notice',
       60_000,
     )
-    if (find(notice.root, signedIn))
-      throw new Error('An interrupted sign-in shows as signed in')
+    if (!find(notice.root, isAddressField))
+      throw new Error('An interrupted sign-in does not leave the sign-in screen')
     shot('interrupted')
-    note(
-      'restart found the saved attempt without a listener, wiped it and said so; nothing was exchanged',
-    )
+    note('restart found the unfinished attempt, said so, and nothing was exchanged')
   })
 
   await step('Cancel a sign-in in progress', async ({ note, shot }) => {
     needsBrowser()
     ensureApp()
-    const authorizeBefore = count('authorize')
-    const tokensBefore = count('token')
-    hermes.hold()
-    await startSignIn()
-    await expectAuthorize(authorizeBefore + 1)
+    const tokensBefore = holding.events.filter((event) => event.kind === 'token').length
+    const authorizeBefore = holding.events.filter(
+      (event) => event.kind === 'authorize',
+    ).length
+    holding.hold()
+    await startSignIn(holding.origin)
+    await expectAuthorize(holding.waitFor('authorize', authorizeBefore + 1, 45_000))
     await sleep(1000)
     await device.key('KEYCODE_BACK')
+    ensureApp()
     await tapRevealed('Cancel sign-in', 'Cancel sign-in')
     await device.waitFor(
       'Sign-in was cancelled. Nothing was saved.',
       'the cancelled notice',
     )
-    hermes.release()
+    holding.release()
     shot('cancelled')
-    if (count('token') !== tokensBefore)
+    if (holding.events.filter((event) => event.kind === 'token').length !== tokensBefore)
       throw new Error('A cancelled attempt exchanged a code')
     note(
-      'cancel stopped the listener; the attempt reported "Sign-in was cancelled" and saved nothing',
+      'cancel stopped the listener; the sign-in reported "Sign-in was cancelled" and saved nothing',
     )
   })
 }
 
-let hermes: FakeHermesAuth | undefined
+let hermes: FakeHermes | undefined
+let holding: FakeHermesAuth | undefined
 try {
   prepareDevice()
   if (suite === 'demo') {
     await demoSuite()
   } else {
-    hermes = await startFakeHermesAuth()
-    await signinSuite(hermes)
+    hermes = await startFakeHermes()
+    holding = await startFakeHermesAuth()
+    await signinSuite(hermes, holding)
   }
 } catch (error) {
   steps.push({
@@ -899,6 +957,7 @@ try {
   })
 } finally {
   await hermes?.close()
+  await holding?.close()
 }
 
 /** The report is written even when the device stopped answering. */
@@ -945,7 +1004,9 @@ const report = {
   },
   steps,
   audits,
-  authEvents: hermes?.events ?? [],
+  // Request shapes only: paths and RPC method names, never bodies, codes or tokens.
+  fakeHermesCalls: hermes?.calls ?? [],
+  authEvents: holding?.events ?? [],
 }
 writeFileSync(join(outDir, 'report.json'), `${JSON.stringify(report, null, 2)}\n`)
 const summary = [

@@ -1,0 +1,308 @@
+/// <reference types="node" />
+import { randomUUID } from 'node:crypto'
+import {
+  createStore,
+  entry,
+  selectOpenRequests,
+  systemClock,
+  type ClientStore,
+} from '@cindl/client-core'
+import type { LinkState } from '@cindl/contracts'
+import {
+  nodeSocketFactory,
+  startFakeHermes,
+  type FakeHermes,
+} from '@cindl/fixtures/fake-hermes'
+import { afterEach, describe, expect, it } from 'vitest'
+import {
+  ATTEMPT_MARKER_KEY,
+  createLoopbackAuthorizer,
+  INTERRUPTED_NOTICE,
+  recoverInterruptedSignIn,
+} from '../src/auth/loopback.ts'
+import {
+  LEGACY_ATTEMPT_KEY,
+  legacyTokensKey,
+  nativeTokensKey,
+  ORIGIN_KEY,
+} from '../src/auth/migrate.ts'
+import type { AndroidPlatform } from '../src/platform/android.ts'
+import { createAndroidClient, type AndroidClient } from '../src/platform/direct.ts'
+import { guardFetch } from '../src/platform/origin.ts'
+import { secureStoreKey } from '../src/platform/secretStore.ts'
+import {
+  createWebSocketFactory,
+  type WebSocketConstructor,
+} from '../src/platform/webSocket.ts'
+import { sendAnswer } from '../src/talk/requests.ts'
+import { deviceStores, fakeListener, nodeCrypto } from './support.ts'
+
+// The real Android client (src/platform/direct.ts) on the app's own platform pieces
+// (Keystore secret store, AsyncStorage key-value store, the ticket-subprotocol WebSocket
+// factory, the loopback authorizer), against the fixtures' fake `hermes serve` v0.22.5.
+// Only expo-secure-store, AsyncStorage, the Kotlin listener and the browser are doubles.
+
+const cleanups: Array<() => Promise<void> | void> = []
+afterEach(async () => {
+  for (const cleanup of cleanups.splice(0).reverse()) await cleanup()
+})
+
+async function fakeHermes(): Promise<FakeHermes> {
+  const fake = await startFakeHermes()
+  cleanups.push(async () => {
+    expect(
+      fake.violations,
+      'fake Hermes frames must match the vendored contract',
+    ).toEqual([])
+    await fake.close()
+  })
+  return fake
+}
+
+/** React Native's WebSocket shape over the `ws` client the fake's tests use. */
+const nodeSockets = nodeSocketFactory()
+const NodeWebSocket = function (url: string, protocols: string[]) {
+  return nodeSockets(url, protocols)
+} as unknown as WebSocketConstructor
+
+/** One device: its storage survives a restart (a new client on the same stores). */
+function device() {
+  const stores = deviceStores()
+  const listener = fakeListener()
+  const browser = { mode: 'approve' as 'approve' | 'hold', opened: [] as string[] }
+  const platform: AndroidPlatform = {
+    keyValue: stores.keyValue,
+    secrets: stores.secrets,
+    webSocket: createWebSocketFactory(NodeWebSocket),
+    fetch: guardFetch((url, init) => fetch(url, init)),
+    crypto: nodeCrypto,
+    clock: systemClock,
+    authorizer: createLoopbackAuthorizer({
+      loopback: listener.native,
+      keyValue: stores.keyValue,
+      // The browser: Hermes's page signs the fixture owner in at once and redirects.
+      openBrowser: async (url) => {
+        browser.opened.push(url)
+        if (browser.mode === 'hold') return
+        const response = await fetch(url, { redirect: 'manual' })
+        const location = response.headers.get('location')
+        if (!location) throw new Error(`authorize failed with ${response.status}`)
+        setTimeout(() => listener.deliver(location), 0)
+      },
+      now: () => Date.now(),
+      newAttemptId: () => randomUUID(),
+    }),
+    recoverInterruptedSignIn: () =>
+      recoverInterruptedSignIn({ keyValue: stores.keyValue, loopback: listener.native }),
+  }
+  return { stores, listener, browser, platform }
+}
+
+const unconfigured: LinkState = {
+  phase: 'connecting',
+  since: '2026-06-02T08:00:00.000Z',
+  connectionEpoch: 0,
+}
+
+async function launch(
+  platform: AndroidPlatform,
+): Promise<{ client: AndroidClient; store: ClientStore }> {
+  const client = await createAndroidClient(platform, {
+    connection: { backoff: { initialMs: 20, maxMs: 100 } },
+  })
+  const store = createStore(unconfigured)
+  client.api.subscribe((event) => store.dispatch(event))
+  cleanups.push(() => client.stop())
+  await client.start()
+  return { client, store }
+}
+
+async function until<T>(check: () => T | undefined | false, ms = 5_000): Promise<T> {
+  const started = Date.now()
+  for (;;) {
+    const value = check()
+    if (value !== undefined && value !== false) return value
+    if (Date.now() - started > ms) throw new Error('condition not met in time')
+    await new Promise((resolve) => setTimeout(resolve, 10))
+  }
+}
+
+const calls = (fake: FakeHermes, name: string) =>
+  fake.calls.filter((call) => call.name === name).length
+const stored = (stores: ReturnType<typeof deviceStores>, key: string) =>
+  stores.secure.get(secureStoreKey(key))
+
+describe('the real Android client against a fake Hermes', () => {
+  it('signs in once with the adapter PKCE through the loopback leg, and connects', async () => {
+    const fake = await fakeHermes()
+    const { stores, browser, platform } = device()
+    const { client, store } = await launch(platform)
+    expect(store.getState().link.phase).toBe('unconfigured')
+
+    await client.api.call('auth.signIn', { origin: fake.origin })
+    await until(() => store.getState().link.phase === 'online')
+    expect(calls(fake, 'GET /auth/native/authorize')).toBe(1)
+    expect(calls(fake, 'POST /auth/native/token')).toBe(1)
+    const authorize = new URL(browser.opened[0] ?? '').searchParams
+    expect(authorize.get('code_challenge_method')).toBe('S256')
+    expect(authorize.get('redirect_uri')).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/)
+    // Tokens only in the Keystore-backed store, where NativeAuth keeps them; the
+    // origin (not a secret) under the device sign-in's key; no attempt marker left.
+    expect(stored(stores, nativeTokensKey(fake.origin))).toMatch(/access_token/)
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBe(fake.origin)
+    expect(await stores.keyValue.get(ATTEMPT_MARKER_KEY)).toBeUndefined()
+    expect([...stores.async.values()].join('\n')).not.toMatch(
+      /access_token|refresh_token/,
+    )
+    // Without a screen socket (the app shows no picture), computer.view stays limited.
+    const view = await until(() => store.getState().capabilities['computer.view'])
+    expect(view.state).toBe('limited')
+    expect(view.reason).toMatch(/cannot open the screen socket/)
+  })
+
+  it('is still signed in after a restart, without another sign-in', async () => {
+    const fake = await fakeHermes()
+    const { platform } = device()
+    const first = await launch(platform)
+    await first.client.api.call('auth.signIn', { origin: fake.origin })
+    await until(() => first.store.getState().link.phase === 'online')
+    first.client.stop()
+
+    const second = await launch(platform)
+    await until(() => second.store.getState().link.phase === 'online')
+    expect(calls(fake, 'GET /auth/native/authorize')).toBe(1)
+  })
+
+  it("carries over an earlier build's sign-in and reports its unfinished attempt", async () => {
+    const fake = await fakeHermes()
+    const { stores, platform } = device()
+    const session = fake.signIn()
+    await stores.keyValue.set(ORIGIN_KEY, fake.origin)
+    await stores.secrets.set(
+      legacyTokensKey(fake.origin),
+      JSON.stringify({
+        access_token: session.accessToken,
+        refresh_token: session.refreshToken,
+        token_type: 'bearer',
+        expires_at: session.expiresAt,
+        provider: session.provider,
+        user_id: session.userId,
+      }),
+    )
+    await stores.secrets.set(LEGACY_ATTEMPT_KEY, '{"v":1,"verifier":"synthetic"}')
+
+    const { store } = await launch(platform)
+    await until(() => store.getState().link.phase === 'online')
+    expect(calls(fake, 'GET /auth/native/authorize')).toBe(0)
+    expect(stored(stores, legacyTokensKey(fake.origin))).toBeUndefined()
+    expect(stored(stores, LEGACY_ATTEMPT_KEY)).toBeUndefined()
+    expect(store.getState().notices.map((n) => n.message)).toEqual([INTERRUPTED_NOTICE])
+  })
+
+  it('cancels a sign-in waiting for the browser: nothing exchanged, signed out', async () => {
+    const fake = await fakeHermes()
+    const { stores, browser, platform } = device()
+    browser.mode = 'hold'
+    const { client, store } = await launch(platform)
+    const signingIn = client.api.call('auth.signIn', { origin: fake.origin })
+    await until(() => browser.opened.length === 1)
+    expect(await stores.keyValue.get(ATTEMPT_MARKER_KEY)).toBeDefined()
+    client.cancelSignIn()
+    await expect(signingIn).rejects.toMatchObject({
+      message: 'Sign-in was cancelled. Nothing was saved.',
+    })
+    // The link says what is true, not "connecting".
+    await until(() => store.getState().link.phase === 'signed-out')
+    expect(calls(fake, 'POST /auth/native/token')).toBe(0)
+    expect(await stores.keyValue.get(ATTEMPT_MARKER_KEY)).toBeUndefined()
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBeUndefined()
+  })
+
+  it('reports a sign-in the app was closed during, on the next start', async () => {
+    const { stores, listener, platform } = device()
+    await stores.keyValue.set(
+      ATTEMPT_MARKER_KEY,
+      JSON.stringify({ v: 2, id: 'attempt-1', startedAt: Date.now() }),
+    )
+    const { store } = await launch(platform)
+    expect(store.getState().notices.map((n) => n.message)).toEqual([INTERRUPTED_NOTICE])
+    expect(listener.cancelled).toEqual(['attempt-1'])
+    expect(await stores.keyValue.get(ATTEMPT_MARKER_KEY)).toBeUndefined()
+  })
+
+  it('answers an approval through Hermes and never a sudo prompt', async () => {
+    const fake = await fakeHermes()
+    const { platform } = device()
+    const { client, store } = await launch(platform)
+    await client.api.call('auth.signIn', { origin: fake.origin })
+    await until(() => store.getState().link.phase === 'online')
+    const conversation = await client.api.call('conversations.create', {
+      title: 'Side (fixture)',
+    })
+    const sid = conversation.session.runtimeId ?? ''
+
+    void fake.gateway.serverRequest(sid, 'sudo', { command: 'apt list (fixture)' })
+    const sudo = await until(() =>
+      selectOpenRequests(store.getState()).find((r) => r.kind === 'unsupported'),
+    )
+    await expect(
+      sendAnswer(client.api, sudo, { kind: 'approval', choice: 'deny' }),
+    ).rejects.toMatchObject({ code: 'unsupported' })
+    expect(fake.calls.filter((c) => c.name === 'request.answer')).toEqual([])
+    expect([...fake.gateway.open.values()].map((r) => r.method)).toEqual(['sudo'])
+
+    const answered = fake.gateway.serverRequest(sid, 'approval', {
+      request_id: 'd'.repeat(32),
+      command: 'ls (fixture)',
+    })
+    const approval = await until(() =>
+      selectOpenRequests(store.getState()).find((r) => r.kind === 'approval'),
+    )
+    await sendAnswer(client.api, approval, { kind: 'approval', choice: 'deny' })
+    await expect(answered).resolves.toEqual({ choice: 'deny' })
+    await until(
+      () => entry(store.getState().requests, approval.requestId)?.status === 'answered',
+    )
+  })
+
+  it('signs out on this device only: tokens gone, the origin kept to sign in again', async () => {
+    const fake = await fakeHermes()
+    const { stores, platform } = device()
+    const { client, store } = await launch(platform)
+    await client.api.call('auth.signIn', { origin: fake.origin })
+    await until(() => store.getState().link.phase === 'online')
+    await expect(client.api.call('auth.signOut', {})).resolves.toEqual({
+      localOnly: true,
+    })
+    expect(store.getState().link.phase).toBe('signed-out')
+    expect(stored(stores, nativeTokensKey(fake.origin))).toBeUndefined()
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBe(fake.origin)
+  })
+
+  it('forgets the previous origin tokens when signing in to another Hermes', async () => {
+    const first = await fakeHermes()
+    const second = await fakeHermes()
+    const { stores, platform } = device()
+    const { client, store } = await launch(platform)
+    await client.api.call('auth.signIn', { origin: first.origin })
+    await until(() => store.getState().link.phase === 'online')
+    await client.api.call('auth.signIn', { origin: second.origin })
+    await until(
+      () =>
+        store.getState().link.phase === 'online' &&
+        store.getState().link.server?.origin === second.origin,
+    )
+    expect(stored(stores, nativeTokensKey(first.origin))).toBeUndefined()
+    expect(stored(stores, nativeTokensKey(second.origin))).toMatch(/access_token/)
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBe(second.origin)
+  })
+})
+
+describe('requests leave the app only for Hermes', () => {
+  it('refuses plain http to anything but this device', async () => {
+    const guarded = guardFetch(() => Promise.reject(new Error('should not be called')))
+    await expect(
+      guarded('http://hermes.example.test/api/status', {}),
+    ).rejects.toMatchObject({ code: 'invalid' })
+  })
+})

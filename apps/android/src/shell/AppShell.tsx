@@ -14,6 +14,7 @@ import { WorkView } from '../work/WorkView.tsx'
 import { BottomNav } from './BottomNav.tsx'
 import { DemoBanner } from './DemoBanner.tsx'
 import { useKeyboardHeight } from './keyboard.tsx'
+import { Notices } from './Notices.tsx'
 import { SignIn } from './SignIn.tsx'
 
 function screen(destination: Destination): ReactNode {
@@ -49,7 +50,14 @@ export function AppShell() {
     () => new Set(['talk']),
   )
   if (!visited.has(nav.destination)) setVisited(new Set([...visited, nav.destination]))
-  const signedOut = link.phase === 'unconfigured' || link.phase === 'signed-out'
+  // From a sign-in until the client is online, the sign-in screen stays: while the
+  // browser is open the link says "connecting", and a failed attempt shows its error.
+  const [signingIn, setSigningIn] = useState(false)
+  if (signingIn && link.phase === 'online') setSigningIn(false)
+  // Real builds without a session sign in first; the demo never needs to.
+  const signedOut =
+    !link.demo &&
+    (link.phase === 'unconfigured' || link.phase === 'signed-out' || signingIn)
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.canvas }}>
       <StatusBar barStyle={theme.name === 'dark' ? 'light-content' : 'dark-content'} />
@@ -65,9 +73,10 @@ export function AppShell() {
         >
           {link.demo ? <DemoBanner /> : null}
         </View>
+        <Notices />
         {signedOut ? (
           <View style={{ flex: 1, paddingLeft: insets.left, paddingRight: insets.right }}>
-            <SignIn />
+            <SignIn onAttempt={() => setSigningIn(true)} />
           </View>
         ) : (
           <View style={{ flex: 1, paddingLeft: insets.left, paddingRight: insets.right }}>
