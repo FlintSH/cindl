@@ -11,11 +11,11 @@ existing, authenticated Hermes `hermes serve` backend
 
 ## How each client will reach Hermes
 
-| Client  | Connection                                                                                                                                                                 | State today                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Web     | Served from the same origin as `hermes serve` and signed in with Hermes's own session cookie. No tokens in the browser.                                                    | Connects when served under a sub-path such as `/cindl/` of the Hermes origin: signs in through Hermes's own page, chats, answers approvals once, reconnects and shows the agent's screen, all tested in a real browser against a fake Hermes. Sign-out does not yet end Hermes's browser session. The owner approved a private mount at `/cindl/` on their Hermes ([decision](../project/pending-decisions.md#same-origin-web-mount)). Opened anywhere else, it says it is not connected and shows no data. |
-| Desktop | The Electron main process connects to the `hermes serve` origin you sign in to, using Hermes's native PKCE flow with a loopback redirect. Tokens stay in the main process. | Linux x64 AppImages (unsigned; real and labelled demo) built and smoke-tested by `desktop.yml`. Not yet run against a live Hermes.                                                                                                                                                                                                                                                                                                                                                                          |
-| Android | The app connects to the `hermes serve` origin directly and signs in with the same native flow through the system browser. Tokens stay in Keystore-backed storage.          | Test APKs (labelled demo and production, signed with a throwaway key for each run) built by `android.yml` and exercised on an emulator against a fake Hermes. Not yet run against a live Hermes or on a phone.                                                                                                                                                                                                                                                                                              |
+| Client  | Connection                                                                                                                                                                 | State today                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Web     | Served from the same origin as `hermes serve` and signed in with Hermes's own session cookie. No tokens in the browser.                                                    | Connects when served under a sub-path such as `/cindl/` of the Hermes origin: signs in through Hermes's own page, chats, answers approvals once, reconnects, shows the agent's screen and signs out through Hermes, all tested in a real browser against a fake Hermes. The owner approved a private mount at `/cindl/` on their Hermes ([decision](../project/pending-decisions.md#same-origin-web-mount)). Opened anywhere else, it says it is not connected and shows no data. |
+| Desktop | The Electron main process connects to the `hermes serve` origin you sign in to, using Hermes's native PKCE flow with a loopback redirect. Tokens stay in the main process. | Linux x64 AppImages (unsigned; real and labelled demo) built and smoke-tested by `desktop.yml`. Not yet run against a live Hermes.                                                                                                                                                                                                                                                                                                                                                |
+| Android | The app connects to the `hermes serve` origin directly and signs in with the same native flow through the system browser. Tokens stay in Keystore-backed storage.          | Test APKs (labelled demo and production, signed with a throwaway key for each run) built by `android.yml` and exercised on an emulator against a fake Hermes. Not yet run against a live Hermes or on a phone.                                                                                                                                                                                                                                                                    |
 
 Desktop and Android sign in only to an `https://` origin; plain `http://` is
 accepted only for a Hermes on the same machine (`127.0.0.1` or `[::1]`). The
@@ -35,8 +35,9 @@ routes in the [Hermes v0.22.5 reference](../reference/hermes-v0.22.5.md).
   or change to the Hermes service. How a phone or laptop reaches `hermes serve`
   away from home is the operator's existing setup.
 - **No keys to manage.** Cindl has no model, no API keys and no account of its
-  own. Signing out of a client forgets that device's tokens; Hermes v0.22.5
-  cannot revoke issued native tokens remotely.
+  own. Signing out of a native client forgets that device's tokens, and the
+  web client asks Hermes to clear its cookie in that browser. Hermes v0.22.5
+  revokes neither, so copies keep working until they expire.
 
 ## What runs today
 
@@ -59,14 +60,18 @@ that already terminates HTTPS for Hermes:
    `index.html` for `/cindl/`, each file under it with its content type, and
    a redirect from `/cindl` to `/cindl/`.
 3. Send `Content-Security-Policy: frame-ancestors 'none'` with those
-   responses. The page's own policy is a meta tag, which cannot forbid
-   framing.
+   responses (the page's own policy is a meta tag, which cannot forbid
+   framing), and `Cache-Control: no-cache` with `index.html`, so a browser
+   never pairs an old page with files a newer build replaced. The other files'
+   names change with their content, so they may be cached.
 4. Pass every other path to `hermes serve` unchanged, WebSocket upgrades
    included. Hermes stays at the root of the origin: Cindl does not follow a
    proxy prefix. Nothing about Hermes changes.
 5. Open `/cindl/` on the Hermes origin and choose "Sign in on Hermes".
 
-To remove it, stop serving `/cindl/`.
+To update it, build the new version and switch the served directory to it in
+one step. To remove it, stop serving `/cindl/`. Hermes is unchanged either
+way.
 
 ## Not validated yet
 
@@ -76,5 +81,5 @@ fake Hermes, but not against an authenticated instance. Android sign-in has
 run only on an emulator against the fake. The
 [acceptance matrix](../project/acceptance-matrix.md) tracks both.
 
-When a deployment path exists, this page will describe installing, signing in,
-upgrading and removing each client, with the commands an operator runs.
+Installing, upgrading and removing the desktop and Android apps will be
+described here when they are released.

@@ -13,16 +13,26 @@ in through Hermes's own `/login` page.
 
 ### Served from the Hermes origin
 
-- **How it decides.** A production build asks its own origin's public
-  `GET /api/status` once at start. It talks to Hermes only when the answer is
-  Hermes's (a version and the `cookie` sign-in flow) and the origin is one
-  Cindl accepts for Hermes (https, or plain http on 127.0.0.1 or [::1]).
-  Anything else, including a 404, a page or a network error, leaves it
-  showing **"Cindl is not connected"**, never demo data.
-- **Signing in.** "Sign in on Hermes" opens Hermes's own sign-in page with
-  `next` set to the view you were on, so you come back to it. Cindl never sees
-  the password: the session is Hermes's HttpOnly cookie, which the page cannot
-  read. "Check again" asks Hermes whether this browser is signed in now.
+- **How it decides.** At start, a production build asks its own origin's
+  public `GET /api/status` (the client asks again as it connects). While it
+  waits, the page says it is looking for Hermes. Then:
+  - a Hermes answer offering the `cookie` sign-in flow, on an origin Cindl
+    accepts for Hermes (https, or plain http on 127.0.0.1 or [::1]): it talks
+    to Hermes;
+  - a 404, a page or another server: **"Cindl is not connected"**, because the
+    page is not served from a Hermes origin;
+  - no answer within 5 seconds, a network error or a 5xx (Hermes restarting):
+    **"Hermes did not answer"**, with "Try again";
+  - Hermes without the browser sign-in (loopback-token mode, or still
+    starting): **"Hermes offers no sign-in for browsers"**, with "Try again";
+  - plain http away from this machine: not connected, and it never asks.
+    It never shows demo data in any of these.
+- **Signing in.** "Sign in on Hermes" opens Hermes's own sign-in page. Its
+  `next` is the mount (such as `/cindl/`) and the view you were on, never a
+  query; it is escaped for the two decodes Hermes applies, so you come back to
+  the same view. Cindl never sees the password: the session is Hermes's
+  HttpOnly cookie, which the page cannot read. "Check again" asks Hermes
+  whether this browser is signed in now.
 - **Talking to Hermes.** Every request goes to the page's own origin with the
   browser's cookie. Each connection (and each reconnect) gets a fresh
   single-use ticket from `POST /api/auth/ws-ticket` and opens `/api/ws` with
@@ -31,18 +41,25 @@ in through Hermes's own `/login` page.
   follow a proxy prefix.
 - **What it keeps.** Nothing in browser storage except the theme and margin
   preferences. Its device state (messages waiting to send, which sent messages
-  Hermes accepted, and how many times it has connected) lives in memory for
-  the tab, so a reload starts from what Hermes holds.
-- **Signing out (known gap, being fixed).** Today "Sign out on this device"
-  closes this tab's connection but does not end Hermes's browser session: the
-  cookie stays, so a reload signs straight back in. Ending the session through
-  Hermes's `POST /auth/logout` is in progress in the transport.
+  Hermes accepted, how many times it has connected, and which conversation is
+  the main one) lives in memory for the tab, so a reload starts from what
+  Hermes holds.
+- **Signing out.** "Sign out on this device" asks Hermes (`POST /auth/logout`)
+  to clear its session cookie in this browser. Hermes v0.22.5 revokes nothing
+  on its side, so a copy of the cookie keeps working until it expires (12
+  hours for access, 30 days for refresh with the basic provider). If Hermes
+  does not confirm, Cindl still signs out here and says to sign out again.
+  When Hermes ends the session itself (its gate answers that the session is
+  over), Cindl stops and shows sign-in.
+- **Browsers.** Tested in Chrome. The page's own policy allows same-origin
+  WebSockets (`connect-src 'self'`); WebKit fixed that case in April 2022, so
+  Safari releases older than that block the connection.
 - **What the mount must do.** Serve the build's files under the sub-path with
   their content types, redirect the bare sub-path (`/cindl`) to the one with
   a trailing slash (the build's asset paths are relative), send
-  `Content-Security-Policy: frame-ancestors 'none'` with Cindl's pages, and
-  pass every other path to Hermes unchanged. Cindl uses hash routes, so no
-  other path needs rewriting.
+  `Content-Security-Policy: frame-ancestors 'none'` with Cindl's pages and
+  `Cache-Control: no-cache` with `index.html`, and pass every other path to
+  Hermes unchanged. Cindl uses hash routes, so no other path needs rewriting.
 
 Opened anywhere else, the production build says it is not connected,
 explains why, and points to the desktop and Android apps. Developers use the
@@ -227,9 +244,10 @@ CINDL_CAPTURE=1 pnpm test:e2e              # also capture the screenshot matrix
 `e2e/live.spec.ts` builds the production web client (no demo data) and serves
 it at `/cindl/` on one loopback origin with a fake Hermes (test-only,
 synthetic; everything outside `/cindl/` goes to the fake, sockets included).
-In a real browser it signs in with the fake's cookie, starts a conversation,
-answers an approval once, reconnects with a fresh ticket after the network
-drops, reloads into a deep link and watches and controls the synthetic screen.
+In a real browser it signs in through the fake's stand-in for Hermes's login
+page and comes back, starts a conversation, answers an approval once,
+reconnects with a fresh ticket after the network drops, reloads into a deep
+link, watches and controls the synthetic screen, and signs out through Hermes.
 It also checks that nothing leaves the origin and nothing lands in browser
 storage. It is not proof against a real Hermes.
 

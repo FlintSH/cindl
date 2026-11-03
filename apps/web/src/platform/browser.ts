@@ -21,14 +21,20 @@ export function createSameOriginClient(origin: string): DirectClient {
   return createDirectClient({
     origin,
     auth: 'same-origin-cookie',
-    // Same origin: the browser sends Hermes's cookie with every request.
-    fetch: (url, init) => window.fetch(url, { ...init, credentials: 'same-origin' }),
+    fetch: sameOriginFetch,
     socketFactory: browserSocket,
     displaySocketFactory: browserBinarySocket,
     clock,
     kv: memoryStore(),
   })
 }
+
+/**
+ * Same origin: the browser sends Hermes's cookie with every request, unless a
+ * caller deliberately asks otherwise.
+ */
+export const sameOriginFetch = (url: string, init?: RequestInit) =>
+  window.fetch(url, { credentials: 'same-origin', ...init })
 
 /** Non-secret device state, in memory only: the web keeps nothing in browser storage. */
 export function memoryStore(): KeyValueStore {

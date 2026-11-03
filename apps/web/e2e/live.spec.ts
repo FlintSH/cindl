@@ -1,10 +1,6 @@
 import { execFileSync } from 'node:child_process'
 import { fileURLToPath } from 'node:url'
-import {
-  FIXTURE_LOGIN,
-  startFakeHermes,
-  type FakeHermes,
-} from '@cindl/fixtures/fake-hermes'
+import { startFakeHermes, type FakeHermes } from '@cindl/fixtures/fake-hermes'
 import { expect, test, type Page } from '@playwright/test'
 import { startSameOrigin, type SameOrigin } from './live/sameOrigin.ts'
 
@@ -52,19 +48,6 @@ const pixel = (page: Page, x: number, y: number) =>
       [x, y],
     )
 
-/** Signs this browser in the way Hermes's own login page does: its form posts the password. */
-async function signInOnHermes(page: Page) {
-  const login = await page.request.post(`${site.origin}/auth/password-login`, {
-    data: {
-      provider: 'basic',
-      username: FIXTURE_LOGIN.username,
-      password: FIXTURE_LOGIN.password,
-      next: '/cindl/',
-    },
-  })
-  expect(login.ok()).toBe(true)
-}
-
 test("served at /cindl/ on Hermes's origin, the production build signs in with Hermes's cookie and talks to Hermes", async ({
   page,
 }) => {
@@ -95,15 +78,20 @@ test("served at /cindl/ on Hermes's origin, the production build signs in with H
   ])
   errors.length = 0
 
-  // Hermes's login page would do this; its cookie is HttpOnly, for this origin.
-  await signInOnHermes(page)
+  // Hermes's own login page (the fake's stand-in, prefilled with the synthetic
+  // login), and back to where the owner was.
+  await signIn.click()
+  await page.waitForURL(/\/login\?next=/)
+  expect(new URL(page.url()).searchParams.get('next')).toBe('/cindl/')
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.waitForURL(`${site.origin}/cindl/`)
+  // Signed in: the conversation view, not the sign-in screen.
+  await expect(page.getByRole('button', { name: 'Start a conversation' })).toBeVisible()
   const session = (await page.context().cookies()).find(
     (cookie) => cookie.name === 'hermes_session_at',
   )
   // HttpOnly: the page itself can never read the session.
   expect(session?.httpOnly).toBe(true)
-  await page.goto(`${site.origin}/cindl/`)
-  await expect(page.getByRole('button', { name: 'Sign in on Hermes' })).toHaveCount(0)
 
   // Chat: a new conversation, a message, Hermes's streamed reply.
   await page.getByRole('button', { name: 'Start a conversation' }).click()
@@ -160,14 +148,36 @@ test("served at /cindl/ on Hermes's origin, the production build signs in with H
   })
   await expect.poll(() => pixel(page, 300, 200)).toEqual([230, 120, 40, 255])
 
+  // Sign-out goes through Hermes, which clears its cookie in this browser.
+  await page.goto(`${site.origin}/cindl/#/agent/device`)
+  await page.getByRole('button', { name: 'Sign out on this device' }).click()
+  // Signed out, the shell shows Hermes's sign-in in place of the view.
+  await expect(page.getByRole('button', { name: 'Sign in on Hermes' })).toBeVisible()
+  expect(
+    (await page.context().cookies()).filter((cookie) =>
+      cookie.name.startsWith('hermes_session'),
+    ),
+  ).toEqual([])
+  await page.reload()
+  await expect(page.getByRole('button', { name: 'Sign in on Hermes' })).toBeVisible()
+  // Signed out again, the reload asks Hermes who is there, as at the start.
+  const refused = `Failed to load resource: the server responded with a status of 401 (Unauthorized) (${site.origin}/api/auth/me)`
+  // The fake's stand-in login page declares no icon, so the browser asks the
+  // origin for /favicon.ico there and the fake answers 404 (Hermes has its own).
+  const noIcon = `Failed to load resource: the server responded with a status of 404 (Not Found) (${site.origin}/favicon.ico)`
+  expect(errors.filter((error) => error !== refused && error !== noIcon)).toEqual([])
+  errors.length = 0
+
   // The browser's path only: the cookie, the ticket, the gateway; no native sign-in.
   const names = fake.calls.map((call) => call.name)
   expect(names).toEqual(
     expect.arrayContaining([
       'GET /api/status',
+      'GET /login',
       'GET /api/auth/me',
       'POST /api/auth/ws-ticket',
       '/api/ws',
+      'POST /auth/logout',
     ]),
   )
   expect(names.filter((name) => name.includes('/auth/native/'))).toEqual([])

@@ -6,6 +6,8 @@ import {
   type CindlClientApi,
   type DesktopBridge,
 } from '@cindl/contracts'
+import { loginPagePath } from '@cindl/hermes-adapter'
+import { createSameOriginClient } from './browser.ts'
 
 declare global {
   interface Window {
@@ -18,37 +20,79 @@ export type ClientResolution =
   | { kind: 'demo'; api: CindlClientApi }
   /** Served from its Hermes's own origin: Hermes's session cookie signs it in. */
   | { kind: 'hermes'; api: DirectClient }
-  | { kind: 'unavailable'; reason: 'same-origin-pending' }
+  | { kind: 'unavailable'; reason: Unavailable }
+
+/** Why the web client is not connected, from what the page's origin answered. */
+export type Unavailable =
+  /** No Hermes here (a 404, a page, another server): not served from a Hermes origin. */
+  | 'not-mounted'
+  /** Hermes did not answer: a network error, no answer in time, or a 5xx while it restarts. */
+  | 'no-answer'
+  /** Hermes answered without the browser sign-in (loopback-token mode, or still starting). */
+  | 'no-sign-in'
+  /** Plain http away from this machine: Cindl never signs in to Hermes there. */
+  | 'insecure-origin'
+
+/** What this page's origin said to Hermes's public status check. */
+export type StatusAnswer = 'hermes' | 'not-hermes' | 'no-answer' | 'no-sign-in'
+
+/** How long the status check waits before calling it "no answer". */
+export const STATUS_TIMEOUT_MS = 5000
 
 /**
- * Whether this page's own origin is a `hermes serve` that signs browsers in
- * with its session cookie: its public `GET /api/status` answers with Hermes's
- * shape and offers the `cookie` flow. Anything else (a 404, another server, a
- * network error, no cookie flow) means Cindl is not mounted under Hermes.
+ * Asks this page's own origin for Hermes's public `GET /api/status`. Only a
+ * Hermes-shaped answer offering the `cookie` flow is Hermes a browser can
+ * sign in to; a failure to answer is told apart from an answer that is not
+ * Hermes, so a restart is never reported as "not mounted".
  */
-export async function hermesAtThisOrigin(
+export async function probeThisOrigin(
   fetchStatus: (url: string, init: RequestInit) => Promise<Response> = (url, init) =>
     window.fetch(url, init),
   origin: string = window.location.origin,
-): Promise<boolean> {
+): Promise<StatusAnswer> {
+  const controller = new AbortController()
+  const timer = setTimeout(() => controller.abort(), STATUS_TIMEOUT_MS)
   try {
     const response = await fetchStatus(`${origin}/api/status`, {
       credentials: 'same-origin',
       headers: { accept: 'application/json' },
-      signal: AbortSignal.timeout(5000),
+      signal: controller.signal,
     })
-    if (!response.ok) return false
-    const status: unknown = await response.json()
-    if (typeof status !== 'object' || status === null) return false
+    if (response.status >= 500) return 'no-answer'
+    if (!response.ok) return 'not-hermes'
+    let status: unknown
+    try {
+      status = await response.json()
+    } catch {
+      return controller.signal.aborted ? 'no-answer' : 'not-hermes'
+    }
+    if (typeof status !== 'object' || status === null) return 'not-hermes'
     const { version, auth_flows: flows } = status as {
       version?: unknown
       auth_flows?: unknown
     }
-    return typeof version === 'string' && Array.isArray(flows) && flows.includes('cookie')
+    if (typeof version !== 'string' || !Array.isArray(flows)) return 'not-hermes'
+    return flows.includes('cookie') ? 'hermes' : 'no-sign-in'
   } catch {
-    return false
+    return 'no-answer'
+  } finally {
+    clearTimeout(timer)
   }
 }
+
+/**
+ * Where Hermes's login page sends the browser back to: this build's own
+ * directory (the mount, such as `/cindl/`) and the view, never a query or
+ * whatever else the page was loaded at.
+ */
+export const returnPath = () =>
+  `${new URL('./', window.location.href).pathname}${window.location.hash}`
+
+/**
+ * Hermes's own sign-in page, returning here. loginPagePath drops an unsafe
+ * `next` and escapes it for the two decodes Hermes applies.
+ */
+export const hermesSignInPage = () => loginPagePath(returnPath())
 
 export function reviveError(err: unknown): Error {
   if (err instanceof Error) return err
@@ -86,11 +130,11 @@ export async function resolveClient(): Promise<ClientResolution> {
   // Mounted under `hermes serve` (same origin): the browser's own Hermes session.
   // Only on an origin Cindl accepts for Hermes (https, or http on a loopback IP).
   const origin = HermesOrigin.safeParse(window.location.origin)
-  if (origin.success && (await hermesAtThisOrigin(undefined, origin.data))) {
-    const { createSameOriginClient } = await import('./browser.ts')
+  if (!origin.success) return { kind: 'unavailable', reason: 'insecure-origin' }
+  const answer = await probeThisOrigin(undefined, origin.data)
+  if (answer === 'hermes')
     return { kind: 'hermes', api: createSameOriginClient(origin.data) }
-  }
   // Served anywhere else, a browser cannot reach Hermes (no CORS, by design):
   // Cindl needs mounting on Hermes's own origin (see the handbook).
-  return { kind: 'unavailable', reason: 'same-origin-pending' }
+  return { kind: 'unavailable', reason: answer === 'not-hermes' ? 'not-mounted' : answer }
 }

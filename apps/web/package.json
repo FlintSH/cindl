@@ -18,6 +18,7 @@
     "@cindl/client-core": "workspace:*",
     "@cindl/client-react": "workspace:*",
     "@cindl/contracts": "workspace:*",
+    "@cindl/hermes-adapter": "workspace:*",
     "@cindl/tokens": "workspace:*",
     "lucide-react": "1.66.0",
     "react": "catalog:",

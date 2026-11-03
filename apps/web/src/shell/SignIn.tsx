@@ -1,6 +1,7 @@
 import { useCindlApi, useLink } from '@cindl/client-react'
 import { HermesOrigin, isCindlError } from '@cindl/contracts'
 import { useId, useRef, useState } from 'react'
+import { hermesSignInPage } from '../platform/client.ts'
 import { useClientKind } from '../platform/clientKind.ts'
 import { Mark } from '../ui/Mark.tsx'
 import { Button } from '../ui/primitives.tsx'
@@ -18,13 +19,9 @@ export function SignIn() {
  */
 function SameOriginSignIn() {
   const api = useCindlApi()
-  const link = useLink()
   const [error, setError] = useState<string>()
   const [busy, setBusy] = useState(false)
-  const signIn = () => {
-    const here = `${window.location.pathname}${window.location.search}${window.location.hash}`
-    window.location.assign(`/login?next=${encodeURIComponent(here)}`)
-  }
+  const signIn = () => window.location.assign(hermesSignInPage())
   // Signed in elsewhere (another tab): check this browser's session again.
   const retry = async () => {
     setError(undefined)
@@ -41,9 +38,7 @@ function SameOriginSignIn() {
     <div className={styles.region}>
       <div className={styles.card}>
         <Mark size={28} />
-        <h1 className={styles.title}>
-          {link.phase === 'signed-out' ? 'Signed out' : 'Sign in to Hermes'}
-        </h1>
+        <h1 className={styles.title}>Sign in to Hermes</h1>
         <p>
           This Cindl is served by your Hermes. Sign in on Hermes's own page and you come
           back here. Cindl never sees your password; your session stays in this browser.
