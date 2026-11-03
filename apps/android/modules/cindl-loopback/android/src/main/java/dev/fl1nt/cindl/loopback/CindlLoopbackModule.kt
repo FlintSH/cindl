@@ -5,10 +5,11 @@ import expo.modules.kotlin.modules.Module
 import expo.modules.kotlin.modules.ModuleDefinition
 
 /**
- * One sign-in attempt at a time, kept for the life of the process so that a
- * reloaded JavaScript runtime can re-attach to an attempt that is still
- * listening. Process death ends the attempt; the app then reports it as
- * interrupted (see src/auth/signIn.ts).
+ * One sign-in attempt at a time, kept for the life of the process. A restarted
+ * JavaScript runtime cannot finish an attempt (its PKCE verifier was in the old
+ * runtime's memory), so it cancels the one still listening and reports it as
+ * interrupted, as it does after process death, which ends the attempt here
+ * (see src/auth/loopback.ts, recoverInterruptedSignIn).
  */
 internal object LoopbackRegistry {
   private var attemptId: String? = null

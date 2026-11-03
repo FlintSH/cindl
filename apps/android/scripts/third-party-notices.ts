@@ -10,7 +10,7 @@
  * packages are Cindl's own) with the licence files it ships, grouped by
  * identical text. Build-only tooling reachable from `expo` is included too;
  * listing more than the bundle uses is harmless. Native libraries from Maven
- * are not covered yet (see docs/handbook/clients/android.md).
+ * are covered by scripts/native-notices.ts (NATIVE-NOTICES.txt).
  */
 import { createHash } from 'node:crypto'
 import {

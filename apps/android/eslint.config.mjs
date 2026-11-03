@@ -27,9 +27,10 @@ const SHIPPED = ['src/**/*.{ts,tsx}', 'index.ts', 'modules/**/*.ts']
 export default [
   ...root,
   {
-    // Browser-scope rules (storage, global aliases) for everything that ships. The
-    // root applies only its bundled scope to apps/*/src and none to index.ts or
-    // modules/; Android code is written to the stricter scope.
+    // The Android rules for everything that ships. The root already applies its
+    // bundled and browser scopes to these files (eslint.config.mjs BUNDLED and
+    // BROWSER); the browser scope's syntax rule is repeated here unchanged, so
+    // this app keeps it if the root's lists change.
     files: SHIPPED,
     plugins: { 'cindl-android': android },
     rules: {
