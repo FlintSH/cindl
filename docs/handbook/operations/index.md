@@ -36,8 +36,9 @@ routes in the [Hermes v0.22.5 reference](../reference/hermes-v0.22.5.md).
   away from home is the operator's existing setup.
 - **No keys to manage.** Cindl has no model, no API keys and no account of its
   own. Signing out of a native client forgets that device's tokens, and the
-  web client asks Hermes to clear its cookie in that browser. Hermes v0.22.5
-  revokes neither, so copies keep working until they expire.
+  web client asks Hermes to clear its cookie in that browser. What Hermes
+  v0.22.5 revokes depends on its sign-in provider: its basic provider revokes
+  nothing, so copies keep working until they expire.
 
 ## What runs today
 
@@ -58,16 +59,32 @@ that already terminates HTTPS for Hermes:
    build holds no address: it finds Hermes at the origin that serves it.
 2. Serve `apps/web/dist` at `/cindl/` (another sub-path works too):
    `index.html` for `/cindl/`, each file under it with its content type, and
-   a redirect from `/cindl` to `/cindl/`.
+   a redirect from `/cindl` to `/cindl/`. The types: `.html` `text/html`,
+   `.js` `text/javascript` (browsers refuse module scripts of any other type),
+   `.css` `text/css`, `.svg` `image/svg+xml`, `.woff2` `font/woff2` and
+   `.map` `application/json`.
 3. Send `Content-Security-Policy: frame-ancestors 'none'` with those
    responses (the page's own policy is a meta tag, which cannot forbid
-   framing), and `Cache-Control: no-cache` with `index.html`, so a browser
-   never pairs an old page with files a newer build replaced. The other files'
-   names change with their content, so they may be cached.
+   framing), and `Cache-Control: no-cache` with `/cindl/` and
+   `/cindl/index.html`, so a browser never pairs an old page with files a
+   newer build replaced. The other files' names change with their content, so
+   they may be cached.
 4. Pass every other path to `hermes serve` unchanged, WebSocket upgrades
    included. Hermes stays at the root of the origin: Cindl does not follow a
    proxy prefix. Nothing about Hermes changes.
 5. Open `/cindl/` on the Hermes origin and choose "Sign in on Hermes".
+
+Pages on one origin share cookies and storage with each other, Hermes's own
+app included, so serve nothing else on that origin that you do not trust as
+you trust Hermes.
+
+Checks that need no sign-in, after mounting:
+
+- `/cindl/` answers 200 with `text/html`, the `frame-ancestors 'none'` policy
+  and `Cache-Control: no-cache`; its body matches the build's `index.html`.
+- `/cindl` redirects (301 or 308) to `/cindl/`.
+- `GET /api/status` answers as it did before, and Hermes's own pages still
+  work.
 
 To update it, build the new version and switch the served directory to it in
 one step. To remove it, stop serving `/cindl/`. Hermes is unchanged either

@@ -257,9 +257,10 @@ function Device() {
       <SectionTitle id="device-title">This device</SectionTitle>
       {served ? (
         <p>
-          Signing out asks Hermes to clear its session cookie in this browser. Hermes
-          v0.22.5 cannot end a session on its side, so a copy of that cookie elsewhere
-          keeps working until it expires, and other devices stay signed in.
+          Signing out asks Hermes to clear its session cookie in this browser. Hermes may
+          not end the session on its side (its basic sign-in revokes nothing), so a copy
+          of that cookie can keep working until it expires, and other devices stay signed
+          in.
         </p>
       ) : (
         <p>

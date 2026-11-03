@@ -341,6 +341,27 @@ const blocks = tseslint.config(
     },
   },
   {
+    // The web UI talks to Hermes only through CindlClientApi. The adapter's pure
+    // helpers (Hermes's sign-in link) come in through the platform client alone.
+    files: ['apps/web/src/**'],
+    ignores: ['apps/web/src/platform/client.ts'],
+    rules: {
+      'no-restricted-imports': [
+        'error',
+        {
+          patterns: [
+            ...fixtureImports.patterns,
+            {
+              group: ['@cindl/hermes-adapter', '@cindl/hermes-adapter/*'],
+              message:
+                'The web UI uses CindlClientApi; only src/platform/client.ts imports the adapter.',
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // The demo switch: one literal import of the labelled scenario, nothing else.
     files: ['apps/web/src/platform/client.ts', 'apps/android/src/platform/client.ts'],
     rules: {

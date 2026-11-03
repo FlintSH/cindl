@@ -30,7 +30,8 @@ in through Hermes's own `/login` page.
 - **Signing in.** "Sign in on Hermes" opens Hermes's own sign-in page. Its
   `next` is the mount (such as `/cindl/`) and the view you were on, never a
   query; it is escaped for the two decodes Hermes applies, so you come back to
-  the same view. Cindl never sees the password: the session is Hermes's
+  the same view. (An OAuth provider decodes it once more, so a view whose name
+  holds an encoded slash comes back as its parent.) Cindl never sees the password: the session is Hermes's
   HttpOnly cookie, which the page cannot read. "Check again" asks Hermes
   whether this browser is signed in now.
 - **Talking to Hermes.** Every request goes to the page's own origin with the
@@ -45,21 +46,30 @@ in through Hermes's own `/login` page.
   the main one) lives in memory for the tab, so a reload starts from what
   Hermes holds.
 - **Signing out.** "Sign out on this device" asks Hermes (`POST /auth/logout`)
-  to clear its session cookie in this browser. Hermes v0.22.5 revokes nothing
-  on its side, so a copy of the cookie keeps working until it expires (12
-  hours for access, 30 days for refresh with the basic provider). If Hermes
-  does not confirm, Cindl still signs out here and says to sign out again.
-  When Hermes ends the session itself (its gate answers that the session is
-  over), Cindl stops and shows sign-in.
-- **Browsers.** Tested in Chrome. The page's own policy allows same-origin
-  WebSockets (`connect-src 'self'`); WebKit fixed that case in April 2022, so
-  Safari releases older than that block the connection.
+  to clear its session cookie in this browser. What Hermes v0.22.5 ends on its
+  side depends on how it signs you in: its basic sign-in revokes nothing, so a
+  copy of the cookie keeps working until it expires (12 hours for access, 30
+  days for refresh); its self-hosted OIDC sign-in asks the identity provider
+  to revoke the refresh token when that provider supports it. When Hermes
+  ends the session itself (its gate answers that the session is over), Cindl
+  stops and shows sign-in. Known limits, being fixed in the client:
+  - Other tabs of Cindl stay connected until they reconnect or ask Hermes for
+    something outside the open connection; close them or reload them.
+  - If Hermes does not confirm the sign-out, Cindl signs out here and says
+    so, but the sign-in screen offers no second try: choose "Check again",
+    then sign out again from Agent, This device.
+- **Browsers.** Tested in Chrome only; Safari and Firefox are untested. The
+  page's own policy allows same-origin WebSockets (`connect-src 'self'`);
+  WebKit fixed that case in 2022 (bug 235873), and older Safari blocks them.
 - **What the mount must do.** Serve the build's files under the sub-path with
-  their content types, redirect the bare sub-path (`/cindl`) to the one with
-  a trailing slash (the build's asset paths are relative), send
+  their content types (`.js` as `text/javascript`, which browsers require for
+  module scripts), redirect the bare sub-path (`/cindl`) to the one with a
+  trailing slash (the build's asset paths are relative), send
   `Content-Security-Policy: frame-ancestors 'none'` with Cindl's pages and
-  `Cache-Control: no-cache` with `index.html`, and pass every other path to
-  Hermes unchanged. Cindl uses hash routes, so no other path needs rewriting.
+  `Cache-Control: no-cache` with `/cindl/` and `index.html`, and pass every
+  other path to Hermes unchanged. Cindl uses hash routes, so no other path
+  needs rewriting. Pages on one origin share cookies and storage, so serve
+  nothing there that you do not trust as you trust Hermes.
 
 Opened anywhere else, the production build says it is not connected,
 explains why, and points to the desktop and Android apps. Developers use the

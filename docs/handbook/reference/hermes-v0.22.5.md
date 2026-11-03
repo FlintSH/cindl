@@ -179,12 +179,15 @@ same-origin requests, and it keeps nothing in browser storage.
   as confirmed only when `GET /api/auth/me` then answers the gate's 401; a
   second `auth.signOut` posts `/auth/logout` again. A failure never blocks the local
   sign-out: the link still goes `signed-out`, with a warning notice to sign
-  out again. The result stays `{localOnly: true}`, since Hermes v0.22.5 cannot
-  end the session on its side. Every bundled provider's revoke is a no-op
+  out again. The result stays `{localOnly: true}`: what Hermes ends on its side
+  depends on the provider. The basic, Nous and drain providers revoke nothing
   (`plugins/dashboard_auth/basic/__init__.py:165-167`,
   `nous/__init__.py:67-70`, `drain/__init__.py:106-107`), so a copy of the
   cookies keeps working until it expires (basic defaults: 12 h access, 30 d
-  refresh).
+  refresh). The self-hosted OIDC provider asks its identity provider to revoke
+  the refresh token, best effort, when that provider advertises a revocation
+  endpoint (RFC 7009; `plugins/dashboard_auth/self_hosted/__init__.py:124-145`);
+  the access token still works until it expires.
 
 ## WebSocket `/api/ws`
 
