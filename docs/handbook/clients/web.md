@@ -143,14 +143,22 @@ from the desktop app's custom protocol.
     the text Cindl read under the id the delete sends. Deleting warns first,
     because Hermes keeps no backup.
   - Focus never drops to the page because of a change in an editor (memory
-    entries, SOUL and skills alike). When the control you were on goes (a
-    step, a lock, an adoption, Continue or a discard), focus moves to what
-    took its place: the lock notice while the editor is locked, else your
-    draft, the changes under review, or Edit. Focus you moved elsewhere stays
-    there. The adopt button is described by the entry now at the place.
+    entries, SOUL and skills alike). When the control you were on goes or is
+    disabled (a step, a save or an adoption under way, a lock, Continue or a
+    discard), focus moves to what took its place: the lock notice while the
+    editor is locked, else your draft, the changes under review, or Edit. A
+    completed adoption puts focus in your draft. Deleting moves focus to
+    "Keep it", back to "Delete entry…" if you keep the entry, and to the
+    Entries heading once it is gone. Focus you moved elsewhere, even to plain
+    page text, stays there. The adopt button is described by the entry now at
+    the place. A real browser checks these, because a browser drops focus
+    from a disabled control a frame later and jsdom does not.
   - An entry whose first line is only a heading mark gets no title from
-    Hermes; Cindl names it by its first line with words, in its row, the lock
-    notice and the confirmation.
+    Hermes; Cindl names it by its first line with words, in its row and the
+    lock notice, or by its place (for example "agent note 3") when it has
+    none.
+  - Discarding a draft Hermes refused as stale clears that refusal; saving
+    the next draft against a version Hermes has replaced is refused again.
   - After a save, the text it replaced stays on screen: ready to restore while
     the entry is still the one you saved, and otherwise only to copy.
   - Known limit: entries with identical text in one store look the same to

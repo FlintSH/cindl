@@ -13,6 +13,11 @@ const port = Number(process.env.CINDL_E2E_PORT ?? '4173')
 if (!Number.isInteger(port) || port < 1024 || port > 65535)
   throw new Error('CINDL_E2E_PORT must be a port number from 1024 to 65535.')
 const origin = `http://127.0.0.1:${port}`
+// The test-only focus harness (e2e/harness) runs on Vite's dev server, next port up.
+const harnessPort = Number(process.env.CINDL_E2E_HARNESS_PORT ?? String(port + 1))
+if (!Number.isInteger(harnessPort) || harnessPort < 1024 || harnessPort > 65535)
+  throw new Error('CINDL_E2E_HARNESS_PORT must be a port number from 1024 to 65535.')
+process.env.CINDL_E2E_HARNESS = `http://127.0.0.1:${harnessPort}/e2e/harness/focus.html`
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
@@ -32,11 +37,20 @@ export default defineConfig({
       use: { ...devices['Desktop Chrome'], ...(channel ? { channel } : {}) },
     },
   ],
-  webServer: {
-    command: `pnpm run build:demo && pnpm exec vite preview --outDir dist-demo --host 127.0.0.1 --port ${port} --strictPort`,
-    url: origin,
-    // Never test whatever happens to be listening on the port (shared machines).
-    reuseExistingServer: false,
-    timeout: 120_000,
-  },
+  webServer: [
+    {
+      command: `pnpm run build:demo && pnpm exec vite preview --outDir dist-demo --host 127.0.0.1 --port ${port} --strictPort`,
+      url: origin,
+      // Never test whatever happens to be listening on the port (shared machines).
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+    {
+      // Never built: the harness page exists only on this dev server.
+      command: `pnpm exec vite --host 127.0.0.1 --port ${harnessPort} --strictPort`,
+      url: process.env.CINDL_E2E_HARNESS,
+      reuseExistingServer: false,
+      timeout: 120_000,
+    },
+  ],
 })

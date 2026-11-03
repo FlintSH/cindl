@@ -877,7 +877,7 @@ describe('guards the re-check found unpinned', () => {
     expect(document.activeElement).toBe(button('Edit'))
   })
 
-  it('R15: a lock that removes the focused control puts focus on the lock notice, which says why', async () => {
+  it('R15: a lock that removes the focused "Delete entry…" (beside the editor\'s steps) puts focus on the lock notice, which says why', async () => {
     const h = harness()
     await open(/The kiln firing log/)
     await holdListAndReload(h)

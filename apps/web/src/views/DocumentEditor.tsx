@@ -1,6 +1,7 @@
 import { diffLines, diffStats } from '@cindl/client-core'
 import { isCindlError, type VersionedDocument } from '@cindl/contracts'
 import {
+  Fragment,
   useEffect,
   useId,
   useLayoutEffect,
@@ -180,14 +181,18 @@ export function DocumentEditor({
       // eslint-disable-next-line react-hooks/set-state-in-effect -- records where the draft was filed, once
       setStage((now) => (now.kind === 'view' ? now : { ...now, keptAs: key }))
   }, [draftKey, keptAs, keptDraft])
-  // Each step is keyed by its kind, so a step's controls are replaced, never
-  // reused as another step's (a focused Edit would become Review changes).
+  // Each step's content is keyed by its kind, so a step's controls are
+  // replaced, never reused as another step's (a focused Edit would become
+  // Review changes); the lock notice outside it stays the same element.
   // Focus never drops to the page because of a change here. When the control
-  // that had focus goes (a lock or an adoption, Continue, a discard, a step to
-  // review or back), focus moves to what took its place: the lock notice while
-  // locked, else the draft, the changes under review, or Edit (Reload when
-  // there is no Edit). A lock that lands or lifts with nothing focused moves
-  // focus the same way. Focus the owner moved elsewhere stays there.
+  // that had focus goes or is disabled (a save or an adoption under way, a
+  // lock, Continue, a discard, a step to review or back), focus moves to what
+  // took its place: the lock notice while locked, else the draft, the changes
+  // under review, or Edit (Reload when there is no Edit). A browser drops
+  // focus from a disabled control only at its next frame, after this effect,
+  // so a disabled control counts as gone now. An adoption the owner chose
+  // brings focus into the draft when it completes with nothing focused.
+  // Focus the owner moved elsewhere, even to plain page text, stays there.
   const root = useRef<HTMLDivElement>(null)
   const box = useRef<HTMLTextAreaElement>(null)
   const notice = useRef<HTMLDivElement>(null)
@@ -195,29 +200,43 @@ export function DocumentEditor({
   const edit = useRef<HTMLButtonElement>(null)
   const reload = useRef<HTMLButtonElement>(null)
   const focused = useRef<Element | null>(null)
-  const wasLocked = useRef(Boolean(lockText))
+  const away = useRef(false)
+  const adopting = useRef(false)
   useLayoutEffect(() => {
-    const lockedNow = Boolean(lockText)
-    const lockMoved = wasLocked.current !== lockedNow
-    wasLocked.current = lockedNow
+    const adopted = adopting.current && !adoption?.busy && !lockText
+    adopting.current = Boolean(adoption?.busy)
     const page = root.current?.ownerDocument
     if (!page) return
     const active = page.activeElement
-    if (active && active !== page.body) {
+    const disabledHere =
+      active !== null &&
+      root.current?.contains(active) === true &&
+      active.matches(':disabled')
+    if (active && active !== page.body && !disabledHere) {
       focused.current = root.current?.contains(active) ? active : null
       return
     }
-    const was = focused.current
+    const was = disabledHere ? active : focused.current
     focused.current = null
     const taken = was !== null && (!was.isConnected || was.matches(':disabled'))
-    if (!taken && !lockMoved) return
-    const target = lockedNow
+    if (!taken && !(adopted && !away.current)) return
+    const target = lockText
       ? notice.current
       : (box.current ?? changes.current ?? edit.current ?? reload.current)
     target?.focus()
   })
   const track = (event: FocusEvent) => {
     focused.current = event.target
+    away.current = false
+  }
+  // Focus leaving a control that is still there and enabled is the owner's
+  // move (to another control, or to plain page text): forget the control, so
+  // nothing that lands later pulls focus back.
+  const untrack = (event: FocusEvent) => {
+    if (event.target.isConnected && !event.target.matches(':disabled')) {
+      focused.current = null
+      away.current = true
+    }
   }
   const hereId = useId()
   const [error, setError] = useState<{ message: string; conflict: boolean }>()
@@ -271,139 +290,146 @@ export function DocumentEditor({
 
   if (stage.kind === 'view')
     return (
-      <div key="view" className={styles.section} ref={root} onFocus={track}>
+      <div className={styles.section} ref={root} onFocus={track} onBlur={untrack}>
         {lockNotice}
-        <pre className={styles.doc}>{document.content}</pre>
-        <p className={styles.note}>
-          Read {new Date(document.readAt).toLocaleString()} from {document.source}.
-          Version <code>{document.version.slice(0, 12)}</code>.
-        </p>
-        {otherKept !== undefined && !lockText ? (
-          <div className={styles.section}>
-            <p className={styles.note} role="status">
-              An unsaved draft for this is kept on this device:
-            </p>
-            <pre className={styles.doc}>{otherKept}</pre>
-            <div className={styles.actions}>
+        <Fragment key="view">
+          <pre className={styles.doc}>{document.content}</pre>
+          <p className={styles.note}>
+            Read {new Date(document.readAt).toLocaleString()} from {document.source}.
+            Version <code>{document.version.slice(0, 12)}</code>.
+          </p>
+          {otherKept !== undefined && !lockText ? (
+            <div className={styles.section}>
+              <p className={styles.note} role="status">
+                An unsaved draft for this is kept on this device:
+              </p>
+              <pre className={styles.doc}>{otherKept}</pre>
+              <div className={styles.actions}>
+                <Button
+                  variant="quiet"
+                  onClick={() => {
+                    keptDrafts.delete(draftKey)
+                    setKeptSeen((value) => value + 1)
+                  }}
+                >
+                  Discard the draft
+                </Button>
+                {canWrite ? (
+                  <Button
+                    onClick={() =>
+                      setStage({ kind: 'edit', draft: otherKept, keptAs: draftKey })
+                    }
+                  >
+                    Continue the draft
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          ) : null}
+          {backup && !lockText && backup.version === document.version ? (
+            <p className={styles.note}>
+              The previous version is kept on this screen until you leave it.{' '}
               <Button
                 variant="quiet"
-                onClick={() => {
-                  keptDrafts.delete(draftKey)
-                  setKeptSeen((value) => value + 1)
-                }}
+                onClick={() => setStage({ kind: 'edit', draft: backup.content })}
               >
-                Discard the draft
+                Restore previous version
               </Button>
-              {canWrite ? (
-                <Button
-                  onClick={() =>
-                    setStage({ kind: 'edit', draft: otherKept, keptAs: draftKey })
-                  }
-                >
-                  Continue the draft
-                </Button>
-              ) : null}
-            </div>
-          </div>
-        ) : null}
-        {backup && !lockText && backup.version === document.version ? (
-          <p className={styles.note}>
-            The previous version is kept on this screen until you leave it.{' '}
-            <Button
-              variant="quiet"
-              onClick={() => setStage({ kind: 'edit', draft: backup.content })}
-            >
-              Restore previous version
-            </Button>
-          </p>
-        ) : backup ? (
-          // Hermes keeps no backup. Once the text shown is not the version that
-          // save produced, restoring would write over something else, so the
-          // replaced text is only shown, to copy.
-          <div className={styles.section}>
-            <p className={styles.note}>
-              The text your last save replaced, kept on this screen to copy:
             </p>
-            <pre className={styles.doc}>{backup.content}</pre>
-          </div>
-        ) : null}
-        <div className={styles.actions}>
-          <Button variant="quiet" ref={reload} onClick={onReload}>
-            Reload
-          </Button>
-          {canWrite && !lockText ? (
-            <Button
-              ref={edit}
-              onClick={() => setStage({ kind: 'edit', draft: document.content })}
-            >
-              Edit
-            </Button>
+          ) : backup ? (
+            // Hermes keeps no backup. Once the text shown is not the version that
+            // save produced, restoring would write over something else, so the
+            // replaced text is only shown, to copy.
+            <div className={styles.section}>
+              <p className={styles.note}>
+                The text your last save replaced, kept on this screen to copy:
+              </p>
+              <pre className={styles.doc}>{backup.content}</pre>
+            </div>
           ) : null}
-        </div>
-        {writeNote ? <p className={styles.note}>{writeNote}</p> : null}
+          <div className={styles.actions}>
+            <Button variant="quiet" ref={reload} onClick={onReload}>
+              Reload
+            </Button>
+            {canWrite && !lockText ? (
+              <Button
+                ref={edit}
+                onClick={() => setStage({ kind: 'edit', draft: document.content })}
+              >
+                Edit
+              </Button>
+            ) : null}
+          </div>
+          {writeNote ? <p className={styles.note}>{writeNote}</p> : null}
+        </Fragment>
       </div>
     )
 
   if (stage.kind === 'edit')
     return (
-      <div key="edit" className={styles.section} ref={root} onFocus={track}>
+      <div className={styles.section} ref={root} onFocus={track} onBlur={untrack}>
         {lockNotice}
-        {draftNote && !lockText ? (
-          <p className={styles.note} role="status">
-            {draftNote}
-          </p>
-        ) : restored && !lockText ? (
-          <p className={styles.note} role="status">
-            Your unsaved draft was kept. Review it against the current version before
-            saving.
-          </p>
-        ) : null}
-        {otherKept !== undefined && !lockText ? (
-          <p className={styles.note}>
-            Another unsaved draft for this is kept on this device. Saving or discarding
-            this one leaves it.
-          </p>
-        ) : null}
-        <label className="visually-hidden" htmlFor="doc-editor">
-          Edit {document.key}
-        </label>
-        <textarea
-          id="doc-editor"
-          ref={box}
-          className={styles.editor}
-          value={stage.draft}
-          readOnly={Boolean(lockText)}
-          spellCheck
-          onChange={(event) =>
-            setStage({ kind: 'edit', draft: event.target.value, keptAs: stage.keptAs })
-          }
-        />
-        <div className={styles.actions}>
-          <Button
-            variant="quiet"
-            onClick={() => {
-              if (stage.keptAs !== undefined) keptDrafts.delete(stage.keptAs)
-              setStage({ kind: 'view' })
-              onDiscard?.()
-            }}
-          >
-            Discard changes
-          </Button>
-          <Button
-            variant="primary"
-            disabled={Boolean(lockText) || stage.draft === document.content}
-            onClick={() =>
-              setStage({
-                kind: 'review',
-                draft: stage.draft,
-                base: document.version,
-                keptAs: stage.keptAs,
-              })
+        <Fragment key="edit">
+          {draftNote && !lockText ? (
+            <p className={styles.note} role="status">
+              {draftNote}
+            </p>
+          ) : restored && !lockText ? (
+            <p className={styles.note} role="status">
+              Your unsaved draft was kept. Review it against the current version before
+              saving.
+            </p>
+          ) : null}
+          {otherKept !== undefined && !lockText ? (
+            <p className={styles.note}>
+              Another unsaved draft for this is kept on this device. Saving or discarding
+              this one leaves it.
+            </p>
+          ) : null}
+          <label className="visually-hidden" htmlFor="doc-editor">
+            Edit {document.key}
+          </label>
+          <textarea
+            id="doc-editor"
+            ref={box}
+            className={styles.editor}
+            value={stage.draft}
+            readOnly={Boolean(lockText)}
+            spellCheck
+            onChange={(event) =>
+              setStage({ kind: 'edit', draft: event.target.value, keptAs: stage.keptAs })
             }
-          >
-            Review changes
-          </Button>
-        </div>
+          />
+          <div className={styles.actions}>
+            <Button
+              variant="quiet"
+              onClick={() => {
+                if (stage.keptAs !== undefined) keptDrafts.delete(stage.keptAs)
+                // A refused save's message was about this draft, now gone. A
+                // later save of a stale version is still refused.
+                setError(undefined)
+                setStage({ kind: 'view' })
+                onDiscard?.()
+              }}
+            >
+              Discard changes
+            </Button>
+            <Button
+              variant="primary"
+              disabled={Boolean(lockText) || stage.draft === document.content}
+              onClick={() =>
+                setStage({
+                  kind: 'review',
+                  draft: stage.draft,
+                  base: document.version,
+                  keptAs: stage.keptAs,
+                })
+              }
+            >
+              Review changes
+            </Button>
+          </div>
+        </Fragment>
       </div>
     )
 
@@ -445,49 +471,51 @@ export function DocumentEditor({
     }
   }
   return (
-    <div key="review" className={styles.section} ref={root} onFocus={track}>
+    <div className={styles.section} ref={root} onFocus={track} onBlur={untrack}>
       {lockNotice}
-      <Review before={document.content} draft={draft} changes={changes} />
-      {moved && !lockText ? (
-        <p className={styles.error} role="alert">
-          This text changed in Hermes while you were reviewing, so the changes above are
-          against the new version. Go back to editing and review your draft again before
-          saving.
-        </p>
-      ) : null}
-      {error ? (
-        <p className={styles.error} role="alert">
-          {error.message}
-        </p>
-      ) : null}
-      <div className={styles.actions}>
-        {error?.conflict ? (
-          <Button
-            onClick={() => {
-              // Fetch the current version, keep the draft, and review it again against the new text.
-              onReload()
-              setError(undefined)
-              setStage({ kind: 'edit', draft, keptAs: stage.keptAs })
-            }}
-          >
-            Reload and keep my draft
-          </Button>
+      <Fragment key="review">
+        <Review before={document.content} draft={draft} changes={changes} />
+        {moved && !lockText ? (
+          <p className={styles.error} role="alert">
+            This text changed in Hermes while you were reviewing, so the changes above are
+            against the new version. Go back to editing and review your draft again before
+            saving.
+          </p>
         ) : null}
-        <Button
-          variant="quiet"
-          disabled={saving}
-          onClick={() => setStage({ kind: 'edit', draft, keptAs: stage.keptAs })}
-        >
-          Back to editing
-        </Button>
-        <Button
-          variant="primary"
-          disabled={saving || moved || Boolean(lockText) || Boolean(error?.conflict)}
-          onClick={() => void save()}
-        >
-          {saving ? 'Saving…' : 'Confirm and save'}
-        </Button>
-      </div>
+        {error ? (
+          <p className={styles.error} role="alert">
+            {error.message}
+          </p>
+        ) : null}
+        <div className={styles.actions}>
+          {error?.conflict ? (
+            <Button
+              onClick={() => {
+                // Fetch the current version, keep the draft, and review it again against the new text.
+                onReload()
+                setError(undefined)
+                setStage({ kind: 'edit', draft, keptAs: stage.keptAs })
+              }}
+            >
+              Reload and keep my draft
+            </Button>
+          ) : null}
+          <Button
+            variant="quiet"
+            disabled={saving}
+            onClick={() => setStage({ kind: 'edit', draft, keptAs: stage.keptAs })}
+          >
+            Back to editing
+          </Button>
+          <Button
+            variant="primary"
+            disabled={saving || moved || Boolean(lockText) || Boolean(error?.conflict)}
+            onClick={() => void save()}
+          >
+            {saving ? 'Saving…' : 'Confirm and save'}
+          </Button>
+        </div>
+      </Fragment>
     </div>
   )
 }

@@ -41,17 +41,21 @@ const MEMORY_DRAFT_PREFIX = 'memory-draft:'
  * How a confirmation names an entry: the first line of the text Cindl read,
  * cut as Hermes cuts its card titles (`agent/learning_graph.py`).
  */
-const titleOf = (content: string) => {
-  const first =
-    content
-      .split('\n')
-      .map((line) => line.replace(/^[#\s]+/, '').trim())
-      .find((line) => line.length > 0) ?? 'this entry'
-  return first.length > 80 ? `${first.slice(0, 80)}…` : first
-}
+const firstWords = (content: string) =>
+  content
+    .split('\n')
+    .map((line) => line.replace(/^[#\s]+/, '').trim())
+    .find((line) => line.length > 0)
+const cut = (text: string) => (text.length > 80 ? `${text.slice(0, 80)}…` : text)
+const titleOf = (content: string) => cut(firstWords(content) ?? 'this entry')
 
-/** An entry's name in labels: Hermes's title, or (when that is empty) the same rule on its preview. */
-const nameOf = (entry: MemoryEntrySummary) => entry.title.trim() || titleOf(entry.preview)
+/**
+ * An entry's name in labels: Hermes's title; when that is empty (a first line
+ * of only heading marks), its first line with words; when it has none, its
+ * place, so no two entries share a name.
+ */
+const nameOf = (entry: MemoryEntrySummary, place: string) =>
+  entry.title.trim() || cut(firstWords(entry.preview) ?? place)
 
 /** Where an entry sits in the list. The UI follows it across edits; writes never use it. */
 interface Position {
@@ -83,6 +87,13 @@ export function MemoryEntries() {
   )
   const [open, setOpen] = useState<Position>()
   const [, setDraftsSeen] = useState(0)
+  const heading = useRef<HTMLHeadingElement>(null)
+  const headingNext = useRef(false)
+  useLayoutEffect(() => {
+    if (!headingNext.current) return
+    headingNext.current = false
+    heading.current?.focus()
+  })
   const entries = list.data ?? []
   const selected = open ? atPosition(entries, open) : undefined
   // Drafts kept for entries Hermes no longer lists (removed, or rewritten
@@ -137,6 +148,8 @@ export function MemoryEntries() {
       placeNow={placeNow}
       onChanged={list.reload}
       onDeleted={() => {
+        // The entry and its editor are gone: focus goes to the list's heading.
+        headingNext.current = true
         setOpen(undefined)
         list.reload()
       }}
@@ -144,7 +157,9 @@ export function MemoryEntries() {
   )
   return (
     <section className={styles.section} aria-labelledby="memory-entries-title">
-      <SectionTitle id="memory-entries-title">Entries</SectionTitle>
+      <SectionTitle id="memory-entries-title" ref={heading} tabIndex={-1}>
+        Entries
+      </SectionTitle>
       {list.error ? <p className={styles.error}>{list.error}</p> : null}
       {list.data && !entries.length ? (
         <p className={styles.note}>Hermes has no memory entries yet.</p>
@@ -213,7 +228,7 @@ export function MemoryEntries() {
                         <Button
                           variant="quiet"
                           aria-expanded={isOpen}
-                          aria-label={`${isOpen ? 'Close' : 'Open'} memory entry: ${nameOf(entry)}`}
+                          aria-label={`${isOpen ? 'Close' : 'Open'} memory entry: ${nameOf(entry, `${store === 'memory' ? 'agent note' : 'note about you'} ${index + 1}`)}`}
                           onClick={() =>
                             setOpen(isOpen ? undefined : positionOf(entries, entry.id))
                           }
@@ -415,12 +430,42 @@ function MemoryEntryEditor({
       ? `${here}. This draft was written for another entry, so when you close this it stays under Unsaved drafts.`
       : `${here}. This draft was written for ${source.startsWith('profile:') ? 'note about you' : 'agent note'} ${sourcePlace}, so when you close this it goes back to that entry.`
   }
+  // A control here outside the document editor (the error row's Reload) that
+  // goes takes focus with it; focus moves to the editor's first control. The
+  // document editor moves focus itself first for its own controls.
+  const editorRoot = useRef<HTMLDivElement>(null)
+  const lastFocused = useRef<Element | null>(null)
+  useLayoutEffect(() => {
+    const page = editorRoot.current?.ownerDocument
+    if (!page) return
+    const active = page.activeElement
+    if (active && active !== page.body) {
+      lastFocused.current = editorRoot.current?.contains(active) ? active : null
+      return
+    }
+    const was = lastFocused.current
+    lastFocused.current = null
+    if (was === null || was.isConnected) return
+    editorRoot.current
+      ?.querySelector<HTMLElement>('textarea, button:not(:disabled), [tabindex="-1"]')
+      ?.focus()
+  })
   const otherDraft =
     adoptedFrom !== undefined &&
     ownKey !== undefined &&
     keptDocumentDrafts(ownKey).some(({ key }) => key === ownKey)
   return (
-    <div className={styles.memoryEditor}>
+    <div
+      className={styles.memoryEditor}
+      ref={editorRoot}
+      onFocus={(event) => {
+        lastFocused.current = event.target
+      }}
+      onBlur={(event) => {
+        if (event.target.isConnected && !event.target.matches(':disabled'))
+          lastFocused.current = null
+      }}
+    >
       {entry.error && (!data || !locked) ? (
         <div className={styles.actions}>
           <p className={styles.error}>{entry.error}</p>
@@ -442,7 +487,7 @@ function MemoryEntryEditor({
             draftKey={draftKey}
             canWrite={canWrite}
             locked={locked ? lockMessage : undefined}
-            nowHere={locked && summary ? nameOf(summary) : undefined}
+            nowHere={locked && summary ? nameOf(summary, `${label} ${place}`) : undefined}
             onAdopt={
               summary && locked
                 ? (keptAs) => adopt(summary, keptAs ?? draftKey)
@@ -515,16 +560,41 @@ function DeleteEntry({
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string>()
+  // The owner's choice moves focus: opening the confirmation to "Keep it",
+  // keeping the entry back to "Delete entry…", and deleting (both buttons
+  // disabled) to the confirmation itself.
+  const opener = useRef<HTMLButtonElement>(null)
+  const keep = useRef<HTMLButtonElement>(null)
+  const group = useRef<HTMLDivElement>(null)
+  const focusNext = useRef<'opener' | 'keep' | 'group'>(undefined)
+  useLayoutEffect(() => {
+    const next = focusNext.current
+    focusNext.current = undefined
+    if (next) ({ opener, keep, group })[next].current?.focus()
+  })
   if (!confirming)
     return (
       <div className={styles.actions}>
-        <Button variant="quiet" onClick={() => setConfirming(true)}>
+        <Button
+          variant="quiet"
+          ref={opener}
+          onClick={() => {
+            focusNext.current = 'keep'
+            setConfirming(true)
+          }}
+        >
           Delete entry…
         </Button>
       </div>
     )
   return (
-    <div className={styles.confirm} role="group" aria-label="Delete this memory entry">
+    <div
+      className={styles.confirm}
+      role="group"
+      aria-label="Delete this memory entry"
+      ref={group}
+      tabIndex={-1}
+    >
       <p>
         Delete “{title}” from Hermes's memory? Hermes keeps no backup, so this cannot be
         undone.
@@ -535,13 +605,21 @@ function DeleteEntry({
         </p>
       ) : null}
       <div className={styles.actions}>
-        <Button disabled={busy} onClick={() => setConfirming(false)}>
+        <Button
+          disabled={busy}
+          ref={keep}
+          onClick={() => {
+            focusNext.current = 'opener'
+            setConfirming(false)
+          }}
+        >
           Keep it
         </Button>
         <Button
           variant="danger"
           disabled={busy}
           onClick={() => {
+            focusNext.current = 'group'
             setBusy(true)
             setError(undefined)
             void api

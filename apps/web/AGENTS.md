@@ -22,3 +22,7 @@ The responsive web client and the Electron renderer. Read `DESIGN.md` first.
   writes the screenshot matrix to `.agent-artifacts/web-qa/capture/`. Review
   every image before publishing it.
 - Component tests (`test/*.test.tsx`, jsdom) cover security-relevant rendering.
+- jsdom never moves focus off a disabled control; browsers do, one frame
+  later. Focus behaviour goes in `e2e/focus.spec.ts`, which runs the real
+  views on the test-only harness `e2e/harness/focus.html` (its own dev server,
+  never built; `CINDL_E2E_HARNESS_PORT`, default the e2e port plus one).
