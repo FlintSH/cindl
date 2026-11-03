@@ -36,7 +36,10 @@ import {
   label,
   linkTapPoints,
   matches,
+  navItem,
   near,
+  onDestination,
+  overlayOpen,
   screenToDevice,
   TERMS_PROMPT,
   type Match,
@@ -159,14 +162,6 @@ const SUDO_PROMPT =
 const isComposer: Match = (text, node) =>
   /EditText$/.test(node.className) && text.startsWith('Message ')
 
-function navItem(root: UiNode, name: string): UiNode | undefined {
-  const candidates = flatten(root).filter(
-    (node) =>
-      node.clickable && (label(node) === name || label(node).startsWith(`${name}, `)),
-  )
-  return candidates.sort((a, b) => b.bounds.bottom - a.bounds.bottom)[0]
-}
-
 async function openDestination(name: string, heading: Match) {
   const root = await device.dump()
   const item = navItem(root, name)
@@ -181,11 +176,17 @@ const named =
   (text) =>
     text.toLowerCase() === wanted.toLowerCase()
 
+/** A destination selected in the bottom navigation (Talk shows a composer only once it has a conversation). */
+const selected =
+  (name: string): Match =>
+  (text, node) =>
+    node.clickable && node.selected && (text === name || text.startsWith(`${name}, `))
+
 const DESTINATIONS: Array<[string, Match]> = [
   ['Work', named('Needs you')],
   ['Library', named('Skills')],
   ['Agent', named('SOUL.md')],
-  ['Talk', isComposer],
+  ['Talk', selected('Talk')],
 ]
 
 /** Brings Cindl to the front if something else (launcher, browser) has focus. */
@@ -194,11 +195,28 @@ function ensureApp() {
   if (!focus.includes(`${PACKAGE}/`)) device.launch()
 }
 
-/** Each step starts from Talk, so one failure does not cascade into the next. */
+/**
+ * Closes what a step left over the screen (a dialog, a sheet, the keyboard)
+ * with system back, which closes the top one first.
+ */
+async function closeOverlays() {
+  for (let tries = 0; tries < 4; tries++) {
+    if (!overlayOpen(await device.dump()) && !device.keyboard().shown) return
+    await device.key('KEYCODE_BACK')
+  }
+  throw new Error('A dialog or sheet stayed open after system back')
+}
+
+/**
+ * Each step starts from Talk, so one failure does not cascade into the next:
+ * Cindl in front, nothing left open over it, and Talk selected in the bottom
+ * navigation, with or without a conversation.
+ */
 async function startOnTalk() {
   ensureApp()
-  const root = await device.dump()
-  if (!find(root, isComposer)) await openDestination('Talk', isComposer)
+  await closeOverlays()
+  if (!onDestination(await device.dump(), 'Talk'))
+    await openDestination('Talk', selected('Talk'))
 }
 
 function prepareDevice() {

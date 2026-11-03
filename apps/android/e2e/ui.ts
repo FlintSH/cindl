@@ -23,6 +23,8 @@ export interface UiNode {
   enabled: boolean
   focused: boolean
   scrollable: boolean
+  /** Selected, as a bottom navigation item or a tab is (accessibilityState). */
+  selected: boolean
   bounds: Rect
   parent?: UiNode
   children: UiNode[]
@@ -69,6 +71,7 @@ export function parseUi(xml: string): UiNode {
     enabled: true,
     focused: false,
     scrollable: false,
+    selected: false,
     bounds: { left: 0, top: 0, right: 0, bottom: 0 },
     children: [],
   }
@@ -102,6 +105,7 @@ export function parseUi(xml: string): UiNode {
       enabled: flag('enabled'),
       focused: flag('focused'),
       scrollable: flag('scrollable'),
+      selected: flag('selected'),
       bounds: parseBounds(get('bounds')),
       parent,
       children: [],
@@ -126,6 +130,37 @@ export function flatten(root: UiNode): UiNode[] {
 
 /** What TalkBack reads first: the content description, else the text. */
 export const label = (node: UiNode) => node.desc || node.text
+
+/** The bottom navigation's item for a destination (its label may add ", 1 waiting on you"). */
+export function navItem(root: UiNode, name: string): UiNode | undefined {
+  const candidates = flatten(root).filter(
+    (node) =>
+      node.clickable && (label(node) === name || label(node).startsWith(`${name}, `)),
+  )
+  return candidates.sort((a, b) => b.bounds.bottom - a.bounds.bottom)[0]
+}
+
+/** The destination is the one selected in the bottom navigation. */
+export const onDestination = (root: UiNode, name: string) =>
+  navItem(root, name)?.selected === true
+
+/**
+ * A dialog or sheet is open: its scrim, a clickable node over the whole
+ * window, takes every tap outside it (CI run 41656607631: a step's tap on the
+ * bottom navigation closed the delete dialog left open instead).
+ */
+export function overlayOpen(root: UiNode): boolean {
+  const window = root.children[0]?.bounds
+  if (!window) return false
+  return flatten(root).some(
+    (node) =>
+      node.clickable &&
+      node.bounds.left <= window.left &&
+      node.bounds.top <= window.top &&
+      node.bounds.right >= window.right &&
+      node.bounds.bottom >= window.bottom,
+  )
+}
 
 export type Match = string | RegExp | ((label: string, node: UiNode) => boolean)
 

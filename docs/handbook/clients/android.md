@@ -207,8 +207,11 @@ keeps the editor's state and wiring and calls the same functions the
 components call. How those states render in React Native, where TalkBack
 focus lands and what TalkBack reads are not covered by an emulator test yet.
 
-System animations are off during the tests so UI dumps are stable (the app then
-also reduces its own motion). The `cindl-android-emulator-evidence` artifact
+Each step starts from a known screen, so one failure does not fail the steps
+after it: Cindl in front, nothing left open over it (system back closes a
+dialog or sheet a step left), and Talk selected, with or without a
+conversation. System animations are off during the tests so UI dumps are stable
+(the app then also reduces its own motion). The `cindl-android-emulator-evidence` artifact
 holds, per suite (`demo/`, `signin/`), screenshots, UI dumps, logcat per step,
 `report.json` (steps, device, the fake's request shapes) and `summary.md`, and
 for the production APK `keystore-evidence.json`. Nothing in it holds a

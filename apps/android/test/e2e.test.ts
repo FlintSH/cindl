@@ -16,6 +16,8 @@ import {
   label,
   linkTapPoints,
   near,
+  onDestination,
+  overlayOpen,
   rawPixel,
   screenToDevice,
   parseKeyboard,
@@ -185,6 +187,32 @@ describe('UI Automator dumps', () => {
     for (const text of ['Accept & continue', 'Google Terms of Service', 'I agree'])
       expect(TERMS_PROMPT.test(text)).toBe(true)
     expect(TERMS_PROMPT.test('Signed in')).toBe(false)
+  })
+})
+
+describe('the screen each step starts from (CI run 41656607631)', () => {
+  // Lines from that run's dumps: the app's window, a dialog's scrim, Talk with
+  // no conversation yet (selected), and Work.
+  const WINDOW = `<node index="0" text="" resource-id="" class="android.widget.FrameLayout" package="${PKG}" content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[0,0][1080,2400]" drawing-order="0" hint="">`
+  const SCRIM = `<node NAF="true" index="0" text="" resource-id="" class="android.view.ViewGroup" package="${PKG}" content-desc="" checkable="false" checked="false" clickable="true" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[0,0][1080,2400]" drawing-order="1" hint="" />`
+  const EMPTY = `<node index="0" text="No conversations yet." resource-id="" class="android.widget.TextView" package="${PKG}" content-desc="" checkable="false" checked="false" clickable="false" enabled="true" focusable="false" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[358,988][722,1041]" drawing-order="1" hint="" />`
+  const TALK = `<node index="4" text="" resource-id="" class="android.view.View" package="${PKG}" content-desc="Talk" checkable="false" checked="false" clickable="true" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="true" bounds="[0,2127][270,2274]" drawing-order="4" hint=""></node>`
+  const WORK = `<node index="5" text="" resource-id="" class="android.view.View" package="${PKG}" content-desc="Work" checkable="false" checked="false" clickable="true" enabled="true" focusable="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" bounds="[270,2127][540,2274]" drawing-order="5" hint=""></node>`
+
+  it('counts Talk with no conversation yet as Talk: selected, though it has no composer', () => {
+    const root = parseUi(dump(`${WINDOW}${EMPTY}${TALK}${WORK}</node>`))
+    expect(onDestination(root, 'Talk')).toBe(true)
+    expect(onDestination(root, 'Work')).toBe(false)
+    expect(find(root, (text) => text.startsWith('Message '))).toBeUndefined()
+  })
+
+  it("sees a dialog or sheet left open by its scrim, which would take a step's first tap", () => {
+    expect(overlayOpen(parseUi(dump(`${WINDOW}${SCRIM}${TALK}${WORK}</node>`)))).toBe(
+      true,
+    )
+    expect(overlayOpen(parseUi(dump(`${WINDOW}${EMPTY}${TALK}${WORK}</node>`)))).toBe(
+      false,
+    )
   })
 })
 
