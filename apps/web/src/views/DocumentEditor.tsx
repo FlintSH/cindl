@@ -206,8 +206,8 @@ export function DocumentEditor({
           </p>
         ) : restored && !locked ? (
           <p className={styles.note} role="status">
-            Your unsaved draft was kept after the conflict. Review it against the current
-            version before saving.
+            Your unsaved draft was kept. Review it against the current version before
+            saving.
           </p>
         ) : null}
         <label className="visually-hidden" htmlFor="doc-editor">

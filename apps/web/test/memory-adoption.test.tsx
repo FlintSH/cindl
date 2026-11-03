@@ -348,9 +348,7 @@ describe('adoption ("Use this draft for the entry now here") followed by a furth
     await settle()
     const adopted = {
       box: textarea()?.value ?? null,
-      keptNotice: Boolean(
-        screen.queryByText(/Your unsaved draft was kept after the conflict/),
-      ),
+      keptNotice: Boolean(screen.queryByText(/Your unsaved draft was kept/)),
       kept: keptMemoryDrafts(),
     }
     fireEvent.click(button('Review changes')!)
@@ -495,6 +493,8 @@ describe('adoption keeps every draft until the owner saves or discards it', () =
     fireEvent.click(button('Use this draft for the entry now here')!)
     await settle()
     expect(screen.getByRole('status').textContent).toBe('Reading the entry now here…')
+    expect(lockedNow()).toBe(true)
+    expect(button('Delete entry…')).toBeNull()
     expect(button('Use this draft for the entry now here')!.disabled).toBe(true)
     h.mem.remove(/Glaze supplier/)
     h.mem.add('memory', 'Zed note about the glaze order (fictional).')
@@ -505,6 +505,9 @@ describe('adoption keeps every draft until the owner saves or discards it', () =
     expect(lockedNow()).toBe(true)
     expect(alerts()).toContain(
       'The entry at this place changed again while Cindl read it.',
+    )
+    expect(alerts().join(' ')).toMatch(
+      /Now at this place: “Zed note about the glaze order/,
     )
     expect(keptMemoryDrafts()).toContain(D_K)
     // The owner retries, now for the entry at this place.
@@ -718,6 +721,7 @@ describe('the delete confirmation names the entry it deletes', () => {
       await settle()
     }
     expect(seen.locked).toBe(true)
+    expect(button('Edit')).toBeNull()
     expect(seen.editorShows).toMatch(/^The kiln firing log/)
     expect(alerts().join(' ')).toMatch(/The same text is now agent note 1/)
     if (confirmText) {
@@ -774,19 +778,17 @@ describe('drafts across close, leave and return, moves and removals', () => {
     await releaseList(h)
     const vanished = {
       locked: lockedNow(),
-      removedLabel: Boolean(screen.queryByText('Removed in Hermes')),
+      removedLabel: Boolean(screen.queryByText('No longer at this place')),
       harborStillListed: h.mem.has(/Harbor Loft/),
     }
-    fireEvent.click(button('Close the removed memory entry')!)
+    fireEvent.click(button('Close the entry no longer at this place')!)
     await settle()
     const closed = { unsavedSection: Boolean(screen.queryByText('Unsaved drafts')) }
     await open(/Harbor Loft/)
     const reopened = {
       box: textarea()?.value ?? null,
       label: textarea()?.labels?.[0]?.textContent ?? null,
-      keptNotice: Boolean(
-        screen.queryByText(/Your unsaved draft was kept after the conflict/),
-      ),
+      keptNotice: Boolean(screen.queryByText(/Your unsaved draft was kept/)),
     }
     // The entry now at place 1 (kiln) opens clean.
     fireEvent.click(button(/Close memory entry: Harbor/)!)
@@ -813,15 +815,19 @@ describe('drafts across close, leave and return, moves and removals', () => {
     editTo('Edit agent note 2', D_H)
     h.mem.remove(/Harbor Loft/)
     await releaseList(h)
-    fireEvent.click(button('Close the removed memory entry')!)
+    fireEvent.click(button('Close the entry no longer at this place')!)
     await settle()
-    const listed = screen.getAllByRole('button', { name: 'Discard draft' }).length
+    const listed = screen.getAllByRole('button', { name: /^Discard draft/ }).length
+    const discardNames = screen
+      .getAllByRole('button', { name: /^Discard draft/ })
+      .map((b) => b.getAttribute('aria-label'))
     const both = [D_K, D_H].map((d) => document.body.textContent?.includes(d))
-    fireEvent.click(screen.getAllByRole('button', { name: 'Discard draft' })[0]!)
+    fireEvent.click(screen.getAllByRole('button', { name: /^Discard draft/ })[0]!)
     await settle()
     const left = [D_K, D_H].map((d) => document.body.textContent?.includes(d))
     expect(listed).toBe(2)
     expect(both).toEqual([true, true])
+    expect(new Set(discardNames).size).toBe(2)
     expect(left.filter(Boolean)).toHaveLength(1)
     expect(h.writes()).toHaveLength(0)
   })
@@ -849,11 +855,11 @@ describe('drafts across close, leave and return, moves and removals', () => {
     h.mem.remove(/Harbor/)
     await releaseList(h)
     const vanished = {
-      row: Boolean(screen.queryByText('Removed in Hermes')),
+      row: Boolean(screen.queryByText('No longer at this place')),
       box: textarea()?.value ?? null,
       empty: Boolean(screen.queryByText(/no memory entries yet/)),
     }
-    fireEvent.click(button('Close the removed memory entry')!)
+    fireEvent.click(button('Close the entry no longer at this place')!)
     await settle()
     const closed = {
       heading: Boolean(screen.queryByText('Agent notes')),

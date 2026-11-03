@@ -132,6 +132,7 @@ export function MemoryEntries() {
                 <div className={styles.actions}>
                   <Button
                     variant="quiet"
+                    aria-label={`Discard draft: ${titleOf(draft)}`}
                     onClick={() => {
                       forgetDocumentDraft(key)
                       setDraftsSeen((value) => value + 1)
@@ -197,11 +198,11 @@ export function MemoryEntries() {
                       // and the draft in it, until the owner closes it.
                       <li key={`${store}:${open.index}`} className={styles.memoryItem}>
                         <div className={styles.row}>
-                          <p className={styles.memoryPlace}>Removed in Hermes</p>
+                          <p className={styles.memoryPlace}>No longer at this place</p>
                           <Button
                             variant="quiet"
                             aria-expanded={true}
-                            aria-label="Close the removed memory entry"
+                            aria-label="Close the entry no longer at this place"
                             onClick={() => setOpen(undefined)}
                           >
                             Close
@@ -386,7 +387,7 @@ function MemoryEntryEditor({
                     movedTo !== undefined && movedTo !== place
                       ? ` The same text is now ${label} ${movedTo}; close this and open it there to keep editing it.`
                       : ''
-                  }`
+                  }${summary ? ` Now at this place: “${summary.title}”.` : ''}`
                 : undefined
             }
             onAdopt={summary && locked ? () => adopt(summary, draftKey) : undefined}

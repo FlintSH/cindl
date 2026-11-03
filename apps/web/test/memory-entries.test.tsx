@@ -388,14 +388,14 @@ describe('memory entries changed elsewhere', () => {
     release()
     await settle()
     await settle()
-    expect(screen.getByText('Removed in Hermes')).toBeTruthy()
+    expect(screen.getByText('No longer at this place')).toBeTruthy()
     expect(
       screen.getByLabelText<HTMLTextAreaElement>('Edit note about you 2').value,
     ).toBe('My unsaved note (fictional).')
     fireEvent.click(
-      screen.getByRole('button', { name: 'Close the removed memory entry' }),
+      screen.getByRole('button', { name: 'Close the entry no longer at this place' }),
     )
-    expect(screen.queryByText('Removed in Hermes')).toBeNull()
+    expect(screen.queryByText('No longer at this place')).toBeNull()
   })
 
   // Re-check f7f5925 SF-3 (probes P1, P2).

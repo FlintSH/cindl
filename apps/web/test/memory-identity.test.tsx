@@ -171,9 +171,7 @@ async function tryToSave(_tag: string, _h: ReturnType<typeof harness>) {
   )
   const seen = {
     alert: screen.queryAllByRole('alert').map((a) => a.textContent?.slice(0, 70)),
-    keptNotice: Boolean(
-      screen.queryByText(/Your unsaved draft was kept after the conflict/),
-    ),
+    keptNotice: Boolean(screen.queryByText(/Your unsaved draft was kept/)),
     box: box ? { value: box.value.slice(0, 50), readOnly: box.readOnly } : null,
     reviewEnabled: button('Review changes')?.disabled === false,
   }
@@ -523,7 +521,7 @@ describe('explicit re-selection', () => {
     h.remount()
     await settle()
     expect(screen.getByText(draft)).toBeTruthy()
-    fireEvent.click(button('Discard draft')!)
+    fireEvent.click(button(/^Discard draft/)!)
     await settle()
     expect(screen.queryByText(draft)).toBeNull()
     expect(h.writes()).toHaveLength(0)

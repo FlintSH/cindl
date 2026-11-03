@@ -110,10 +110,11 @@ from the desktop app's custom protocol.
   other store was removed). Any other text at its place, even before the first
   read arrives, may be the same entry changed elsewhere, or another entry
   removed, merged or added there, and Hermes's list cannot tell which. So the
-  editor locks, keeps your text read-only, and saves or deletes nothing. When
-  an entry before it in the same store was removed, the entry moved up a
-  place: the locked editor says where the same text is now, and your draft
-  comes back when you open it there.
+  editor locks, keeps your text read-only, names the entry now at its place,
+  and saves or deletes nothing. When an entry before it in the same store was
+  removed, the entry moved up a place: the locked editor says where the same
+  text is now (its row reads "No longer at this place" when nothing took its
+  place), and your draft comes back when you open it there.
   - "Use this draft for the entry now here" reads that entry first. Nothing
     changes unless the read succeeds and the entry is still at that place; a
     failed read is shown, and you can try again. Then you review the draft
@@ -122,7 +123,7 @@ from the desktop app's custom protocol.
     discard it, including while you edit it for another entry, so closing the
     editor loses nothing and another entry's own draft is never replaced.
     Drafts for entries Hermes no longer lists stay under "Unsaved drafts", to
-    copy or discard.
+    copy or discard; each discard button names its draft.
   - A delete names the text it removes: the text Cindl read under the id the
     delete sends. Deleting warns first, because Hermes keeps no backup.
   - After a save, the text it replaced stays on screen: ready to restore while
