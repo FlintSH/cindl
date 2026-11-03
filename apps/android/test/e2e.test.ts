@@ -1150,7 +1150,8 @@ describe("the reset at each step's start (CI run 41696032323)", () => {
   // not focused, nothing open). Step 4's reset then pressed back on that bare
   // Talk (Cindl's activity closed at 18:55:24, no keyboard shown in the step),
   // kept pressing it over the launcher, and every later step failed the same
-  // way: the input method's own flag still said shown. (password="false" as
+  // way. Its likely cause, inferred (the artifact does not show which flag was
+  // set): the input method's own flag still said shown. (password="false" as
   // Android writes it; the run's artifact has it masked by its own scrub.)
   const attrs = (more: string) =>
     `resource-id="" package="${PKG}" checkable="false" checked="false" enabled="true" focused="false" scrollable="false" long-clickable="false" password="false" selected="false" hint="" ${more}`
@@ -1165,9 +1166,11 @@ describe("the reset at each step's start (CI run 41696032323)", () => {
       '</node>',
     ].join(''),
   )
-  // The keyboard hidden after use: its window gone, but the input method's own
-  // dump still holds mIsInputViewShown=true (InputMethodService updates it
-  // only while its window is visible).
+  // A keyboard hidden after use, as we expect Android to report it. Not taken
+  // from a run (neither artifact holds dumpsys text): this is the premise the
+  // next runner evidence is to confirm. Its window gone, while the input
+  // method's own dump still holds mIsInputViewShown=true (InputMethodService
+  // updates it only while its window is visible).
   const HIDDEN_KEYBOARD = [
     'WINDOW MANAGER WINDOWS (dumpsys window windows)',
     '  Window #7 Window{8c1f2e3 u0 InputMethod}:',

@@ -380,7 +380,15 @@ const fs = require('node:fs')
 const [verb, command = ''] = process.argv.slice(2)
 const env = process.env
 if (env.FAKE_ADB_CALLS) fs.appendFileSync(env.FAKE_ADB_CALLS, verb + ' ' + command + '\\n')
-const front = env.FAKE_ADB_FRONT
+// With FAKE_ADB_STATE, a small device: the app in front ("front") and a sheet left
+// open in Cindl ("scrim"). am start brings Cindl back; back closes the sheet, or
+// on a bare Cindl leaves it for the launcher; FAKE_ADB_SWITCH_ON_DUMP puts another
+// app in front once, right after a dump is read (before anything acts on it).
+const state = env.FAKE_ADB_STATE
+const file = (name) => state + '/' + name
+const read = (name) => (state && fs.existsSync(file(name)) ? fs.readFileSync(file(name), 'utf8') : undefined)
+const front = read('front') ?? env.FAKE_ADB_FRONT
+const CINDL = 'dev.fl1nt.cindl'
 const switched = env.FAKE_ADB_MARK !== undefined && fs.existsSync(env.FAKE_ADB_MARK)
 const now = switched ? env.FAKE_ADB_AFTER : front
 const window = (switched ? undefined : env.FAKE_ADB_WINDOW) ?? 'Window{5a7c u0 ' + now + '/' + now + '.Main}'
@@ -394,11 +402,29 @@ if (verb === 'shell' && command.includes('mCurrentFocus') && env.FAKE_ADB_NO_WIN
     (app ? 'ActivityRecord{9f1e u0 ' + app + '/.Main t7}' : 'null') + '\\n')
 else if (verb === 'shell' && command.startsWith('uiautomator dump'))
   say('UI hierchary dumped to: /sdcard/cindl-ui.xml\\n')
-else if (verb === 'exec-out' && command === 'cat')
+else if (verb === 'exec-out' && command === 'cat') {
+  const node = (more) => '<node resource-id="" package="' + front + '" content-desc="" long-clickable="false"' +
+    ' checkable="false" checked="false" enabled="true" focused="false" scrollable="false" ' + more
   say("<?xml version='1.0' encoding='UTF-8' standalone='yes' ?><hierarchy rotation=\\"0\\">" +
-    '<node text="' + env.FAKE_ADB_TEXT + '" resource-id="" class="android.widget.EditText" package="' +
-    front + '" content-desc="" clickable="true" long-clickable="false" checkable="false" checked="false"' +
-    ' enabled="true" focused="false" scrollable="false" bounds="[0,0][1080,160]" /></hierarchy>')
+    node('text="" class="android.widget.FrameLayout" clickable="false" bounds="[0,0][1080,2400]">') +
+    node('text="' + env.FAKE_ADB_TEXT + '" class="android.widget.EditText" clickable="true" bounds="[0,0][1080,160]" />') +
+    (front === CINDL && read('scrim') ? node('text="" class="android.view.ViewGroup" clickable="true" bounds="[0,0][1080,2400]" />') : '') +
+    '</node></hierarchy>')
+  if (state && env.FAKE_ADB_SWITCH_ON_DUMP && !read('switched')) {
+    fs.writeFileSync(file('switched'), '1')
+    fs.writeFileSync(file('front'), 'com.android.launcher3')
+  }
+}
+else if (verb === 'shell' && command.startsWith('am start')) {
+  if (state) fs.writeFileSync(file('front'), CINDL)
+  say('Status: ok\\n')
+}
+else if (verb === 'shell' && command === 'input keyevent KEYCODE_BACK') {
+  if (state && front === CINDL) {
+    if (read('scrim')) fs.rmSync(file('scrim'))
+    else fs.writeFileSync(file('front'), 'com.android.launcher3')
+  }
+}
 else if (verb === 'exec-out' && command === 'screencap') {
   if (env.FAKE_ADB_MARK) fs.writeFileSync(env.FAKE_ADB_MARK, 'captured')
   say('PNG')
@@ -601,6 +627,72 @@ describe('what the device helper keeps', () => {
       for (const key of ['FAKE_ADB_IME_WINDOW', 'FAKE_ADB_WINDOWS'])
         Reflect.deleteProperty(process.env, key)
     }
+  })
+
+  describe("the reset at a step's start, on adb (delta check of 4a7727e, S1 and S3)", () => {
+    async function reset(setup: {
+      front: string
+      scrim?: boolean
+      switchOnDump?: boolean
+    }) {
+      const dir = scratch()
+      const adb = join(dir, 'adb')
+      writeFileSync(adb, FAKE_ADB, { mode: 0o755 })
+      const state = join(dir, 'state')
+      mkdirSync(state)
+      writeFileSync(join(state, 'front'), setup.front)
+      if (setup.scrim) writeFileSync(join(state, 'scrim'), '1')
+      const device = createDevice({ adb, out: dir })
+      const env: Record<string, string> = {
+        FAKE_ADB_STATE: state,
+        FAKE_ADB_CALLS: join(dir, 'calls'),
+        FAKE_ADB_TEXT: 'Message Hermes',
+        ...(setup.switchOnDump ? { FAKE_ADB_SWITCH_ON_DUMP: '1' } : {}),
+      }
+      Object.assign(process.env, env)
+      try {
+        const passes = await device.resetToCindl()
+        const calls = readFileSync(join(dir, 'calls'), 'utf8').trim().split('\n')
+        return { moves: passes.map((pass) => pass.move), calls }
+      } finally {
+        for (const key of Object.keys(env)) Reflect.deleteProperty(process.env, key)
+      }
+    }
+    const BACK = 'shell input keyevent KEYCODE_BACK'
+    const LAUNCH = 'shell am start -W -n dev.fl1nt.cindl/.MainActivity'
+
+    it('relaunches Cindl over another app and presses no back there', async () => {
+      const { moves, calls } = await reset({ front: 'com.android.launcher3' })
+      expect(moves).toEqual(['relaunch', 'done'])
+      expect(calls).toContain(LAUNCH)
+      expect(calls).not.toContain(BACK)
+    })
+
+    it('presses back for a sheet left open in Cindl, after reading focus once more', async () => {
+      const { moves, calls } = await reset({ front: 'dev.fl1nt.cindl', scrim: true })
+      expect(moves).toEqual(['back', 'done'])
+      expect(calls.filter((call) => call === BACK)).toHaveLength(1)
+      const back = calls.indexOf(BACK)
+      const dumped = calls.lastIndexOf(
+        'shell uiautomator dump /sdcard/cindl-ui.xml',
+        back,
+      )
+      const focusRead = calls.findLastIndex(
+        (call, index) => index < back && call.includes('mCurrentFocus'),
+      )
+      expect(focusRead).toBeGreaterThan(dumped)
+    })
+
+    it('gives no back to an app that came to the front during the dump', async () => {
+      const { moves, calls } = await reset({
+        front: 'dev.fl1nt.cindl',
+        scrim: true,
+        switchOnDump: true,
+      })
+      expect(moves).toEqual(['relaunch', 'back', 'done'])
+      // The one back comes after the relaunch, with Cindl in front again.
+      expect(calls.indexOf(LAUNCH)).toBeLessThan(calls.indexOf(BACK))
+    })
   })
 
   it('keeps what TalkBack is given apart from the last dump, scrubbed, and only when it is Cindl alone', async () => {

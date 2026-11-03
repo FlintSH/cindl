@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
 import { redactText } from '@cindl/hermes-adapter'
+import { resetDeviceFrom, resetToCindl, type ResetPass } from './reset.ts'
 import {
   auditTargets,
   find,
@@ -338,6 +339,15 @@ export function createDevice(options: {
     audit,
     keyboardOnScreen,
     launch,
+    /** Back to Cindl with nothing over it (e2e/reset.ts), on this device's adb. */
+    resetToCindl: (): Promise<ResetPass[]> =>
+      resetToCindl(
+        resetDeviceFrom(
+          { shell, launch, key, dump, keyboard: keyboardOnScreen, sleep },
+          PACKAGE,
+        ),
+        PACKAGE,
+      ),
     health,
     lastXml: () => lastXml,
   }

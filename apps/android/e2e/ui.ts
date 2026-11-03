@@ -556,11 +556,12 @@ export function touchTargetsRow(
 }
 
 /**
- * What the reset at each step's start does next: bring Cindl back when
- * another app is in front (the launcher after a step left the app), never
- * system back there; system back while Cindl is in front with a dialog, a
- * sheet or the keyboard's window up; else nothing (CI run 41696032323: back
- * on a bare Talk, on a keyboard flag left set, left the app at every step).
+ * What the reset at each step's start does next (e2e/reset.ts runs it): bring
+ * Cindl back when another app is in front (the launcher after a step left the
+ * app), never system back there; system back while Cindl is in front with a
+ * dialog, a sheet or the keyboard's window up; else nothing. CI run
+ * 41696032323 pressed back on a bare Talk and left the app at every step,
+ * most likely on the input method's flag left set (`saysShown`).
  */
 export function resetMove(screen: {
   cindlInFront: boolean
@@ -624,10 +625,11 @@ export function keepCapture(before: string, after: string, pkg: string): boolean
 }
 
 /**
- * The input_method dump says the keyboard is shown, for the report only: the
- * input method's own `mIsInputViewShown` stays true after it hides (AOSP's
- * InputMethodService updates it only while its window is visible), so no
- * decision is taken on it (CI run 41696032323).
+ * The input_method dump says the keyboard is shown, for the report only. The
+ * input method's own `mIsInputViewShown` can stay true after it hides (AOSP's
+ * InputMethodService updates it only while its window is visible), the likely
+ * cause of CI run 41696032323's backs, though that run's artifact does not
+ * show which flag was set. No decision is taken on it.
  */
 const saysShown = (inputMethodDump: string) =>
   /\bm?InputShown=true\b|\bisInputViewShown=true\b|\bmIsInputViewShown=true\b/.test(
@@ -671,8 +673,10 @@ export const MIN_KEYBOARD_SHARE = 0.15
 export interface VisibleKeyboard {
   /**
    * Android shows the keyboard's window (visible, with a surface): system
-   * back would close it. A hidden keyboard's window is gone, whatever flag
-   * the input method still holds.
+   * back would close it. That a hidden keyboard's window is gone, whatever
+   * flag the input method still holds, is expected (AOSP hides the window as
+   * the keyboard hides) and not yet seen on the runners: each reset that
+   * presses back for the keyboard notes this geometry (e2e/reset.ts).
    */
   windowUp: boolean
   /**

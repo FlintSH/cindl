@@ -25,6 +25,7 @@ import { startFakeHermesAuth, type FakeHermesAuth } from './fakeHermesAuth.ts'
 import { SECURE_STORE_FILE, tokenStorage, type TokenStorage } from './keystore.ts'
 import { runExitCode, type StepStatus } from './outcome.ts'
 import { keyboardMoment, settledKeyboard } from './keyboard.ts'
+import { describePasses } from './reset.ts'
 import { heldControl, inControl } from './screenControl.ts'
 import { DeviceLogs, RunSecrets, watchFakeHermes } from './secrets.ts'
 import {
@@ -34,7 +35,6 @@ import {
   findAll,
   flatten,
   focusedNode,
-  focusedPackage,
   height,
   hiddenBeneath,
   interactiveWithin,
@@ -45,8 +45,6 @@ import {
   navItem,
   near,
   onDestination,
-  overlayOpen,
-  resetMove,
   screenToDevice,
   TERMS_PROMPT,
   touchTargetsRow,
@@ -88,6 +86,8 @@ const deviceLogs = new DeviceLogs(outDir, secrets)
 const device = createDevice({ adb, out: outDir, scrub: (text) => secrets.scrub(text) })
 const steps: Step[] = []
 const audits: Array<{ screen: string } & TargetAudit> = []
+/** What the reset at this step's start did, when it took more than one pass. */
+let resetNotes: string[] = []
 
 interface StepContext {
   note: (line: string) => void
@@ -99,6 +99,7 @@ interface StepContext {
 
 async function step(name: string, body: (context: StepContext) => Promise<void>) {
   const started = Date.now()
+  resetNotes = []
   const record: Step = { name, status: 'passed', seconds: 0, detail: [], evidence: [] }
   const detail = (line: string) => record.detail.push(secrets.scrub(line))
   const capture = (shot: string) => {
@@ -142,6 +143,7 @@ async function step(name: string, body: (context: StepContext) => Promise<void>)
       detail('(no screenshot: the device did not answer)')
     }
   }
+  for (const line of resetNotes) detail(`reset at the start: ${line}`)
   try {
     const file = `logcat-${String(steps.length + 1).padStart(2, '0')}-${slug(name)}.txt`
     // With each line's UID, so the system's record of the link Cindl opened can be told
@@ -243,44 +245,14 @@ const keyboardReader = {
   now: () => Date.now(),
 }
 
-/** Cindl's window has focus (`mCurrentFocus`); false when the device does not say. */
-function cindlInFront(): boolean {
-  try {
-    return (
-      focusedPackage(device.shell('dumpsys window | grep -E "mCurrentFocus" || true')) ===
-      PACKAGE
-    )
-  } catch {
-    return false
-  }
-}
-
 /**
- * Brings the screen back to Cindl with nothing over it (ui.ts resetMove):
- * Cindl relaunched while another app is in front, never system back there;
- * system back for a dialog, a sheet or the keyboard's window a step left,
- * which closes the top one first. CI run 41696032323 pressed back on a bare
- * Talk, on a keyboard flag left set, and so left the app at every step.
+ * Brings the screen back to Cindl with nothing over it (e2e/reset.ts, on the
+ * device's adb). A reset that took more than one pass is noted in the step's
+ * report, the keyboard's window geometry included when back was for it.
  */
 async function closeOverlays() {
-  let stayed = ''
-  for (let tries = 0; tries < 6; tries++) {
-    const inFront = cindlInFront()
-    const overlay = inFront && overlayOpen(await device.dump())
-    const keyboardUp = inFront && device.keyboardOnScreen().windowUp
-    const move = resetMove({ cindlInFront: inFront, overlay, keyboardUp })
-    if (move === 'done') return
-    stayed = !inFront
-      ? 'another app stayed in front'
-      : overlay
-        ? 'a dialog or sheet stayed open'
-        : "the keyboard's window stayed up"
-    if (move === 'relaunch') {
-      device.launch()
-      await sleep(1500)
-    } else await device.key('KEYCODE_BACK')
-  }
-  throw new Error(`The screen did not come back to Cindl with nothing over it: ${stayed}`)
+  const passes = await device.resetToCindl()
+  if (passes.length > 1) resetNotes.push(describePasses(passes))
 }
 
 /**

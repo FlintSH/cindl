@@ -250,13 +250,21 @@ or layout, or what TalkBack itself announces; no emulator test covers those
 flows yet.
 
 Each step starts from a known screen, so one failure does not fail the steps
-after it: Cindl in front (relaunched when another app is, never system back
-there), nothing left open over it (system back closes a dialog, a sheet or
-the keyboard a step left), and Talk selected, with or without a
-conversation. The keyboard counts as open only while its window is up: the
-input method's own "shown" flag stays set after it hides, and run
-41696032323 pressed back on a bare Talk because of it, leaving the app at
-every step. The sign-in cases start on the sign-in screen: if a step before
+after it: Cindl in front, nothing left open over it, and Talk selected, with
+or without a conversation (`apps/android/e2e/reset.ts`). Another app in front
+is answered with a relaunch, never system back. Back closes a dialog, a
+sheet or the keyboard a step left, and only after focus is read again right
+before it. A dialog or sheet counts only from a dump of Cindl's window alone,
+and only such a dump ends the reset. It gives up after six passes, naming
+each. A reset that takes more than one pass is noted in the step's report.
+
+The keyboard counts as open only while its window is up. Run 41696032323
+pressed back on a bare Talk at every step start, and so left the app. The
+input method's own "shown" flag, which AOSP leaves set after the keyboard
+hides, is the likely cause; the run's artifact does not show which flag was
+set. That the keyboard's window is gone once it hides is expected, not yet
+seen on the runners. Each reset that presses back for the keyboard notes the
+window's geometry, numbers and flags only, so the next run will show it. The sign-in cases start on the sign-in screen: if a step before
 left the app signed in, its data is cleared first. Sign-out is under Agent,
 This device. System animations are off during the tests so UI dumps are stable
 (the app then also reduces its own motion). The `cindl-android-emulator-evidence` artifact
