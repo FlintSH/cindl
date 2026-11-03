@@ -257,6 +257,8 @@ class DirectHermesClient implements DirectClient {
   #discoveryAttempt = 0
   /** A link was reported: from then on a new subscriber is told the state so far. */
   #reported = false
+  /** The screen state last reported, as it was reported. */
+  #lastDisplay: DisplayState | undefined
   /** Cookie mode: the session check in flight, so a tick and a cue share one request. */
   #sessionCheck: Promise<void> | undefined
   #unwatchSession: (() => void) | undefined
@@ -320,8 +322,8 @@ class DirectHermesClient implements DirectClient {
       known.push({ type: 'prompt.updated', prompt })
     for (const { request } of this.#requests.values())
       known.push({ type: 'request.opened', request })
-    if (this.#display.status)
-      known.push({ type: 'display.changed', display: this.#displayState() })
+    if (this.#lastDisplay)
+      known.push({ type: 'display.changed', display: this.#lastDisplay })
     return known
   }
 
@@ -1211,6 +1213,7 @@ class DirectHermesClient implements DirectClient {
 
   #emit(event: CindlEvent): void {
     if (event.type === 'link.changed') this.#reported = true
+    if (event.type === 'display.changed') this.#lastDisplay = event.display
     if (event.type === 'session.status') {
       const conversation = this.#conversations.get(event.conversationId)
       if (conversation && conversation.status !== event.status)
@@ -2211,6 +2214,7 @@ class DirectHermesClient implements DirectClient {
 
   /** Forget everything tied to the previous origin. */
   #reset(): void {
+    this.#lastDisplay = undefined
     this.#conversations.clear()
     this.#runtime.clear()
     this.#stored.clear()

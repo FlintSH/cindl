@@ -1861,10 +1861,27 @@ describe('direct client: refusals', () => {
 })
 
 describe('direct client: a subscriber that joins late', () => {
-  it('is told the link, capabilities, conversations and open requests so far', async () => {
-    const h = await harness()
+  it('is told the link, capabilities, conversations, prompts and requests so far', async () => {
+    const base = memoryKv()
+    let full = false
+    // Once full, the device cannot record a prompt as sending, so it stays queued.
+    const kv: KeyValueStore & { map: Map<string, string> } = {
+      ...base,
+      set: (key, value) =>
+        full && value.includes('"state":"sending"')
+          ? Promise.reject(new Error('disk full (fixture)'))
+          : base.set(key, value),
+    }
+    const h = await harness({ kv })
     approvalScript(h)
     const { c, request } = await openRequest(h)
+    full = true
+    const stuck = await h.client.call('prompt.submit', {
+      conversationId: c.id,
+      clientId: 'p-stuck',
+      text: 'later (fixture)',
+    })
+    expect(stuck.state).toBe('queued-offline')
     // An error boundary remounts the renderer, whose new store subscribes now.
     const late = createStore({
       phase: 'connecting',
@@ -1878,6 +1895,8 @@ describe('direct client: a subscriber that joins late', () => {
     expect(state.capabilities).toEqual(h.store.getState().capabilities)
     expect(entry(state.conversations, c.id)?.title).toBe(c.title)
     expect(entry(state.requests, request.requestId)?.status).toBe('open')
+    expect(entry(state.prompts, 'p-stuck')?.state).toBe('queued-offline')
+    expect(state.display).toEqual(h.store.getState().display)
   })
 
   it('hears nothing before the client has reported a link', async () => {
