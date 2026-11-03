@@ -69,7 +69,10 @@ in through Hermes's own `/login` page.
   `Cache-Control: no-cache` with `/cindl/` and `index.html`, and pass every
   other path to Hermes unchanged. Cindl uses hash routes, so no other path
   needs rewriting. Pages on one origin share cookies and storage, so serve
-  nothing there that you do not trust as you trust Hermes.
+  nothing there that you do not trust as you trust Hermes. A front that cannot
+  set headers can proxy to Cindl's own loopback server,
+  `apps/web/serve/cindl-serve.py`
+  ([Running Cindl](../operations/index.md#if-the-front-cannot-set-headers)).
 
 Opened anywhere else, the production build says it is not connected,
 explains why, and points to the desktop and Android apps. Developers use the

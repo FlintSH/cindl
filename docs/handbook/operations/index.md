@@ -78,6 +78,33 @@ Pages on one origin share cookies and storage with each other, Hermes's own
 app included, so serve nothing else on that origin that you do not trust as
 you trust Hermes.
 
+### If the front cannot set headers
+
+Some fronts only proxy a path to another server; Tailscale Serve is one. Run
+Cindl's own small server on loopback and point the front's path at it:
+
+```sh
+python3 apps/web/serve/cindl-serve.py --root apps/web/dist --port 8099
+```
+
+It needs only Python 3, listens on loopback only and serves just the build's
+regular files, read once at start: no symlinks, no directory listings and
+nothing outside the build. It sends the headers above (`frame-ancestors
+'none'`, `nosniff`, `no-cache` for the page and other unhashed files, long
+caching for hashed assets) and the content types the build needs. It ignores
+request headers, cookies included, and logs only the request line. It takes
+the mount path as is (`/cindl/assets/...`) or with the front's mount stripped
+(`/assets/...`).
+
+A front that strips the mount, as Tailscale Serve does, never shows the server
+the bare `/cindl`, and Tailscale Serve does not redirect it to `/cindl/`
+either. If the front can map that exact path, map it to the server's
+`/.cindl-bare`, which redirects to `/cindl/`. With Tailscale Serve that would
+be `/cindl/` mounted at `http://127.0.0.1:8099` and `/cindl` at
+`http://127.0.0.1:8099/.cindl-bare`; check it with the first two checks below.
+Otherwise always open `/cindl/` with the slash: at `/cindl` the page's
+relative asset paths miss.
+
 Checks that need no sign-in, after mounting:
 
 - `/cindl/` answers 200 with `text/html`, the `frame-ancestors 'none'` policy
