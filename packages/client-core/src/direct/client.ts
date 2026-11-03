@@ -391,6 +391,10 @@ class DirectHermesClient implements DirectClient {
 
   /** Leave the current origin and take up `parts`: nothing of the old session survives. */
   async #switchTo(parts: OriginParts): Promise<void> {
+    // Retire the sign-in left behind first: a refresh it still has in flight
+    // must never write the old origin's tokens back once the platform deleted
+    // them, nor touch a record for the same origin signed in again.
+    if (this.#native !== parts.native) this.#native?.retire()
     this.stop()
     this.#reset()
     this.#install(parts)

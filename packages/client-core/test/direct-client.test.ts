@@ -6,7 +6,7 @@ import {
 } from '@cindl/contracts'
 import { connectRawClient } from '@cindl/fixtures/fake-hermes'
 import { describe, expect, it } from 'vitest'
-import { webCryptoProvider } from '@cindl/hermes-adapter'
+import { nativeTokensKey, webCryptoProvider } from '@cindl/hermes-adapter'
 import {
   createDirectClient,
   entry,
@@ -176,6 +176,117 @@ describe('direct client: signing in to another origin', () => {
       lastError: { code: 'offline' },
       server: { origin: UNREACHABLE },
     })
+  })
+})
+
+describe('direct client: the sign-in an origin switch leaves behind', () => {
+  const REFRESH = 'POST /auth/native/refresh'
+  const UNREACHABLE = 'http://127.0.0.1:1'
+
+  /** Signed in to A, with the probes that follow sign-in finished. */
+  async function onA() {
+    const a = await fakeHermes()
+    const h = await harness({ fake: a })
+    await h.waitFor(
+      () => h.store.getState().capabilities['memory.text']?.state === 'available',
+    )
+    return { a, h, keyA: nativeTokensKey(a.origin) }
+  }
+
+  /**
+   * A REST call on A whose token refresh is held at the fake until `release`:
+   * A's clock passes the access token's lifetime, so the call gets a 401 and
+   * refreshes once.
+   */
+  async function heldRefresh(h: Harness, a: Harness['fake']) {
+    a.advance(13 * 3600 * 1000)
+    const held = a.holdNextRest(REFRESH)
+    const call = h.client.call('memory.overview', {}).catch(() => undefined)
+    await held.arrived
+    return { held, call }
+  }
+
+  it('never lets a refresh for the origin it left write that sign-in back', async () => {
+    const { a, h, keyA } = await onA()
+    const b = await fakeHermes()
+    const { held, call } = await heldRefresh(h, a)
+    await h.client.call('auth.signIn', { origin: b.origin })
+    const keyB = nativeTokensKey(b.origin)
+    const recordB = h.secrets.map.get(keyB)
+    expect(recordB).toBeDefined()
+    // The platform deletes the record of the Hermes it left.
+    await h.secrets.delete(keyA)
+    held.release()
+    await call
+    expect(h.secrets.map.has(keyA)).toBe(false)
+    expect(h.secrets.map.get(keyB)).toBe(recordB)
+    expect(h.store.getState().link.server?.origin).toBe(b.origin)
+  })
+
+  it('never lets a late refresh overwrite the same origin signed in again', async () => {
+    const { a, h, keyA } = await onA()
+    const b = await fakeHermes()
+    const { held, call } = await heldRefresh(h, a)
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.secrets.delete(keyA)
+    // Back to A with a fresh sign-in: the same key, new tokens.
+    await h.client.call('auth.signIn', { origin: a.origin })
+    const fresh = h.secrets.map.get(keyA)
+    expect(fresh).toBeDefined()
+    held.release()
+    await call
+    expect(h.secrets.map.get(keyA)).toBe(fresh)
+  })
+
+  it('never lets a late refusal delete the same origin signed in again', async () => {
+    const { a, h, keyA } = await onA()
+    const b = await fakeHermes()
+    const { held, call } = await heldRefresh(h, a)
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.secrets.delete(keyA)
+    await h.client.call('auth.signIn', { origin: a.origin })
+    const fresh = h.secrets.map.get(keyA)
+    // The left sign-in's refresh is refused late, as an expired session would be.
+    held.release({
+      status: 401,
+      body: { error: 'session_expired', detail: 'expired (fixture)' },
+    })
+    await call
+    expect(h.secrets.map.get(keyA)).toBe(fresh)
+  })
+
+  it('lets a refresh in flight store when the switch fails', async () => {
+    const { a, h, keyA } = await onA()
+    const before = h.secrets.map.get(keyA)
+    const { held, call } = await heldRefresh(h, a)
+    expect(await codeOf(h.client.call('auth.signIn', { origin: UNREACHABLE }))).toBe(
+      'offline',
+    )
+    held.release()
+    await call
+    // A is still the session: its rotated tokens were kept.
+    const after = h.secrets.map.get(keyA)
+    expect(after).toBeDefined()
+    expect(after).not.toBe(before)
+    expect(h.store.getState().link).toMatchObject({ phase: 'online' })
+    expect(h.store.getState().link.server?.origin).toBe(a.origin)
+  })
+
+  it('keeps a refresh when the same origin is signed in to again, which is no switch', async () => {
+    const { a, h, keyA } = await onA()
+    const before = h.secrets.map.get(keyA)
+    const exchanges = () =>
+      a.calls.filter((c) => c.name === 'POST /auth/native/token').length
+    const signIns = exchanges()
+    const { held, call } = await heldRefresh(h, a)
+    await h.client.call('auth.signIn', { origin: a.origin })
+    held.release()
+    await call
+    // The refresh's rotated tokens were kept, and no new browser sign-in was needed.
+    const after = h.secrets.map.get(keyA)
+    expect(after).toBeDefined()
+    expect(after).not.toBe(before)
+    expect(exchanges()).toBe(signIns)
   })
 })
 

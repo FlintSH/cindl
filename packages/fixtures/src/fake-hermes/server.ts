@@ -52,6 +52,13 @@ export interface FakeHermesOptions {
   learningRoutes?: boolean
 }
 
+/** A REST request the fake holds (holdNextRest). */
+export interface RestHold {
+  /** Resolves once the held request has arrived. */
+  readonly arrived: Promise<void>
+  release(answer?: { status: number; body: unknown }): void
+}
+
 export interface FakeHermes {
   readonly origin: string
   readonly port: number
@@ -72,6 +79,11 @@ export interface FakeHermes {
   signIn(): FakeSession
   /** Test control: the next `METHOD /path` request answers `status` instead of being handled. */
   failNextRest(route: string, status: number): void
+  /**
+   * Test control: hold the next `METHOD /path` request until released; it is
+   * then handled as usual, or answered with `answer` instead.
+   */
+  holdNextRest(route: string): RestHold
   close(): Promise<void>
 }
 
@@ -718,6 +730,11 @@ export async function startFakeHermes(
 
   /** One-shot REST failures by `METHOD /path` (failNextRest). */
   const restFailures = new Map<string, number>()
+  /** One-shot REST holds by `METHOD /path` (holdNextRest). */
+  const restHolds = new Map<
+    string,
+    { arrive: () => void; answer: Promise<{ status: number; body: unknown } | undefined> }
+  >()
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://fake-hermes.invalid')
@@ -741,14 +758,26 @@ export async function startFakeHermes(
       send(failure, { detail: 'Internal Server Error' })
       return
     }
-    route(req, res, url)
-      .then((body) => {
-        if (body !== undefined) send(200, body)
+    const handle = () =>
+      route(req, res, url)
+        .then((body) => {
+          if (body !== undefined) send(200, body)
+        })
+        .catch((error: unknown) => {
+          if (error instanceof HttpError) send(error.status, error.body)
+          else send(500, { detail: 'Internal Server Error' })
+        })
+    const hold = restHolds.get(name)
+    if (hold) {
+      restHolds.delete(name)
+      hold.arrive()
+      void hold.answer.then((answer) => {
+        if (answer) send(answer.status, answer.body)
+        else void handle()
       })
-      .catch((error: unknown) => {
-        if (error instanceof HttpError) send(error.status, error.body)
-        else send(500, { detail: 'Internal Server Error' })
-      })
+      return
+    }
+    void handle()
   })
 
   // --- WebSocket upgrades -----------------------------------------------------
@@ -871,6 +900,20 @@ export async function startFakeHermes(
     signIn: () => auth.mintSession(),
     failNextRest(route, status) {
       restFailures.set(route, status)
+    },
+    holdNextRest(route) {
+      let arrive: () => void = () => undefined
+      const arrived = new Promise<void>((resolve) => {
+        arrive = resolve
+      })
+      let release: (answer?: { status: number; body: unknown }) => void = () => undefined
+      const answer = new Promise<{ status: number; body: unknown } | undefined>(
+        (resolve) => {
+          release = resolve
+        },
+      )
+      restHolds.set(route, { arrive, answer })
+      return { arrived, release: (reply) => release(reply) }
     },
     async close() {
       gateway.restart()

@@ -38,7 +38,8 @@ Planned, not built: canonical sessions, steer and process operations.
   whose frames are validated against the vendored schemas. A test that only
   checks a mock it wrote proves nothing. Drive interleavings and failures with
   the fake's own controls rather than mocks: `beforeHandle`, `afterHandle`,
-  `respondError`, `failNext`, `failNextRest`, `frozen`, `dropConnections`;
+  `respondError`, `failNext`, `failNextRest`, `holdNextRest` (hold a REST
+  request, then answer it), `frozen`, `dropConnections`;
   `appRequest` for app-level prompts; `stopScreen`, `startScreen`,
   `otherProfileDisplay` and `displayViewers` for the screen and its socket,
   whose client bytes pass a full port of Hermes's `RfbClientFilter`; and

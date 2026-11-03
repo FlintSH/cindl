@@ -34,6 +34,7 @@ export {
   startFakeHermes,
   type FakeHermes,
   type FakeHermesOptions,
+  type RestHold,
 } from './server.ts'
 export {
   FIXTURE_HOME,

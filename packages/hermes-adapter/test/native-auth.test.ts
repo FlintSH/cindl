@@ -231,6 +231,54 @@ describe('native PKCE sign-in', () => {
     await expect(rest.me()).resolves.toMatchObject({ user_id: 'fixture-owner' })
   })
 
+  it('retires: a refresh in flight and every later one store, return and reuse nothing', async () => {
+    const { fake, auth, secrets } = await signedIn()
+    const key = nativeTokensKey(fake.origin)
+    const held = fake.holdNextRest('POST /auth/native/refresh')
+    const refreshing = auth.refresh()
+    await held.arrived
+    auth.retire()
+    // The platform deletes the record of the origin the client left.
+    await secrets.delete(key)
+    held.release()
+    expect(await refreshing).toBe(false)
+    expect(secrets.map.has(key)).toBe(false)
+    expect(await auth.identity()).toBeUndefined()
+    expect(await auth.accessToken()).toBeUndefined()
+    const refreshes = count(fake, 'POST /auth/native/refresh')
+    expect(await auth.refresh()).toBe(false)
+    expect(count(fake, 'POST /auth/native/refresh')).toBe(refreshes)
+  })
+
+  it('retires a memory-only sign-in the same way', async () => {
+    const { fake, auth, secrets } = await signedIn({ available: false })
+    const held = fake.holdNextRest('POST /auth/native/refresh')
+    const refreshing = auth.refresh()
+    await held.arrived
+    auth.retire()
+    held.release()
+    expect(await refreshing).toBe(false)
+    expect(await auth.identity()).toBeUndefined()
+    expect(secrets.writes).toEqual([])
+  })
+
+  it('never lets a retired sign-in delete a record signed in again under its key', async () => {
+    const { fake, auth, secrets } = await signedIn()
+    const key = nativeTokensKey(fake.origin)
+    const held = fake.holdNextRest('POST /auth/native/refresh')
+    const refreshing = auth.refresh()
+    await held.arrived
+    auth.retire()
+    // The same origin signed in again meanwhile, writing a new record.
+    secrets.map.set(key, 'signed in again (fixture)')
+    held.release({
+      status: 401,
+      body: { error: 'session_expired', detail: 'expired (fixture)' },
+    })
+    expect(await refreshing).toBe(false)
+    expect(secrets.map.get(key)).toBe('signed in again (fixture)')
+  })
+
   it('drops a refresh that finishes after sign-out (review M3)', async () => {
     const fake = await fakeHermes()
     const secrets = vault()

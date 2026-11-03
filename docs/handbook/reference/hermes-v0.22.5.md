@@ -101,6 +101,15 @@ bearer to public endpoints.
   and the error is rethrown. Without a working session the attempt shows as
   `connecting`, and a failure ends `signed-out` (or `incompatible` for a
   loopback-token Hermes) with the error as `lastError`.
+- A switch that succeeds retires the previous origin's sign-in before the
+  new one is installed (`NativeAuth.retire`). Work it still has in flight, a
+  token refresh above all, can no longer store, return or delete tokens, and
+  nothing uses its tokens again. So a record the platform deletes for the
+  origin it left stays deleted, and a late answer never writes over or
+  deletes the record of the new origin, or of the same origin signed in
+  again under the same key. A failed or cancelled switch retires nothing:
+  its refresh may still store. Signing in to the same origin again is no
+  switch, and sign-out is unchanged.
 
 ## WebSocket `/api/ws`
 
