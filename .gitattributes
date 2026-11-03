@@ -1,0 +1,9 @@
+* text=auto eol=lf
+*.png binary
+*.webp binary
+*.jpg binary
+*.ttf binary
+*.woff2 binary
+*.ico binary
+pnpm-lock.yaml linguist-generated=true -diff
+packages/hermes-adapter/upstream/** linguist-vendored=true

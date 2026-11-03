@@ -1,0 +1,27 @@
+# One workspace, one lockfile for runtime code. The handbook in docs/handbook
+# is a separate pnpm project with its own lockfile so docs tooling never ships
+# in a runtime package (see docs/handbook/AGENTS.md).
+packages:
+  - packages/*
+  - apps/*
+
+saveExact: true
+engineStrict: true
+# pnpm 11 refuses releases younger than its minimum release age by default.
+# Keep it on: pick an older version instead of adding exclusions.
+
+# Shared versions. Reference them as "catalog:" so web, desktop and Android
+# can never drift onto different React/TypeScript/Zod versions.
+catalog:
+  '@types/node': 24.19.2
+  '@types/react': 19.3.0
+  '@types/react-dom': 19.3.0
+  react: 19.3.0
+  react-dom: 19.3.0
+  typescript: 6.0.3
+  vitest: 5.0.5
+  zod: 4.6.7
+
+# Dependency install scripts are denied unless reviewed and listed here.
+allowBuilds:
+  esbuild: true

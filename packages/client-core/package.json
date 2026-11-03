@@ -1,0 +1,21 @@
+{
+  "name": "@cindl/client-core",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Platform-agnostic Cindl client state: event reducer, store, selectors and platform interfaces.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cindl/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "name": "@cindl/client-react",
+  "version": "0.1.0",
+  "private": true,
+  "description": "React bindings for Cindl client state, shared by the web renderer and the Android app.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cindl/client-core": "workspace:*",
+    "@cindl/contracts": "workspace:*"
+  },
+  "peerDependencies": {
+    "react": "catalog:"
+  },
+  "devDependencies": {
+    "@types/react": "catalog:",
+    "react": "catalog:",
+    "typescript": "catalog:"
+  }
+}

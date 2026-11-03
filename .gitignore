@@ -1,0 +1,112 @@
+# ---------------------------------------------------------------------------
+# Privacy first. This repository is public: source only, never runtime state.
+# If you are unsure whether a file may contain private data, it does not
+# belong in Git. See AGENTS.md "Privacy and security invariants".
+# ---------------------------------------------------------------------------
+
+# Local agent/research scratch (handoffs, private evidence, upstream clones)
+.agent-artifacts/
+
+# Environment and local configuration
+.env
+.env.*
+!.env.example
+*.local
+*.local.*
+.envrc
+.direnv/
+.secrets/
+secrets/
+
+# Credentials, tokens, auth traces, signing material
+auth.json
+*.token
+*.token.json
+*-token.json
+*_token.json
+credentials*.json
+google-services.json
+GoogleService-Info.plist
+*.keystore
+*.jks
+*.p12
+*.pfx
+*.pem
+*.key
+*.mobileprovision
+*.provisionprofile
+keystore.properties
+signing.properties
+*.har
+*.trace
+*.trace.zip
+
+# Runtime databases, caches, profiles, browser state
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+*.sqlite-*
+/profiles/
+/user-data/
+.hermes/
+cookies*.json
+storage-state*.json
+.cache/
+
+# Dependencies and build output
+node_modules/
+dist/
+dist-electron/
+dist-*/
+build/
+out/
+release/
+coverage/
+*.tsbuildinfo
+.turbo/
+.vite/
+.eslintcache
+
+# Native build output and generated native projects (Expo CNG)
+apps/android/android/
+apps/android/ios/
+apps/android/.expo/
+apps/android/dist/
+.gradle/
+local.properties
+*.apk
+*.aab
+*.AppImage
+*.dmg
+*.exe
+*.msi
+*.deb
+*.rpm
+*.snap
+
+# Test and browser artifacts (captured locally; publish only reviewed copies)
+test-results/
+playwright-report/
+blob-report/
+*.webm
+screenshots/
+# Reviewed, synthetic-only evidence is published from these paths:
+!docs/handbook/public/screenshots/
+!docs/handbook/public/media/
+!docs/handbook/public/media/*.webm
+
+# Docs output
+docs/handbook/.vitepress/dist/
+docs/handbook/.vitepress/cache/
+
+# Logs and OS noise
+*.log
+logs/
+npm-debug.log*
+pnpm-debug.log*
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json

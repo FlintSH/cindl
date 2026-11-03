@@ -1,0 +1,23 @@
+{
+  "name": "@cindl/tokens",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Shared semantic design tokens and licensed local fonts for every Cindl client.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./tokens.css": "./generated/tokens.css",
+    "./fonts.css": "./generated/fonts.css",
+    "./fonts/*": "./fonts/*"
+  },
+  "scripts": {
+    "generate": "node scripts/generate.ts",
+    "check": "node scripts/generate.ts --check",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

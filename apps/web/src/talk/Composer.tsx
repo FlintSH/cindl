@@ -1,0 +1,117 @@
+import { useCindlApi, useLink } from '@cindl/client-react'
+import { isCindlError } from '@cindl/contracts'
+import { ArrowUp, Square } from 'lucide-react'
+import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
+import { Button } from '../ui/primitives.tsx'
+import styles from './talk.module.css'
+
+export interface ComposerHandle {
+  focus(): void
+}
+
+const newClientId = () =>
+  typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `${Date.now()}-${Math.random().toString(36).slice(2)}`
+
+/**
+ * Non-blocking: you can send while Hermes is working (Hermes queues, steers
+ * or redirects). Enter sends, Shift+Enter adds a line.
+ */
+export const Composer = forwardRef<
+  ComposerHandle,
+  { conversationId: string; working: boolean; agentName: string }
+>(function Composer({ conversationId, working, agentName }, ref) {
+  const api = useCindlApi()
+  const link = useLink()
+  const [text, setText] = useState('')
+  const [error, setError] = useState<string>()
+  const input = useRef<HTMLTextAreaElement>(null)
+  useImperativeHandle(ref, () => ({ focus: () => input.current?.focus() }), [])
+  const online = link.phase === 'online'
+  const submit = async () => {
+    const value = text.trim()
+    if (!value || !online) return
+    setError(undefined)
+    setText('')
+    try {
+      await api.call('prompt.submit', {
+        conversationId,
+        clientId: newClientId(),
+        text: value,
+      })
+    } catch (err) {
+      setText(value)
+      setError(isCindlError(err) ? err.message : 'Your message was not sent.')
+    }
+  }
+  return (
+    <form
+      className={styles.composer}
+      onSubmit={(event) => {
+        event.preventDefault()
+        void submit()
+      }}
+    >
+      {error ? (
+        <p className={styles.composerError} role="alert">
+          {error}
+        </p>
+      ) : null}
+      <div className={styles.composerBox}>
+        <label htmlFor="composer-input" className="visually-hidden">
+          Message {agentName}
+        </label>
+        <textarea
+          id="composer-input"
+          ref={input}
+          className={styles.composerInput}
+          rows={1}
+          placeholder={
+            online ? `Message ${agentName}` : 'Not connected. Messages cannot be sent.'
+          }
+          value={text}
+          disabled={!online}
+          onChange={(event) => setText(event.target.value)}
+          onKeyDown={(event) => {
+            if (
+              event.key === 'Enter' &&
+              !event.shiftKey &&
+              !event.nativeEvent.isComposing
+            ) {
+              event.preventDefault()
+              void submit()
+            }
+          }}
+        />
+        <div className={styles.composerActions}>
+          {working ? (
+            <Button
+              variant="quiet"
+              icon
+              aria-label="Stop the current reply"
+              title="Stop"
+              onClick={() => void api.call('conversation.interrupt', { conversationId })}
+            >
+              <Square size={14} aria-hidden="true" />
+            </Button>
+          ) : null}
+          <Button
+            type="submit"
+            variant="primary"
+            icon
+            aria-label={
+              working ? 'Send (Hermes is working; it will queue or steer)' : 'Send'
+            }
+            disabled={!online || !text.trim()}
+          >
+            <ArrowUp size={16} aria-hidden="true" />
+          </Button>
+        </div>
+      </div>
+      {working ? (
+        <p className={styles.composerHint}>Hermes is working. You can keep sending.</p>
+      ) : null}
+    </form>
+  )
+})

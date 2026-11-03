@@ -1,0 +1,11 @@
+pnpm-lock.yaml
+docs/handbook/pnpm-lock.yaml
+packages/hermes-adapter/upstream/
+packages/tokens/generated/
+apps/android/android/
+apps/android/.expo/
+**/dist/
+**/coverage/
+.agent-artifacts/
+docs/handbook/.vitepress/cache/
+docs/handbook/.vitepress/dist/

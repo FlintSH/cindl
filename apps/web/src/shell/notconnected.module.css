@@ -1,0 +1,33 @@
+.page {
+  display: grid;
+  place-items: center;
+  min-height: 100dvh;
+  padding: var(--space-6);
+}
+.card {
+  max-width: 34rem;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  font-size: var(--text-body-size);
+  line-height: var(--text-body-line);
+}
+.card p {
+  margin: 0;
+}
+.title {
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-heading-size);
+  line-height: var(--text-heading-line);
+  font-weight: 600;
+  letter-spacing: var(--text-heading-tracking);
+}
+.options {
+  margin: 0;
+  padding-left: var(--space-5);
+  color: var(--color-text-secondary);
+}
+.small {
+  color: var(--color-text-tertiary);
+  font-size: var(--text-label-size);
+}

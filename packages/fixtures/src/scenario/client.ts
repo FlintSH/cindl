@@ -1,0 +1,517 @@
+/**
+ * In-memory SYNTHETIC implementation of CindlClientApi for UI development,
+ * component tests and documentation screenshots. It never contacts Hermes and
+ * always reports `link.demo = true` so every client shows a "Synthetic demo"
+ * banner. Integration tests of the real adapter use the fake Hermes server
+ * instead; this scenario only exercises UI behaviour.
+ */
+import { sha256Hex } from '@cindl/client-core'
+import {
+  CindlError,
+  parseOpArgs,
+  type Capability,
+  type CapabilityId,
+  type CapabilityMap,
+  type CindlClientApi,
+  type CindlEvent,
+  type Conversation,
+  type DisplayState,
+  type LinkState,
+  type OpArgs,
+  type OpName,
+  type OpResult,
+  type PendingPrompt,
+  type Routine,
+  type ServerRequest,
+  type ToolActivity,
+  type VersionedDocument,
+} from '@cindl/contracts'
+import * as data from './data.ts'
+
+export interface ScenarioTimers {
+  now(): number
+  setTimeout(callback: () => void, ms: number): unknown
+  clearTimeout(handle: unknown): void
+}
+
+export interface ScenarioOptions {
+  /** Multiplies every scripted delay. 0 = synchronous-as-possible (tests). */
+  speed?: number
+  timers?: ScenarioTimers
+}
+
+const realTimers: ScenarioTimers = {
+  now: () => Date.now(),
+  setTimeout: (callback, ms) => setTimeout(callback, ms),
+  clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+}
+
+const unsupported: Partial<Record<CapabilityId, string>> = {
+  'memory.text':
+    'Hermes v0.22.5 exposes memory metadata only; memory text is not readable or editable.',
+  'connections.accounts':
+    'Hermes v0.22.5 has no safe account-coverage source for local browser or vault logins.',
+  'presence.unified':
+    'Not proven: a shared profile is not evidence that every surface talks to one live session authority.',
+  'artifacts.list':
+    'Hermes v0.22.5 has no artifact listing endpoint Cindl can use safely.',
+  'attachments.upload': 'Not implemented in Cindl yet.',
+}
+const limited: Partial<Record<CapabilityId, string>> = {
+  'soul.write':
+    'No server-side compare-and-swap at v0.22.5: Cindl re-reads before saving to detect conflicts.',
+  'skills.write':
+    'No server-side compare-and-swap at v0.22.5: Cindl re-reads before saving to detect conflicts.',
+  'computer.view': 'Synthetic demo: no live screen is streamed.',
+}
+
+export function scenarioCapabilities(checkedAt: string): CapabilityMap {
+  const ids: CapabilityId[] = [
+    'chat.stream',
+    'chat.interrupt',
+    'chat.steer',
+    'sessions.list',
+    'sessions.create',
+    'sessions.history',
+    'sessions.replay',
+    'sessions.rename',
+    'requests.approval',
+    'requests.clarify',
+    'activity.tools',
+    'activity.subagents',
+    'activity.processes',
+    'routines.read',
+    'routines.write',
+    'skills.read',
+    'skills.write',
+    'soul.read',
+    'soul.write',
+    'memory.overview',
+    'memory.text',
+    'connections.mcp',
+    'connections.accounts',
+    'computer.view',
+    'computer.control',
+    'artifacts.list',
+    'attachments.upload',
+    'presence.unified',
+  ]
+  const map: CapabilityMap = {}
+  for (const id of ids) {
+    const reason = unsupported[id] ?? limited[id]
+    const capability: Capability = {
+      id,
+      state: unsupported[id] ? 'unsupported' : limited[id] ? 'limited' : 'available',
+      source: { transport: 'none', endpoint: 'synthetic scenario' },
+      checkedAt,
+      ...(reason ? { reason } : {}),
+    }
+    map[id] = capability
+  }
+  return map
+}
+
+type Handler<K extends OpName> = (args: OpArgs<K>) => Promise<OpResult<K>> | OpResult<K>
+
+export function createScenarioClient(options: ScenarioOptions = {}): CindlClientApi & {
+  /** Emits the initial snapshot to current subscribers. Called automatically on first subscribe. */
+  start(): void
+} {
+  const speed = options.speed ?? 1
+  const timers = options.timers ?? realTimers
+  const listeners = new Set<(event: CindlEvent) => void>()
+  const iso = () => new Date(timers.now()).toISOString()
+  const emit = (event: CindlEvent) => {
+    for (const listener of [...listeners]) listener(event)
+  }
+  const later = (ms: number, callback: () => void) =>
+    timers.setTimeout(callback, ms * speed)
+
+  let started = false
+  let link: LinkState = {
+    phase: 'online',
+    auth: 'demo-fixture',
+    demo: true,
+    since: iso(),
+    connectionEpoch: 1,
+    replayEpoch: 'demo-epoch-1',
+    server: {
+      origin: data.SYNTHETIC_ORIGIN,
+      hermesVersion: '0.22.5',
+      desktopBackendContract: 8,
+      authority: 'legacy-sidecar-v8',
+      sessionAuthority: false,
+    },
+  }
+  const capabilities = scenarioCapabilities(iso())
+  const conversations = new Map(data.conversations.map((c) => [c.id, structuredClone(c)]))
+  const tools = new Map(data.tools.map((t) => [t.id, structuredClone(t)]))
+  const requests = new Map(
+    data.requests.map((r) => [String(r.rpcId), structuredClone(r)]),
+  )
+  const prompts = new Map<string, PendingPrompt>()
+  const routines = new Map(data.routines.map((r) => [r.id, structuredClone(r)]))
+  const skillDocs = new Map(Object.entries(data.skillContent))
+  let soul = data.soul
+  let display: DisplayState = {
+    status: 'running',
+    controller: 'agent',
+    leaseHeldByThisDevice: false,
+    checkedAt: iso(),
+  }
+  const streams = new Map<string, unknown[]>()
+  let sequence = 0
+
+  const doc = (key: string, content: string, source: string): VersionedDocument => ({
+    key,
+    content,
+    version: sha256Hex(content),
+    readAt: iso(),
+    source,
+  })
+
+  const setConversation = (id: string, patch: Partial<Conversation>) => {
+    const conversation = conversations.get(id)
+    if (!conversation) return
+    const next = { ...conversation, ...patch }
+    conversations.set(id, next)
+    emit({ type: 'conversation.upserted', conversation: next })
+  }
+
+  const streamReply = (
+    conversationId: string,
+    reply: string,
+    tool?: Omit<ToolActivity, 'conversationId'>,
+  ) => {
+    const messageId = `demo-reply-${++sequence}`
+    const handles: unknown[] = []
+    streams.set(conversationId, handles)
+    setConversation(conversationId, { status: 'working', updatedAt: iso() })
+    emit({ type: 'session.status', conversationId, status: 'working' })
+    handles.push(
+      later(250, () => {
+        emit({ type: 'message.started', conversationId, messageId, role: 'assistant' })
+        let delay = 0
+        if (tool) {
+          const activity: ToolActivity = {
+            ...tool,
+            conversationId,
+            status: 'running',
+            startedAt: iso(),
+          }
+          tools.set(activity.id, activity)
+          emit({ type: 'tool.updated', activity })
+          delay = 600
+          handles.push(
+            later(delay, () => {
+              const done: ToolActivity = {
+                ...activity,
+                status: 'complete',
+                endedAt: iso(),
+              }
+              tools.set(done.id, done)
+              emit({ type: 'tool.updated', activity: done })
+            }),
+          )
+        }
+        const words = reply.split(/(?<= )/)
+        words.forEach((word, index) => {
+          handles.push(
+            later(delay + 120 + index * 35, () =>
+              emit({
+                type: 'message.delta',
+                conversationId,
+                messageId,
+                kind: 'text',
+                text: word,
+              }),
+            ),
+          )
+        })
+        handles.push(
+          later(delay + 200 + words.length * 35, () => {
+            emit({
+              type: 'message.completed',
+              conversationId,
+              messageId,
+              status: 'complete',
+            })
+            emit({ type: 'session.status', conversationId, status: 'idle' })
+            setConversation(conversationId, {
+              status: 'idle',
+              preview: reply.slice(0, 80),
+              updatedAt: iso(),
+            })
+            streams.delete(conversationId)
+          }),
+        )
+      }),
+    )
+  }
+
+  const updateRequest = (request: ServerRequest) => {
+    requests.set(String(request.rpcId), request)
+    emit({ type: 'request.opened', request })
+  }
+
+  const handlers: { [K in OpName]: Handler<K> } = {
+    'link.get': () => link,
+    'capabilities.get': () => capabilities,
+    'auth.signIn': () => {
+      link = { ...link, phase: 'online', since: iso() }
+      emit({ type: 'link.changed', link })
+      return link
+    },
+    'auth.signOut': () => {
+      link = { ...link, phase: 'signed-out', since: iso() }
+      emit({ type: 'link.changed', link })
+      return { localOnly: true as const }
+    },
+    'conversations.list': () => [...conversations.values()],
+    'conversations.create': ({ title }) => {
+      const id = `demo-side-${++sequence}`
+      const conversation: Conversation = {
+        id,
+        session: { storedId: id },
+        title: title?.trim() || 'New side conversation',
+        kind: 'side',
+        profile: 'default',
+        createdAt: iso(),
+        updatedAt: iso(),
+        status: 'idle',
+      }
+      conversations.set(id, conversation)
+      emit({ type: 'conversation.upserted', conversation })
+      emit({ type: 'history.loaded', conversationId: id, messages: [] })
+      return conversation
+    },
+    'conversations.setMain': ({ conversationId }) => {
+      const target = conversations.get(conversationId)
+      if (!target)
+        throw new CindlError('not-found', 'That conversation no longer exists.')
+      for (const conversation of conversations.values())
+        if (conversation.kind === 'main' && conversation.id !== conversationId)
+          setConversation(conversation.id, { kind: 'side' })
+      setConversation(conversationId, { kind: 'main' })
+      return conversations.get(conversationId) as Conversation
+    },
+    'conversations.rename': ({ conversationId, title }) => {
+      if (!conversations.has(conversationId))
+        throw new CindlError('not-found', 'That conversation no longer exists.')
+      setConversation(conversationId, { title })
+      return conversations.get(conversationId) as Conversation
+    },
+    'conversations.history': ({ conversationId }) => {
+      const history = {
+        messages: data.messages.filter((m) => m.conversationId === conversationId),
+        tools: [...tools.values()].filter((t) => t.conversationId === conversationId),
+      }
+      // Reads that change what a client knows are also emitted, so every store converges.
+      for (const activity of history.tools) emit({ type: 'tool.updated', activity })
+      emit({ type: 'history.loaded', conversationId, messages: history.messages })
+      return history
+    },
+    'prompt.submit': ({ conversationId, clientId, text }) => {
+      if (!conversations.has(conversationId))
+        throw new CindlError('not-found', 'That conversation no longer exists.')
+      const busy = streams.has(conversationId)
+      const prompt: PendingPrompt = {
+        clientId,
+        conversationId,
+        text,
+        createdAt: iso(),
+        state: 'accepted',
+        disposition: busy ? 'queued' : 'streaming',
+      }
+      prompts.set(clientId, prompt)
+      emit({ type: 'prompt.updated', prompt })
+      const userId = `demo-user-${clientId}`
+      emit({ type: 'message.started', conversationId, messageId: userId, role: 'user' })
+      emit({
+        type: 'message.completed',
+        conversationId,
+        messageId: userId,
+        status: 'complete',
+        text,
+      })
+      if (!busy)
+        streamReply(
+          conversationId,
+          'This is the synthetic demo, so nothing reached Hermes. In a connected Cindl, Hermes answers here and its tool activity appears above as it happens.',
+          {
+            id: `demo-tool-${++sequence}`,
+            name: 'notes.search',
+            title: 'Searched the demo notes (synthetic)',
+            status: 'running',
+          },
+        )
+      return prompt
+    },
+    'prompt.discard': ({ clientId }) => ({ discarded: prompts.delete(clientId) }),
+    'conversation.interrupt': ({ conversationId }) => {
+      for (const handle of streams.get(conversationId) ?? []) timers.clearTimeout(handle)
+      if (streams.delete(conversationId)) {
+        emit({ type: 'session.status', conversationId, status: 'idle' })
+        setConversation(conversationId, { status: 'idle' })
+      }
+      return { requested: true as const }
+    },
+    'request.answer': ({ rpcId, connectionEpoch, answer }) => {
+      const request = requests.get(String(rpcId))
+      if (!request || request.connectionEpoch !== connectionEpoch)
+        throw new CindlError(
+          'not-found',
+          'This request is no longer open on this connection.',
+        )
+      if (request.status !== 'open')
+        throw new CindlError('conflict', 'This request was already answered or closed.')
+      if (
+        answer.kind === 'approval' &&
+        (request.kind !== 'approval' || !request.choices.includes(answer.choice))
+      )
+        throw new CindlError('invalid', 'That choice was not offered for this request.')
+      if (answer.kind !== 'approval' && request.kind !== 'clarify')
+        throw new CindlError('invalid', 'This request expects an approval decision.')
+      const answering: ServerRequest = { ...request, status: 'answering', answer }
+      updateRequest(answering)
+      later(200, () => {
+        requests.set(String(rpcId), { ...answering, status: 'answered' })
+        emit({ type: 'request.closed', rpcId, status: 'answered' })
+        const conversationId = request.conversationId ?? 'demo-main'
+        if (request.kind === 'approval') {
+          const sheet = tools.get('tool-sheet')
+          if (sheet) {
+            const { progress: _progress, ...rest } = sheet
+            const approved = answer.kind === 'approval' && answer.choice === 'once'
+            const activity: ToolActivity = approved
+              ? {
+                  ...rest,
+                  status: 'complete',
+                  endedAt: iso(),
+                  resultPreview: 'Exported 42 rows (synthetic)',
+                }
+              : { ...rest, status: 'cancelled', endedAt: iso() }
+            tools.set(activity.id, activity)
+            emit({ type: 'tool.updated', activity })
+          }
+          streamReply(
+            conversationId,
+            answer.kind === 'approval' && answer.choice === 'once'
+              ? 'Done. The inventory sheet is current: 42 batches, three below reorder level.'
+              : 'Understood. I did not run the export.',
+          )
+        } else {
+          streamReply(
+            conversationId,
+            'Thanks. I will keep that hold and release the other one.',
+          )
+        }
+      })
+      return answering
+    },
+    'routines.list': () => [...routines.values()],
+    'routines.setEnabled': ({ id, enabled }) => {
+      const routine = routines.get(id)
+      if (!routine) throw new CindlError('not-found', 'That routine no longer exists.')
+      const next: Routine = { ...routine, enabled }
+      routines.set(id, next)
+      return next
+    },
+    'skills.list': () => data.skills,
+    'skills.read': ({ name }) => {
+      const content = skillDocs.get(name)
+      if (content === undefined)
+        throw new CindlError('not-found', 'That skill is not installed.')
+      return doc(
+        `skill:${name}`,
+        content,
+        'Synthetic fixture (GET /api/skills/content shape)',
+      )
+    },
+    'skills.write': ({ name, content, expectedVersion }) => {
+      const current = skillDocs.get(name)
+      if (current === undefined)
+        throw new CindlError('not-found', 'That skill is not installed.')
+      if (sha256Hex(current) !== expectedVersion)
+        throw new CindlError(
+          'conflict',
+          'This skill changed since you opened it. Review the new version first.',
+        )
+      skillDocs.set(name, content)
+      return doc(`skill:${name}`, content, 'Synthetic fixture')
+    },
+    'soul.read': () =>
+      doc(
+        'soul:default',
+        soul,
+        'Synthetic fixture (GET /api/profiles/{name}/soul shape)',
+      ),
+    'soul.write': ({ content, expectedVersion }) => {
+      if (sha256Hex(soul) !== expectedVersion)
+        throw new CindlError(
+          'conflict',
+          'SOUL.md changed since you opened it. Review the new version first.',
+        )
+      soul = content
+      return doc('soul:default', soul, 'Synthetic fixture')
+    },
+    'memory.overview': () => data.memoryOverview(iso()),
+    'connections.mcp': () => data.mcpServers,
+    'connections.accounts': () => {
+      throw new CindlError('unsupported', unsupported['connections.accounts'] as string)
+    },
+    'display.status': () => display,
+    'display.acquireControl': () => {
+      display = {
+        ...display,
+        controller: 'you',
+        leaseHeldByThisDevice: true,
+        checkedAt: iso(),
+      }
+      emit({ type: 'display.changed', display })
+      return display
+    },
+    'display.releaseControl': () => {
+      display = {
+        ...display,
+        controller: 'agent',
+        leaseHeldByThisDevice: false,
+        checkedAt: iso(),
+      }
+      emit({ type: 'display.changed', display })
+      return display
+    },
+  }
+
+  const start = () => {
+    if (started) return
+    started = true
+    emit({ type: 'link.changed', link })
+    emit({ type: 'capabilities.changed', capabilities })
+    for (const conversation of conversations.values())
+      emit({ type: 'conversation.upserted', conversation })
+    for (const conversation of conversations.values())
+      emit({
+        type: 'history.loaded',
+        conversationId: conversation.id,
+        messages: data.messages.filter((m) => m.conversationId === conversation.id),
+      })
+    for (const activity of tools.values()) emit({ type: 'tool.updated', activity })
+    for (const request of requests.values()) emit({ type: 'request.opened', request })
+    emit({ type: 'display.changed', display })
+  }
+
+  return {
+    start,
+    async call(name, args) {
+      const parsed = parseOpArgs(name, args)
+      const handler = handlers[name] as unknown as (a: typeof parsed) => unknown
+      return (await handler(parsed)) as never
+    },
+    subscribe(listener) {
+      listeners.add(listener)
+      if (!started) queueMicrotask(start)
+      return () => listeners.delete(listener)
+    },
+  }
+}

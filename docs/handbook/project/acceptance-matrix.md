@@ -1,0 +1,59 @@
+# Acceptance matrix
+
+Every requirement Cindl must meet, its current status and the evidence. Status
+values: **done** (evidence linked), **partial** (some evidence, gap named),
+**not started**, **blocked** (dependency named). Update this file in the same
+change as the work; never mark a row done without evidence a reviewer can
+re-run or inspect.
+
+## Product and UX
+
+| Requirement                                                              | Status      | Evidence / gap                                                                 |
+| ------------------------------------------------------------------------ | ----------- | ------------------------------------------------------------------------------ |
+| Conversation-first Talk with main + side conversations                   | partial     | Web UI on synthetic demo; live sessions pending                                |
+| Non-blocking sends while Hermes works                                    | partial     | Composer + scenario; live `prompt.submit` dispositions pending                 |
+| Streaming text and tool activity, inspectable evidence                   | partial     | Reducer tests (`packages/client-core/test/state.test.ts`); live events pending |
+| Structured approvals and clarifications, answered once                   | partial     | Contract + reducer + scenario tests; live server requests pending              |
+| Work: needs you, running, routines, computer                             | partial     | Web UI on synthetic demo                                                       |
+| Library: skills, memory metadata, artifacts (honest unsupported)         | partial     | Web UI on synthetic demo                                                       |
+| Agent: SOUL edit with diff/confirm/version, connections, runtime, device | partial     | Web UI + scenario CAS tests                                                    |
+| Command palette, shortcuts, history popover                              | partial     | Implemented in web; browser QA pending                                         |
+| Responsive phone/tablet/desktop with 44px targets, reduced motion, focus | partial     | CSS implemented; screenshots and keyboard/touch QA pending                     |
+| Native Android app (not a WebView)                                       | not started | Android stream                                                                 |
+| Electron desktop with hardened IPC and native files                      | not started | Desktop stream                                                                 |
+
+## Integration
+
+| Requirement                                                         | Status      | Evidence / gap                                                      |
+| ------------------------------------------------------------------- | ----------- | ------------------------------------------------------------------- |
+| Pinned v0.22.5 surface, vendored upstream contract, drift test      | done        | `packages/hermes-adapter/test/upstream.test.ts`                     |
+| PKCE helpers matching the server's redirect validator               | done        | `packages/hermes-adapter/test/pkce.test.ts`                         |
+| REST + JSON-RPC client, tickets, reconnect, replay, server requests | not started | Adapter stream                                                      |
+| Fake Hermes test server validated against vendored schemas          | not started | Adapter stream                                                      |
+| Live authenticated transport validation                             | blocked     | Needs an authorised run against the owner's instance (parent/owner) |
+| Cross-surface session authority clarified                           | blocked     | Needs live handshake evidence                                       |
+| Same-origin web hosting under `hermes serve`                        | blocked     | Owner deployment decision                                           |
+
+## Security and privacy
+
+| Requirement                                                                           | Status      | Evidence / gap                                            |
+| ------------------------------------------------------------------------------------- | ----------- | --------------------------------------------------------- |
+| No tokens in renderer/browser storage                                                 | partial     | Lint rules; platform storage implementations pending      |
+| Redaction of tickets, tokens, keys in diagnostics                                     | done        | `packages/hermes-adapter/test/redact.test.ts`             |
+| Safe rendering of agent output                                                        | partial     | `apps/web/src/talk/Markdown.tsx`; component tests pending |
+| Auth denial, origin/CSRF, traversal, approval replay/expiry, reconnect, offline tests | not started | Adapter/desktop/android streams                           |
+| Automated privacy/secret scan                                                         | not started | Docs/quality stream                                       |
+| Threat model                                                                          | done        | `docs/handbook/security/threat-model.md`                  |
+
+## Quality, docs and delivery
+
+| Requirement                                                   | Status      | Evidence / gap                                             |
+| ------------------------------------------------------------- | ----------- | ---------------------------------------------------------- |
+| Reproducible bootstrap and `pnpm verify`                      | done        | Root `package.json`, lockfile, `AGENTS.md`                 |
+| Contrast-tested design tokens                                 | done        | `packages/tokens/test/tokens.test.ts`                      |
+| AI-native guidance: root + scoped `AGENTS.md`, handbook, ADRs | partial     | Present; docs site, coverage and docs-impact gates pending |
+| CI that reflects tested support only                          | not started | Docs/quality, desktop, Android streams                     |
+| Downloadable APK and desktop artifact                         | not started | Android and desktop streams (CI)                           |
+| Browser QA with screenshots at phone/tablet/desktop           | not started | Coordinator, next                                          |
+| Electron launch smoke, Android emulator smoke                 | not started | Desktop and Android streams                                |
+| MIT licence (Zachary Lowery) with third-party notices         | done        | `LICENSE`, `THIRD_PARTY_NOTICES.md`                        |

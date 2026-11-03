@@ -1,0 +1,93 @@
+.markdown {
+  font-size: var(--text-body-size);
+  line-height: var(--text-body-line);
+  overflow-wrap: anywhere;
+}
+.markdown > :first-child {
+  margin-top: 0;
+}
+.markdown > :last-child {
+  margin-bottom: 0;
+}
+.markdown p,
+.markdown ul,
+.markdown ol,
+.markdown blockquote {
+  margin: 0 0 var(--space-3);
+}
+.markdown ul,
+.markdown ol {
+  padding-left: var(--space-6);
+}
+.markdown li + li {
+  margin-top: var(--space-1);
+}
+.markdown h1,
+.markdown h2,
+.markdown h3 {
+  margin: var(--space-5) 0 var(--space-2);
+  font-size: var(--text-title-size);
+  line-height: var(--text-title-line);
+  font-weight: 600;
+}
+.markdown strong {
+  font-weight: 600;
+}
+.markdown blockquote {
+  padding-left: var(--space-3);
+  border-left: 3px solid var(--color-border);
+  color: var(--color-text-secondary);
+}
+.markdown :not(pre) > code {
+  padding: 0.1em 0.35em;
+  border-radius: var(--radius-xs);
+  background: var(--color-surface-sunken);
+}
+.pre {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-sunken);
+  overflow-x: auto;
+}
+.tableWrap {
+  overflow-x: auto;
+  margin: 0 0 var(--space-3);
+}
+.tableWrap table {
+  border-collapse: collapse;
+  font-size: var(--text-ui-size);
+}
+.tableWrap th,
+.tableWrap td {
+  padding: var(--space-1) var(--space-3);
+  border-bottom: 1px solid var(--color-border);
+  text-align: left;
+}
+.image {
+  max-width: 100%;
+  border-radius: var(--radius-md);
+}
+.blockedImage {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border: 1px dashed var(--color-border-strong);
+  border-radius: var(--radius-md);
+  color: var(--color-text-secondary);
+  font-size: var(--text-ui-size);
+}
+.inlineButton {
+  border: 0;
+  background: none;
+  padding: 0;
+  color: var(--color-accent-text);
+  text-decoration: underline;
+  text-underline-offset: 0.18em;
+}
+.inertLink {
+  text-decoration: underline dotted;
+}

@@ -1,0 +1,199 @@
+import { useLink, useOpenRequests } from '@cindl/client-react'
+import { TriangleAlert } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { AgentView } from '../agent/AgentView.tsx'
+import { LibraryView } from '../library/LibraryView.tsx'
+import { applyTheme, setPreference, usePreference } from '../platform/preferences.ts'
+import { navigate, useRoute, type Destination } from '../router.ts'
+import { matchShortcut } from '../shortcuts.ts'
+import { TalkView, type TalkHandle } from '../talk/TalkView.tsx'
+import { Mark } from '../ui/Mark.tsx'
+import { WorkView } from '../work/WorkView.tsx'
+import { CommandPalette, type Command } from './CommandPalette.tsx'
+import { LinkStatusDot } from './LinkStatus.tsx'
+import { NavList } from './Navigation.tsx'
+import { ShortcutsDialog } from './ShortcutsDialog.tsx'
+import styles from './shell.module.css'
+
+export function AppShell() {
+  const route = useRoute()
+  const link = useLink()
+  const open = useOpenRequests()
+  const [theme] = usePreference('theme')
+  const [paletteOpen, setPaletteOpen] = useState(false)
+  const [helpOpen, setHelpOpen] = useState(false)
+  const talk = useRef<TalkHandle>(null)
+  const current: Destination = route.view
+
+  useEffect(() => applyTheme(theme), [theme])
+
+  const commands = useMemo<Command[]>(
+    () => [
+      {
+        id: 'go-talk',
+        label: 'Go to Talk',
+        shortcut: 'go-talk',
+        run: () => navigate({ view: 'talk' }),
+      },
+      {
+        id: 'go-work',
+        label: 'Go to Work',
+        hint: 'Approvals, running work, routines, computer',
+        shortcut: 'go-work',
+        run: () => navigate({ view: 'work' }),
+      },
+      {
+        id: 'go-library',
+        label: 'Go to Library',
+        hint: 'Skills, memory, artifacts',
+        shortcut: 'go-library',
+        run: () => navigate({ view: 'library', section: 'skills' }),
+      },
+      {
+        id: 'go-agent',
+        label: 'Go to Agent',
+        hint: 'Identity, connections, runtime',
+        shortcut: 'go-agent',
+        run: () => navigate({ view: 'agent', section: 'identity' }),
+      },
+      {
+        id: 'new-side',
+        label: 'Start a side conversation',
+        shortcut: 'new-side',
+        run: () => {
+          navigate({ view: 'talk' })
+          queueMicrotask(() => talk.current?.newSideConversation())
+        },
+      },
+      {
+        id: 'identity',
+        label: 'Open identity (SOUL.md)',
+        run: () => navigate({ view: 'agent', section: 'identity' }),
+      },
+      {
+        id: 'runtime',
+        label: 'Show connection and capabilities',
+        run: () => navigate({ view: 'agent', section: 'runtime' }),
+      },
+      {
+        id: 'theme-light',
+        label: 'Use light theme',
+        run: () => setPreference('theme', 'light'),
+      },
+      {
+        id: 'theme-dark',
+        label: 'Use dark theme',
+        run: () => setPreference('theme', 'dark'),
+      },
+      {
+        id: 'theme-system',
+        label: 'Match system theme',
+        run: () => setPreference('theme', 'system'),
+      },
+      {
+        id: 'help',
+        label: 'Show keyboard shortcuts',
+        shortcut: 'help',
+        run: () => setHelpOpen(true),
+      },
+    ],
+    [],
+  )
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const id = matchShortcut(event)
+      if (!id) return
+      event.preventDefault()
+      switch (id) {
+        case 'palette':
+          setPaletteOpen(true)
+          break
+        case 'switch-conversation':
+          navigate({
+            view: 'talk',
+            ...(route.view === 'talk' && route.conversationId
+              ? { conversationId: route.conversationId }
+              : {}),
+          })
+          queueMicrotask(() => talk.current?.openHistory())
+          break
+        case 'new-side':
+          navigate({ view: 'talk' })
+          queueMicrotask(() => talk.current?.newSideConversation())
+          break
+        case 'toggle-margin':
+          setPreference('marginOpen', !document.querySelector('[data-margin="open"]'))
+          break
+        case 'focus-composer':
+          talk.current?.focusComposer()
+          break
+        case 'go-talk':
+          navigate({ view: 'talk' })
+          break
+        case 'go-work':
+          navigate({ view: 'work' })
+          break
+        case 'go-library':
+          navigate({ view: 'library', section: 'skills' })
+          break
+        case 'go-agent':
+          navigate({ view: 'agent', section: 'identity' })
+          break
+        case 'help':
+          setHelpOpen(true)
+          break
+      }
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [route])
+
+  return (
+    <div className={styles.shell}>
+      <div className={styles.banner}>
+        {link.demo ? (
+          <p className={styles.demoBanner} role="note">
+            <TriangleAlert size={14} aria-hidden="true" />
+            Synthetic demo. Not connected to Hermes; every name, message and status here
+            is invented.
+          </p>
+        ) : null}
+      </div>
+      <nav className={styles.spine} aria-label="Primary">
+        <a className={styles.brand} href="#/talk" aria-label="Cindl, go to Talk">
+          <Mark />
+        </a>
+        <NavList current={current} workCount={open.length} />
+        <div className={styles.spineFooter}>
+          <a
+            className={styles.status}
+            href="#/agent/runtime"
+            aria-label="Connection details"
+          >
+            <LinkStatusDot />
+          </a>
+        </div>
+      </nav>
+      <main className={styles.main} id="main">
+        {route.view === 'talk' ? (
+          <TalkView ref={talk} conversationId={route.conversationId} />
+        ) : null}
+        {route.view === 'work' ? <WorkView /> : null}
+        {route.view === 'library' ? (
+          <LibraryView section={route.section} item={route.item} />
+        ) : null}
+        {route.view === 'agent' ? <AgentView section={route.section} /> : null}
+      </main>
+      <nav className={styles.bottomNav} aria-label="Primary">
+        <NavList current={current} workCount={open.length} />
+      </nav>
+      <CommandPalette
+        open={paletteOpen}
+        onClose={() => setPaletteOpen(false)}
+        commands={commands}
+      />
+      <ShortcutsDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
+    </div>
+  )
+}

@@ -1,0 +1,40 @@
+{
+  "name": "@cindl/web",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Responsive Cindl web client; also the renderer loaded by the Electron desktop app.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1",
+    "dev:demo": "VITE_CINDL_DEMO=1 vite --host 127.0.0.1",
+    "build": "tsc -p tsconfig.json && vite build",
+    "build:demo": "VITE_CINDL_DEMO=1 vite build --outDir dist-demo",
+    "preview": "vite preview --host 127.0.0.1",
+    "typecheck": "tsc -p tsconfig.json",
+    "test:e2e": "playwright test"
+  },
+  "dependencies": {
+    "@cindl/client-core": "workspace:*",
+    "@cindl/client-react": "workspace:*",
+    "@cindl/contracts": "workspace:*",
+    "@cindl/tokens": "workspace:*",
+    "lucide-react": "1.66.0",
+    "react": "catalog:",
+    "react-dom": "catalog:",
+    "react-markdown": "10.1.0",
+    "remark-gfm": "4.0.1"
+  },
+  "devDependencies": {
+    "@cindl/fixtures": "workspace:*",
+    "@playwright/test": "1.64.1",
+    "@testing-library/react": "16.3.3",
+    "@testing-library/user-event": "14.6.8",
+    "@types/react": "catalog:",
+    "@types/react-dom": "catalog:",
+    "@vitejs/plugin-react": "6.1.2",
+    "jsdom": "30.1.3",
+    "typescript": "catalog:",
+    "vite": "8.3.5"
+  }
+}

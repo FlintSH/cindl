@@ -1,0 +1,23 @@
+{
+  "name": "@cindl/hermes-adapter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Version-aware adapter from the Hermes `hermes serve` backend (REST + JSON-RPC WebSocket) to Cindl contracts.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./upstream/*": "./upstream/*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "extract-upstream": "node scripts/extract-upstream.ts"
+  },
+  "dependencies": {
+    "@cindl/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

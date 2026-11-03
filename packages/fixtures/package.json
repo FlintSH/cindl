@@ -1,0 +1,23 @@
+{
+  "name": "@cindl/fixtures",
+  "version": "0.1.0",
+  "private": true,
+  "description": "SYNTHETIC test and demo fixtures. Never a production data source; see AGENTS.md.",
+  "license": "MIT",
+  "type": "module",
+  "exports": {
+    ".": "./src/index.ts",
+    "./scenario": "./src/scenario/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@cindl/client-core": "workspace:*",
+    "@cindl/contracts": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "catalog:",
+    "typescript": "catalog:"
+  }
+}

@@ -1,0 +1,35 @@
+{
+  "name": "cindl",
+  "private": true,
+  "description": "Cindl: a cross-device home (web, desktop, Android) for a self-hosted Hermes agent.",
+  "license": "MIT",
+  "type": "module",
+  "packageManager": "pnpm@11.18.0",
+  "engines": {
+    "node": ">=24.21.0 <25",
+    "pnpm": "11.18.0"
+  },
+  "scripts": {
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "lint": "eslint --max-warnings=0 .",
+    "typecheck": "pnpm -r --workspace-concurrency=2 run typecheck",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "pnpm -r --workspace-concurrency=1 run build",
+    "check:tokens": "pnpm --filter @cindl/tokens run check",
+    "verify": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm test && pnpm check:tokens",
+    "dev:web:demo": "pnpm --filter @cindl/web run dev:demo"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "catalog:",
+    "eslint": "10.14.0",
+    "eslint-plugin-react-hooks": "7.1.1",
+    "globals": "17.14.0",
+    "prettier": "3.9.10",
+    "typescript": "catalog:",
+    "typescript-eslint": "8.72.1",
+    "vitest": "catalog:"
+  }
+}

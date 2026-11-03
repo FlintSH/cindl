@@ -1,0 +1,15 @@
+# Third-party notices
+
+Cindl's own code and documentation are MIT licensed (see `LICENSE`). The
+following third-party material is included under its own licence and is not
+relicensed.
+
+| Material                                                         | Location                                                        | Licence                                                                                                     | Source                                                                                                                                             |
+| ---------------------------------------------------------------- | --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hermes Agent gateway contract excerpt (generated OpenRPC subset) | `packages/hermes-adapter/upstream/v0.22.5/contract-subset.json` | MIT, Copyright (c) 2025 Nous Research; full text in `packages/hermes-adapter/upstream/LICENSE.hermes-agent` | `NousResearch/hermes-agent` tag `v0.22.5`, commit `bf0203a794a07aac3ff764972ab9087baa4e4f4e`, file `apps/shared/src/gateway-contract.openrpc.json` |
+| Instrument Sans (fonts)                                          | `packages/tokens/fonts/instrument-sans/`                        | SIL Open Font License 1.1; text in `OFL.txt` alongside the fonts                                            | `Instrument/instrument-sans` commit `7fa22308a3d0c94ee2b3cd537a1196b65db34a3e`                                                                     |
+| JetBrains Mono (fonts)                                           | `packages/tokens/fonts/jetbrains-mono/`                         | SIL Open Font License 1.1; text in `OFL.txt` alongside the fonts                                            | `JetBrains/JetBrainsMono` release `v2.304`                                                                                                         |
+
+Checksums for the bundled font files are in `packages/tokens/fonts/SHA256SUMS`.
+npm dependencies keep the licences declared in their own packages and are not
+redistributed in this repository.
