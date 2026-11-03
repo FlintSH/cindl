@@ -383,6 +383,17 @@ const boxInside = (inner: Rect, outer: Rect) =>
   inner.bottom <= outer.bottom
 
 /**
+ * A paragraph's text without one link in it: the link's label and the
+ * " (host)" Cindl shows right after every link (Markdown.tsx, LinkSpan),
+ * which is the link's, not a sentence around it.
+ */
+const withoutLink = (text: string, name: string) => {
+  const at = text.indexOf(name)
+  if (at < 0) return text
+  return text.slice(0, at) + text.slice(at + name.length).replace(/^ \([^()]*\)/, '')
+}
+
+/**
  * A link inside a sentence, as WCAG 2.5.8's inline exception means it: React
  * Native gives a link span an accessibility node of its own, a child of its
  * paragraph's TextView, with no text of its own, its label part of the
@@ -400,7 +411,7 @@ const isInlineLink = (node: UiNode) => {
     node.text === '' &&
     name !== '' &&
     paragraph.text.includes(name) &&
-    /[\p{L}\p{N}]/u.test(paragraph.text.replace(name, '')) &&
+    /[\p{L}\p{N}]/u.test(withoutLink(paragraph.text, name)) &&
     boxInside(node.bounds, paragraph.bounds)
   )
 }

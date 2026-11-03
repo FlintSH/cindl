@@ -421,7 +421,19 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
     expect(alone('the venue page')).toEqual(['the venue page 70.1x26.3dp'])
     expect(alone(' the venue page. ')).toEqual(['the venue page 70.1x26.3dp'])
     expect(alone('See the venue page')).toEqual([])
-    expect(alone('the venue page (harbor-loft.example.test)')).toEqual([])
+    // Cindl shows every link's host after it: that is the link's, not a sentence
+    // (delta check of 1eef0c9, SF2). A link alone on its line, or alone in a list
+    // item, is a target.
+    expect(alone('the venue page (harbor-loft.example.test)')).toEqual([
+      'the venue page 70.1x26.3dp',
+    ])
+    expect(alone('the venue page (harbor-loft.example.test).')).toEqual([
+      'the venue page 70.1x26.3dp',
+    ])
+    expect(alone('See the venue page (harbor-loft.example.test)')).toEqual([])
+    expect(alone('the venue page (harbor-loft.example.test) has the directions')).toEqual(
+      [],
+    )
   })
 })
 

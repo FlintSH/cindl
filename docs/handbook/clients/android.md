@@ -501,10 +501,11 @@ Hermes server, Chrome's Custom Tab, and a phone.
   counts, and a screen where no target is measured fails the audit, as a run
   that measures none does. A link inside a sentence is
   exempt, as WCAG 2.5.8's inline exception allows: a span whose label is part
-  of its paragraph's text, with other words around it, and whose box lies
+  of its paragraph's text, with other words around it (the host Cindl shows
+  after every link is the link's, not words around it), and whose box lies
   within the paragraph. So is the paragraph that holds such a link, which
-  Android may report as clickable because of it. A link that is all its
-  paragraph says, a clickable text with no such link in it, and any other
+  Android may report as clickable because of it. A link alone on its line or
+  in a list item, a clickable text with no such link in it, and any other
   link or button must be 48dp.
 
 ## Live screen
