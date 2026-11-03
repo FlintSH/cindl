@@ -6,7 +6,7 @@ import {
 } from '@cindl/fixtures/fake-hermes'
 import { loginPagePath, type FetchLike } from '@cindl/hermes-adapter'
 import { describe, expect, it } from 'vitest'
-import { entry, type DirectClientDeps } from '../src/index.ts'
+import { entry, selectOpenRequests, type DirectClientDeps } from '../src/index.ts'
 import { fakeHermes, harness, type Harness } from './direct-harness.ts'
 
 const failure = (promise: Promise<unknown>) =>
@@ -153,6 +153,23 @@ function pageCue() {
     },
   }
 }
+
+/** The next turn waits on an approval; submit one in a new conversation and wait for its card. */
+async function openApproval(h: Harness, fake: FakeHermes) {
+  fake.gateway.script = async (turn) => {
+    await turn.approval()
+  }
+  const c = await h.client.call('conversations.create', { title: 'Approval (fixture)' })
+  await h.client.call('prompt.submit', {
+    conversationId: c.id,
+    clientId: `approval-${c.id}`,
+    text: 'export it',
+  })
+  return h.waitFor(() => selectOpenRequests(h.store.getState())[0])
+}
+
+const requestStatus = (h: Harness, requestId: string) =>
+  entry(h.store.getState().requests, requestId)?.status
 
 /** The gate's answer once a browser session is over (middleware.py:72-87). */
 const SESSION_EXPIRED = {
@@ -460,5 +477,30 @@ describe('direct client in native mode: no cookie session to check', () => {
     await pause(120)
     expect(page.listening).toBe(0)
     expect(requests(h.fake, 'GET /api/auth/me')).toBe(checks)
+  })
+})
+
+describe('direct client in cookie mode: open request cards when the session ends', () => {
+  it('closes them when Hermes ends the session, and shows them again after sign-in', async () => {
+    const { fake, jar, h } = await signedIn()
+    const request = await openApproval(h, fake)
+    fake.auth.revokeAll()
+    await failure(h.client.call('memory.overview', {}))
+    expect(h.store.getState().link.phase).toBe('signed-out')
+    expect(requestStatus(h, request.requestId)).toBe('cancelled')
+    // Hermes still holds it, so after a new sign-in the card is back.
+    await passwordLogin(fake, jar)
+    await h.client.call('auth.signIn', { origin: fake.origin })
+    await h.waitFor(() => requestStatus(h, request.requestId) === 'open')
+  })
+
+  it('closes them when a reconnect finds the session gone', async () => {
+    // No tick, so only the reconnect's ws-ticket can tell b.
+    const { fake, a, b } = await twoTabs({ connection: { requestSyncMs: 0 } })
+    const request = await openApproval(b, fake)
+    await a.client.call('auth.signOut', {})
+    fake.gateway.dropConnections()
+    await b.waitFor(() => b.store.getState().link.phase === 'signed-out')
+    expect(requestStatus(b, request.requestId)).toBe('cancelled')
   })
 })

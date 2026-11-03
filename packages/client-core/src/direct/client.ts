@@ -330,10 +330,21 @@ class DirectHermesClient implements DirectClient {
 
   #sessionEnded(cause: CindlError): void {
     this.stop()
-    this.#signedIn = false
-    this.#memoryProbe = undefined
+    this.#forgetSession()
     this.#setLink('signed-out', cause)
     this.#refreshCapabilities()
+  }
+
+  /**
+   * The session is over, signed out here or ended by Hermes: forget what
+   * belonged to it. Open request cards close, since nothing here can answer
+   * them now; after a new sign-in, Hermes shows again the ones it still holds.
+   */
+  #forgetSession(): void {
+    this.#signedIn = false
+    this.#memoryProbe = undefined
+    for (const requestId of [...this.#requests.keys()])
+      this.#closeRequest(requestId, 'cancelled')
   }
 
   /**
@@ -735,7 +746,7 @@ class DirectHermesClient implements DirectClient {
         )
         break
       case 'signed-out':
-        this.#signedIn = false
+        this.#forgetSession()
         this.#setLink('signed-out', state.lastError)
         break
       case 'incompatible':
@@ -1716,10 +1727,7 @@ class DirectHermesClient implements DirectClient {
       this.stop()
       if (this.#native) await this.#native.signOut()
       else await this.#endCookieSession()
-      this.#signedIn = false
-      this.#memoryProbe = undefined
-      for (const requestId of [...this.#requests.keys()])
-        this.#closeRequest(requestId, 'cancelled')
+      this.#forgetSession()
       this.#setLink('signed-out')
       this.#refreshCapabilities()
       return { localOnly: true as const }

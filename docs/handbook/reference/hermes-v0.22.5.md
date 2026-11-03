@@ -408,6 +408,12 @@ still up, Cindl drops that socket and reconnects with a fresh ticket instead
 of going online with conversations left unattached, whose events and requests
 would reach no one; repeated stalls back off like failed connects.
 
+When the session ends (a sign-out, the gate's 401 in cookie mode, or a
+reconnect whose ws-ticket Hermes refuses) every open card closes as
+`cancelled`, since nothing on this device can answer it. Hermes keeps the
+requests, so after a new sign-in the re-attach above offers the ones it still
+holds again.
+
 ### Skipping a clarify set
 
 Cindl never sends an empty `{}` result. Hermes reads it as cancel-all: locked
