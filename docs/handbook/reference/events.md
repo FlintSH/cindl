@@ -9,7 +9,9 @@ reducer; UI code never writes to that state directly.
 
 The Hermes-to-Cindl mapping belongs to the live transport, which is not built
 yet (see the [acceptance matrix](../project/acceptance-matrix.md)). Today the
-events come from the synthetic demo scenario and the `client-core` tests.
+events that describe Hermes's state come only from the synthetic demo scenario
+and the `client-core` tests. The desktop app emits its own connection state and
+notices (signed out, not connected) without a live Hermes connection.
 
 ## Event summary
 
@@ -121,37 +123,42 @@ delivered. The reducer drops the record for that client id.
 
 ### `request.opened`
 
-Hermes asked the owner something: a command approval or a clarifying
-question, sent as a server-to-client JSON-RPC request. The reducer keys it by
-Hermes's request id (`srq-…`), which stays the same when Hermes re-sends the
-request after a reconnect. A re-sent frame updates the stored request and
-never duplicates it. It never reopens a request that Hermes closed, cancelled
-or expired, and it keeps an answer that is still being sent. If Hermes re-sends
-a request this client answered, that answer did not land (Hermes keeps the
-first reply), so the request becomes answerable again. Any attached client may
-answer; the first reply wins.
+Hermes holds a request open: a command approval, a clarify set, or a prompt
+Cindl never answers (`unsupported`, with an `unsupportedKind` of `sudo`,
+`secret`, `vault` or `other`). Approvals and clarify sets belong to a
+conversation; an unsupported prompt may be app-wide. The event comes from a
+live request frame or from Hermes's open-requests list after a reconnect,
+never from history replay. A re-send on a newer connection reopens the
+request, and a frame from an older one changes nothing. The whole lifecycle is
+on [Server requests](server-requests.md#events).
 
 ### `request.closed`
 
-Hermes closed a request: `answered`, `resolved-elsewhere` (another client
-answered first, or Hermes resolved it without this client), `cancelled` or
-`expired`. The reducer applies it only while the request is still open or
-being answered here, and records `answered` whenever this client had sent an
-answer.
+The request is no longer open, with Hermes's status. `answered` means Hermes
+acknowledged this client's answer, not that the resulting action succeeded,
+and the event carries the `answer` Hermes accepted. The other statuses are
+`resolved-elsewhere` (closed without an acknowledged answer from this
+client), `cancelled` and `expired`. A closed request keeps the answer this
+client sent. When the close is the outcome of this client's
+attempt, it carries that attempt's `connectionEpoch`. See
+[Statuses](server-requests.md#statuses).
 
 ### `requests.synced`
 
-After a connection or replay, for one conversation: the ids of the requests
-Hermes still holds open there. The reducer closes that conversation's other
-requests that were still open or being answered here: `answered` if this
-client had sent an answer, otherwise `resolved-elsewhere`. A decision made on
-another device therefore does not stay answerable here.
+One event per conversation with open requests, after a reconnect, listing what
+Hermes still holds open there. That conversation's other open or answering
+requests close as `resolved-elsewhere`, because Hermes cannot say whose answer
+it used; other conversations are untouched. A list from an older connection
+cannot close a request seen on a newer one. See
+[Server requests](server-requests.md#events).
 
 ### `request.answer-failed`
 
-This client's answer could not be sent. The reducer returns a request that was
-being answered to `open` and drops the unsent answer, so the owner can answer
-it again.
+This client's answer did not reach Hermes, or Hermes rejected it and still
+holds the request open, so the request is answerable again. With a
+`connectionEpoch` it applies only to the attempt sent on that connection: a
+late failure of an older attempt cannot unlock a newer one. See
+[Server requests](server-requests.md#events).
 
 ### `session.status`
 
@@ -183,17 +190,17 @@ code is stable across clients and versions; the message is written for the
 owner and the optional detail is redacted diagnostics only. This table is the
 user-facing meaning of each code.
 
-| Code              | Meaning                                                                                                                                    | What the owner can do                                                         |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- |
-| `unauthenticated` | This device is not signed in to Hermes, or Hermes rejected its session or tokens.                                                          | Sign in again on this device.                                                 |
-| `forbidden`       | Hermes refused the request for this sign-in, or rejected the client's origin.                                                              | Check that the client reaches the intended Hermes origin.                     |
-| `unsupported`     | This Hermes version or transport does not offer the operation; its capability is `unsupported`.                                            | Nothing on this device. It needs a Hermes change.                             |
-| `unavailable`     | Hermes supports the operation, but not right now; for example the agent's screen is stopped.                                               | Try again once the stated reason no longer applies.                           |
-| `conflict`        | The target changed since it was read (a SOUL.md or skill version mismatch), or the request was already answered or closed.                 | Reload, review the new version or request, then decide again.                 |
-| `invalid`         | The arguments failed validation, or the answer was not a choice Hermes offered.                                                            | Correct the input. If it repeats, report it; it points to a client bug.       |
-| `not-found`       | The conversation, routine, skill or request no longer exists.                                                                              | Refresh. It was removed or finished elsewhere.                                |
-| `timeout`         | Hermes did not answer in time.                                                                                                             | Check the current state before you retry a change.                            |
-| `offline`         | There is no connection to Hermes, so nothing was sent.                                                                                     | Reconnect, then try again.                                                    |
-| `uncertain`       | The request may or may not have reached Hermes, for example when a connection dropped during a send. Cindl never retries it automatically. | Check the conversation, then resend or discard the prompt.                    |
-| `protocol`        | Hermes sent something Cindl does not understand, such as an unexpected frame or field.                                                     | Report it with the redacted details. Check that Hermes is the pinned version. |
-| `internal`        | An unexpected error inside Cindl.                                                                                                          | Report it with the redacted details.                                          |
+| Code              | Meaning                                                                                                                                                                           | What the owner can do                                                         |
+| ----------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------- |
+| `unauthenticated` | This device is not signed in to Hermes, or Hermes rejected its session or tokens.                                                                                                 | Sign in again on this device.                                                 |
+| `forbidden`       | Hermes refused the request for this sign-in, or rejected the client's origin.                                                                                                     | Check that the client reaches the intended Hermes origin.                     |
+| `unsupported`     | This Hermes version or transport does not offer the operation (its capability is `unsupported`), or the request is a prompt Cindl never answers, such as a sudo or secret prompt. | Nothing on this device. Answer such a prompt in another Hermes surface.       |
+| `unavailable`     | Hermes supports the operation, but not right now; for example the agent's screen is stopped.                                                                                      | Try again once the stated reason no longer applies.                           |
+| `conflict`        | The target changed since it was read (a SOUL.md or skill version mismatch), or the request was already answered or closed.                                                        | Reload, review the new version or request, then decide again.                 |
+| `invalid`         | The arguments failed validation, or the answer was not a choice Hermes offered. Nothing was sent; the message starts `Not sent:`.                                                 | Correct the input. If it repeats, report it; it points to a client bug.       |
+| `not-found`       | The conversation, routine, skill or request no longer exists.                                                                                                                     | Refresh. It was removed or finished elsewhere.                                |
+| `timeout`         | Hermes did not answer in time.                                                                                                                                                    | Check the current state before you retry a change.                            |
+| `offline`         | There is no connection to Hermes, so nothing was sent.                                                                                                                            | Reconnect, then try again.                                                    |
+| `uncertain`       | The request may or may not have reached Hermes, for example when a connection dropped during a send. Cindl never retries it automatically.                                        | Check the conversation, then resend or discard the prompt.                    |
+| `protocol`        | Hermes sent something Cindl does not understand, such as an unexpected frame or field.                                                                                            | Report it with the redacted details. Check that Hermes is the pinned version. |
+| `internal`        | An unexpected error inside Cindl.                                                                                                                                                 | Report it with the redacted details.                                          |
