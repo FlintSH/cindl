@@ -56,4 +56,52 @@ describe('memory entries', () => {
     await settle()
     expect(screen.queryByRole('button', { name: /The kiln firing log/ })).toBeNull()
   })
+
+  // Review 91f30e07 N2: Hermes numbers entries across both stores, so the id's
+  // index is not the entry's place in its store.
+  it('names an entry by its place in its store, not by its Hermes index', async () => {
+    const { api } = recorded()
+    render(
+      <CindlProvider api={api}>
+        <LibraryView section="memory" />
+      </CindlProvider>,
+    )
+    await settle()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: /Open memory entry: Prefers a short morning brief/,
+      }),
+    )
+    await settle()
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    expect(screen.getByLabelText('Edit note about you 1')).toBeTruthy()
+  })
+
+  it('keeps "Restore previous version" after a save gives the entry a new id', async () => {
+    const { api, calls } = recorded()
+    render(
+      <CindlProvider api={api}>
+        <LibraryView section="memory" />
+      </CindlProvider>,
+    )
+    await settle()
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: /Open memory entry: The kiln firing log/,
+      }),
+    )
+    await settle()
+    fireEvent.click(await screen.findByRole('button', { name: 'Edit' }))
+    fireEvent.change(screen.getByLabelText('Edit agent note 2'), {
+      target: { value: 'The kiln firing log moved to the studio binder (fictional).' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Review changes' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm and save' }))
+    await settle()
+    await settle()
+    expect(calls.some((call) => call.name === 'memory.write')).toBe(true)
+    expect(
+      await screen.findByRole('button', { name: 'Restore previous version' }),
+    ).toBeTruthy()
+  })
 })

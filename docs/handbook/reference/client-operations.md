@@ -62,7 +62,10 @@ Rules every implementation follows:
 - Memory entries are addressed only by their current fingerprinted id
   (`memory:<store>:<index>:<fingerprint>`): it is also the entry's version, so
   Hermes refuses a write or delete once the entry changed. Positional ids are
-  refused. Hermes keeps no backup, so a delete is permanent.
+  refused. Hermes keeps no backup, so a delete is permanent. The index counts
+  across both stores, agent notes first (`agent/learning_graph.py`), so it is
+  not an entry's place in its store; clients name the id they read, never one
+  they compute.
 - `request.answer` takes the Hermes request id (`srq-…`) and either one offered
   approval choice (`once` or `deny`), one submission covering every open
   question of a clarify set (each answered or skipped; questions another client

@@ -66,6 +66,9 @@ describe('synthetic scenario client', () => {
     ])
     const first = entries[0]!
     expect(first.id).toMatch(/^memory:memory:0:[a-f0-9]{12}$/)
+    // Hermes numbers entries across both stores, agent notes first (review
+    // 91f30e07 N2): the first note about the owner is entry 3, not 0.
+    expect(entries[3]!.id).toMatch(/^memory:profile:3:[a-f0-9]{12}$/)
     const read = await client.call('memory.read', { id: first.id })
     expect(read.content).toContain('Thursdays')
 

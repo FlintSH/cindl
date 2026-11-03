@@ -147,6 +147,15 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
   const source = 'Synthetic fixture (GET /api/learning/node shape)'
   const memoryId = (entry: { store: string; content: string }, index: number) =>
     `memory:${entry.store}:${index}:${sha256Hex(entry.content.trim()).slice(0, 12)}`
+  /**
+   * Entries in Hermes's order, which numbers them across both stores: agent
+   * notes (MEMORY.md) first, then notes about the owner (USER.md)
+   * (agent/learning_graph.py `_memory_cards`).
+   */
+  const ordered = () => [
+    ...memory.filter((entry) => entry.store === 'memory'),
+    ...memory.filter((entry) => entry.store === 'profile'),
+  ]
   const findMemory = (id: string) => {
     const [, store, , fingerprint] = id.split(':')
     const entry = memory.find(
@@ -509,10 +518,9 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
       return doc('soul:default', soul, 'Synthetic fixture')
     },
     'memory.overview': () => data.memoryOverview(iso(), memory.length),
-    'memory.entries': () => {
-      const counts = { memory: 0, profile: 0 }
-      return memory.map((entry) => {
-        const id = memoryId(entry, counts[entry.store]++)
+    'memory.entries': () =>
+      ordered().map((entry, index) => {
+        const id = memoryId(entry, index)
         const firstLine = entry.content.split('\n')[0] ?? ''
         return {
           id,
@@ -521,8 +529,7 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
           preview: entry.content.slice(0, 1200),
           truncated: entry.content.length > 1200,
         }
-      })
-    },
+      }),
     'memory.read': ({ id }) => {
       const entry = findMemory(id)
       return { id, store: entry.store, content: entry.content, readAt: iso(), source }
@@ -539,9 +546,8 @@ export function createScenarioClient(options: ScenarioOptions = {}): CindlClient
           `That would put memory at ${used.toLocaleString('en-US')} of ${limit.toLocaleString('en-US')} characters. Shorten it.`,
         )
       entry.content = content
-      const index = memory.filter((other) => other.store === entry.store).indexOf(entry)
       return {
-        id: memoryId(entry, index),
+        id: memoryId(entry, ordered().indexOf(entry)),
         store: entry.store,
         content,
         readAt: iso(),

@@ -11,3 +11,5 @@ fictional and must stay obviously so (fictional studio, `.invalid` /
   `VITE_CINDL_DEMO=1`) may import this package; ESLint enforces it.
 - Keep capability states realistic for Hermes v0.22.5 (unsupported stays
   unsupported) so demos never imply features that do not exist.
+- Mirror Hermes's identifiers exactly (memory ids count across both stores,
+  agent notes first): a demo that numbers differently hides client bugs.

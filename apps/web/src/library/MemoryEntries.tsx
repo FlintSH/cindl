@@ -7,7 +7,7 @@ import {
   type MemoryStore,
   type VersionedDocument,
 } from '@cindl/contracts'
-import { useState } from 'react'
+import { useEffect, useEffectEvent, useState } from 'react'
 import { Button, SectionTitle } from '../ui/primitives.tsx'
 import { DocumentEditor } from '../views/DocumentEditor.tsx'
 import { useResource } from '../views/useResource.ts'
@@ -67,7 +67,9 @@ export function MemoryEntries() {
               {inStore.map((entry, index) => {
                 const isOpen = selected?.id === entry.id
                 return (
-                  <li key={entry.id} className={styles.memoryItem}>
+                  // Keyed by place, not id: a saved entry gets a new id, and a
+                  // remount would drop the editor's "Restore previous version".
+                  <li key={`${store}:${index}`} className={styles.memoryItem}>
                     <div className={styles.row}>
                       {/* Open, the editor shows the text; the row names the entry instead. */}
                       {isOpen ? (
@@ -95,6 +97,7 @@ export function MemoryEntries() {
                     {isOpen ? (
                       <MemoryEntryEditor
                         summary={entry}
+                        place={index + 1}
                         onChanged={list.reload}
                         onDeleted={() => {
                           setOpen(undefined)
@@ -115,24 +118,37 @@ export function MemoryEntries() {
 
 function MemoryEntryEditor({
   summary,
+  place,
   onChanged,
   onDeleted,
 }: {
   summary: MemoryEntrySummary
+  /** 1-based position in its store, as the row shows it. */
+  place: number
   onChanged: () => void
   onDeleted: () => void
 }) {
   const api = useCindlApi()
   const canWrite = useCan('memory.text')
+  // Keyed by place: a save gives the entry a new id, and a new key would drop
+  // the editor (and its "Restore previous version") until the read finished.
   const entry = useResource(
     () => api.call('memory.read', { id: summary.id }),
-    `memory:${summary.id}`,
+    `memory:${summary.store}:${place}`,
     'This entry could not be loaded. It may have changed; reload the list.',
   )
+  // When the list shows another id at this place (a change made elsewhere),
+  // read what Hermes now has there, keeping the editor and any draft while it
+  // loads. After a save here the list catches up to the saved id: no re-read.
+  const followList = useEffectEvent((listed: string) => {
+    if (entry.data && entry.data.id !== listed) entry.reload()
+  })
+  useEffect(() => followList(summary.id), [summary.id])
   // The editor's draft key names the entry's place in its store ("agent note 2"),
   // so a draft kept after a conflict comes back once the entry is reloaded under
-  // its new id. Writes still name the exact version that was reviewed.
-  const place = Number(summary.id.split(':')[2] ?? 0) + 1
+  // its new id. Not the id's index: Hermes numbers entries across both stores.
+  // Writes and deletes name the id of the entry that was read and reviewed,
+  // never the list's, so Hermes refuses them if it changed since.
   const toDocument = (data: MemoryEntry): VersionedDocument => ({
     key: `${data.store === 'memory' ? 'agent note' : 'note about you'} ${place}`,
     content: data.content,
@@ -140,26 +156,31 @@ function MemoryEntryEditor({
     readAt: data.readAt,
     source: data.source,
   })
+  const data = entry.data
   return (
     <div className={styles.memoryEditor}>
       {entry.error ? <p className={styles.error}>{entry.error}</p> : null}
-      {entry.data ? (
+      {data ? (
         <>
           <DocumentEditor
-            document={toDocument(entry.data)}
+            document={toDocument(data)}
             canWrite={canWrite}
-            onReload={onChanged}
+            onReload={() => {
+              entry.reload()
+              onChanged()
+            }}
             onSave={async (content) => {
               const saved = await api.call('memory.write', {
-                id: summary.id,
+                id: data.id,
                 content,
                 confirm: true,
               })
+              entry.replace(saved)
               onChanged()
               return toDocument(saved)
             }}
           />
-          {canWrite ? <DeleteEntry id={summary.id} onDeleted={onDeleted} /> : null}
+          {canWrite ? <DeleteEntry id={data.id} onDeleted={onDeleted} /> : null}
         </>
       ) : null}
     </div>
