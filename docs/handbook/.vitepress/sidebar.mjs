@@ -21,8 +21,10 @@ function markdownPages(dir, root = dir) {
 
 /**
  * The sidebar is the handbook's table of contents. Labels come from each
- * page's first heading so they never drift. Building fails if a listed page is
- * missing or a page exists that the sidebar does not list.
+ * page's first heading so they never drift. Listed pages come first in their
+ * order; any other page in that section's folders joins the end of the
+ * section. Building fails if a listed page is missing, or a page exists in a
+ * folder no section covers.
  */
 export function buildSidebar(handbook) {
   const listed = new Set()
@@ -46,7 +48,18 @@ export function buildSidebar(handbook) {
           .sort()
           .map((name) => `${dir}/${name}`)
       : []
-  const group = (text, items, extra = {}) => ({ text, items, ...extra })
+  // A section: its listed pages, then the rest of its folders' pages by name.
+  const group = (text, items, folders = []) => ({
+    text,
+    items: [
+      ...items,
+      ...folders.flatMap((dir) =>
+        present(dir, /\.md$/)
+          .filter((file) => !listed.has(file))
+          .map((file) => page(file)),
+      ),
+    ],
+  })
 
   // Client pages are owned by the platform streams and appear once they exist.
   const clientOrder = ['web.md', 'desktop.md', 'android.md']
@@ -61,12 +74,16 @@ export function buildSidebar(handbook) {
       page('index.md', 'Overview'),
       page('development/getting-started.md'),
     ]),
-    group('Develop', [
-      page('development/workflow.md'),
-      page('development/quality-gates.md'),
-      page('development/testing.md'),
-      page('development/docs.md'),
-    ]),
+    group(
+      'Develop',
+      [
+        page('development/workflow.md'),
+        page('development/quality-gates.md'),
+        page('development/testing.md'),
+        page('development/docs.md'),
+      ],
+      ['development'],
+    ),
     ...(clients.length
       ? [
           group(
@@ -75,29 +92,38 @@ export function buildSidebar(handbook) {
           ),
         ]
       : []),
-    group('Operate', [page('operations/index.md')]),
-    group('Reference', [
-      page('reference/client-operations.md'),
-      page('reference/events.md'),
-      page('reference/capabilities.md'),
-      page('reference/hermes-v0.22.5.md'),
-      page('reference/keyboard-shortcuts.md'),
-    ]),
-    group('Architecture', [
-      page('architecture/overview.md'),
-      {
-        ...page('architecture/decisions/README.md'),
-        collapsed: true,
-        items: present('architecture/decisions', /^\d{4}-.+\.md$/).map((file) =>
-          page(file),
-        ),
-      },
-      page('security/threat-model.md'),
-    ]),
-    group('Project', [
-      page('project/acceptance-matrix.md'),
-      page('project/pending-decisions.md'),
-    ]),
+    group('Operate', [page('operations/index.md')], ['operations']),
+    group(
+      'Reference',
+      [
+        page('reference/client-operations.md'),
+        page('reference/events.md'),
+        page('reference/capabilities.md'),
+        page('reference/hermes-v0.22.5.md'),
+        page('reference/keyboard-shortcuts.md'),
+      ],
+      ['reference'],
+    ),
+    group(
+      'Architecture',
+      [
+        page('architecture/overview.md'),
+        {
+          ...page('architecture/decisions/README.md'),
+          collapsed: true,
+          items: present('architecture/decisions', /^\d{4}-.+\.md$/).map((file) =>
+            page(file),
+          ),
+        },
+        page('security/threat-model.md'),
+      ],
+      ['architecture', 'security'],
+    ),
+    group(
+      'Project',
+      [page('project/acceptance-matrix.md'), page('project/pending-decisions.md')],
+      ['project'],
+    ),
   ]
 
   const unlisted = markdownPages(handbook).filter(
@@ -105,7 +131,7 @@ export function buildSidebar(handbook) {
   )
   if (unlisted.length)
     throw new Error(
-      `Add these pages to docs/handbook/.vitepress/sidebar.mjs: ${unlisted.join(', ')}`,
+      `No sidebar section covers these pages; add them to docs/handbook/.vitepress/sidebar.mjs: ${unlisted.join(', ')}`,
     )
   return sidebar
 }

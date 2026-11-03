@@ -7,7 +7,9 @@ The canonical handbook and its VitePress site. Read
   `pnpm --dir docs/handbook install --frozen-lockfile`, then `build`, `dev` or
   `preview`. Never add handbook tooling to a runtime package.
 - Every page is in the sidebar (`.vitepress/sidebar.mjs`); labels come from the
-  page's first heading. The build fails on unlisted or missing pages.
+  page's first heading. New pages in a section's folders join that section
+  automatically; the build fails on missing pages and on pages in folders no
+  section covers.
 - Tables between `BEGIN GENERATED` and `END GENERATED` are generated: change
   the source, then run `node scripts/generate-docs-reference.mjs`.
 - Link pages with relative `.md` links; link repository files with their GitHub

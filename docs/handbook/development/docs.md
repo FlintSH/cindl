@@ -129,10 +129,11 @@ tooling never enters the runtime workspace. Commands are in
 
 - **Pages and navigation.** Every Markdown page under `docs/handbook` is a
   page, except `AGENTS.md`. The sidebar in `.vitepress/sidebar.mjs` takes each
-  page's label from its first heading, and the build fails when it lists a
-  page that does not exist or a page exists that it does not list. Client
-  pages under `clients/` and decision records under `architecture/decisions/`
-  are added to it automatically.
+  page's label from its first heading. Its listed pages come first in each
+  section; any other page in a section's folders (`development`, `clients`,
+  `operations`, `reference`, `architecture`, `security`, `project`) joins the
+  end of that section by file name. The build fails when the sidebar lists a
+  page that does not exist, or when a page sits in a folder no section covers.
 - **Links.** Link to other pages with relative Markdown links to the `.md`
   file, for example `[Capabilities](../reference/capabilities.md)`. Link to
   repository files outside the handbook with their GitHub URL on `main`; the
