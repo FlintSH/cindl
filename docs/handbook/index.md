@@ -39,6 +39,8 @@ its evidence.
 
 - [Web](clients/web.md): requirements, demo, builds, security properties,
   keyboard.
+- [Desktop](clients/desktop.md): the Electron app, its two flavours, sign-in,
+  token storage and security model.
 
 ## Reference
 

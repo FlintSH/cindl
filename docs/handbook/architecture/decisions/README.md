@@ -14,6 +14,6 @@ means a new record or an edit to its status in the same change as the code.
 | 0006 | [Owner edits: diff, confirm, version check](0006-owner-edits.md)               | Accepted                                                                                                |
 | 0007 | [Narrow operation surface, no passthrough](0007-operation-surface.md)          | Accepted                                                                                                |
 | 0008 | [Native Android with Expo / React Native](0008-android.md)                     | Accepted (Android SDK licence: APK builds and emulator tests on GitHub-hosted runners only; no APK yet) |
-| 0009 | [Electron with the web renderer and a hardened main process](0009-electron.md) | Accepted (implementation in progress)                                                                   |
+| 0009 | [Electron with the web renderer and a hardened main process](0009-electron.md) | Accepted (implemented; live sign-in waits on the transport)                                             |
 | 0010 | [Shared tokens and the Conversation Desk](0010-design-system.md)               | Accepted                                                                                                |
 | 0011 | [Synthetic fixtures for tests and a labelled demo only](0011-fixtures.md)      | Accepted                                                                                                |

@@ -1,6 +1,6 @@
 # 0009 Electron with the web renderer and a hardened main process
 
-**Status:** Accepted (implementation in progress)
+**Status:** Accepted (implemented: hardened shell, two flavours, Linux AppImages; live sign-in waits on the transport)
 
 **Decision.** The desktop app loads the production web build through a custom
 protocol with `contextIsolation: true`, `nodeIntegration: false`,
