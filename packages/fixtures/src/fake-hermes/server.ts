@@ -21,6 +21,7 @@ import {
   FakeAuth,
   FIXTURE_LOGIN,
   FIXTURE_OWNER,
+  randomToken,
   validateLoopbackRedirect,
   type FakeSession,
 } from './auth.ts'
@@ -175,14 +176,24 @@ const html = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt
  * A minimal stand-in for Hermes's login page (routes.py:195-200): SYNTHETIC,
  * prefilled with the fixture credentials. The form posts
  * `/auth/password-login` as Hermes's page does, then goes to the `next` it
- * answers with.
+ * answers with. Each OAuth provider gets a link to `/auth/login` carrying
+ * `next`, as Hermes renders one (login_page.py:465-475).
  */
-function loginPage(next: string, provider: string): string {
+function loginPage(
+  next: string,
+  provider: string,
+  oauth: readonly FakeProvider[],
+): string {
+  const query = next ? `&next=${encodeURIComponent(next)}` : ''
+  const links = oauth.map(
+    (p) =>
+      `<p><a href="${html(`/auth/login?provider=${encodeURIComponent(p.name)}${query}`)}">Sign in with ${html(p.displayName ?? p.name)}</a></p>\n`,
+  )
   return `<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><title>Sign in (fixture Hermes)</title></head>
 <body>
 <p>Fake Hermes sign-in (synthetic fixture)</p>
-<form id="login">
+${links.join('')}<form id="login">
 <input type="hidden" name="provider" value="${html(provider)}">
 <input type="hidden" name="next" value="${html(next)}">
 <label>Username <input name="username" value="${html(FIXTURE_LOGIN.username)}"></label>
@@ -203,6 +214,29 @@ document.getElementById('login').addEventListener('submit', async (event) => {
 </script>
 </body></html>`
 }
+
+/** The code the OAuth stand-in hands /auth/callback: SYNTHETIC, never an IdP's. */
+const OAUTH_CODE = 'fixture-oauth-code'
+
+/** cookies.py `encode_pkce_payload`: base64url JSON, no padding. */
+const encodePkce = (parts: Record<string, string>) =>
+  Buffer.from(JSON.stringify(parts)).toString('base64url')
+
+function decodePkce(raw: string | undefined): Record<string, unknown> | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'))
+    return parsed && typeof parsed === 'object'
+      ? (parsed as Record<string, unknown>)
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Starlette's RedirectResponse quoting: URL syntax and `%` kept, anything else escaped. */
+const quoteLocation = (url: string) =>
+  url.replace(/[^A-Za-z0-9._~:/%#?=@[\]!$&'()*+,;-]/gu, (c) => encodeURIComponent(c))
 
 function cookies(req: IncomingMessage): Record<string, string> {
   const out: Record<string, string> = {}
@@ -595,7 +629,52 @@ export async function startFakeHermes(
         'Content-Type': 'text/html; charset=utf-8',
         'Cache-Control': 'no-store',
       })
-      res.end(loginPage(safeNext(url.searchParams.get('next')), password?.name ?? ''))
+      const oauth = sessionProviders.filter((provider) => !provider.supportsPassword)
+      res.end(
+        loginPage(safeNext(url.searchParams.get('next')), password?.name ?? '', oauth),
+      )
+      return undefined
+    }
+    if (method === 'GET' && path === '/auth/login') {
+      // routes.py:217-233: a password provider goes to the login page; any
+      // other starts its own sign-in with next kept in the PKCE cookie. Here
+      // that is a stand-in IdP on the fake itself, which approves at once.
+      const name = url.searchParams.get('provider') ?? ''
+      const provider = providers.find((candidate) => candidate.name === name)
+      if (!provider) throw detail(404, `Unknown provider: '${name}'`)
+      if (provider.session === false)
+        throw detail(404, `Provider does not support interactive login: '${name}'`)
+      const next = safeNext(url.searchParams.get('next'))
+      if (provider.supportsPassword) {
+        res.writeHead(302, {
+          Location: next ? `/login?next=${encodeURIComponent(next)}` : '/login',
+        })
+        res.end()
+        return undefined
+      }
+      const state = randomToken(16)
+      addCookies(res, [
+        `hermes_session_pkce=${encodePkce({ provider: name, state, ...(next ? { next } : {}) })}; Max-Age=600; HttpOnly; SameSite=Lax; Path=/`,
+      ])
+      res.writeHead(302, { Location: `/auth/callback?code=${OAUTH_CODE}&state=${state}` })
+      res.end()
+      return undefined
+    }
+    if (method === 'GET' && path === '/auth/callback') {
+      // routes.py:338-379: the provider and next come only from the PKCE
+      // cookie, and the landing is decoded and checked once more.
+      const parts = decodePkce(cookies(req).hermes_session_pkce)
+      if (!parts) throw detail(400, 'Missing PKCE state cookie')
+      const provider = providers.find((candidate) => candidate.name === parts.provider)
+      if (!provider) throw detail(400, 'Unknown provider in cookie')
+      const state = url.searchParams.get('state') ?? ''
+      if (!state || state !== parts.state)
+        throw detail(400, 'OAuth state mismatch (CSRF check failed)')
+      if (url.searchParams.get('code') !== OAUTH_CODE) throw detail(400, 'Invalid code')
+      setSessionCookies(res, auth.mintSession())
+      clearPkceCookie(res)
+      res.writeHead(302, { Location: quoteLocation(safeNext(parts.next) || '/') })
+      res.end()
       return undefined
     }
     if (method === 'POST' && path === '/auth/password-login') {

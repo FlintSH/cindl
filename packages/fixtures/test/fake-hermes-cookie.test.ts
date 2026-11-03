@@ -214,3 +214,65 @@ describe('fake Hermes: the cookie gate (middleware.py:150-219)', () => {
     expect(deletesOnly(response)).toBe(true)
   })
 })
+
+describe('fake Hermes: OAuth sign-in (routes.py:217-233, 338-379)', () => {
+  const PROVIDERS = [
+    { name: 'basic', supportsPassword: true },
+    { name: 'portal', displayName: 'Portal (fixture)' },
+  ]
+
+  /** One hop, by hand: the Set-Cookie lines Hermes answered, and where it sent the browser. */
+  async function hop(f: FakeHermes, path: string, cookie = '') {
+    const response = await fetch(`${f.origin}${path}`, {
+      headers: cookie ? { Cookie: cookie } : {},
+      redirect: 'manual',
+    })
+    return {
+      status: response.status,
+      location: response.headers.get('location') ?? '',
+      cookie: cookieHeader(response),
+      set: setCookies(response),
+    }
+  }
+
+  it('links an OAuth provider from the login page, carrying next', async () => {
+    const f = await fake({ providers: PROVIDERS })
+    const page = await (await fetch(`${f.origin}/login?next=%2Fcindl%2F`)).text()
+    expect(page).toContain(
+      'href="/auth/login?provider=portal&#38;next=%2Fcindl%2F">Sign in with Portal (fixture)',
+    )
+  })
+
+  it('signs in through /auth/login, the IdP stand-in and /auth/callback', async () => {
+    const f = await fake({ providers: PROVIDERS })
+    const start = await hop(f, '/auth/login?provider=portal&next=%2Fcindl%2F')
+    expect(start.status).toBe(302)
+    expect(start.location).toMatch(/^\/auth\/callback\?code=fixture-oauth-code&state=/)
+    expect(start.set).toHaveLength(1)
+    const back = await hop(f, start.location, start.cookie)
+    expect(back.status).toBe(302)
+    expect(back.location).toBe('/cindl/')
+    // The session cookies, then every variant of the spent PKCE cookie deleted.
+    expect(back.set.slice(0, 3).map((c) => c.split('=')[0])).toEqual(SESSION_NAMES)
+    expect(back.set.slice(3)).toEqual(variantsOf('hermes_session_pkce'))
+    const session = back.set.slice(0, 3).join('; ')
+    expect(
+      (await fetch(`${f.origin}/api/auth/me`, { headers: { Cookie: session } })).status,
+    ).toBe(200)
+  })
+
+  it('refuses a callback without its PKCE cookie, or with another state', async () => {
+    const f = await fake({ providers: PROVIDERS })
+    const start = await hop(f, '/auth/login?provider=portal')
+    expect((await hop(f, start.location)).status).toBe(400)
+    const forged = start.location.replace(/state=[^&]*/, 'state=forged')
+    expect((await hop(f, forged, start.cookie)).status).toBe(400)
+  })
+
+  it("sends a password provider's /auth/login to the login page, next kept", async () => {
+    const f = await fake({ providers: PROVIDERS })
+    const start = await hop(f, '/auth/login?provider=basic&next=%2Fcindl%2F')
+    expect([start.status, start.location]).toEqual([302, '/login?next=%2Fcindl%2F'])
+    expect((await hop(f, '/auth/login?provider=nobody')).status).toBe(404)
+  })
+})

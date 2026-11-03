@@ -80,6 +80,23 @@ async function formNext(fake: FakeHermes, path: string): Promise<string> {
   )
 }
 
+/**
+ * What the browser does on Hermes's OAuth path: the provider's link on the
+ * login page, /auth/login, the IdP (the fake's stand-in approves at once) and
+ * /auth/callback. Resolves where Hermes lands it.
+ */
+async function oauthLogin(fake: FakeHermes, jar: Jar, page: string): Promise<string> {
+  const html = await (await fetch(`${fake.origin}${page}`)).text()
+  const link = (/href="(\/auth\/login\?[^"]*)"/.exec(html)?.[1] ?? '').replace(
+    /&#(\d+);/g,
+    (_, code: string) => String.fromCharCode(Number(code)),
+  )
+  const start = await jar.fetch(`${fake.origin}${link}`, { redirect: 'manual' })
+  const callback = start.headers.get('location') ?? ''
+  const landed = await jar.fetch(`${fake.origin}${callback}`, { redirect: 'manual' })
+  return landed.headers.get('location') ?? ''
+}
+
 /** A direct client in the web's mode: Hermes's same-origin cookie, nothing in storage. */
 async function cookieClient(options: { screen?: boolean } = {}) {
   const fake = await fakeHermes()
@@ -243,6 +260,26 @@ describe('direct client in same-origin-cookie mode (the web)', () => {
     // An unsafe path never reaches the page; Hermes lands on its root.
     expect(loginPagePath('//elsewhere.invalid/')).toBe('/login')
     expect(await formNext(fake, loginPagePath('//elsewhere.invalid/'))).toBe('')
+  })
+
+  it('returns there through an OAuth provider too, unless next holds a %', async () => {
+    const fake = await fakeHermes({
+      providers: [
+        { name: 'basic', supportsPassword: true },
+        { name: 'portal', displayName: 'Portal (fixture)' },
+      ],
+    })
+    const jar = cookieJar(fake.origin)
+    for (const next of ['/cindl/', '/cindl/#/library/memory', '/cindl/c/1?q=a&b'])
+      expect(await oauthLogin(fake, jar, loginPagePath(next))).toBe(next)
+    // The OAuth path decodes once more (routes.py:224-231, 369-371), so an
+    // escape in next comes back decoded; the password path keeps it.
+    const escaped = '/cindl/#/library/skills/notes%2Fdaily'
+    expect(await oauthLogin(fake, jar, loginPagePath(escaped))).toBe(
+      '/cindl/#/library/skills/notes/daily',
+    )
+    const carried = await formNext(fake, loginPagePath(escaped))
+    expect(await passwordLogin(fake, jar, carried)).toEqual({ ok: true, next: escaped })
   })
 
   it('reconnects with a fresh ticket, fetched with the cookie again', async () => {

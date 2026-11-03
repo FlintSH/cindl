@@ -89,10 +89,14 @@ export function isSafeNextPath(path: string): boolean {
 
 /**
  * The login page, returning to `next` (a path and query) after sign-in. Hermes
- * percent-decodes `next` twice before it lands there
- * (`_validate_post_login_target`, routes.py:93-97, at the page and again at
- * `/auth/password-login`, routes.py:171), so each `%` is escaped twice. An
- * unsafe `next` is left out, and Hermes lands on `/`.
+ * percent-decodes `next` again at every hop before it lands there
+ * (`_validate_post_login_target`, routes.py:93-97): at the page and at
+ * `/auth/password-login` (routes.py:171) for a password provider, and once
+ * more at `/auth/login` for an OAuth one (routes.py:224-231, 369-371). Each
+ * `%` is escaped twice, so the password path lands on `next` exactly, while
+ * the OAuth path decodes an escape in it once more: only a `next` without `%`
+ * comes back the same on both. An unsafe `next` is left out, and Hermes lands
+ * on `/`.
  */
 export function loginPagePath(next?: string): string {
   const page = restEndpoints.loginPage.path

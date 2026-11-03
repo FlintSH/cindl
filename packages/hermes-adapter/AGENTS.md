@@ -52,6 +52,8 @@ Planned, not built: canonical sessions, steer and process operations.
   the old refresh token rotates again. For the web's cookie flow the fake
   serves a SYNTHETIC `/login` page, `/auth/password-login` and
   `/auth/logout`, which revokes nothing; logout and a failed rotation delete
-  every cookie name variant (`__Host-`, `__Secure-`, bare).
+  every cookie name variant (`__Host-`, `__Secure-`, bare). A provider
+  without a password signs in through `/auth/login` and `/auth/callback`, with
+  the fake itself as an IdP that approves at once.
   Close fakes with `closeFakes`, which closes them all before it reports a
   contract violation, so a failing check never leaves one listening.

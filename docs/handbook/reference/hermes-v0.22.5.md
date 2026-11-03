@@ -128,10 +128,14 @@ same-origin requests, and it keeps nothing in browser storage.
   providers go through `/auth/login`. Cindl calls neither, so neither is
   pinned: it only sends the browser to the page. The page, both sign-in routes
   and `/auth/logout` are on the gate's public list (`middleware.py:39-42`).
-- `loginPagePath(next)` builds that link. Hermes percent-decodes `next` twice
-  before it lands there (`_validate_post_login_target`, `routes.py:93-97`, at
-  the page and again at the login, `routes.py:171`), so Cindl escapes each `%`
-  twice; a test round-trips paths through the fake's page. A `next` that
+- `loginPagePath(next)` builds that link. Hermes percent-decodes `next` again
+  at every hop before it lands there (`_validate_post_login_target`,
+  `routes.py:93-97`): at the page and at the password login
+  (`routes.py:171`), and once more at `/auth/login` on the OAuth path
+  (`routes.py:224-231, 369-371`). Cindl escapes each `%` twice, so the
+  password path lands on `next` exactly and the OAuth path decodes an escape
+  in it once more: only a `next` without `%` comes back the same on both.
+  Tests round-trip both paths through the fake. A `next` that
   `is_safe_next_path` refuses (not a same-origin path, the login or auth
   routes, or under `/api`; `request_utils.py:16, 37-44`) is left out, and
   Hermes lands on `/`.
