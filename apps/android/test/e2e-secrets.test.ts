@@ -16,6 +16,7 @@ import { createDevice } from '../e2e/device.ts'
 import { startFakeHermesAuth, type FakeHermesAuth } from '../e2e/fakeHermesAuth.ts'
 import {
   DeviceLogs,
+  logcatUid,
   RunSecrets,
   watchFakeHermes,
   type SecretKind,
@@ -112,6 +113,65 @@ describe('the values a run must not publish', () => {
       'logcat-02-chat.txt',
       'logcat-03-browser.txt',
     ])
+  })
+})
+
+describe("the device log's own lines (CI run 41656607631)", () => {
+  // `logcat -v threadtime -v uid` lines. SystemUI (uid 10102) and system_server
+  // (uid 1000) log the browser task Cindl opened, with the link's state, as
+  // that run's signin/logcat-02 shows; Cindl's own lines carry its uid, 10151.
+  const LINK = `http://127.0.0.1:38457/auth/native/authorize?code_challenge=synthetic-challenge&code_challenge_method=S256&redirect_uri=http%3A%2F%2F127.0.0.1%3A39957%2Fcallback&state=${STATE}`
+  const SHELL = `11-03 15:03:23.182 10102:  1001  1092 V WindowManagerShell: Transition requested (#22): android.os.BinderProxy@801c905 TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=10 effectiveUid=10151 displayId=0 isRunning=true baseIntent=Intent { act=android.intent.action.VIEW cat=[android.intent.category.BROWSABLE] flg=0x10000000 capturedLink=${LINK} }`
+  const SERVER = `11-03 15:03:23.420  1000:   638   659 V WindowManager: Sent Transition (#22) createdAt=11-03 15:03:23.176 via request=TransitionRequestInfo { type = OPEN, triggerTask = TaskInfo{userId=0 taskId=10 baseIntent=Intent { capturedLink=${LINK} }`
+  const APP =
+    '11-03 15:03:23.500 10151:  4321  4321 I ReactNativeJS: Waiting for the browser'
+
+  it('reads the uid of a line, and nothing from a line without one', () => {
+    expect(logcatUid(SHELL)).toBe('10102')
+    expect(logcatUid(SERVER)).toBe('1000')
+    expect(logcatUid(APP)).toBe('10151')
+    expect(
+      logcatUid('11-03 15:03:23.182  1001  1092 V WindowManagerShell: x'),
+    ).toBeUndefined()
+  })
+
+  it("counts only Cindl's lines: the system's record of the link it opened is scrubbed, not counted", () => {
+    const dir = scratch()
+    const secrets = new RunSecrets()
+    secrets.add('state', STATE)
+    secrets.add('access token', ACCESS)
+    const logs = new DeviceLogs(dir, secrets)
+    logs.keep('logcat-02-sign-in.txt', [SHELL, SERVER, APP].join('\n'), '10151')
+    expect(logs.holding()).toEqual([])
+    expect(logs.attributed()).toBe(1)
+    const written = readFileSync(join(dir, 'logcat-02-sign-in.txt'), 'utf8')
+    expect(written).not.toContain(STATE)
+    expect(written).toContain('capturedLink=http://127.0.0.1:38457/auth/native/authorize')
+    // A value on a line of Cindl's own counts.
+    logs.keep(
+      'logcat-03-chat.txt',
+      `11-03 15:04:00.000 10151:  4321  4400 D ReactNativeJS: tokens ${ACCESS}`,
+      '10151',
+    )
+    expect(logs.holding()).toEqual([
+      { file: 'logcat-03-chat.txt', kinds: ['access token'] },
+    ])
+  })
+
+  it("counts a line it cannot place, and every line when Cindl's uid is unknown (fail closed)", () => {
+    const secrets = new RunSecrets()
+    secrets.add('state', STATE)
+    const unplaced = new DeviceLogs(scratch(), secrets)
+    unplaced.keep(
+      'a.txt',
+      `--------- beginning of main\nstate ${STATE} on a line of another shape`,
+      '10151',
+    )
+    expect(unplaced.holding()).toEqual([{ file: 'a.txt', kinds: ['state'] }])
+    expect(unplaced.attributed()).toBe(0)
+    const unknown = new DeviceLogs(scratch(), secrets)
+    unknown.keep('b.txt', [SHELL, APP].join('\n'))
+    expect(unknown.holding()).toEqual([{ file: 'b.txt', kinds: ['state'] }])
   })
 })
 

@@ -55,15 +55,44 @@ export class RunSecrets {
 }
 
 /**
- * The device logs of a run. Each is written only scrubbed, and kept raw in
- * memory (never on disk), so the run can say which held a secret, including
- * one learned after the log was written; `rewrite` then scrubs the files again
- * with everything known.
+ * The UID a `logcat -v threadtime -v uid` line was logged under (Android
+ * prints it before the pid as a number, or a short user name such as
+ * `root`), or undefined when the line has another shape.
+ */
+export function logcatUid(line: string): string | undefined {
+  return /^\d\d-\d\d \d\d:\d\d:\d\d\.\d+\s+([\w-]+):\s*\d+\s+\d+\s+[VDIWEFAS]\s/.exec(
+    line,
+  )?.[1]
+}
+
+/**
+ * The lines of a device log that count as the app's: those logged under its
+ * UID, and any line whose UID cannot be read (logcat's `--------- beginning
+ * of` headers aside), so a line of an unknown shape is never let through.
+ * Without the UID, every line counts.
+ */
+export function ownLines(raw: string, uid: string | undefined): string[] {
+  const lines = raw.split('\n')
+  if (uid === undefined) return lines
+  return lines.filter((line) => {
+    if (line.startsWith('--------- ')) return false
+    const of = logcatUid(line)
+    return of === undefined ? line.trim().length > 0 : of === uid
+  })
+}
+
+/**
+ * The device logs of a run. Each is written only scrubbed, every line of it,
+ * and kept raw in memory (never on disk), so the run can say which held a
+ * secret in the app's own lines (`ownLines`), including one learned after the
+ * log was written; `rewrite` then scrubs the files again with everything
+ * known. Other processes' lines do not count: Android's window manager logs
+ * the link the app opened in the browser, state and all (CI run 41656607631).
  */
 export class DeviceLogs {
   readonly #dir: string
   readonly #secrets: RunSecrets
-  readonly #logs: Array<{ file: string; raw: string }> = []
+  readonly #logs: Array<{ file: string; raw: string; uid: string | undefined }> = []
 
   constructor(dir: string, secrets: RunSecrets) {
     this.#dir = dir
@@ -74,17 +103,30 @@ export class DeviceLogs {
     return this.#logs.length
   }
 
-  keep(file: string, raw: string): void {
-    this.#logs.push({ file, raw })
+  /** Keeps a log read with `-v uid`; `uid` is the app's (undefined: every line counts). */
+  keep(file: string, raw: string, uid?: string): void {
+    this.#logs.push({ file, raw, uid })
     writeFileSync(join(this.#dir, file), this.#secrets.scrub(raw))
   }
 
-  /** Each log that held a secret, with the kinds it held (never the values). */
+  /** Each log whose own lines held a secret, with the kinds (never the values). */
   holding(): Array<{ file: string; kinds: SecretKind[] }> {
-    return this.#logs.flatMap(({ file, raw }) => {
-      const kinds = this.#secrets.found(raw)
+    return this.#logs.flatMap(({ file, raw, uid }) => {
+      const kinds = this.#secrets.found(ownLines(raw, uid).join('\n'))
       return kinds.length ? [{ file, kinds }] : []
     })
+  }
+
+  /** How many lines the logs hold under the app's UID (none means nothing was checked). */
+  attributed(): number {
+    return this.#logs.reduce(
+      (sum, { raw, uid }) =>
+        sum +
+        (uid === undefined
+          ? 0
+          : raw.split('\n').filter((line) => logcatUid(line) === uid).length),
+      0,
+    )
   }
 
   rewrite(): void {

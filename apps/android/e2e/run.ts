@@ -130,7 +130,12 @@ async function step(name: string, body: (context: StepContext) => Promise<void>)
   }
   try {
     const file = `logcat-${String(steps.length + 1).padStart(2, '0')}-${slug(name)}.txt`
-    deviceLogs.keep(file, device.shell('logcat -d -v threadtime', 120_000))
+    // With each line's UID, so only Cindl's own lines count (secrets.ts ownLines).
+    deviceLogs.keep(
+      file,
+      device.shell('logcat -d -v threadtime -v uid', 120_000),
+      appUid(),
+    )
     record.evidence.push(file)
     device.shell('logcat -c')
     device.shell('logcat -b crash -c')
@@ -142,6 +147,15 @@ async function step(name: string, body: (context: StepContext) => Promise<void>)
   console.log(
     `${record.status.toUpperCase()}: ${name}${record.detail.length ? `\n  ${record.detail.join('\n  ')}` : ''}`,
   )
+}
+
+/** Cindl's UID on the device (its log lines carry it), or undefined when the device does not say. */
+function appUid(): string | undefined {
+  try {
+    return /\buid:(\d+)/.exec(device.shell(`pm list packages -U ${PACKAGE}`))?.[1]
+  } catch {
+    return undefined
+  }
 }
 
 const slug = (text: string) =>
@@ -1247,9 +1261,15 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
   await step('No issued value in the device log', ({ note }) => {
     needsSignIn()
     // Every step before this one kept its device log in memory (deviceLogs), and wrote
-    // it scrubbed. The raw logs are searched here for every value known now.
+    // it scrubbed. Cindl's own lines (by UID) are searched here for every value known
+    // now; Android's window manager logs the link Cindl opened, state and all, which is
+    // the system's record, not Cindl's.
     if (secrets.values('access token').length === 0)
       throw new Error('The fake issued no token to search the device log for')
+    if (deviceLogs.attributed() === 0)
+      throw new Error(
+        "No device log line could be told to be Cindl's own (by its UID), so the device log was not checked",
+      )
     const held = deviceLogs.holding()
     if (held.length > 0)
       throw new Error(
@@ -1258,7 +1278,7 @@ async function signinSuite(hermes: FakeHermes, holding: FakeHermesAuth) {
           .join('; ')}`,
       )
     note(
-      `none of the ${secrets.size} tokens, tickets, codes, states and verifiers the run issued or received is in the device log of the ${deviceLogs.count} steps before this one`,
+      `none of the ${secrets.size} tokens, tickets, codes, states and verifiers the run issued or received is in Cindl's own lines (${deviceLogs.attributed()}) of the device log of the ${deviceLogs.count} steps before this one; other processes' lines are scrubbed, not counted`,
     )
     return Promise.resolve()
   })
