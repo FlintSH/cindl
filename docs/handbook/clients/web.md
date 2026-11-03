@@ -26,7 +26,8 @@ process instead of Hermes directly:
   own sign-in page opens in the system browser, so Cindl never handles a
   password or a verification code.
 - Notices from the desktop app (for example, that tokens are kept in memory
-  only on this machine) appear in the corner of the window until dismissed.
+  only on this machine) appear above the current view until dismissed. They sit
+  in the page flow, so they never cover a control.
 - Errors cross the desktop bridge as plain objects and are turned back into
   `CindlError` values with their stable code. Anything unrecognised becomes an
   `internal` error rather than an unexplained failure.
@@ -87,6 +88,7 @@ from the desktop app's custom protocol.
 pnpm test                                  # includes web component tests
 pnpm test:e2e                              # Playwright flows on the demo build
 CINDL_E2E_CHANNEL=chrome pnpm test:e2e     # use an installed Chrome
+CINDL_E2E_PORT=4291 pnpm test:e2e          # when another checkout holds 4173
 CINDL_CAPTURE=1 pnpm test:e2e              # also capture the screenshot matrix
 ```
 

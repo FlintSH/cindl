@@ -4,12 +4,12 @@ import { useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './shell.module.css'
 
-/** Shows client notices (e.g. "tokens kept in memory only") until dismissed. */
+/** Client notices (e.g. "tokens kept in memory only"), in the flow above the view until dismissed. */
 export function Notices() {
   const notices = useCindlState((state) => state.notices)
   const [dismissed, setDismissed] = useState<ReadonlySet<number>>(new Set())
   const visible = notices.filter((n) => !dismissed.has(n.id)).slice(-3)
-  if (!visible.length) return null
+  // The live region stays mounted so screen readers announce notices added later.
   return (
     <div className={styles.notices} role="status" aria-live="polite">
       {visible.map((notice) => (

@@ -90,12 +90,16 @@ kbd {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Transitions are switched off, not shortened: a tiny duration on the default
+     `transition-property: all` would start a transition on every property of
+     every element at each style change. Nothing waits for transitionend. */
   *,
   *::before,
   *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.01ms !important;
+    transition-duration: 0s !important;
+    transition-delay: 0s !important;
     scroll-behavior: auto !important;
   }
 }

@@ -38,7 +38,7 @@ export function SignIn() {
     }
   }
   return (
-    <div className={styles.page}>
+    <div className={styles.region}>
       <form
         className={styles.card}
         onSubmit={(event) => {

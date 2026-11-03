@@ -191,27 +191,29 @@ export function AppShell() {
         </div>
       </nav>
       <main className={styles.main} id="main">
-        <ErrorBoundary key={window.location.hash} label="this view">
-          {needsSignIn ? (
-            <SignIn />
-          ) : (
-            <>
-              {route.view === 'talk' ? (
-                <TalkView ref={talk} conversationId={route.conversationId} />
-              ) : null}
-              {route.view === 'work' ? <WorkView /> : null}
-              {route.view === 'library' ? (
-                <LibraryView section={route.section} item={route.item} />
-              ) : null}
-              {route.view === 'agent' ? <AgentView section={route.section} /> : null}
-            </>
-          )}
-        </ErrorBoundary>
+        <Notices />
+        <div className={styles.view}>
+          <ErrorBoundary key={window.location.hash} label="this view">
+            {needsSignIn ? (
+              <SignIn />
+            ) : (
+              <>
+                {route.view === 'talk' ? (
+                  <TalkView ref={talk} conversationId={route.conversationId} />
+                ) : null}
+                {route.view === 'work' ? <WorkView /> : null}
+                {route.view === 'library' ? (
+                  <LibraryView section={route.section} item={route.item} />
+                ) : null}
+                {route.view === 'agent' ? <AgentView section={route.section} /> : null}
+              </>
+            )}
+          </ErrorBoundary>
+        </div>
       </main>
       <nav className={styles.bottomNav} aria-label="Primary">
         <NavList current={current} workCount={open.length} />
       </nav>
-      <Notices />
       <CommandPalette
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}

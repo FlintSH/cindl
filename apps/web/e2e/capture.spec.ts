@@ -1,6 +1,7 @@
 import { mkdirSync } from 'node:fs'
 import { resolve } from 'node:path'
 import { test } from '@playwright/test'
+import { emit, openDesktopRenderer, tokenNotice } from './desktop-bridge.ts'
 
 // Evidence capture, not assertions: run with CINDL_CAPTURE=1. Output defaults
 // to the git-ignored .agent-artifacts directory; review every image for
@@ -71,4 +72,29 @@ test.describe('screenshot capture', () => {
     await page.getByRole('dialog', { name: 'Conversations' }).waitFor()
     await page.screenshot({ path: `${dir}/history-phone-390x844-light.png` })
   })
+
+  // The desktop renderer before sign-in, with a synthetic bridge (no Hermes).
+  for (const [viewport, theme, scale] of [
+    [viewports[0]!, 'light', '100%'],
+    [viewports[1]!, 'dark', '100%'],
+    [viewports[3]!, 'light', '100%'],
+    [viewports[4]!, 'dark', '200%'],
+  ] as const)
+    test(`sign-in ${viewport.name} ${theme} ${scale}`, async ({ page }) => {
+      await page.setViewportSize(viewport)
+      await page.emulateMedia({ colorScheme: theme, reducedMotion: 'reduce' })
+      await openDesktopRenderer(page)
+      await emit(page, tokenNotice)
+      await page.getByLabel('Hermes address').fill('http://hermes.example.test')
+      await page.getByRole('button', { name: 'Sign in' }).click()
+      await page.getByRole('alert').waitFor()
+      await page.evaluate((size) => {
+        document.documentElement.style.fontSize = size
+      }, scale)
+      await page.evaluate(() => document.fonts.ready)
+      const suffix = scale === '100%' ? '' : '-text200'
+      await page.screenshot({
+        path: `${dir}/sign-in-${viewport.name}-${theme}${suffix}.png`,
+      })
+    })
 })
