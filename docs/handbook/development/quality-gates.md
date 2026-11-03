@@ -49,7 +49,11 @@ ship in a client; every other rule applies to them unchanged.
 
 The root config also encodes Cindl's invariants, each with a case in
 `apps/web/test/lint-rules.test.ts`. ESLint replaces a rule's options per
-matching block, so each scope lists its complete set:
+matching block, so each scope lists its complete set. Every root block is
+anchored to the repository root (`basePath`), so the scopes below name the
+same files from a package config that spreads the root one, such as
+`apps/desktop/eslint.config.mjs`. The global-object rules see through casts
+(`as`, `satisfies`, `!`), optional chains and `(0, window)`.
 
 - **Every file:** no raw HTML; no fixture code outside tests and the fixtures
   package, including relative `node_modules` paths, repeated slashes,
@@ -60,8 +64,12 @@ matching block, so each scope lists its complete set:
   `document.defaultView`, no `Reflect` or property-descriptor calls on them,
   and no `navigator.storage` through another object. Scripts and tests may
   stub globals.
-- **Browser-facing sources:** also no storage or cookie property through any
-  object. Node code keeps legitimate `cookie` fields, such as HTTP headers.
+- **Browser-facing sources** (`apps/web/src`, the desktop preload and the
+  modules it bundles from `apps/desktop/src/shared`, and the browser
+  packages): also no alias of a global object made by assignment, and no
+  storage or cookie property through any object. Node code keeps legitimate
+  `cookie` fields, such as HTTP headers, and Electron main names its
+  BrowserWindow `window`.
 - **`apps/web/src/platform/client.ts`** (the demo switch): one literal
   `import('@cindl/fixtures/scenario')`, and every other rule.
 - **`apps/web/src/platform/preferences.ts`:** `localStorage` only; every other

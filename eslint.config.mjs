@@ -1,6 +1,8 @@
 // Root lint rules. ESLint 10 resolves the nearest eslint.config.* for each
 // file, so an app with extra needs (Electron main, React Native) adds its own
-// config that spreads this one instead of editing it.
+// config that spreads this one instead of editing it. Every block below is
+// anchored to the repository root (`basePath`), so its globs name the same
+// files from a config that spreads it.
 import js from '@eslint/js'
 import reactHooks from 'eslint-plugin-react-hooks'
 import globals from 'globals'
@@ -109,10 +111,32 @@ const namesPattern = (names) => `/^(${names.join('|')})$/`
 /** Global objects whose properties include storage. `top`/`parent` are left out: locals use those names. */
 const globalObjects = '/^(window|globalThis|self|document|navigator)$/'
 
+/**
+ * A node path, and the same path through what TypeScript and JavaScript wrap
+ * around an expression without changing its value: casts (`as`, `satisfies`,
+ * `!`, `<T>`, up to two deep), an optional chain and `(0, x)`. Under strict
+ * TypeScript a cast is the usual way to write a string-keyed global lookup.
+ */
+const throughWrappers = (path) => [
+  path,
+  `${path}.expression`,
+  `${path}.expression.expression`,
+  `${path}.expressions.1`,
+]
+/** Matches when any of the attribute selectors does. */
+const anyOf = (attributes) => `:matches(${attributes.join(', ')})`
+const isGlobal = (path) =>
+  throughWrappers(path).map((p) => `[${p}.name=${globalObjects}]`)
+const isDefaultView = (path) =>
+  throughWrappers(path).map((p) => `[${p}.property.name='defaultView']`)
+const isGlobalOrView = (path) => anyOf([...isGlobal(path), ...isDefaultView(path)])
+const isStorageName = (path, names) =>
+  anyOf(throughWrappers(path).map((p) => `[${p}.value=${namesPattern(names)}]`))
+
 /** Routes to the named properties that the global and property rules cannot see. */
 const storageBypass = (names) => [
   {
-    selector: `MemberExpression[computed=true][property.value=${namesPattern(names)}]`,
+    selector: `MemberExpression[computed=true]${isStorageName('property', names)}`,
     message: 'Browser storage and cookies are off limits (computed access included).',
   },
   {
@@ -120,11 +144,13 @@ const storageBypass = (names) => [
     message: 'Browser storage and cookies are off limits (destructuring included).',
   },
   {
-    selector: `CallExpression[callee.property.name=/^(get|getOwnPropertyDescriptor|defineProperty)$/][arguments.1.value=${namesPattern(names)}]`,
+    selector: `CallExpression[callee.property.name=/^(get|getOwnPropertyDescriptor|defineProperty)$/]${isStorageName('arguments.1', names)}`,
     message:
       'Browser storage and cookies are off limits (Reflect and descriptors included).',
   },
 ]
+const aliasMessage =
+  'Use global objects directly, never through an alias the storage rules cannot see.'
 /** Ways to reach any property of a global object without naming it. */
 const noGlobalReach = [
   {
@@ -133,39 +159,24 @@ const noGlobalReach = [
     message: 'Cindl never reads or writes cookies itself.',
   },
   {
-    selector: `MemberExpression[computed=true][object.name=${globalObjects}]:not([property.type='Literal'])`,
+    selector: `MemberExpression[computed=true]${anyOf(isGlobal('object'))}:not([property.type='Literal'])`,
     message: 'No computed property access on global objects; it can reach storage.',
   },
   {
-    selector: "MemberExpression[computed=true][object.property.name='defaultView']",
+    selector: `MemberExpression[computed=true]${anyOf(isDefaultView('object'))}`,
     message: 'No computed property access on global objects; it can reach storage.',
   },
+  { selector: `VariableDeclarator${isGlobalOrView('init')}`, message: aliasMessage },
   {
-    selector: `VariableDeclarator[init.type='Identifier'][init.name=${globalObjects}]`,
-    message:
-      'Use global objects directly, never through an alias the storage rules cannot see.',
-  },
-  {
-    selector: "VariableDeclarator[init.property.name='defaultView']",
-    message:
-      'Use global objects directly, never through an alias the storage rules cannot see.',
-  },
-  {
-    selector: `CallExpression[callee.object.name='Reflect'][arguments.0.name=${globalObjects}]`,
+    selector: `CallExpression[callee.object.name='Reflect']${isGlobalOrView('arguments.0')}`,
     message: 'No Reflect calls on global objects; they can reach storage.',
   },
   {
-    selector:
-      "CallExpression[callee.object.name='Reflect'][arguments.0.property.name='defaultView']",
-    message: 'No Reflect calls on global objects; they can reach storage.',
-  },
-  {
-    selector: `CallExpression[callee.object.name='Object'][callee.property.name=/^(getOwnPropertyDescriptors?|defineProperty|defineProperties)$/][arguments.0.name=${globalObjects}]`,
+    selector: `CallExpression[callee.object.name='Object'][callee.property.name=/^(getOwnPropertyDescriptors?|defineProperty|defineProperties)$/]${isGlobalOrView('arguments.0')}`,
     message: 'No property descriptors of global objects; they can reach storage.',
   },
   {
-    selector:
-      "CallExpression[callee.object.name='Object'][callee.property.name=/^(getOwnPropertyDescriptors?|defineProperty|defineProperties)$/][arguments.0.object.name=/^(Document|HTMLDocument|Window|Navigator|Storage)$/]",
+    selector: `CallExpression[callee.object.name='Object'][callee.property.name=/^(getOwnPropertyDescriptors?|defineProperty|defineProperties)$/]${anyOf(throughWrappers('arguments.0').map((p) => `[${p}.object.name=/^(Document|HTMLDocument|Window|Navigator|Storage)$/]`))}`,
     message: 'No property descriptors of DOM prototypes; they can reach storage.',
   },
   {
@@ -174,6 +185,14 @@ const noGlobalReach = [
     message: 'Do not persist data in browser storage (navigator.storage).',
   },
 ]
+/**
+ * An alias made by assignment. Browser-facing sources only: Electron main
+ * code names its BrowserWindow `window`.
+ */
+const noAssignedAlias = {
+  selector: `AssignmentExpression${isGlobalOrView('right')}`,
+  message: aliasMessage,
+}
 /**
  * The same property through any object: window.window, (0, window),
  * document.defaultView, top. Browser-facing sources only: Node code has
@@ -233,13 +252,17 @@ const invariantSyntax = [
 /**
  * Sources that ship add the asset-URL rule and the global-reach rules (Node
  * scripts and tests legitimately stub globals); browser-facing sources also
- * get the any-object rule.
+ * get the assignment-alias and any-object rules.
  */
 const bundledSyntax = [...invariantSyntax, noComputedAssetUrl, ...noGlobalReach]
-const browserSyntax = [...bundledSyntax, storageMember(STORAGE)]
+const browserSyntax = [...bundledSyntax, noAssignedAlias, storageMember(STORAGE)]
 const BUNDLED = ['apps/*/src/**', 'packages/*/src/**']
 const BROWSER = [
   'apps/web/src/**',
+  // The desktop preload runs in the page's frames (its storage included), and
+  // the shared modules are bundled into it.
+  'apps/desktop/src/preload/**',
+  'apps/desktop/src/shared/**',
   'packages/client-core/src/**',
   'packages/client-react/src/**',
   'packages/contracts/src/**',
@@ -268,9 +291,11 @@ export const cindlRules = {
   },
 }
 
+const repositoryRoot = import.meta.dirname
+
 // ESLint replaces a rule's options per matching block, so each scope below
 // lists its complete syntax rules, from the widest scope to the narrowest.
-export default tseslint.config(
+const blocks = tseslint.config(
   ignores,
   js.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,
@@ -338,6 +363,7 @@ export default tseslint.config(
         noComputedAssetUrl,
         ...storageBypass(STORAGE.filter((n) => n !== 'localStorage')),
         ...noGlobalReach,
+        noAssignedAlias,
         storageMember(STORAGE.filter((n) => n !== 'localStorage')),
       ],
     },
@@ -352,3 +378,5 @@ export default tseslint.config(
     ...tseslint.configs.disableTypeChecked,
   },
 )
+
+export default blocks.map((block) => ({ basePath: repositoryRoot, ...block }))

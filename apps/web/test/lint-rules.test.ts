@@ -176,6 +176,55 @@ describe('Cindl lint invariants', () => {
     expect(await rulesFor(code, 'apps/web/src/platform/preferences.ts')).toContain(rule)
   })
 
+  // Review 91f30e07 N1: casts and comma expressions around a global object.
+  it.each([
+    'const w = globalThis as unknown as Record<string, unknown>\nexport const v = w[k]',
+    'export const v = (window as unknown as Record<string, unknown>)[k]',
+    'export const v = (document.defaultView as unknown as Record<string, unknown>)[k]',
+    'export const v = (window satisfies object as Record<string, unknown>)[k]',
+    'export const v = (0, window)[k]',
+    'export const v = Reflect.get(globalThis as object, k)',
+    'export const v = Object.getOwnPropertyDescriptor(window as object, k)',
+    'const view = document.defaultView!\nexport const v = view',
+    'let w: unknown\nw = window\nexport const v = w',
+  ])('sees through casts and commas: %s', async (code) => {
+    expect(await rulesFor(`declare const k: string\n${code}`)).toContain(
+      'no-restricted-syntax',
+    )
+  })
+
+  it('sees a storage name through a cast everywhere, tests included', async () => {
+    const code =
+      "export const v = (globalThis as unknown as Record<string, unknown>)['localStorage' as string]"
+    expect(await rulesFor(code, 'apps/web/test/probe.ts')).toContain(
+      'no-restricted-syntax',
+    )
+  })
+
+  // Review 91f30e07 SF1: apps/desktop has its own config that spreads the root
+  // one; the root's scoped rules must still reach its sources.
+  it.each([
+    [
+      'apps/desktop/src/preload/probe.ts',
+      "const w = window\nexport const v = w.localStorage.getItem('t')",
+    ],
+    ['apps/desktop/src/preload/probe.ts', 'export const c = (d: Document) => d.cookie'],
+    ['apps/desktop/src/shared/probe.ts', 'export const c = (d: Document) => d.cookie'],
+    [
+      'apps/desktop/src/main/probe.ts',
+      "const name = 'x.css'\nexport const url = new URL(name, import.meta.url)",
+    ],
+    [
+      'apps/desktop/src/main/probe.ts',
+      'declare const k: string\nexport const v = globalThis[k]',
+    ],
+  ])(
+    'applies the shipped-source rules to desktop sources: %s',
+    async (filePath, code) => {
+      expect(await rulesFor(code, filePath)).toContain('no-restricted-syntax')
+    },
+  )
+
   it('applies the any-object storage rule to browser code only', async () => {
     const header =
       'export const c = (req: { headers: { cookie?: string } }) => req.headers.cookie'

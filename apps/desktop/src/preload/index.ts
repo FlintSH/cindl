@@ -86,6 +86,7 @@ if (location.protocol === `${APP_SCHEME}:` && location.host === APP_HOST) {
     contextBridge.executeInMainWorld({
       func: () => {
         for (const name of ['RTCPeerConnection', 'webkitRTCPeerConnection'])
+          // eslint-disable-next-line no-restricted-syntax -- deletes two constructors; reads nothing
           Reflect.deleteProperty(globalThis, name)
       },
     })
