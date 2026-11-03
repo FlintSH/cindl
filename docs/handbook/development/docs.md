@@ -143,9 +143,11 @@ tooling never enters the runtime workspace. Commands are in
   is no hardcoded version or branch. A build from a source archive without Git
   says the commit is unknown, or uses `GITHUB_SHA` in CI.
 - **Look.** The theme maps VitePress onto Cindl's semantic tokens and bundled
-  fonts from `packages/tokens`, using only the colour pairings the token tests
-  check for contrast. The site loads nothing from another origin: no font CDN,
-  external scripts or analytics, and search runs locally in the browser.
+  fonts from `packages/tokens`. Text and interface colours use only the colour
+  pairings the token tests check for contrast; code block syntax colours come
+  from Shiki's GitHub themes. The site loads nothing from another origin: no
+  font CDN, external scripts or analytics, and search runs locally in the
+  browser.
 - **Local servers.** `dev` and `preview` listen on `127.0.0.1` only. VitePress
   1.6.4's own preview server ignores its host option and listens on every
   interface, so `preview` runs `.vitepress/preview.mjs`, a small static server

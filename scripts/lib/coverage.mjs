@@ -169,15 +169,23 @@ export async function checkCoverage(root) {
   }
 
   // The web client page keeps a condensed keyboard table of its own: its key
-  // combinations must be exactly the registry's (plus the message box keys).
-  const web = await readFile(resolve(root, pages.web), 'utf8').catch(() => null)
-  const keyboard =
-    web && sections(web).find((s) => s.level === 2 && /^keyboard$/i.test(s.text))
-  if (keyboard) {
-    const table = tables(keyboard.body).find((t) => /^keys?$/i.test(t.header[0] ?? ''))
-    if (!table) errors.push(`${pages.web}: the Keyboard section has no "Keys" table`)
+  // combinations must be exactly the registry's (plus the message box keys),
+  // or its Keyboard section must point at the generated reference instead.
+  const web = await read(pages.web)
+  const keyboard = sections(web).find((s) => s.level === 2 && /^keyboard\b/i.test(s.text))
+  const table =
+    keyboard && tables(keyboard.body).find((t) => /^keys?$/i.test(t.header[0] ?? ''))
+  if (web && !keyboard)
+    errors.push(
+      `${pages.web}: no "Keyboard" section; list the shortcuts or link to reference/keyboard-shortcuts.md`,
+    )
+  else if (keyboard && !table && !/keyboard-shortcuts\.md/.test(keyboard.body))
+    errors.push(
+      `${pages.web}: the Keyboard section has no "Keys" table and no link to reference/keyboard-shortcuts.md`,
+    )
+  if (table) {
     const documented = new Set()
-    for (const [keys] of table?.rows ?? []) {
+    for (const [keys] of table.rows) {
       const found = documentedCombos(keys)
       if (!found) errors.push(`${pages.web}: cannot read the keys in "${keys}"`)
       for (const value of found ?? []) documented.add(value)

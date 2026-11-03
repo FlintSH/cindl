@@ -76,6 +76,8 @@ const FILES = {
   'docs/handbook/reference/keyboard-shortcuts.md': `# Keyboard shortcuts\n\n${block('keyboard-shortcuts')}`,
   'docs/handbook/reference/hermes-v0.22.5.md':
     '# Hermes\n\nMethods `session.list` and `runtime.describe`; request `approval`; notification `gateway.ready`; route `GET /api/status`.\n',
+  'docs/handbook/clients/web.md':
+    '# Web client\n\n## Keyboard\n\n| Keys | Action |\n| --- | --- |\n| `Ctrl/⌘ K` | Open the palette |\n| `?` | Show shortcuts |\n',
   '.gitignore': 'docs/handbook/.vitepress/dist/\n',
 }
 
@@ -267,6 +269,18 @@ describe('check-docs-coverage', () => {
       fixture(t, { [page]: web([...good, '| Press both | Something |']) }),
       /web\.md: cannot read the keys in "Press both"/,
     )
+    assertFails(
+      fixture(t, { [page]: '# Web client\n\n## Shortcuts\n\nSee the app.\n' }),
+      /web\.md: no "Keyboard" section/,
+    )
+    assertFails(
+      fixture(t, { [page]: '# Web client\n\n## Keyboard\n\nPress keys.\n' }),
+      /web\.md: the Keyboard section has no "Keys" table and no link/,
+    )
+    const linked =
+      '# Web client\n\n## Keyboard shortcuts\n\nSee [the list](../reference/keyboard-shortcuts.md).\n'
+    assert.equal(coverage(fixture(t, { [page]: linked })).code, 0)
+    assertFails(fixture(t, { [page]: null }), /clients\/web\.md: page is missing/)
   })
 
   it('fails instead of passing when a source list is empty', (t) => {

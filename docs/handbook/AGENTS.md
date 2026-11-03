@@ -14,8 +14,9 @@ The canonical handbook and its VitePress site. Read
   URL on `main`. Both are checked.
 - Provenance comes from Git at build time (`.vitepress/build-info.mjs`). Never
   hardcode a version, branch or date.
-- The theme uses only `packages/tokens` variables and fonts, and only colour
-  pairings the token contrast tests cover. Nothing loads from another origin.
+- The theme uses only `packages/tokens` variables and fonts, and for text and
+  interface colours only pairings the token contrast tests cover (code
+  highlighting uses Shiki's themes). Nothing loads from another origin.
 - No deployment or hosting: CI uploads the built site as an artifact.
 - Synthetic examples only; placeholder text outside code fails the coverage
   gate.

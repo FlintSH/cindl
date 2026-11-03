@@ -1,8 +1,9 @@
 /*
- * VitePress variables mapped to Cindl's semantic tokens. Only pairings that
- * packages/tokens tests for contrast are used: text roles on canvas, surface,
- * surface-raised and surface-sunken; accent-text on canvas, surface and
- * accent-subtle; status colours on canvas, surface and their subtle fill.
+ * VitePress variables mapped to Cindl's semantic tokens. Text and interface
+ * colours use only pairings that packages/tokens tests for contrast: text
+ * roles on canvas, surface, surface-raised and surface-sunken; accent-text on
+ * canvas, surface and accent-subtle; status colours on canvas, surface and
+ * their subtle fill. Code block syntax colours are Shiki's GitHub themes.
  * Both themes come from tokens.css; the head script keeps [data-theme] in step
  * with VitePress's appearance switch.
  */
@@ -28,7 +29,8 @@
   --vp-c-default-soft: var(--color-surface-sunken);
 
   --vp-c-brand-1: var(--color-accent-text);
-  --vp-c-brand-2: var(--color-accent-hover);
+  /* Link hover text: accent-hover is only tested under on-accent text. */
+  --vp-c-brand-2: var(--color-accent-text);
   --vp-c-brand-3: var(--color-accent);
   --vp-c-brand-soft: var(--color-accent-subtle);
 
@@ -91,6 +93,19 @@
   --vp-local-nav-bg-color: var(--color-canvas);
   --vp-sidebar-bg-color: var(--color-surface);
   --vp-input-bg-color: var(--color-surface);
+
+  /* Search matches: text on accent-subtle, not canvas-coloured text on accent. */
+  --vp-local-search-highlight-bg: var(--color-accent-subtle);
+  --vp-local-search-highlight-text: var(--color-text);
+}
+
+/* A link around code keeps a tested pairing: accent-text on accent-subtle. */
+.vp-doc a > code,
+.vp-doc a:hover > code {
+  background-color: var(--color-accent-subtle);
+}
+.vp-doc a:hover {
+  text-decoration-thickness: 2px;
 }
 
 /*
