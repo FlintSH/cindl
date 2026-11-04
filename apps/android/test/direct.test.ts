@@ -649,6 +649,66 @@ describe('a sign-out that overtakes a sign-in through the real Android client', 
   })
 })
 
+describe('a stop() during a sign-in, through the real Android client', () => {
+  const codeOf = (promise: Promise<unknown>) =>
+    promise.then(
+      () => 'resolved',
+      (error: unknown) => (error as { code?: string }).code ?? String(error),
+    )
+
+  it("not signed in: a stop() during B's status read opens no browser and starts no listener", async () => {
+    const b = await fakeHermes()
+    const { listener, browser, platform } = device()
+    const { client } = await launch(platform)
+    const statusB = b.holdNextRest('GET /api/status')
+    const signingIn = codeOf(client.api.call('auth.signIn', { origin: b.origin }))
+    await statusB.arrived
+    // What the App's unmount does.
+    client.stop()
+    statusB.release()
+    expect(await signingIn).toBe('unavailable')
+    expect(browser.opened).toEqual([])
+    expect(listener.attempts.size).toBe(0)
+  })
+
+  it("signed in to A: a stop() during B's status read opens no browser and starts no listener", async () => {
+    const a = await fakeHermes()
+    const b = await fakeHermes()
+    const { listener, browser, platform } = device()
+    const { client, store } = await launch(platform)
+    await client.api.call('auth.signIn', { origin: a.origin })
+    await until(() => store.getState().link.phase === 'online')
+    const opened = browser.opened.length
+    const attempts = listener.attempts.size
+    const statusB = b.holdNextRest('GET /api/status')
+    const signingIn = codeOf(client.api.call('auth.signIn', { origin: b.origin }))
+    await statusB.arrived
+    client.stop()
+    statusB.release()
+    expect(await signingIn).toBe('unavailable')
+    expect(browser.opened.length).toBe(opened)
+    expect(listener.attempts.size).toBe(attempts)
+    expect(calls(b, 'POST /auth/native/token')).toBe(0)
+  })
+
+  it('a stop() while the browser is open ends its listener and the sign-in, and saves nothing', async () => {
+    const b = await fakeHermes()
+    const { stores, listener, browser, platform } = device()
+    browser.mode = 'hold'
+    const { client } = await launch(platform)
+    const signingIn = codeOf(client.api.call('auth.signIn', { origin: b.origin }))
+    await until(() => browser.opened.length === 1)
+    const id = [...listener.attempts.keys()][0] ?? ''
+    client.stop()
+    expect(await signingIn).toBe('unavailable')
+    expect(listener.cancelled).toContain(id)
+    expect(listener.native.status(id)).toBe('ended')
+    await until(async () => (await stores.keyValue.get(ATTEMPT_MARKER_KEY)) === undefined)
+    expect(calls(b, 'POST /auth/native/token')).toBe(0)
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBeUndefined()
+  })
+})
+
 describe('a sign-out at the end of a sign-in, through the real Android client', () => {
   const outcomeOf = (promise: Promise<unknown>) =>
     promise.then(

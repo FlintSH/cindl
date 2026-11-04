@@ -109,6 +109,58 @@ async function frameShowing(
   throw new Error(`no frame showed ${colour.join(',')} at ${at.x},${at.y}`)
 }
 
+describe(
+  'desktop: a stop() during a sign-in, as at will-quit',
+  { timeout: 30_000 },
+  () => {
+    it('not signed in: a stop() during the status read opens no browser', async () => {
+      const fake = await fakeHermes()
+      const d = await desktop(userData())
+      const status = fake.holdNextRest('GET /api/status')
+      const signingIn = codeOf(d.real.client.call('auth.signIn', { origin: fake.origin }))
+      await status.arrived
+      d.real.stop()
+      status.release()
+      expect(await signingIn).toBe('unavailable')
+      expect(d.openBrowser).not.toHaveBeenCalled()
+      expect(d.secretEntries()).toEqual([])
+    })
+
+    it("signed in: a stop() during another Hermes's status read opens no browser", async () => {
+      const a = await fakeHermes()
+      const b = await fakeHermes()
+      const d = await desktop(userData())
+      await signIn(d, a.origin)
+      expect(d.openBrowser).toHaveBeenCalledTimes(1)
+      const status = b.holdNextRest('GET /api/status')
+      const signingIn = codeOf(d.real.client.call('auth.signIn', { origin: b.origin }))
+      await status.arrived
+      d.real.stop()
+      status.release()
+      expect(await signingIn).toBe('unavailable')
+      expect(d.openBrowser).toHaveBeenCalledTimes(1)
+      expect(b.calls.filter((c) => c.name === 'POST /auth/native/token')).toEqual([])
+    })
+
+    it('a stop() while the browser is open closes the loopback listener', async () => {
+      const fake = await fakeHermes()
+      const d = await desktop(userData())
+      // The page opens, and nobody signs in on it.
+      d.openBrowser.mockImplementationOnce(() => Promise.resolve())
+      const signingIn = codeOf(d.real.client.call('auth.signIn', { origin: fake.origin }))
+      await d.waitFor(() => d.openBrowser.mock.calls.length === 1)
+      const redirect = new URL(d.openBrowser.mock.calls[0]?.[0] ?? '').searchParams.get(
+        'redirect_uri',
+      )
+      expect(redirect).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/callback$/)
+      d.real.stop()
+      expect(await signingIn).toBe('unavailable')
+      // Nothing listens there any more.
+      await expect(fetch(redirect ?? '')).rejects.toThrow()
+    })
+  },
+)
+
 describe('desktop wiring against a fake hermes serve', { timeout: 30_000 }, () => {
   it('signs in through the loopback leg, connects, answers an approval and signs out locally', async () => {
     const fake = await fakeHermes()
