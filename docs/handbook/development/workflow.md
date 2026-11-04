@@ -165,6 +165,33 @@ Open alerts, as of 2026-11-04:
     which changes how `ignore` patterns match. So there is no override:
     update when Expo moves to glob 14.0.2 or later.
 
+## Releasing
+
+- **Versions:** every `package.json` and `apps/android/app.config.ts` carry the
+  release version. Android's `versionCode` follows from it (major × 10000 +
+  minor × 100 + patch).
+- **Notes:** each release's notes are committed with it, named after its tag,
+  as in `.github/release-notes/v1.0.0.md`.
+- **Tag:** push a `vX.Y.Z` tag on a commit already on `main`.
+  `.github/workflows/release.yml` then:
+  1. checks the tag, the commit's place on `main` and every version;
+  2. runs `pnpm verify`;
+  3. builds the web client tar, the Linux AppImage and the Windows installer,
+     the last two smoke-tested;
+  4. builds the Android APK signed with the release key;
+  5. opens a **draft** release with `SHA256SUMS` and the notices.
+- **Publish:** a person checks the draft (the assets, `SHA256SUMS`, and the
+  APK's certificate) and publishes it.
+- **Signing:**
+  - The Android signing secrets live only in the `release` environment, which
+    accepts `v*` tags only.
+  - They reach the environment of one step, never argv or a log line, and a
+    missing one stops the build.
+  - The APK's certificate is checked against the fingerprint committed in
+    `apps/android/scripts/apk-signing.ts`.
+  - Pull requests, `main` builds, demo and test builds keep their throwaway
+    per-run key.
+
 ## Commits and pull requests
 
 - Imperative subject line ("Add the events reference"), a body that says why.

@@ -1,0 +1,348 @@
+# Release: builds a vX.Y.Z tag's assets from that exact commit and opens a DRAFT GitHub
+# release for a person to check and publish. It runs only on a tag push to FlintSH/cindl,
+# and only for a commit already on main whose versions match the tag.
+#
+# Credential boundary: the Android job is the only one that declares the `release`
+# environment, which holds the signing secrets and accepts only v* tags. The secrets reach
+# one step's environment, never argv or a log line; the script fails closed without them.
+# No other job, workflow, pull request, demo or test build can read them.
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  EXPO_NO_TELEMETRY: '1'
+
+jobs:
+  provenance:
+    name: Tag, commit on main and versions
+    if: github.repository == 'FlintSH/cindl'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: The tag is vX.Y.Z, its commit is on main, and every version is X.Y.Z
+        id: check
+        run: |
+          tag="$GITHUB_REF_NAME"
+          if [[ ! "$tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::$tag is not a vX.Y.Z tag"
+            exit 1
+          fi
+          version="${tag#v}"
+          git fetch --no-tags origin main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::$tag ($GITHUB_SHA) is not on main"
+            exit 1
+          fi
+          node --input-type=module - "$version" <<'EOF'
+          import { execFileSync } from 'node:child_process'
+          import { readFileSync } from 'node:fs'
+          const version = process.argv[2]
+          const manifests = execFileSync('git', ['ls-files', 'package.json', 'apps/*/package.json', 'packages/*/package.json'], { encoding: 'utf8' }).trim().split('\n')
+          const wrong = manifests.filter((file) => JSON.parse(readFileSync(file, 'utf8')).version !== version)
+          if (!/version: '(\d+\.\d+\.\d+)'/.exec(readFileSync('apps/android/app.config.ts', 'utf8'))?.slice(1).includes(version)) wrong.push('apps/android/app.config.ts')
+          if (wrong.length) {
+            console.log(`::error::not at version ${version}: ${wrong.join(', ')}`)
+            process.exit(1)
+          }
+          console.log(`${manifests.length} manifests and the Android app are at ${version}`)
+          EOF
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  verify:
+    name: Verify and repository gates
+    needs: provenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm verify
+
+  web:
+    name: Web client
+    needs: provenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    env:
+      VERSION: ${{ needs.provenance.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+
+      # Builds both flavours and checks them: no fixture records in the real build, the demo
+      # notice in the demo build. Only the real build is released.
+      - name: Build and check the web client
+        run: pnpm check:dist
+
+      - name: Pack the real build deterministically, with the loopback server
+        run: |
+          out="$RUNNER_TEMP/release"
+          mkdir -p "$out"
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --format=gnu \
+            -cf "$out/cindl-web-$VERSION.tar" -C apps/web/dist .
+          cp apps/web/serve/cindl-serve.py "$out/cindl-serve.py"
+          (cd apps/web/dist && find . -type f | sort | xargs sha256sum)
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-web
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 7
+
+  android:
+    name: Android APK (release key)
+    needs: provenance
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    # The only job that can read the signing secrets. The environment accepts v* tags only.
+    environment: release
+    steps:
+      - name: Require a GitHub-hosted runner (the only place the SDK licence is approved)
+        env:
+          RUNNER_KIND: ${{ runner.environment }}
+        run: |
+          if [ "$RUNNER_KIND" != github-hosted ]; then
+            echo "::error::Android SDK steps run only on GitHub-hosted runners (owner approval, 2026-11-03)."
+            exit 1
+          fi
+          echo "CINDL_RUNNER_ENVIRONMENT=$RUNNER_KIND" >> "$GITHUB_ENV"
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - uses: actions/setup-java@b843ebf9b913146b38da2eaa7aeddf76074ae1ad # v6.1.0
+        with:
+          distribution: temurin
+          java-version: '17'
+      - run: pnpm install --frozen-lockfile
+
+      - name: Check the pinned SDK packages (android-sdk-license, preinstalled, no downloads)
+        run: |
+          node apps/android/scripts/android-sdk.ts verify-repositories build
+          node apps/android/scripts/android-sdk.ts verify-installed build "$ANDROID_HOME" "$RUNNER_TEMP/android-sdk-build.json"
+
+      # Decodes the keystore with umask 077, builds the production flavour, signs it with the
+      # release key, checks the APK's certificate against the fingerprint committed in
+      # apps/android/scripts/apk-signing.ts, and fails unless the tag is v<APK version>.
+      - name: Build, sign and check the release APK
+        env:
+          CINDL_ANDROID_KEYSTORE_BASE64: ${{ secrets.CINDL_ANDROID_KEYSTORE_BASE64 }}
+          CINDL_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.CINDL_ANDROID_KEYSTORE_PASSWORD }}
+          CINDL_ANDROID_KEY_ALIAS: ${{ secrets.CINDL_ANDROID_KEY_ALIAS }}
+          CINDL_ANDROID_KEY_PASSWORD: ${{ secrets.CINDL_ANDROID_KEY_PASSWORD }}
+        run: apps/android/scripts/release-apk.sh "$RUNNER_TEMP/release"
+
+      - name: Remove the release keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/cindl-release.p12"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-android
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 7
+
+  linux:
+    name: Linux AppImage
+    needs: provenance
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cindl/web build
+
+      # Each package step runs its flavour gates on the bundles, app.asar and renderer.
+      - run: pnpm --filter @cindl/desktop run package
+      - run: pnpm --filter @cindl/desktop run package:demo
+
+      - name: Locate the AppImages
+        working-directory: apps/desktop/release
+        run: |
+          shopt -s nullglob
+          real=(real/Cindl-[0-9]*-x86_64.AppImage)
+          demo=(demo/Cindl-Demo-*-x86_64.AppImage)
+          if [ "${#real[@]}" -ne 1 ] || [ "${#demo[@]}" -ne 1 ]; then
+            echo "Expected one AppImage per flavour, found ${#real[@]} and ${#demo[@]}" >&2
+            exit 1
+          fi
+          echo "CINDL_SMOKE_REAL=$PWD/${real[0]}" >> "$GITHUB_ENV"
+          echo "CINDL_SMOKE_DEMO=$PWD/${demo[0]}" >> "$GITHUB_ENV"
+
+      # As in desktop.yml: allow the user namespaces Chromium's sandbox needs on this
+      # throwaway runner, so the smoke test runs with the sandbox on.
+      - name: Allow Chromium's user-namespace sandbox
+        run: |
+          if [ -e /proc/sys/kernel/apparmor_restrict_unprivileged_userns ]; then
+            sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          fi
+      - run: command -v xvfb-run || (sudo apt-get update && sudo apt-get install -y xvfb)
+
+      - name: Launch smoke test of both packaged AppImages
+        working-directory: apps/desktop
+        env:
+          CINDL_SMOKE_SANDBOX: '1'
+          CINDL_SMOKE_ARTIFACTS: ${{ runner.temp }}/desktop-smoke
+        run: >-
+          xvfb-run --auto-servernum --server-args="-screen 0 1440x900x24"
+          pnpm exec playwright test -c playwright.config.ts
+
+      - name: Collect the real AppImage
+        run: |
+          mkdir -p "$RUNNER_TEMP/release"
+          cp "$CINDL_SMOKE_REAL" "$RUNNER_TEMP/release/"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-linux
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 7
+
+  windows:
+    name: Windows installer
+    needs: provenance
+    runs-on: windows-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version-file: .node-version
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @cindl/web build
+
+      # Unsigned NSIS installer (no certificate; this job has no secrets), with the flavour
+      # gates run on the packaged app.asar and renderer in win-unpacked.
+      - run: pnpm --filter @cindl/desktop run package:win
+
+      - name: Locate the installer and the packaged app
+        shell: bash
+        working-directory: apps/desktop/release/real
+        run: |
+          shopt -s nullglob
+          installers=(Cindl-Setup-*.exe)
+          if [ "${#installers[@]}" -ne 1 ] || [ ! -f win-unpacked/cindl.exe ]; then
+            echo "Expected one installer and win-unpacked/cindl.exe" >&2
+            exit 1
+          fi
+          mkdir -p "$RUNNER_TEMP/release"
+          cp "${installers[0]}" "$RUNNER_TEMP/release/"
+
+      - name: Launch smoke test of the packaged app
+        working-directory: apps/desktop
+        env:
+          CINDL_SMOKE_REAL: ${{ github.workspace }}\apps\desktop\release\real\win-unpacked\cindl.exe
+          CINDL_SMOKE_SANDBOX: '1'
+          CINDL_SMOKE_ARTIFACTS: ${{ runner.temp }}\desktop-smoke
+        run: pnpm exec playwright test -c playwright.config.ts --grep-invert "Cindl Demo"
+
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: release-windows
+          path: ${{ runner.temp }}/release
+          if-no-files-found: error
+          retention-days: 7
+
+  draft:
+    name: Draft release
+    needs: [provenance, verify, web, android, linux, windows]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    env:
+      VERSION: ${{ needs.provenance.outputs.version }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: release-*
+          path: ${{ runner.temp }}/artifacts
+
+      - name: Collect the assets and their checksums
+        run: |
+          in="$RUNNER_TEMP/artifacts"
+          out="$RUNNER_TEMP/assets"
+          mkdir -p "$out"
+          cp "$in/release-linux/Cindl-$VERSION-x86_64.AppImage" "$out/"
+          cp "$in/release-windows/Cindl-Setup-$VERSION.exe" "$out/"
+          cp "$in/release-android/cindl-$VERSION-android.apk" "$out/"
+          (cd "$in/release-android" && zip -q "$out/cindl-$VERSION-android-notices.zip" \
+            LICENSE.txt THIRD-PARTY-NOTICES.txt NATIVE-NOTICES.txt apk-report.json)
+          cp "$in/release-web/cindl-web-$VERSION.tar" "$in/release-web/cindl-serve.py" "$out/"
+          cp THIRD_PARTY_NOTICES.md "$out/"
+          (cd "$out" && sha256sum -- * > SHA256SUMS && cat SHA256SUMS)
+
+      - name: Open or refresh the draft release (a person publishes it)
+        run: |
+          tag="$GITHUB_REF_NAME"
+          notes=".github/release-notes/$tag.md"
+          if [ ! -f "$notes" ]; then
+            echo "::error::$notes is missing"
+            exit 1
+          fi
+          if state="$(gh release view "$tag" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            if [ "$state" != true ]; then
+              echo "::error::$tag is already published; a draft is never refreshed over it"
+              exit 1
+            fi
+            gh release upload "$tag" "$RUNNER_TEMP"/assets/* --clobber
+            gh release edit "$tag" --title "Cindl $VERSION" --notes-file "$notes"
+          else
+            gh release create "$tag" --draft --verify-tag --title "Cindl $VERSION" \
+              --notes-file "$notes" "$RUNNER_TEMP"/assets/*
+          fi
