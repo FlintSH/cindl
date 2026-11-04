@@ -482,9 +482,14 @@ Hermes server, Chrome's Custom Tab, and a phone.
   large font; the header never shrinks under a tall tool, which scrolls
   instead. The margin opens with TalkBack's focus and a keyboard's on the
   chosen tool's tab, and system back closes it, giving focus back to what
-  opened it. The emulator checks at 200% font, with Computer and then
-  Waiting shown, that every tab is whole: in no row that scrolls and at
-  least 48dp each way.
+  opened it. The emulator checks at 200% font, with Computer shown (in the
+  phone's window, then in one a quarter shorter, where the sheet stops at
+  its limit and Computer scrolls) and with Waiting, that every tab is whole:
+  in no row that scrolls, at least 48dp each way and clear of the tool
+  beneath. A tab pushed down over the tool keeps its whole bounds, since
+  Fabric mounts the header's tabs beside it rather than inside it (a View
+  that only draws a border keeps no children), so the check compares each
+  tab with the tool.
 
   Where Android differs from the web's margin, on purpose:
   - every tab is its own stop for a keyboard's focus, and the arrow keys only

@@ -24,10 +24,13 @@ import {
   onDestination,
   overlayOpen,
   scrimOf,
+  tabsClear,
   tabsWhole,
+  toolBeneath,
   rawPixel,
   reachable,
   resetMove,
+  runsPastBottom,
   screenToDevice,
   wholeView,
   parseDisplaySize,
@@ -500,69 +503,204 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
 })
 
 describe("the working margin's tabs at 200% font (review 4bdfe6c1, B-1)", () => {
-  // At density 420 (2.625px per dp): 48dp is 126px. uiautomator clips each
-  // node's bounds to its parents, so a cut tab shows as a small one.
-  const node = (more: string, children = '') =>
-    `<node index="0" text="" resource-id="" class="android.view.ViewGroup" package="${PKG}" checkable="false" checked="false" enabled="true" focusable="false" focused="false" long-clickable="false" password="false" hint="" ${more}>${children}</node>`
-  const tab = (name: string, bounds: string, selected = false) =>
-    node(
-      `content-desc="${name}" clickable="true" scrollable="false" selected="${selected}" bounds="${bounds}" drawing-order="1"`,
+  // As the device dumps the margin (CI run 41778504302,
+  // 16-margin-font-200-computer.xml), at density 420: 2.625px per dp, so 48dp
+  // is 126px. Fabric mounts the header's children beside it (a View with only
+  // a border forms no stacking context), so the frame holds the header's bare
+  // box, the tab list, the close button and the tool's scroll view, and
+  // uiautomator clips a tab to its list, the frame and the display, never to
+  // the header. The other layouts are what React Native 0.88.1's Yoga gives
+  // the sheet's styles with the header changed (held to 56dp, or shrinking),
+  // or in a window a quarter shorter (1080x1800).
+  interface Laid {
+    frame: string
+    header: string
+    list: string
+    tabs: readonly [string, string, string]
+    body: string
+    /** Named nodes in the tool, and their bounds. */
+    tool?: Readonly<Record<string, string>>
+    scrolls?: boolean
+  }
+  const margin = (laid: Laid) => {
+    const [waiting, step, computer] = laid.tabs
+    const tab = (name: string, bounds: string, selected = false) =>
+      node({
+        'content-desc': name,
+        clickable: 'true',
+        selected: String(selected),
+        bounds,
+      })
+    const shown = Object.entries(laid.tool ?? {})
+      .map(([text, bounds]) => node({ class: 'android.widget.TextView', text, bounds }))
+      .join('')
+    // The conversation beneath the sheet scrolls too.
+    const conversation = node(
+      {
+        class: 'android.widget.ScrollView',
+        scrollable: 'true',
+        bounds: '[0,409][1080,1803]',
+      },
+      node({
+        class: 'android.widget.TextView',
+        text: 'A message',
+        bounds: '[42,430][1038,520]',
+      }),
     )
-  const header = (row: string, bounds: string, scrollable = false) =>
-    node(
-      `content-desc="" clickable="false" scrollable="false" selected="false" bounds="[0,1100][1080,1500]" drawing-order="1"`,
-      node(
-        `content-desc="Working margin" clickable="false" scrollable="${scrollable}" selected="false" bounds="${bounds}" drawing-order="1"`,
-        row,
+    const sheet = node(
+      { bounds: laid.frame },
+      node({ bounds: laid.header }) +
+        node(
+          {
+            'content-desc': 'Working margin',
+            scrollable: String(laid.scrolls ?? false),
+            bounds: laid.list,
+          },
+          tab('Waiting 2', waiting) + tab('Step', step) + tab('Computer', computer, true),
+        ) +
+        node({
+          'content-desc': 'Close the working margin',
+          clickable: 'true',
+          bounds: '[933,241][1059,367]',
+        }) +
+        node(
+          { class: 'android.widget.ScrollView', scrollable: 'true', bounds: laid.body },
+          node({ bounds: laid.body }, shown),
+        ),
+    )
+    const root = parseUi(
+      dump(
+        node(
+          { class: 'android.widget.FrameLayout', bounds: '[0,0][1080,2400]' },
+          node({ bounds: '[0,0][1080,2400]' }, conversation) + sheet,
+        ),
       ),
     )
-  const tabsOf = (xml: string) => {
-    const root = parseUi(dump(xml))
-    return ['Waiting 2', 'Step', 'Computer'].map((name) => {
+    const tabs = ['Waiting 2', 'Step', 'Computer'].map((name) => {
       const found = find(root, name)
       if (!found) throw new Error(`no tab ${name}`)
       return found
     })
+    const tool = toolBeneath(tabs)
+    if (!tool) throw new Error('no tool beneath the tabs')
+    return { tabs, tool }
   }
+  /** The device's margin with Computer shown (run 41778504302): the sheet 19dp under its limit. */
+  const asLaid = {
+    frame: '[0,175][1080,2400]',
+    header: '[0,178][1080,433]',
+    list: '[11,178][923,430]',
+    tabs: ['[11,178][379,304]', '[379,178][593,304]', '[11,304][405,430]'],
+    body: '[0,432][1080,2274]',
+    tool: { Screen: '[42,474][1038,553]', 'Take control…': '[528,2106][1038,2232]' },
+  } as const
+  /** Computer in the shorter window: its picture cut at the bottom, Take control beyond. */
+  const pastTheBottom = (top: number) => ({
+    'The agent’s screen, live. Watching.': `[45,${top + 842}][1035,1674]`,
+    'Take control…': `[528,${top + 1674}][1038,1674]`,
+  })
 
-  it('passes tabs that wrapped onto a second row, each whole', () => {
-    const wrapped = header(
-      tab('Waiting 2', '[0,1100][420,1240]', true) +
-        tab('Step', '[420,1100][700,1240]') +
-        tab('Computer', '[0,1240][409,1380]'),
-      '[0,1100][930,1380]',
-    )
-    expect(tabsWhole(tabsOf(wrapped), 420)).toEqual([])
+  it('passes the margin as the device laid it out, and finds its tool, not the conversation', () => {
+    const { tabs, tool } = margin(asLaid)
+    expect(tool.bounds).toEqual({ left: 0, top: 432, right: 1080, bottom: 2274 })
+    expect(tabsWhole(tabs, 420)).toEqual([])
+    expect(tabsClear(tabs, tool, 420)).toEqual([])
+    // Computer fits: Take control ends above the edge, by the body's padding.
+    expect(runsPastBottom(tool)).toBe(false)
   })
 
   it('fails tabs in a row that scrolls, as without wrap, though their bounds stay on screen', () => {
-    // Computer scrolled partly off: clipped to the row's right edge.
-    const scrolling = header(
-      tab('Waiting 2', '[0,1100][420,1240]', true) +
-        tab('Step', '[420,1100][700,1240]') +
-        tab('Computer', '[700,1100][760,1240]'),
-      '[0,1100][760,1240]',
-      true,
-    )
-    expect(tabsWhole(tabsOf(scrolling), 420)).toEqual([
+    // One row, Computer clipped by its right edge; the tool is still the sheet's body.
+    const { tabs, tool } = margin({
+      ...asLaid,
+      list: '[11,178][923,304]',
+      tabs: ['[11,178][379,304]', '[379,178][593,304]', '[593,178][923,304]'],
+      scrolls: true,
+    })
+    expect(tool.bounds.top).toBe(432)
+    expect(tabsWhole(tabs, 420)).toEqual([
       '"Waiting 2" is in a row that scrolls, so it can be out of view',
       '"Step" is in a row that scrolls, so it can be out of view',
       '"Computer" is in a row that scrolls, so it can be out of view',
-      '"Computer" measures 22.9x53.3dp, under 48dp',
+    ])
+    expect(tabsClear(tabs, tool, 420)).toEqual([])
+  })
+
+  it('fails a header held at 56dp: its first row cut at the sheet top, its last over the tool', () => {
+    // The tab list (96dp) centred on the 56dp header: 20dp out above, 20dp below.
+    const { tabs, tool } = margin({
+      ...asLaid,
+      frame: '[0,282][1080,2400]',
+      header: '[0,285][1080,432]',
+      list: '[11,282][923,483]',
+      tabs: ['[11,282][379,357]', '[379,282][593,357]', '[11,357][405,483]'],
+    })
+    expect(tabsWhole(tabs, 420)).toEqual([
+      '"Waiting 2" measures 140.2x28.6dp, under 48dp',
+      '"Step" measures 81.5x28.6dp, under 48dp',
+    ])
+    expect(tabsClear(tabs, tool, 420)).toEqual([
+      '"Computer" reaches 19.4dp into the tool beneath it',
     ])
   })
 
-  it('fails a tab cut by a header held short, its second row clipped', () => {
-    // A header held at 80dp (210px): the second row shows 16dp of Computer.
-    const held = header(
-      tab('Waiting 2', '[0,1100][420,1240]', true) +
-        tab('Step', '[420,1100][700,1240]') +
-        tab('Computer', '[0,1268][409,1310]'),
-      '[0,1100][930,1310]',
-    )
-    expect(tabsWhole(tabsOf(held), 420)).toEqual([
-      '"Computer" measures 155.8x16.0dp, under 48dp',
+  it('passes the header at the sheet limit in a shorter window, and fails one that shrank there', () => {
+    const shorter = { frame: '[0,126][1080,1800]', body: '[0,383][1080,1674]' }
+    const held = margin({
+      ...shorter,
+      header: '[0,129][1080,383]',
+      list: '[11,129][923,381]',
+      tabs: ['[11,129][379,255]', '[379,129][593,255]', '[11,255][405,381]'],
+      tool: pastTheBottom(383),
+    })
+    expect(runsPastBottom(held.tool)).toBe(true)
+    expect([
+      ...tabsWhole(held.tabs, 420),
+      ...tabsClear(held.tabs, held.tool, 420),
+    ]).toEqual([])
+    // flexShrink 1 on the header: Yoga takes 14dp from it, 7dp out each side.
+    const shrank = margin({
+      ...shorter,
+      header: '[0,129][1080,347]',
+      list: '[11,126][923,363]',
+      tabs: ['[11,126][379,237]', '[379,126][593,237]', '[11,237][405,363]'],
+      body: '[0,347][1080,1674]',
+      tool: pastTheBottom(347),
+    })
+    expect(runsPastBottom(shrank.tool)).toBe(true)
+    expect([
+      ...tabsWhole(shrank.tabs, 420),
+      ...tabsClear(shrank.tabs, shrank.tool, 420),
+    ]).toEqual([
+      '"Waiting 2" measures 140.2x42.3dp, under 48dp',
+      '"Step" measures 81.5x42.3dp, under 48dp',
+      '"Computer" reaches 6.1dp into the tool beneath it',
     ])
+  })
+
+  it('allows a tab one pixel over the tool (rounding), not two', () => {
+    const over = (bottom: number) => {
+      const { tabs, tool } = margin({
+        ...asLaid,
+        tabs: [asLaid.tabs[0], asLaid.tabs[1], `[11,${bottom - 126}][405,${bottom}]`],
+      })
+      return tabsClear(tabs, tool, 420)
+    }
+    expect(over(433)).toEqual([])
+    expect(over(434)).toEqual(['"Computer" reaches 0.8dp into the tool beneath it'])
+  })
+
+  it('tells a tool that runs past its bottom (cut there, or beyond it) from one that fits', () => {
+    const toolWith = (tool: Readonly<Record<string, string>>) =>
+      margin({ ...asLaid, tool }).tool
+    expect(runsPastBottom(toolWith({ 'Take control…': '[528,2106][1038,2232]' }))).toBe(
+      false,
+    )
+    expect(runsPastBottom(toolWith({ Picture: '[45,1274][1035,2274]' }))).toBe(true)
+    // Scrolled out of view below: UI Automator keeps it, its bounds inverted at the edge.
+    expect(runsPastBottom(toolWith({ 'Take control…': '[528,2400][1038,2274]' }))).toBe(
+      true,
+    )
   })
 })
 

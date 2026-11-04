@@ -45,11 +45,15 @@ import {
   navItem,
   near,
   onDestination,
+  parseDisplaySize,
   reachable,
+  runsPastBottom,
   screenToDevice,
   scrimOf,
+  tabsClear,
   tabsWhole,
   TERMS_PROMPT,
+  toolBeneath,
   touchTargetsRow,
   type Match,
   type TargetAudit,
@@ -688,7 +692,7 @@ async function demoSuite() {
         throw new Error('Back did not leave the conversation shown')
       note('back closed the margin and its view of the screen; the conversation stayed')
 
-      // At 200% font the tabs stay whole, inside the sheet and above the tool.
+      // At 200% font the tabs stay whole, inside the sheet and clear of the tool.
       device.shell('settings put system font_scale 2.0')
       await sleep(3000)
       try {
@@ -697,28 +701,60 @@ async function demoSuite() {
           throw new Error(
             'The conversation did not keep its tool: Computer is not chosen',
           )
-        // The tabs stay whole with the tall tool shown (Computer, where the
-        // margin reopened) and with Waiting: in no scrolling row, and at least
-        // 48dp each way, since uiautomator clips a cut tab to what shows
-        // (ui.ts tabsWhole; review 4bdfe6c1, B-1).
-        const whole = (root: UiNode, tool: string) => {
+        // The tabs stay whole with Computer (where the margin reopened) and
+        // with Waiting: in no scrolling row, at least 48dp each way, since
+        // uiautomator clips a cut tab to what shows (ui.ts tabsWhole), and
+        // clear of the tool, since a tab pushed down over it keeps its bounds
+        // (tabsClear; review 4bdfe6c1, B-1). Returns the tool.
+        const whole = (root: UiNode, where: string) => {
           const tabs = MARGIN_TOOLS.map((each) => marginTab(root, each))
           if (tabs.some((tab) => !tab))
-            throw new Error(`At 200% font, with ${tool} shown, the margin lost a tab`)
-          const problems = tabsWhole(tabs as UiNode[], device.density())
+            throw new Error(`At 200% font, ${where}, the margin lost a tab`)
+          const row = tabs as UiNode[]
+          const tool = toolBeneath(row)
+          if (!tool)
+            throw new Error(
+              `At 200% font, ${where}, the margin shows no tool beneath its tabs`,
+            )
+          const problems = [
+            ...tabsWhole(row, device.density()),
+            ...tabsClear(row, tool, device.density()),
+          ]
           if (problems.length)
             throw new Error(
-              `At 200% font, with ${tool} shown, a tab is not whole: ${problems.join('; ')}`,
+              `At 200% font, ${where}, a tab is not whole: ${problems.join('; ')}`,
             )
+          return tool
         }
-        sheet = await device.waitFor(
-          (text) =>
-            text.startsWith('The agent-owned Linux screen of this Hermes profile only') ||
-            text.startsWith('Agent computer: '),
-          'the Computer tool at 200% font',
-        )
-        whole(sheet.root, 'Computer')
+        const showsComputer = (text: string) =>
+          text.startsWith('The agent-owned Linux screen of this Hermes profile only') ||
+          text.startsWith('Agent computer: ')
+        sheet = await device.waitFor(showsComputer, 'the Computer tool at 200% font')
+        whole(sheet.root, 'with Computer shown')
         shot('margin-font-200-computer')
+        // On the CI phone Computer still fits under the sheet's limit (by
+        // 19dp), so nothing is yet pressing on the header. In a window a
+        // quarter shorter (a split screen, a shorter phone) the sheet stops at
+        // its limit and the tool scrolls: a header that gave way to it would
+        // cut its first row of tabs and push the last over the tool.
+        const display = parseDisplaySize(device.shell('wm size'))
+        if (!display) throw new Error('The device does not say its display size')
+        device.shell(`wm size ${display.width}x${Math.round((display.height * 3) / 4)}`)
+        try {
+          await sleep(2000)
+          sheet = await device.waitFor(showsComputer, 'Computer in a shorter window')
+          const tool = whole(sheet.root, 'with Computer shown in a shorter window')
+          if (!runsPastBottom(tool))
+            throw new Error(
+              'In a shorter window Computer still fits in the margin: the sheet is not at its limit, so this does not show the header under a tool taller than the sheet',
+            )
+          shot('margin-font-200-short-window')
+        } finally {
+          device.shell('wm size reset')
+          await sleep(2000)
+        }
+        // Read again: the tabs moved back with the window.
+        sheet = await device.waitFor(showsComputer, 'Computer, the window restored')
         sheet = await openTab(
           sheet,
           'Waiting',
@@ -726,7 +762,7 @@ async function demoSuite() {
             text.startsWith('Show approval:') ||
             text === 'Nothing is waiting on you here.',
         )
-        whole(sheet.root, 'Waiting')
+        whole(sheet.root, 'with Waiting shown')
         shot('margin-font-200')
         await audit('Working margin at 200% font', sheet.root)
         await device.key('KEYCODE_BACK')
@@ -739,7 +775,7 @@ async function demoSuite() {
         await sleep(2000)
       }
       note(
-        'at 200% font, with Computer and then Waiting shown, every tab is whole: in no row that scrolls and at least 48dp each way (ui.ts tabsWhole); back closed the margin',
+        'at 200% font, with Computer shown (in the full window, then in one a quarter shorter, where the sheet stops at its limit and Computer scrolls) and with Waiting, every tab is whole: in no row that scrolls, at least 48dp each way and clear of the tool (ui.ts tabsWhole, tabsClear); back closed the margin',
       )
     },
   )

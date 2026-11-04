@@ -458,8 +458,9 @@ function nearestScrollable(node: UiNode): UiNode | undefined {
  * parent (it can be scrolled out of view), or one measuring under `minDp`
  * either way (cut by its row, its sheet or the screen). uiautomator clips
  * every node's bounds to its parents and the display, so a tab partly off
- * screen, or under a header that shrank, shows here as too small, never as
- * out of bounds (review 4bdfe6c1, B-1). A whole tab is at least 48dp.
+ * screen, or pushed past the sheet's top edge, shows here as too small, never
+ * as out of bounds (review 4bdfe6c1, B-1). A whole tab is at least 48dp. A tab
+ * pushed down over the tool beneath keeps its bounds whole: tabsClear sees it.
  */
 export function tabsWhole(
   tabs: readonly UiNode[],
@@ -480,6 +481,57 @@ export function tabsWhole(
       )
   }
   return problems
+}
+
+/** The tool shown beneath a row of tabs: the nearest scroll view holding none of them. */
+export function toolBeneath(tabs: readonly UiNode[]): UiNode | undefined {
+  for (let holder = tabs[0]?.parent; holder; holder = holder.parent) {
+    const tool = flatten(holder).find(
+      (node) => node.scrollable && !tabs.some((tab) => within(tab, node)),
+    )
+    if (tool) return tool
+  }
+  return undefined
+}
+
+/**
+ * Tabs that reach down into the tool beneath them, if any. Fabric mounts a
+ * View that only draws (a border, a background) without making its children
+ * its own, so the sheet's header is a bare box beside the tab list, and
+ * uiautomator clips a tab to the sheet, never to the header. A header laid out
+ * shorter than its tabs (held to a height, or squeezed by a tall tool) has
+ * them centred on it: the first row goes past the sheet's top edge, cut
+ * (tabsWhole), and the last reaches over the tool with its bounds whole, which
+ * only this sees (review 4bdfe6c1, B-1).
+ */
+export function tabsClear(
+  tabs: readonly UiNode[],
+  tool: UiNode,
+  density: number,
+): string[] {
+  const scale = density / 160
+  const problems: string[] = []
+  for (const tab of tabs) {
+    const overDp = (tab.bounds.bottom - tool.bounds.top) / scale
+    // Half a dp of slack for layout rounding to whole pixels, as tabsWhole allows.
+    if (overDp > 0.5)
+      problems.push(
+        `"${label(tab)}" reaches ${overDp.toFixed(1)}dp into the tool beneath it`,
+      )
+  }
+  return problems
+}
+
+/**
+ * True when a scroll view's content runs past its bottom edge: a named node in
+ * it is cut there or lies beyond. UI Automator keeps nodes scrolled out of
+ * view, with empty or inverted bounds clipped to the edge, so both end at it;
+ * content that fits ends above it, by its padding at least.
+ */
+export function runsPastBottom(scroll: UiNode): boolean {
+  return flatten(scroll).some(
+    (node) => label(node) !== '' && node.bounds.bottom >= scroll.bounds.bottom,
+  )
 }
 
 /** True when the node touches its scroll container's edge, so its bounds may be clipped. */
