@@ -26,6 +26,7 @@ import {
   expect,
   test,
   type ElectronApplication,
+  type Locator,
   type Page,
 } from '@playwright/test'
 import { execFileSync, spawn } from 'node:child_process'
@@ -686,6 +687,48 @@ const screenPixel = (page: Page, x: number, y: number) =>
       [x, y] as const,
     )
 
+/** A path for a screenshot outside the repository (CINDL_SMOKE_ARTIFACTS or test output). */
+function artifact(name: string): string {
+  const directory = env.CINDL_SMOKE_ARTIFACTS ?? test.info().outputPath()
+  mkdirSync(directory, { recursive: true })
+  return path.join(directory, name)
+}
+
+/** The page's viewport, in CSS pixels. */
+const viewport = (page: Page) =>
+  page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight }))
+
+/** Resizes the window's content area, as dragging its edge would. */
+async function resizeWindow(
+  { app, page }: Launched,
+  size: { width: number; height: number },
+) {
+  await app.evaluate(({ BrowserWindow }: typeof Electron, { width, height }) => {
+    BrowserWindow.getAllWindows()[0]?.setContentSize(width, height)
+  }, size)
+  await expect.poll(() => viewport(page)).toEqual(size)
+}
+
+/**
+ * The conversation's panel, the working margin (ADR 0013): a column at
+ * 1280px and wider, a modal sheet below.
+ */
+const marginOf = (page: Page, wide: boolean) =>
+  wide
+    ? page.getByRole('complementary', { name: 'Working margin' })
+    : page.getByRole('dialog', { name: 'Working margin' })
+
+/** One pixel of the live screen inside `scope`, in screen coordinates (RGBA). */
+const pixelIn = (scope: Locator, x: number, y: number) =>
+  scope
+    .getByRole('img', { name: 'The agent’s screen, live.' })
+    .evaluate(
+      (canvas: HTMLCanvasElement, [px, py]) => [
+        ...(canvas.getContext('2d')?.getImageData(px, py, 1, 1).data ?? []),
+      ],
+      [x, y] as const,
+    )
+
 test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
   let launched: Launched | undefined
   let fake: FakeHermes | undefined
@@ -929,6 +972,55 @@ test.describe('Cindl (real flavour) against a local fake hermes serve', () => {
     // 20 empty calls, then 5 rounds of watch, 5 frames and unwatch.
     expect(replies).toEqual({ count: 55, leaked: 0 })
   })
+
+  test('keeps the sign-in screen while main waits for the browser; Stop waiting frees the form', async () => {
+    const { app, page } = launched as Launched
+    const hermes = fake as FakeHermes
+    if ((await linkPhase(page)) !== 'signed-out')
+      await bridgeCall(page, 'auth.signOut', {})
+    await expect.poll(() => linkPhase(page)).toBe('signed-out')
+    // The owner confirms main's dialog; the browser never comes back (a closed tab).
+    await app.evaluate(({ dialog, shell }: typeof Electron) => {
+      dialog.showMessageBox = () =>
+        Promise.resolve({ response: 1, checkboxChecked: false })
+      shell.openExternal = () => Promise.resolve()
+    })
+    const address = page.getByRole('textbox', { name: 'Hermes address' })
+    await address.fill(hermes.origin)
+    await page.getByRole('button', { name: 'Sign in', exact: true }).click()
+    const waiting = page.getByRole('button', { name: 'Waiting for the browser…' })
+    const stop = page.getByRole('button', { name: 'Stop waiting' })
+    await expect(waiting).toBeDisabled()
+    await expect(stop).toBeVisible()
+    await expect(page.getByText(/Finish signing in in your browser/)).toBeVisible()
+    // Main is waiting on the system browser and the client says connecting;
+    // the screen stays because its own sign-in is out (web e07611c).
+    await expect.poll(() => linkPhase(page)).toBe('connecting')
+    await page.waitForTimeout(1_000)
+    await expect(address).toBeVisible()
+    await expect(waiting).toBeVisible()
+    await page.screenshot({ path: artifact('desktop-real-signin-waiting.png') })
+    // Stop waiting frees the form, not the screen: the attempt is still out.
+    await stop.click()
+    const submit = page.getByRole('button', { name: 'Sign in', exact: true })
+    await expect(submit).toBeEnabled()
+    await expect(stop).toHaveCount(0)
+    await expect(address).toBeEditable()
+    expect(await linkPhase(page)).toBe('connecting')
+    await page.screenshot({ path: artifact('desktop-real-signin-stopped.png') })
+    // A newer sign-in replaces that wait; this time the browser comes back.
+    await app.evaluate(({ shell }: typeof Electron) => {
+      shell.openExternal = async (url: string) => {
+        const authorize = await fetch(url, { redirect: 'manual' })
+        const location = authorize.headers.get('location')
+        if (location) await fetch(location)
+      }
+    })
+    await submit.click()
+    await expect.poll(() => linkPhase(page)).toBe('online')
+    await expect(address).toHaveCount(0)
+    expect(await bridgeCall(page, 'auth.signOut', {})).toEqual({ localOnly: true })
+  })
 })
 
 test.describe('Cindl refuses to run without the sandbox', () => {
@@ -1013,5 +1105,79 @@ test.describe('Cindl Demo (demo flavour)', () => {
       BrowserWindow.getAllWindows()[0]?.getTitle(),
     )
     expect(title).toContain(DEMO_PRODUCT_NAME)
+  })
+
+  // ADR 0013: the working margin is the conversation's panel. The renderer is
+  // the web app's; these run it in the app, at the default window size and
+  // at a narrow one, on the synthetic scenario.
+  test('shows the conversation panel with its three tools at the default window size', async () => {
+    const { page } = launched as Launched
+    await expect(page.getByRole('note')).toHaveText(SYNTHETIC_DEMO_NOTICE)
+    // The default window (1280x820, the menu bar inside it) is just wide
+    // enough for the column.
+    expect((await viewport(page)).width).toBe(1280)
+    const margin = marginOf(page, true)
+    await expect(margin).toBeVisible()
+    await expect(
+      margin.getByRole('tab', { name: /^Waiting \d+$/, selected: true }),
+    ).toBeVisible()
+    await expect(margin.getByRole('tab', { name: 'Step' })).toBeVisible()
+    await expect(margin.getByRole('tab', { name: 'Computer' })).toBeVisible()
+    await page.screenshot({ path: artifact('desktop-demo-panel.png') })
+  })
+
+  test('its Computer tool shows the agent screen, and leaving the tool closes the view', async () => {
+    const { page } = launched as Launched
+    const margin = marginOf(page, true)
+    await margin.getByRole('tab', { name: 'Computer' }).click()
+    await expect(
+      margin.getByRole('img', { name: 'The agent’s screen, live.' }),
+    ).toBeVisible()
+    // The synthetic screen's top bar, painted from frames main sends over IPC.
+    await expect.poll(() => pixelIn(margin, 2, 2)).toEqual([31, 42, 48, 255])
+    await page.screenshot({ path: artifact('desktop-demo-panel-computer.png') })
+    await margin.getByRole('tab', { name: /^Waiting/ }).click()
+    await expect(margin.locator('canvas')).toHaveCount(0)
+  })
+
+  test('Ctrl+. hides and shows the panel', async () => {
+    const { page } = launched as Launched
+    const margin = marginOf(page, true)
+    await expect(margin).toBeVisible()
+    await page.keyboard.press('Control+.')
+    await expect(margin).toHaveCount(0)
+    await expect(
+      page.getByRole('button', { name: 'Show the working margin' }),
+    ).toHaveAttribute('aria-pressed', 'false')
+    await page.keyboard.press('Control+.')
+    await expect(margin).toBeVisible()
+  })
+
+  test('below 1280px the panel is a sheet with the same tools; Escape returns focus', async () => {
+    const { page } = launched as Launched
+    await resizeWindow(launched as Launched, { width: 960, height: 760 })
+    await expect(marginOf(page, true)).toHaveCount(0)
+    const toggle = page.getByRole('button', { name: 'Show the working margin' })
+    await toggle.click()
+    const sheet = marginOf(page, false)
+    await expect(sheet).toBeVisible()
+    // It opens with focus on the chosen tool's tab.
+    await expect(
+      sheet.getByRole('tab', { name: /^Waiting \d+$/, selected: true }),
+    ).toBeFocused()
+    await expect(sheet.getByRole('tab', { name: 'Step' })).toBeVisible()
+    await sheet.getByRole('tab', { name: 'Computer' }).click()
+    await expect.poll(() => pixelIn(sheet, 2, 2)).toEqual([31, 42, 48, 255])
+    await page.screenshot({ path: artifact('desktop-demo-panel-sheet.png') })
+    await page.keyboard.press('Escape')
+    await expect(sheet).toBeHidden()
+    await expect(toggle).toBeFocused()
+    // Closing the sheet closed the screen view with it.
+    await expect(page.locator('canvas')).toHaveCount(0)
+    // Ctrl+. opens and closes the sheet as well.
+    await page.keyboard.press('Control+.')
+    await expect(sheet).toBeVisible()
+    await page.keyboard.press('Control+.')
+    await expect(sheet).toBeHidden()
   })
 })
