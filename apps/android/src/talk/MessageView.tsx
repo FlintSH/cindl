@@ -1,10 +1,10 @@
 import type { Message } from '@cindl/contracts'
 import { memo, useState } from 'react'
-import { Pressable, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { Markdown } from '../markdown/Markdown.tsx'
 import { useTheme } from '../theme/theme.tsx'
 import { ChevronDown, ChevronRight } from '../ui/icons.ts'
-import { Txt } from '../ui/primitives.tsx'
+import { Press, Txt } from '../ui/primitives.tsx'
 import { clockTime } from './format.ts'
 import { ToolRow } from './ToolRow.tsx'
 
@@ -118,7 +118,7 @@ function Reasoning({ text }: { text: string }) {
   const Chevron = open ? ChevronDown : ChevronRight
   return (
     <View style={{ gap: theme.space[2] }}>
-      <Pressable
+      <Press
         accessibilityRole="button"
         accessibilityState={{ expanded: open }}
         accessibilityLabel="Reasoning"
@@ -133,7 +133,7 @@ function Reasoning({ text }: { text: string }) {
       >
         <Chevron size={14} color={theme.colors.textTertiary} strokeWidth={1.75} />
         <Txt tone="tertiary">Reasoning</Txt>
-      </Pressable>
+      </Press>
       {open ? (
         <Text
           selectable

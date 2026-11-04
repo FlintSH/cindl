@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import { MEMORY_DRAFT_PREFIX } from '../src/library/memory.ts'
 import { keptDrafts } from '../src/views/drafts.ts'
 import {
+  BRIEF,
   fixtureEntries,
   fp,
   GLAZE,
   harness,
   HARBOR,
   KILN,
+  lockedNow,
   openEntry,
 } from './memoryScreen.tsx'
 
@@ -54,6 +56,13 @@ describe('drafts under Unsaved drafts', () => {
     expect(h.hasText('A second take on the kiln log')).toBe(true)
     expect(h.hasText(/^Written for/)).toBe(false)
   })
+
+  it('says so for a note about you as well (review 1b8252ea, S5)', async () => {
+    keptDrafts.set(key('profile', BRIEF, true), 'A second take on the morning brief')
+    const h = harness()
+    await h.settle()
+    expect(h.hasText('Written for note about you 1.')).toBe(true)
+  })
 })
 
 describe('entry names', () => {
@@ -70,10 +79,26 @@ describe('entry names', () => {
       'Open memory entry: agent note 2',
     ])
   })
+
+  it("names the entry now at a locked editor's place the same way (review 1b8252ea, S5)", async () => {
+    const h = harness()
+    await openEntry(h, /Glaze supplier/)
+    // Elsewhere, another entry takes the place: its first line is a bare heading.
+    h.mem.replace(/Glaze supplier/, '#\nThe glaze order moved to Fridays (fictional).')
+    h.press('Reload')
+    await h.settle()
+    expect(lockedNow(h)).toBe(true)
+    expect(
+      h.hasText('Now at this place: “The glaze order moved to Fridays (fictional).”.'),
+    ).toBe(true)
+  })
 })
 
 describe('a refusal Discard clears', () => {
-  it('clears "changed since you read it" on discard, and a stale save is still refused', async () => {
+  // That the discard clears the refusal is pinned in editor-steps.test.tsx: the
+  // refusal shows only in a review, and Edit clears it too, so this screen
+  // cannot tell (review 1b8252ea, S4).
+  it('refuses the same stale save again after a discard', async () => {
     const h = harness()
     await openEntry(h, /Glaze supplier/)
     h.press('Edit')
@@ -93,7 +118,6 @@ describe('a refusal Discard clears', () => {
     await h.settle()
     h.press('Discard')
     await h.settle()
-    expect(h.alerts().join(' ')).not.toMatch(/changed since you read it/)
     // The text read is still the old one: saving it again is refused again.
     h.press('Edit')
     h.change('Glaze supplier calls moved to Mondays (fictional supplier).')

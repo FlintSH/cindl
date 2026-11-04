@@ -95,7 +95,7 @@ export const memoryDraftKey = (id: string) => `${MEMORY_DRAFT_PREFIX}${identityO
  * How the delete confirmation names an entry, and a discard control its
  * draft: the first line with words in it once heading marks are stripped, cut
  * as Hermes cuts its card titles (`agent/learning_graph.py`), else "this
- * entry". The lock notice uses the list's own title.
+ * entry". The lock's "now here" names an entry as labels do (`entryName`).
  */
 export function titleOf(content: string): string {
   return cut(firstWords(content) ?? 'this entry')
@@ -113,8 +113,8 @@ const cut = (text: string) => (text.length > 80 ? `${text.slice(0, 80)}…` : te
 /**
  * An entry's name in labels (web parity, cb9caeb): Hermes's title; when that
  * is empty (a first line of only heading marks), its first line with words;
- * when it has none, its place ("agent note 3"), so no two entries share a
- * name.
+ * when it has none, its place ("agent note 3"), so an entry without words
+ * still has a name of its own.
  */
 export function entryName(entry: MemoryEntrySummary, place: number): string {
   return (
@@ -439,7 +439,7 @@ export interface EntryEditorView {
    * it says where that draft goes when the editor closes.
    */
   lockNotice: ((keptAs: string | undefined) => string) | undefined
-  /** The title of the entry listed at the place, when locked. */
+  /** The name of the entry listed at the place, when locked (`entryName`). */
   nowHere: string | undefined
   /** The entry "Use this draft for the entry now here" would use the draft for. */
   adoptTarget: MemoryEntrySummary | undefined

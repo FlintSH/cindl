@@ -104,11 +104,63 @@ const noDomGlobals = {
   },
 }
 
+/**
+ * React Native's Pressable notes no press. The app's controls are
+ * ui/primitives.tsx Press or Button, which note each one (overlay/opener.ts):
+ * an overlay a control opens gives focus back to it, and a step that lands
+ * later (a save) gives none once the owner pressed something else.
+ */
+const noBarePressable = {
+  meta: {
+    type: 'problem',
+    docs: {
+      description: "Controls are Press or Button, never React Native's Pressable.",
+    },
+    schema: [],
+    messages: {
+      bare: 'Use Press or Button (ui/primitives.tsx): they note each press, so focus comes back to the control and a save gives none after another press.',
+    },
+  },
+  create(context) {
+    /** Names `react-native` is imported under as a namespace (`import * as RN`). */
+    const namespaces = new Set()
+    const isPressable = (name) =>
+      (name.type === 'Identifier' || name.type === 'JSXIdentifier'
+        ? name.name
+        : name.value) === 'Pressable'
+    return {
+      ImportDeclaration(node) {
+        if (node.source.value !== 'react-native') return
+        for (const spec of node.specifiers) {
+          if (spec.type === 'ImportSpecifier' && isPressable(spec.imported))
+            context.report({ node: spec, messageId: 'bare' })
+          if (spec.type === 'ImportNamespaceSpecifier') namespaces.add(spec.local.name)
+        }
+      },
+      ExportNamedDeclaration(node) {
+        if (node.source?.value !== 'react-native') return
+        for (const spec of node.specifiers)
+          if (isPressable(spec.local)) context.report({ node: spec, messageId: 'bare' })
+      },
+      'MemberExpression, JSXMemberExpression'(node) {
+        const object = node.object
+        if (
+          (object.type === 'Identifier' || object.type === 'JSXIdentifier') &&
+          namespaces.has(object.name) &&
+          isPressable(node.property)
+        )
+          context.report({ node, messageId: 'bare' })
+      },
+    }
+  },
+}
+
 export default {
   meta: { name: 'cindl-android' },
   rules: {
     'storage-in-platform': storageInPlatform,
     'no-raw-colour': noRawColour,
     'no-dom-globals': noDomGlobals,
+    'no-bare-pressable': noBarePressable,
   },
 }

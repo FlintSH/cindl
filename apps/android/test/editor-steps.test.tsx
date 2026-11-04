@@ -4,15 +4,19 @@ import type { CindlClientApi, VersionedDocument } from '@cindl/contracts'
 import { act, fireEvent, render } from '@testing-library/react'
 import type { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { DestinationActiveProvider } from '../src/nav/NavProvider.tsx'
+import { BottomNav } from '../src/shell/BottomNav.tsx'
 import { Button } from '../src/ui/primitives.tsx'
 import { DocumentEditor } from '../src/views/DocumentEditor.tsx'
 import { keptDrafts } from '../src/views/drafts.ts'
+import { Tabs } from '../src/views/Page.tsx'
 import { Providers } from './memoryScreen.tsx'
 import { hardwareBack, nativeLog } from './render/react-native.tsx'
 
 // Focus after each step of the editor (web parity, cb9caeb): what took the
 // place of the control the owner pressed, or of the step system back left.
-// The shipped DocumentEditor, beside a control elsewhere on screen.
+// The shipped DocumentEditor, on a destination that may be hidden, beside
+// controls elsewhere on screen: a button, the bottom navigation, a page's tabs.
 // memoryScreen.tsx's hooks clean up after each test.
 
 const client = {
@@ -37,31 +41,49 @@ beforeEach(() => {
   keptDrafts.clear()
 })
 
-type Props = Partial<ComponentProps<typeof DocumentEditor>>
+type Props = Partial<ComponentProps<typeof DocumentEditor>> & {
+  /** The editor's destination is the one shown (AppShell's layers). */
+  shown?: boolean
+}
 
 /** The editor with a save Hermes holds until `land` or `refuse`. */
 function editor() {
   let land: (saved: VersionedDocument) => void = () => undefined
   let refuse: (error: unknown) => void = () => undefined
   let now: Props = {}
-  const tree = () => (
-    <Providers api={client}>
-      <DocumentEditor
-        document={READ}
-        label="SOUL.md"
-        canWrite
-        onSave={() =>
-          new Promise<VersionedDocument>((resolve, reject) => {
-            land = resolve
-            refuse = reject
-          })
-        }
-        onReload={() => undefined}
-        {...now}
-      />
-      <Button label="Elsewhere" onPress={() => undefined} />
-    </Providers>
-  )
+  const tree = () => {
+    const { shown = true, ...props } = now
+    return (
+      <Providers api={client}>
+        <DestinationActiveProvider value={shown}>
+          <DocumentEditor
+            document={READ}
+            label="SOUL.md"
+            canWrite
+            onSave={() =>
+              new Promise<VersionedDocument>((resolve, reject) => {
+                land = resolve
+                refuse = reject
+              })
+            }
+            onReload={() => undefined}
+            {...props}
+          />
+        </DestinationActiveProvider>
+        <Button label="Elsewhere" onPress={() => undefined} />
+        <BottomNav current="agent" workCount={0} onSelect={() => undefined} />
+        <Tabs
+          label="Agent sections"
+          items={[
+            { id: 'identity', label: 'Identity' },
+            { id: 'device', label: 'This device' },
+          ]}
+          current="identity"
+          onSelect={() => undefined}
+        />
+      </Providers>
+    )
+  }
   const view = render(tree())
   const settle = () =>
     act(async () => {
@@ -81,14 +103,23 @@ function editor() {
       ? (node.getAttribute('aria-label') ?? node.textContent ?? '')
       : String(node)
   return {
-    async press(label: string) {
+    async press(label: string, role = 'button') {
       const target = [
-        ...view.container.querySelectorAll<HTMLElement>('[role="button"]'),
+        ...view.container.querySelectorAll<HTMLElement>(`[role="${role}"]`),
       ].find((element) => element.getAttribute('aria-label') === label)
-      if (!target) throw new Error(`no button ${label}`)
+      if (!target) throw new Error(`no ${role} ${label}`)
       fireEvent.click(target)
       await settle()
     },
+    /** Alerts on screen (a refusal, a lock), by their text. */
+    alerts: () =>
+      [...view.container.querySelectorAll('[role="alert"]')].map(
+        (element) => element.textContent ?? '',
+      ),
+    disabled: (label: string) =>
+      [...view.container.querySelectorAll<HTMLElement>('[role="button"]')]
+        .find((element) => element.getAttribute('aria-label') === label)
+        ?.getAttribute('aria-disabled') === 'true',
     async change(text: string) {
       const box = view.container.querySelector('textarea')
       if (!box) throw new Error('no draft box')
@@ -122,6 +153,8 @@ function editor() {
   }
 }
 
+type Editor = ReturnType<typeof editor>
+
 /** Edit, a change, Review, Confirm: the save is on its way. */
 async function saving() {
   const e = editor()
@@ -146,6 +179,84 @@ describe('a save gives focus to Edit once it lands', () => {
     await e.land(SAVED)
     expect(e.sent()).toEqual({ talkBack: [], keyboard: [] })
   })
+
+  // Review 1b8252ea, S1 (its P1): a move that is no Button's press counts too.
+  it.each([
+    ['a tab of the bottom navigation', (e: Editor) => e.press('Work', 'tab')],
+    ["a tab of the page's sections", (e: Editor) => e.press('This device', 'tab')],
+    ['system back', (e: Editor) => e.back()],
+  ])('nor once the owner moved with %s', async (_, move) => {
+    const e = await saving()
+    await move(e)
+    await e.land(SAVED)
+    expect(e.sent()).toEqual({ talkBack: [], keyboard: [] })
+  })
+
+  // Review 1b8252ea, S1 (its P2): hidden, the editor's controls take no
+  // keyboard focus, and the focus module would climb out to the screen shown.
+  it('nor when its destination is no longer the one shown', async () => {
+    const e = await saving()
+    await e.rerender({ shown: false })
+    await e.land(SAVED)
+    expect(e.sent()).toEqual({ talkBack: [], keyboard: [] })
+  })
+})
+
+describe('"Discard the draft" (review 1b8252ea, S2)', () => {
+  it('gives focus to Edit, which takes the place of the offer it removes (web parity, e395d03)', async () => {
+    const e = editor()
+    // A kept draft the editor does not hold is offered beside the text read.
+    keptDrafts.set('SOUL.md', 'A kept draft of the voice.')
+    await e.rerender({})
+    e.sent()
+    await e.press('Discard the draft')
+    expect(keptDrafts.has('SOUL.md')).toBe(false)
+    expect(e.sent()).toEqual({ talkBack: ['Edit'], keyboard: ['Edit'] })
+  })
+})
+
+describe('a stale refusal ends with a discard (review 1b8252ea, S4)', () => {
+  /**
+   * A save refused as stale, after one that landed (so the text it replaced
+   * can be restored), then back to the draft: the refusal is still set.
+   */
+  async function refusedAfterASave() {
+    const e = await saving()
+    await e.land(SAVED)
+    await e.rerender({ document: SAVED })
+    await e.press('Edit')
+    await e.change('A calm voice, and briefer still.')
+    await e.press('Review changes')
+    await e.press('Confirm and save')
+    await e.refuse(new CindlError('conflict', 'SOUL.md changed since you read it.'))
+    expect(e.alerts()).toEqual(['SOUL.md changed since you read it. Your draft is kept.'])
+    expect(e.disabled('Confirm and save')).toBe(true)
+    await e.press('Back to editing')
+    return e
+  }
+
+  // Restore previous version leads to a review without passing Edit, which
+  // would clear the refusal itself; the review reached that way shows none.
+  it.each([
+    ['Discard changes', (e: Editor) => e.press('Discard changes')],
+    [
+      "the discard dialog's Discard",
+      async (e: Editor) => {
+        await e.back()
+        await e.press('Discard')
+      },
+    ],
+  ])(
+    '%s clears it, so a review reached through Restore previous version shows none',
+    async (_, discard) => {
+      const e = await refusedAfterASave()
+      await discard(e)
+      await e.press('Restore previous version')
+      await e.press('Review changes')
+      expect(e.alerts()).toEqual([])
+      expect(e.disabled('Confirm and save')).toBe(false)
+    },
+  )
 })
 
 describe('the steps out of a review and back to the text', () => {

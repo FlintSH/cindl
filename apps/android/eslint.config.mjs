@@ -38,7 +38,14 @@ export default [
       'cindl-android/no-dom-globals': 'error',
       'cindl-android/no-raw-colour': 'error',
       'cindl-android/storage-in-platform': 'error',
+      'cindl-android/no-bare-pressable': 'error',
     },
+  },
+  {
+    // Press is built on Pressable; an overlay's scrim is no control: its taps
+    // close the overlay that a noted press opened (overlay/Sheet.tsx).
+    files: ['src/ui/primitives.tsx', 'src/overlay/Sheet.tsx'],
+    rules: { 'cindl-android/no-bare-pressable': 'off' },
   },
   {
     // The platform layer is where the device's storage is opened.

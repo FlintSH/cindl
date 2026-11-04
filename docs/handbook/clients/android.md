@@ -499,11 +499,13 @@ Hermes server, Chrome's Custom Tab, and a phone.
   - An entry's name in labels (Open, Close, the lock's "now here") is
     Hermes's title; when that is empty (a first line of only heading marks),
     its first line with words; when it has none, its place ("agent note 3"),
-    so no two entries share a name (web parity, e395d03 and cb9caeb).
-  - Discarding a draft Hermes refused as stale clears the refusal; saving
-    the same stale text again is refused again. On Android the refusal could
-    not outlive a discard anyway (Edit clears it), unlike the web's disabled
-    "Confirm and save".
+    so an entry without words still has a name of its own (web parity,
+    e395d03 and cb9caeb). Entries with the same title or first words share
+    their name.
+  - Discarding a draft Hermes refused as stale clears the refusal, so a
+    review reached afterwards without Edit (through **Restore previous
+    version**) neither shows it nor keeps **Confirm and save** disabled;
+    saving the same stale text again is refused again.
   - When a locked editor's entry has moved, the lock says where the text you
     were editing goes when you close it: back with the entry, back to the
     entry it was written for, or under **Unsaved drafts**.
@@ -511,17 +513,25 @@ Hermes server, Chrome's Custom Tab, and a phone.
     the text Cindl read under the id the delete sends ("this entry" if there
     is none). The confirmation closes if the entry read there changes.
     Deleting warns first, because Hermes keeps no backup.
-  - Each step in the editor (Edit, Continue the draft, Review changes, Back
-    to editing, Discard changes, Reload and keep my draft, Restore previous
-    version, a save, or system back) gives TalkBack focus and a hardware
-    keyboard's to what took the place of the control you pressed: the lock
-    notice while the editor is locked, else the draft, the review's summary,
-    or **Edit** (**Reload** when there is no Edit). A save gives focus to
-    Edit when it lands, and none if you pressed anything else while it was on
-    its way: focus you moved stays where you moved it (web parity, cb9caeb).
-    Known gap: moving TalkBack focus with a swipe is not seen (React Native
-    does not report it), so a save that lands after a swipe elsewhere still
-    gives focus to Edit; the web keeps it wherever you moved it.
+  - Each step in the editor (Edit, Continue the draft, Discard the draft,
+    Review changes, Back to editing, Discard changes, Reload and keep my
+    draft, Restore previous version, a save, or system back) gives TalkBack
+    focus and a hardware keyboard's to what took the place of the control you
+    pressed: the lock notice while the editor is locked, else the draft, the
+    review's summary (the web focuses the changes themselves), or **Edit**
+    (**Reload** when there is no Edit). The lock notice and the summary are
+    plain text, which takes no keyboard focus, so a keyboard's goes to the
+    first control around them. A save gives focus to Edit when it lands, and
+    none if you moved meanwhile: pressed any control (the bottom navigation
+    and a page's tabs included; every control notes its press) or system
+    back, or if the editor's screen is no longer the one shown. Focus you moved stays where you moved it (web
+    parity, cb9caeb). While the save is on its way, and after Hermes refuses
+    it as stale, **Confirm and save** is disabled but keeps TalkBack's and a
+    keyboard's focus (React Native 0.88 keeps a disabled control focusable);
+    the web moves focus to the changes. Known gap: some moves are not seen,
+    so a save that lands after them still gives focus to Edit, where the web
+    keeps it wherever you moved it: a TalkBack swipe (React Native does not
+    report it), a keyboard's Tab or arrow keys, and a tap in a text field.
   - TalkBack focus moves into your draft when an adoption completes, and onto
     the lock notice whenever the editor locks: React Native does not tell the
     app where TalkBack focus is, so Cindl cannot tell whether the control it

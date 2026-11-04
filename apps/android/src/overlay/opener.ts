@@ -14,18 +14,30 @@ export type FocusTarget = () => HostInstance | null | undefined
  */
 let last: { control: { current: HostInstance | null }; at: number } | undefined
 
-let presses = 0
+let moves = 0
 
+/** A press on a control (ui/primitives.tsx Press and Button note every one). */
 export function notePress(control: { current: HostInstance | null }): void {
   last = { control, at: Date.now() }
-  presses += 1
+  moves += 1
 }
 
 /**
- * How many presses the owner has made. A step that moves focus once it lands
- * (a save) gives none if another press came in between: the owner has moved.
+ * The owner moved without pressing a control: system back (NavProvider). It
+ * opens nothing, so no opener is noted. (A tap on a scrim needs no count of its
+ * own: its overlay opened after a press, which counted.)
  */
-export const pressCount = () => presses
+export function noteMove(): void {
+  moves += 1
+}
+
+/**
+ * How many moves the owner has made: presses on controls and system back. A
+ * step that moves focus once it lands (a save) gives none if the owner moved
+ * in between. A TalkBack swipe, a keyboard's Tab and a tap in a text field
+ * are not seen.
+ */
+export const ownerMoves = () => moves
 
 /** The control pressed just now, if any: the opener of an overlay opening now. */
 export function justPressed(): { current: HostInstance | null } | undefined {

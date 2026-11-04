@@ -11,7 +11,7 @@ import {
 } from 'react-native'
 import { useBackHandler, useDestinationActive } from '../nav/NavProvider.tsx'
 import { giveKeyboardFocus } from '../overlay/keyboardFocus.ts'
-import { pressCount } from '../overlay/opener.ts'
+import { ownerMoves } from '../overlay/opener.ts'
 import { Dialog } from '../overlay/Sheet.tsx'
 import { describeFailure, NOT_APPLIED, SAVE_UNCERTAIN } from '../talk/failures.ts'
 import { useTheme } from '../theme/theme.tsx'
@@ -127,13 +127,25 @@ export function DocumentEditor({
   // left): TalkBack focus and a keyboard's go to what took its place, the lock
   // notice while locked, else the draft, the review, or Edit (Reload when
   // there is no Edit). A step that lands later (a save) gives none once the
-  // owner has pressed something else meanwhile (web parity, cb9caeb).
+  // owner has moved meanwhile (opener.ts ownerMoves), or when this editor's
+  // destination is no longer the one shown (web parity, cb9caeb).
   const reload = useRef<HostInstance | null>(null)
   const reviewText = useRef<HostInstance | null>(null)
-  const stepPresses = useRef<number>(undefined)
+  const stepMoves = useRef<number>(undefined)
+  /** A step whose focus moves once the stage it leads to is on screen. */
   const step = () => {
-    stepPresses.current = pressCount()
+    stepMoves.current = ownerMoves()
   }
+  // A step that keeps the stage (Discard the draft) moves focus once it renders.
+  const [stepped, setStepped] = useState(0)
+  const stepInPlace = () => {
+    step()
+    setStepped((count) => count + 1)
+  }
+  const shown = useRef(active)
+  useLayoutEffect(() => {
+    shown.current = active
+  })
   const lockText = useRef<HostInstance>(null)
   const isLocked = Boolean(locked)
   const wasLocked = useRef(isLocked)
@@ -148,11 +160,13 @@ export function DocumentEditor({
     return () => clearTimeout(timer)
   }, [isLocked])
   useEffect(() => {
-    const presses = stepPresses.current
-    if (presses === undefined) return
-    stepPresses.current = undefined
+    const moves = stepMoves.current
+    if (moves === undefined) return
+    stepMoves.current = undefined
     const timer = setTimeout(() => {
-      if (pressCount() !== presses) return
+      // Hidden, its controls are closed to a keyboard's focus, and the focus
+      // module would climb out to the destination on screen.
+      if (!shown.current || ownerMoves() !== moves) return
       // The lock notice is there only while the editor is locked (lockPanel).
       const node =
         lockText.current ??
@@ -165,7 +179,7 @@ export function DocumentEditor({
       giveKeyboardFocus(node)
     }, 60)
     return () => clearTimeout(timer)
-  }, [stage.kind])
+  }, [stage.kind, stepped])
   const [failure, setFailure] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
   // The text a save replaced, with the version that save produced.
@@ -320,6 +334,8 @@ export function DocumentEditor({
                   label="Discard the draft"
                   variant="quiet"
                   onPress={() => {
+                    // Its offer goes with it: focus to Edit (web parity, e395d03).
+                    stepInPlace()
                     keptDrafts.delete(draftKey)
                     setKeptSeen((value) => value + 1)
                   }}

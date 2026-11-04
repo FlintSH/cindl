@@ -6,6 +6,7 @@ import {
   DELETE_REFUSED,
   DELETE_UNCERTAIN,
   entryAt,
+  entryName,
   memoryDelete,
   memoryDocument,
   memoryEntryName,
@@ -50,6 +51,24 @@ describe('memory entry places', () => {
     ]
     expect(entryAt(saved as MemoryEntrySummary[], place)?.id).toBe(
       'memory:memory:1:eeeeeeeeeeee',
+    )
+  })
+})
+
+describe('an entry with no title in words (review 1b8252ea, S5)', () => {
+  const entry = (title: string, preview: string): MemoryEntrySummary => ({
+    ...summary('memory:memory:0:aaaaaaaaaaaa', 'memory'),
+    title,
+    preview,
+  })
+
+  it('is named by its first words when its title is only spaces, else by its place', () => {
+    expect(entryName(entry('  \t ', '##\nKiln shelves rotate in May.'), 1)).toBe(
+      'Kiln shelves rotate in May.',
+    )
+    expect(entryName(entry(' ', '###\n#'), 3)).toBe('agent note 3')
+    expect(entryName(entry('Kiln shelves', 'Kiln shelves rotate in May.'), 1)).toBe(
+      'Kiln shelves',
     )
   })
 })

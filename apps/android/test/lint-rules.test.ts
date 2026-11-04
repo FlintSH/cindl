@@ -120,6 +120,29 @@ describe('Android lint rules', () => {
     expect(await rulesFor(code, 'apps/android/src/platform/client.ts')).toContain(rule)
   })
 
+  it.each([
+    "import { Pressable } from 'react-native'\nexport const P = Pressable",
+    "import { Pressable as Tap } from 'react-native'\nexport const P = Tap",
+    "export { Pressable } from 'react-native'",
+    "import * as RN from 'react-native'\nexport const P = RN.Pressable",
+  ])('refuses a bare Pressable, which notes no press: %s', async (code) => {
+    expect(await rulesFor(code, 'apps/android/src/talk/probe.tsx')).toContain(
+      'cindl-android/no-bare-pressable',
+    )
+  })
+
+  it('lets Press be built on Pressable, and the scrim, which is no control', async () => {
+    const code = "import { Pressable } from 'react-native'\nexport const P = Pressable"
+    expect(await rulesFor(code, 'apps/android/src/ui/primitives.tsx')).toEqual([])
+    expect(await rulesFor(code, 'apps/android/src/overlay/Sheet.tsx')).toEqual([])
+    expect(
+      await rulesFor(
+        "import { Pressable, Text } from 'react-native'\nexport const T = [Pressable, Text]",
+        'apps/android/src/talk/probe.tsx',
+      ),
+    ).toEqual(['cindl-android/no-bare-pressable'])
+  })
+
   it('lets the emulator harness print', async () => {
     expect(await rulesFor("console.log('step')", 'apps/android/e2e/probe.ts')).toEqual([])
   })

@@ -1,11 +1,10 @@
 import { useTool } from '@cindl/client-react'
 import type { ToolStatus } from '@cindl/contracts'
-import { useRef, useState } from 'react'
-import { Pressable, Text, View, type HostInstance } from 'react-native'
-import { notePress } from '../overlay/opener.ts'
+import { useState } from 'react'
+import { Text, View } from 'react-native'
 import { useTheme } from '../theme/theme.tsx'
 import { Ban, Check, ChevronRight, CircleAlert, Hand } from '../ui/icons.ts'
-import { focusRing, Spinner } from '../ui/primitives.tsx'
+import { focusRing, Press, Spinner } from '../ui/primitives.tsx'
 import { duration } from './format.ts'
 
 export const toolStatusLabel: Record<ToolStatus, string> = {
@@ -53,7 +52,6 @@ export function ToolRow({
   const theme = useTheme()
   const tool = useTool(toolId)
   const [focused, setFocused] = useState(false)
-  const self = useRef<HostInstance | null>(null)
   if (!tool) return null
   const state = blocked ? 'Waiting for you' : toolStatusLabel[tool.status]
   const meta = blocked
@@ -62,18 +60,14 @@ export function ToolRow({
       ? duration(tool.startedAt, tool.endedAt)
       : (tool.progress ?? toolStatusLabel[tool.status])
   return (
-    <Pressable
-      ref={self}
+    <Press
       accessibilityRole="button"
       accessibilityLabel={`${tool.title}. ${state}${
         meta && meta !== state ? `, ${meta}` : ''
       }. Show details.`}
       accessibilityState={{ selected }}
-      onPress={() => {
-        // The working margin this opens gives focus back to this row.
-        notePress(self)
-        onSelect(tool.id)
-      }}
+      // Press notes it: the working margin this opens gives focus back to this row.
+      onPress={() => onSelect(tool.id)}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       android_ripple={{ color: theme.colors.selection }}
@@ -117,6 +111,6 @@ export function ToolRow({
         </Text>
       ) : null}
       <ChevronRight size={14} color={theme.colors.textTertiary} strokeWidth={1.75} />
-    </Pressable>
+    </Press>
   )
 }

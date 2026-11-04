@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Pressable, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import type { Destination } from '../nav/navigation.ts'
 import { useTheme } from '../theme/theme.tsx'
@@ -10,7 +10,7 @@ import {
   UserRound,
   type LucideIcon,
 } from '../ui/icons.ts'
-import { focusRing } from '../ui/primitives.tsx'
+import { focusRing, Press } from '../ui/primitives.tsx'
 
 const items: ReadonlyArray<{ id: Destination; label: string; icon: LucideIcon }> = [
   { id: 'talk', label: 'Talk', icon: MessageSquareText },
@@ -75,7 +75,7 @@ function NavItem({
   const [focused, setFocused] = useState(false)
   const color = selected ? theme.colors.text : theme.colors.textSecondary
   return (
-    <Pressable
+    <Press
       accessibilityRole="tab"
       accessibilityLabel={count > 0 ? `${label}, ${count} waiting on you` : label}
       accessibilityState={{ selected }}
@@ -150,6 +150,6 @@ function NavItem({
       >
         {label}
       </Text>
-    </Pressable>
+    </Press>
   )
 }

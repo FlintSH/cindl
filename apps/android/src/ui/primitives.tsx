@@ -15,7 +15,9 @@ import {
   Pressable,
   Text,
   View,
+  type GestureResponderEvent,
   type HostInstance,
+  type PressableProps,
   type StyleProp,
   type TextProps,
   type TextStyle,
@@ -102,6 +104,43 @@ export function Txt({
 
 export type ButtonVariant = 'default' | 'primary' | 'quiet' | 'danger'
 
+/**
+ * The app's Pressable. It notes each press (overlay/opener.ts), so a dialog or
+ * sheet it opens gives focus back to it, and a step that lands later (a save)
+ * gives none once the owner pressed something else. Every control is this or
+ * a Button, never a bare Pressable (lint: cindl-android/no-bare-pressable).
+ */
+export function Press({
+  ref,
+  onPress,
+  ...props
+}: PressableProps & { ref?: Ref<HostInstance> }) {
+  // Its own handle on the view, besides the caller's: the press notes this one.
+  const self = useRef<HostInstance | null>(null)
+  const attach = useCallback(
+    (node: HostInstance | null) => {
+      self.current = node
+      if (typeof ref === 'function') ref(node)
+      else if (ref) ref.current = node
+    },
+    [ref],
+  )
+  return (
+    <Pressable
+      ref={attach}
+      {...props}
+      {...(onPress
+        ? {
+            onPress: (event: GestureResponderEvent) => {
+              notePress(self)
+              onPress(event)
+            },
+          }
+        : {})}
+    />
+  )
+}
+
 export function Button({
   ref,
   label,
@@ -135,16 +174,6 @@ export function Button({
   const theme = useTheme()
   const styles = useStyles(buttonStyles)
   const [focused, setFocused] = useState(false)
-  // Its own handle on the view, so a dialog or sheet it opens can give focus back to it.
-  const self = useRef<HostInstance | null>(null)
-  const attach = useCallback(
-    (node: HostInstance | null) => {
-      self.current = node
-      if (typeof ref === 'function') ref(node)
-      else if (ref) ref.current = node
-    },
-    [ref],
-  )
   const foreground =
     variant === 'primary'
       ? theme.colors.onAccent
@@ -154,21 +183,14 @@ export function Button({
           ? theme.colors.danger
           : theme.colors.text
   return (
-    <Pressable
-      ref={attach}
+    <Press
+      {...(ref ? { ref } : {})}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       {...(accessibilityHint ? { accessibilityHint } : {})}
       accessibilityState={{ disabled, busy }}
       disabled={disabled}
-      {...(onPress
-        ? {
-            onPress: () => {
-              notePress(self)
-              onPress()
-            },
-          }
-        : {})}
+      {...(onPress ? { onPress: () => onPress() } : {})}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       android_ripple={{ color: theme.colors.selection }}
@@ -196,7 +218,7 @@ export function Button({
           {label}
         </Text>
       )}
-    </Pressable>
+    </Press>
   )
 }
 

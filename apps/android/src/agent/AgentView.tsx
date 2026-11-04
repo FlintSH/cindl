@@ -12,7 +12,7 @@ import {
   type McpServerStatus,
 } from '@cindl/contracts'
 import { useState } from 'react'
-import { Pressable, Text, View } from 'react-native'
+import { Text, View } from 'react-native'
 import { agentSections, type AgentSection } from '../nav/navigation.ts'
 import { useNav, useNavigate } from '../nav/NavProvider.tsx'
 import { usePreference } from '../platform/PreferencesProvider.tsx'
@@ -28,6 +28,7 @@ import {
   Facts,
   focusRing,
   Note,
+  Press,
   Row,
   Rows,
   Txt,
@@ -385,7 +386,7 @@ function Segment({
   const theme = useTheme()
   const [focused, setFocused] = useState(false)
   return (
-    <Pressable
+    <Press
       accessibilityRole="radio"
       accessibilityState={{ checked }}
       accessibilityLabel={label}
@@ -415,7 +416,7 @@ function Segment({
       >
         {label}
       </Text>
-    </Pressable>
+    </Press>
   )
 }
 
