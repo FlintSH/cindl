@@ -507,6 +507,7 @@ export function DocumentEditor({
         }`}
       </Txt>
       <View
+        collapsable={false}
         accessibilityLabel="Changes"
         style={{
           paddingVertical: theme.space[2],

@@ -447,11 +447,16 @@ async function agentScreen(
   const left = find(await device.dump(), isLive)
   if (!left) throw new Error('The live screen is not on Work before going to Talk')
   await openDestination('Talk', selected('Talk'))
-  const back = await openDestination('Work', isLive)
-  const again = find(back.root, isLive)
+  await openDestination('Work', selected('Work'))
+  // The view opens again as Work shows: wait for it a moment, then say where it is.
+  let again: UiNode | undefined
+  for (let tries = 0; tries < 12 && !again; tries++) {
+    again = find(await device.dump(), isLive)
+    if (!again) await sleep(500)
+  }
   if (!again || Math.abs(again.bounds.top - left.bounds.top) > 2)
     throw new Error(
-      `Work did not come back where it was left: the screen was at y ${left.bounds.top}, now ${again ? `at y ${again.bounds.top}` : 'gone'}`,
+      `Work did not come back where it was left: the screen was at y ${left.bounds.top}, now ${again ? `at y ${again.bounds.top}` : 'not on screen'}`,
     )
   note(
     `back from Talk, Work was where it was left: the screen still at y ${again.bounds.top}`,
@@ -596,15 +601,18 @@ async function demoSuite() {
       shot('margin-waiting')
       await audit('Working margin: Waiting', sheet.root)
       note(`the margin opened from the conversation on "${label(waiting)}"`)
-      // Its spoken name: the sheet shows no title, so its tab list carries it.
-      if (!find(sheet.root, 'Working margin'))
-        throw new Error(
-          'The working margin has no name: its tab list is not "Working margin"',
-        )
+      // Its spoken name, read from what TalkBack is given (the compressed
+      // dump): the sheet shows no title, so its tab list carries it. The full
+      // dump only says why it is missing (CI run 41774205328: Fabric had
+      // flattened the tab list away, and its name with it).
       const named = await device.accessibilityDump()
       keep('margin-talkback', named)
       if (!find(named.root, 'Working margin'))
-        throw new Error('TalkBack is not given the name "Working margin"')
+        throw new Error(
+          find(sheet.root, 'Working margin')
+            ? 'TalkBack is not given the name "Working margin", though the full dump has it'
+            : 'The working margin has no name: no view carries "Working margin" (its tab list flattened away?)',
+        )
       note('TalkBack is given the margin\'s name, "Working margin", on its tab list')
 
       // Step: the selected step's evidence, or what to do to see one.

@@ -82,7 +82,74 @@ function a11y(props: Props): Record<string, string> {
   return out
 }
 
+/** A style prop as one object, as React Native flattens it. */
+function flatStyle(style: unknown): Record<string, unknown> {
+  if (!style) return {}
+  if (Array.isArray(style))
+    return Object.assign({}, ...style.map(flatStyle)) as Record<string, unknown>
+  return typeof style === 'object' ? (style as Record<string, unknown>) : {}
+}
+
+const meaningful = (color: unknown) =>
+  typeof color === 'string' && color !== 'transparent' && color !== 'rgba(0,0,0,0)'
+
+/**
+ * Whether Fabric keeps a View as a native view, or flattens it away and with
+ * it every accessibility prop it has (React Native 0.88.1,
+ * ReactCommon/react/renderer/components/view/ViewShadowNode.cpp and Android's
+ * HostPlatformViewTraitsInitializer.h). An accessibility label, role, state or
+ * live region alone does not keep it (CI run 41774205328: the working margin's
+ * tab list lost its name on the device).
+ */
+function formsView(props: Props): boolean {
+  const style = flatStyle(props.style)
+  const position = style.position ?? 'relative'
+  const borders = [
+    'borderWidth',
+    'borderTopWidth',
+    'borderBottomWidth',
+    'borderLeftWidth',
+    'borderRightWidth',
+    'borderStartWidth',
+    'borderEndWidth',
+  ]
+  return (
+    props.collapsable === false ||
+    props.pointerEvents === 'box-only' ||
+    props.pointerEvents === 'none' ||
+    (typeof props.nativeID === 'string' && props.nativeID !== '') ||
+    props.accessible === true ||
+    (style.opacity !== undefined && style.opacity !== 1) ||
+    (Array.isArray(style.transform) && style.transform.length > 0) ||
+    (style.zIndex !== undefined && position !== 'static') ||
+    style.display === 'none' ||
+    style.overflow === 'hidden' ||
+    style.overflow === 'scroll' ||
+    meaningful(style.shadowColor) ||
+    props.accessibilityElementsHidden === true ||
+    props.accessibilityViewIsModal === true ||
+    (props.importantForAccessibility !== undefined &&
+      props.importantForAccessibility !== 'auto') ||
+    props.removeClippedSubviews === true ||
+    (typeof style.elevation === 'number' && style.elevation !== 0) ||
+    meaningful(style.backgroundColor) ||
+    borders.some((edge) => style[edge] !== undefined) ||
+    (typeof props.testID === 'string' && props.testID !== '') ||
+    (style.boxShadow !== undefined && style.boxShadow !== '') ||
+    props.focusable === true ||
+    (typeof style.outlineWidth === 'number' && style.outlineWidth > 0)
+  )
+}
+
 export function View({ ref, children, ...props }: Props & { ref?: Ref<HTMLDivElement> }) {
+  // Flattened on a device: the element stays (for refs and layout), its
+  // accessibility props do not.
+  if (!formsView(props))
+    return (
+      <div ref={ref} data-rn="View" data-flattened="">
+        {children}
+      </div>
+    )
   return (
     <div ref={ref} data-rn="View" {...a11y(props)}>
       {children}

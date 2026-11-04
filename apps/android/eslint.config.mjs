@@ -36,6 +36,7 @@ export default [
     rules: {
       'no-restricted-syntax': rootRule('apps/web/src/**', 'no-restricted-syntax'),
       'cindl-android/no-dom-globals': 'error',
+      'cindl-android/kept-accessibility-view': 'error',
       'cindl-android/no-raw-colour': 'error',
       'cindl-android/storage-in-platform': 'error',
       // Press is built on Pressable; an overlay's scrim is no control: its taps

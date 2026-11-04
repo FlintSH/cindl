@@ -95,7 +95,11 @@ export function Tabs<T extends string>({
     />
   ))
   return wrap ? (
+    // Kept as a native view: Fabric flattens a View that only carries
+    // accessibility props, and the tab list's name went with it (CI run
+    // 41774205328).
     <View
+      collapsable={false}
       accessibilityLabel={label}
       accessibilityRole="tablist"
       style={{ flexDirection: 'row', flexWrap: 'wrap' }}

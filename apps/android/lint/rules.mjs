@@ -205,6 +205,99 @@ const noBarePressable = {
   },
 }
 
+/** Accessibility props of a View that keep no native view for it in Fabric. */
+const VIEW_A11Y = new Set([
+  'accessibilityLabel',
+  'accessibilityHint',
+  'accessibilityRole',
+  'accessibilityState',
+  'accessibilityValue',
+  'accessibilityActions',
+  'accessibilityLiveRegion',
+  'accessibilityLabelledBy',
+  'role',
+  'aria-label',
+  'aria-labelledby',
+  'aria-live',
+  'aria-busy',
+  'aria-checked',
+  'aria-disabled',
+  'aria-expanded',
+  'aria-selected',
+])
+
+/**
+ * Fabric flattens a View whose only props are accessibility ones, and drops
+ * them with it (React Native 0.88.1, ViewShadowNode.cpp: a label, role, state
+ * or live region keeps no view; CI run 41774205328, the working margin's tab
+ * list). Such a View keeps itself with collapsable={false}, or is accessible,
+ * rather than resting on a background or border that a style change can drop.
+ */
+const keptAccessibilityView = {
+  meta: {
+    type: 'problem',
+    docs: { description: 'A View with accessibility props is kept as a native view.' },
+    schema: [],
+    messages: {
+      flattened:
+        "This View's {{name}} is lost on a device whenever nothing else keeps the View: Fabric flattens a View that only carries accessibility props. Add collapsable={false}, or make it accessible.",
+    },
+  },
+  create(context) {
+    /** Keys a spread could set (`{...(single ? { accessibilityRole: 'radiogroup' } : {})}`). */
+    const keysOf = (node) => {
+      if (!node) return []
+      if (node.type === 'ObjectExpression')
+        return node.properties.flatMap((property) =>
+          property.type === 'SpreadElement'
+            ? keysOf(property.argument)
+            : property.key.type === 'Identifier'
+              ? [property.key.name]
+              : property.key.type === 'Literal'
+                ? [String(property.key.value)]
+                : [],
+        )
+      if (node.type === 'ConditionalExpression')
+        return [...keysOf(node.consequent), ...keysOf(node.alternate)]
+      if (node.type === 'LogicalExpression')
+        return [...keysOf(node.left), ...keysOf(node.right)]
+      if (node.type === 'TSAsExpression' || node.type === 'TSSatisfiesExpression')
+        return keysOf(node.expression)
+      return []
+    }
+    const literal = (attribute, value) =>
+      attribute.value?.type === 'JSXExpressionContainer' &&
+      attribute.value.expression.type === 'Literal' &&
+      attribute.value.expression.value === value
+    return {
+      JSXOpeningElement(node) {
+        if (node.name.type !== 'JSXIdentifier' || node.name.name !== 'View') return
+        let a11y
+        let kept = false
+        for (const attribute of node.attributes) {
+          if (attribute.type === 'JSXSpreadAttribute') {
+            a11y ??= keysOf(attribute.argument).find((key) => VIEW_A11Y.has(key))
+            continue
+          }
+          const name =
+            attribute.name.type === 'JSXIdentifier'
+              ? attribute.name.name
+              : `${attribute.name.namespace.name}:${attribute.name.name.name}`
+          if (VIEW_A11Y.has(name)) a11y ??= name
+          if (
+            name === 'accessible' &&
+            (attribute.value === null || literal(attribute, true))
+          )
+            kept = true
+          if (name === 'collapsable' && literal(attribute, false)) kept = true
+        }
+        if (a11y && !kept)
+          context.report({ node, messageId: 'flattened', data: { name: a11y } })
+      },
+    }
+  },
+}
+
 export default {
   meta: { name: 'cindl-android' },
   rules: {
@@ -212,5 +305,6 @@ export default {
     'no-raw-colour': noRawColour,
     'no-dom-globals': noDomGlobals,
     'no-bare-pressable': noBarePressable,
+    'kept-accessibility-view': keptAccessibilityView,
   },
 }

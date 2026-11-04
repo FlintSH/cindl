@@ -178,6 +178,43 @@ describe('Android lint rules', () => {
     ).toEqual([])
   })
 
+  const KEPT = 'cindl-android/kept-accessibility-view'
+  const view = (attributes: string) =>
+    `import { View } from 'react-native'\nexport const V = () => <View ${attributes} />`
+
+  it.each([
+    'accessibilityLabel="Working margin" accessibilityRole="tablist"',
+    'accessibilityLiveRegion="polite" style={{ flexDirection: \'row\' }}',
+    "{...(single ? { accessibilityRole: 'radiogroup' as const } : {})}",
+    'aria-label="Changes"',
+    'accessible={false} accessibilityLabel="Answered on another device"',
+    'collapsable={true} accessibilityLabel="Theme"',
+  ])(
+    'refuses a View whose accessibility props Fabric can flatten away: %s',
+    async (attributes) => {
+      expect(
+        await rulesFor(
+          view(attributes).replace('single', 'true'),
+          'apps/android/src/talk/probe.tsx',
+        ),
+      ).toContain(KEPT)
+    },
+  )
+
+  it.each([
+    'collapsable={false} accessibilityLabel="Working margin" accessibilityRole="tablist"',
+    'accessible accessibilityLabel="Synthetic demo"',
+    'accessible={true} accessibilityLabel="Synthetic demo"',
+    'style={{ gap: 8 }}',
+  ])(
+    'lets a View that keeps itself, or carries no accessibility props: %s',
+    async (attributes) => {
+      expect(
+        await rulesFor(view(attributes), 'apps/android/src/talk/probe.tsx'),
+      ).not.toContain(KEPT)
+    },
+  )
+
   it('lets the emulator harness print', async () => {
     expect(await rulesFor("console.log('step')", 'apps/android/e2e/probe.ts')).toEqual([])
   })

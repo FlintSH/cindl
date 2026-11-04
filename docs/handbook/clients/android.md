@@ -250,7 +250,9 @@ request to move TalkBack focus is recorded. That stand-in also simplifies what
 the screens use: a press is a click (none when `disabled` is set, as
 Pressable does), a Pressable is a stop for a keyboard's focus unless both
 `accessible` and `focusable` are false (as React Native 0.88 makes the view),
-a ScrollView scrolls nothing, Linking records the links it is asked to open,
+a View that Fabric would flatten away renders without its accessibility props
+(React Native 0.88.1's rule: an accessibility label, role, state or live region
+alone keeps no view), a ScrollView scrolls nothing, Linking records the links it is asked to open,
 Animated values jump to their end, and Easing, StyleSheet and Platform are
 minimal. Five modules are replaced as well
 (`apps/android/vitest.config.ts`): `react-native-safe-area-context` (zero
@@ -620,7 +622,13 @@ Hermes server, Chrome's Custom Tab, and a phone.
   setting are followed. A destination keeps its scroll position when you come
   back to it; while another is shown, it is hidden from TalkBack and closed to
   a hardware keyboard's focus, so Tab never reaches a control no one can see.
-  Every overlay is the app's Dialog or Sheet (no native Modal).
+  A View whose job is an accessibility label, role, state or live region (the
+  working margin's tab list, the presence line, the notices) is kept as a
+  native view (`collapsable={false}`): Fabric flattens a View with only those
+  props, and they go with it. On the device the margin's tab list lost its
+  name that way, and the presence line its live region; lint now requires it
+  (`cindl-android/kept-accessibility-view`). Every overlay is the app's
+  Dialog or Sheet (no native Modal).
   While one is open, everything beneath it is hidden from TalkBack (the app's
   content is marked "no-hide-descendants"), closed to a hardware keyboard's
   focus, and its scrim takes every touch there. The scrim takes touches and

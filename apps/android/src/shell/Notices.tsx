@@ -17,6 +17,7 @@ export function Notices() {
   if (!visible.length) return null
   return (
     <View
+      collapsable={false}
       accessibilityLiveRegion="polite"
       style={{
         gap: theme.space[2],

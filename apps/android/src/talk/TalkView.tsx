@@ -126,6 +126,7 @@ export function TalkView() {
   if (missing)
     return (
       <View
+        collapsable={false}
         accessibilityLiveRegion="polite"
         style={{
           flex: 1,
@@ -304,7 +305,10 @@ export function TalkView() {
               onPress={() => setMarginOpen(true)}
             />
           </View>
+          {/* Kept as a native view, or Fabric flattens it and its live region
+              goes (CI run 41712256173: the presence line had no row of its own). */}
           <View
+            collapsable={false}
             accessibilityLiveRegion="polite"
             style={{
               flexDirection: 'row',
@@ -441,6 +445,7 @@ export function TalkView() {
           {uncertain.map((prompt) => (
             <View
               key={prompt.clientId}
+              collapsable={false}
               accessibilityLiveRegion="polite"
               style={{
                 gap: theme.space[1],

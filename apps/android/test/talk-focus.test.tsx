@@ -136,6 +136,18 @@ describe('Talk: what opens an overlay gets focus back when it closes', () => {
   })
 })
 
+describe('accessibility a device keeps (Fabric flattens a View with accessibility props alone)', () => {
+  it('announces the presence line politely: its row is kept as a native view', async () => {
+    // CI run 41712256173's Talk dump: the line's text sat in TalkView's own
+    // container, its row and the row's live region flattened away.
+    const s = await talk()
+    const live = [...s.container.querySelectorAll('[aria-live="polite"]')].map(
+      (node) => node.textContent ?? '',
+    )
+    expect(live).toContain('Waiting on you: 1 approval, 1 question')
+  })
+})
+
 describe('what Press passes on to the Pressable (review 3f7a8a69)', () => {
   it("its state: a question's choice reads as checked once chosen, the others not", async () => {
     const s = await talk()

@@ -33,6 +33,7 @@ export function BottomNav({
   const insets = useSafeAreaInsets()
   return (
     <View
+      collapsable={false}
       accessibilityRole="tablist"
       style={{
         flexDirection: 'row',

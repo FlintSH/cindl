@@ -347,6 +347,7 @@ function Appearance() {
   return (
     <Section title="Theme">
       <View
+        collapsable={false}
         accessibilityRole="radiogroup"
         accessibilityLabel="Theme"
         style={{

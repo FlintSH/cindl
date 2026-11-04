@@ -224,6 +224,7 @@ function DecisionCard({
       />
       {!approval && locked.length ? (
         <View
+          collapsable={false}
           accessibilityLabel="Answered on another device"
           style={{ gap: theme.space[2] }}
         >
@@ -529,6 +530,7 @@ function QuestionFields({
       <Txt variant="body">{question.question}</Txt>
       {choices.length ? (
         <View
+          collapsable={false}
           {...(single ? { accessibilityRole: 'radiogroup' as const } : {})}
           style={{ gap: theme.space[1] }}
         >

@@ -58,6 +58,9 @@ Working here:
   jsdom), never a copy of its wiring. `test/render` stands in for the host
   layer, safe-area, the icons, `react-native-svg`, `expo` and `expo-crypto`
   (vitest.config.ts), and only as far as a rendered screen needs.
+- A View that carries accessibility props is `collapsable={false}` (or
+  `accessible`): Fabric flattens it otherwise, and its label, role or live
+  region with it (lint: `cindl-android/kept-accessibility-view`).
 - The agent screen: never log frames, input or the screen socket's URL (it
   holds the single-use display ticket), and never start, stop or install the
   screen.
