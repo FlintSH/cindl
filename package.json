@@ -1,5 +1,6 @@
 {
   "name": "cindl",
+  "version": "1.0.0",
   "private": true,
   "description": "Cindl: a cross-device home (web, desktop, Android) for a self-hosted Hermes agent.",
   "license": "MIT",

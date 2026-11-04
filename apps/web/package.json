@@ -1,6 +1,6 @@
 {
   "name": "@cindl/web",
-  "version": "0.1.0",
+  "version": "1.0.0",
   "private": true,
   "description": "Responsive Cindl web client; also the renderer loaded by the Electron desktop app.",
   "license": "MIT",
