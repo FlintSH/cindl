@@ -54,8 +54,10 @@ accounts, no analytics and no hosted service.
 ## Quick start
 
 You need a Hermes that runs `hermes serve` with a sign-in provider (password,
-Nous Portal or your own OIDC). Cindl is verified against Hermes v0.22.5; newer
-versions connect and show as outside that baseline.
+Nous Portal or your own OIDC). Cindl's tests pin the Hermes v0.22.5 API. The
+web client has also signed in, held conversations and reloaded its history
+against Hermes v0.22.7; any version other than v0.22.5 connects and shows as
+outside that tested baseline.
 
 **Desktop (Linux and Windows)**
 
