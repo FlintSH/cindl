@@ -15,17 +15,17 @@ They cannot judge whether prose is complete or true. The review that the
 `pnpm verify` runs most gates in one command; each also has its own alias in
 the root `package.json`.
 
-| Gate                    | Command                                                | Where CI runs it                                           |
-| ----------------------- | ------------------------------------------------------ | ---------------------------------------------------------- |
-| Verify                  | `pnpm verify`                                          | `ci.yml`, Verify and repository gates                      |
-| Privacy and secret scan | `pnpm check:privacy`                                   | In `pnpm verify`, and as its own `ci.yml` step             |
-| Licence check           | `pnpm check:license`                                   | In `pnpm verify`, and as its own `ci.yml` step             |
-| Docs coverage           | `pnpm check:docs` (with the generated-table check)     | In `pnpm verify`; `docs.yml` runs the coverage check alone |
-| Gate tests              | `pnpm test:gates`                                      | In `pnpm verify`, and as its own `ci.yml` step             |
-| Web builds and outputs  | `pnpm check:dist` (both web builds, then `check-dist`) | In `pnpm verify`                                           |
-| Docs impact             | `pnpm check:docs-impact --base <commit>`               | `ci.yml`, on pull requests and pushes                      |
-| Web end-to-end          | `pnpm test:e2e`                                        | `ci.yml`, Web end-to-end on the synthetic demo             |
-| Docs build and links    | `pnpm docs:build`                                      | `docs.yml`, at `/` and at `/cindl/`                        |
+| Gate                    | Command                                                | Where CI runs it                                                                                                                                            |
+| ----------------------- | ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Verify                  | `pnpm verify`                                          | `ci.yml`, Verify and repository gates                                                                                                                       |
+| Privacy and secret scan | `pnpm check:privacy`                                   | In `pnpm verify`, and as its own `ci.yml` step                                                                                                              |
+| Licence check           | `pnpm check:license`                                   | In `pnpm verify`, and as its own `ci.yml` step                                                                                                              |
+| Docs coverage           | `pnpm check:docs` (with the generated-table check)     | In `pnpm verify`; `docs.yml` runs the coverage check alone                                                                                                  |
+| Gate tests              | `pnpm test:gates`                                      | In `pnpm verify`, and as its own `ci.yml` step                                                                                                              |
+| Web builds and outputs  | `pnpm check:dist` (both web builds, then `check-dist`) | In `pnpm verify`                                                                                                                                            |
+| Docs impact             | `pnpm check:docs-impact --base <commit>`               | `ci.yml`, on pull requests and pushes                                                                                                                       |
+| Web end-to-end          | `pnpm test:e2e`                                        | `ci.yml`, Web end-to-end on the synthetic demo, plus editor focus on a test-only harness page and the production build at `/cindl/` against the fake Hermes |
+| Docs build and links    | `pnpm docs:build`                                      | `docs.yml`, at `/` and at `/cindl/`                                                                                                                         |
 
 Both workflows run on every pull request and on pushes to `main`, with
 read-only permissions and actions pinned to full commit SHAs. `docs.yml`
@@ -77,6 +77,9 @@ same files from a package config that spreads the root one, such as
   `import('@cindl/fixtures/scenario')`, and every other rule. The Android
   app's own config adds its checks (raw colours, DOM globals, storage only in
   `src/platform`) on top of these scopes.
+- **`apps/web/src` except `platform/client.ts`:** no import of
+  `@cindl/hermes-adapter`, by name, path or dynamic import; the web UI uses
+  `CindlClientApi`.
 - **`apps/web/src/platform/preferences.ts`:** `localStorage` only; every other
   storage API stays off limits.
 

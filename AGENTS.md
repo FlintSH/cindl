@@ -162,11 +162,16 @@ streams rebase. Never fork contract types inside an app.
 A change is done when all of these hold, and the evidence is in the PR or
 hand-off:
 
-1. `pnpm verify` passes locally (and any stream-specific build it touches), and
-   so does `pnpm docs:build` when the change touches `docs/handbook`: verify
-   does not render the handbook, and VitePress rejects some Markdown that every
-   other gate accepts.
-2. Behaviour changes have tests that would fail without the change.
+1. Each commit passes its affected checks: the touched packages' tests,
+   typecheck and lint, and `pnpm docs:build` when it touches `docs/handbook`
+   (verify does not render the handbook). Each candidate handed off or merged
+   passes `pnpm verify` and every stream-specific build it touches once, at its
+   exact SHA. Reuse unchanged evidence by showing the diff does not reach it.
+   Native, security and state-authority changes still need current runtime or
+   independent proof.
+2. Behaviour changes have tests that would fail without the change: a positive
+   control and the change's own meaningful mutations, with survivors
+   classified. Do not re-run inherited mutation campaigns for unrelated code.
 3. Docs impact is mapped (user, operator, integration personas) and the
    handbook pages are updated in the same commit, or the commit explains why
    there is no doc impact.

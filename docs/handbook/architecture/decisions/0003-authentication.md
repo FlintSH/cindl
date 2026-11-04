@@ -7,8 +7,8 @@ RFC 8252 native flow: `GET /auth/native/authorize` (S256 PKCE + state) →
 redirect to a loopback URI → `POST /auth/native/token {code, code_verifier}`
 → `POST /auth/native/refresh {refresh_token, provider?}`. The redirect
 validator accepts only `http://127.0.0.1[:port]/…` or `http://[::1][:port]/…`.
-Logout does not revoke native tokens (stateless; defaults 12 h access, 30 d
-refresh in the basic provider).
+Logout does not revoke native tokens: there is no native revoke route (with the
+basic provider they are stateless, 12 h access and 30 d refresh).
 
 **Decision.**
 

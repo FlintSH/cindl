@@ -7,11 +7,19 @@ The adapter normalizes Hermes wire notifications into these events, so
 name. `client-core` reduces each event into one state tree with a pure
 reducer; UI code never writes to that state directly.
 
-The Hermes-to-Cindl mapping belongs to the live transport, which is not built
-yet (see the [acceptance matrix](../project/acceptance-matrix.md)). Today the
-events that describe Hermes's state come only from the synthetic demo scenario
-and the `client-core` tests. The desktop app emits its own connection state and
-notices (signed out, not connected) without a live Hermes connection.
+The direct client tells a subscriber that joins after its first link what it
+already knows, as the events that build it: the link, the capabilities, its
+conversations, pending prompts, open requests and the screen. A renderer
+remounted with a new store, after an error boundary, so never waits on a link
+that has already settled. A subscriber that joins before the first link hears
+only what comes next.
+
+The direct client (`packages/client-core/src/direct`) maps what Hermes sends
+and answers onto these events in every real build: the web served from its
+Hermes's origin, the desktop app's main process and the Android app. The
+mapping is in [Hermes v0.22.5](hermes-v0.22.5.md). The synthetic demo scenario
+emits the same events. What each client has been run against is in the
+[acceptance matrix](../project/acceptance-matrix.md).
 
 ## Event summary
 
@@ -60,6 +68,19 @@ tools, prompts, requests, usage, the screen and capabilities) and keeps only
 this device's notices; a link that names no server, or the same one, changes
 nothing else. Clients show it in the presence line, and a `demo: true` link
 always shows the synthetic-data banner.
+
+Before it connects, the direct client asks Hermes what it is
+(`GET /api/status`) and whether this device is signed in. When Hermes does not
+answer either (no network, a timeout, a 5xx while it restarts, rate limiting),
+the link is `offline` with that error, and the client asks again with the
+reconnect backoff, keeping that link until an attempt succeeds. Only the
+adapter's own reports of that (`hermesDidNotAnswer`) count, never a code
+alone. An answer that is not Hermes is `error` and is not repeated, and so is
+a failure on this device, such as a secret store that cannot be read: asking
+Hermes again cannot fix it, so the next `start()` or sign-in tries again. A
+discovery or sign-in that
+`stop()`, a newer `start()` or another sign-in overtakes neither connects nor
+changes the link.
 
 ### `capabilities.changed`
 

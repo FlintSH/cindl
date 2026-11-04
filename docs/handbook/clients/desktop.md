@@ -93,7 +93,8 @@ mode, or one without native sign-in, is refused with that reason.
 5. The listener accepts exactly one callback with the matching `state` (other
    paths, methods, malformed targets, `Host` headers and states are refused),
    then closes. It also closes after five minutes or when another sign-in
-   replaces it.
+   replaces it. Meanwhile the sign-in screen stays: "Stop waiting" frees its
+   form for another try, and a refusal shows there.
 6. Main exchanges the code with `POST /auth/native/token {code, code_verifier}`
    and stores the token set. Before the access token expires it calls
    `POST /auth/native/refresh`; concurrent callers share one refresh because the

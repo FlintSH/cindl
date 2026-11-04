@@ -233,3 +233,60 @@ describe('RestClient', () => {
     expect(calls).toBe(0)
   })
 })
+
+describe('RestClient: cookie sign-out (POST /auth/logout)', () => {
+  /** A fetch that answers every request with `answer`, keeping what was asked. */
+  function answering(answer: () => Response) {
+    const seen: Array<{ url: string; init: RequestInit }> = []
+    const fetchLike: FetchLike = (url, init) => {
+      seen.push({ url, init })
+      return Promise.resolve(answer())
+    }
+    const rest = new RestClient({
+      origin: 'https://hermes.example.test',
+      fetch: fetchLike,
+      timers,
+      auth: { kind: 'cookie' },
+    })
+    return { rest, seen }
+  }
+
+  it("posts with the browser's cookie and takes Hermes's redirect to /login as done", async () => {
+    // A browser shows a manual redirect as an opaque one: status 0, no Location.
+    const opaque = {
+      type: 'opaqueredirect',
+      status: 0,
+      ok: false,
+      text: () => Promise.resolve(''),
+    }
+    const browser = answering(() => opaque as unknown as Response)
+    await browser.rest.logout()
+    expect(browser.seen).toHaveLength(1)
+    const [request] = browser.seen
+    expect(request?.url).toBe('https://hermes.example.test/auth/logout')
+    expect(request?.init).toMatchObject({
+      method: 'POST',
+      credentials: 'same-origin',
+      redirect: 'manual',
+    })
+    expect(new Headers(request?.init.headers).has('Authorization')).toBe(false)
+    // Node and Electron's main process see the 302 itself.
+    const fake = await fakeHermes()
+    await new RestClient({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      auth: { kind: 'cookie' },
+    }).logout()
+    expect(fake.calls.filter((c) => c.name === 'POST /auth/logout')).toHaveLength(1)
+  })
+
+  it('refuses anything else as a confirmation, a 200 included', async () => {
+    const codeFor = async (status: number) =>
+      (await errorOf(answering(() => new Response('{}', { status })).rest.logout())).code
+    expect(await codeFor(200)).toBe('protocol')
+    expect(await codeFor(404)).toBe('not-found')
+    expect(await codeFor(500)).toBe('internal')
+    expect(await codeFor(503)).toBe('unavailable')
+  })
+})

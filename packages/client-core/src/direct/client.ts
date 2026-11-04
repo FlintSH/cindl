@@ -28,6 +28,7 @@ import {
   displayState,
   EventNormalizer,
   HermesConnection,
+  hermesDidNotAnswer,
   hermesReasonOf,
   isBaselineVersion,
   mapServerRequest,
@@ -106,6 +107,14 @@ export interface DirectClientDeps {
    * learning routes, and for SOUL.md the name display.status reports.
    */
   profile?: string
+  /**
+   * Cookie mode (web): the platform's cue that this browser's Hermes session
+   * may have changed elsewhere, such as the page becoming visible again or
+   * another tab announcing its sign-out. The client then asks
+   * GET /api/auth/me at once instead of at its next request tick. Returns an
+   * unsubscribe; the client subscribes while connected.
+   */
+  watchSession?: (check: () => void) => () => void
   /** Redacted diagnostics. */
   log?: DiagnosticSink
   /** Jitter source in [0, 1). */
@@ -140,6 +149,9 @@ type ReattachOutcome = 'ok' | 'gone' | 'abort'
 
 const LOOPBACK_MODE =
   'Hermes is running in loopback-token mode. Cindl needs a sign-in provider (password or OAuth) and never reads the per-process dashboard token.'
+
+/** The gate's `error` when a browser session is over (middleware.py:72-87). */
+const SESSION_OVER = new Set(['unauthenticated', 'session_expired'])
 
 /** `session.events.since` watermark that returns no events, only `open_requests`. */
 const NO_EVENTS = Number.MAX_SAFE_INTEGER
@@ -231,6 +243,22 @@ class DirectHermesClient implements DirectClient {
   #listRefresh: unknown
   #requestSync: unknown
   #started = false
+  /**
+   * Bumped by start(), stop() and sign-in: work begun under an older value
+   * (a discovery, a sign-in) neither connects nor changes the link.
+   */
+  #run = 0
+  #discoveryRetry: unknown
+  #discoveryAttempt = 0
+  /** A link was reported: from then on a new subscriber is told the state so far. */
+  #reported = false
+  /** The screen state last reported, as it was reported. */
+  #lastDisplay: DisplayState | undefined
+  /** Cookie mode: the session check in flight, so a tick and a cue share one request. */
+  #sessionCheck: { run: number; done: Promise<void> } | undefined
+  /** A cue came while a check was in flight, so one more check follows it. */
+  #sessionRecheck = false
+  #unwatchSession: (() => void) | undefined
   #deviceLoaded = false
 
   constructor(deps: DirectClientDeps) {
@@ -272,7 +300,28 @@ class DirectHermesClient implements DirectClient {
 
   subscribe(listener: (event: CindlEvent) => void): () => void {
     this.#listeners.add(listener)
+    // A subscriber that joins late, such as a renderer an error boundary
+    // remounted with a new store, is told what the others already know.
+    // Before the first link there is nothing to tell.
+    if (this.#reported) for (const event of this.#known()) this.#deliver(listener, event)
     return () => this.#listeners.delete(listener)
+  }
+
+  /** This client's state so far, as the events that build it in a new store. */
+  #known(): CindlEvent[] {
+    const known: CindlEvent[] = [
+      { type: 'link.changed', link: this.#link },
+      { type: 'capabilities.changed', capabilities: this.#capabilities },
+    ]
+    for (const conversation of this.#conversations.values())
+      known.push({ type: 'conversation.upserted', conversation })
+    for (const prompt of this.#prompts.values())
+      known.push({ type: 'prompt.updated', prompt })
+    for (const { request } of this.#requests.values())
+      known.push({ type: 'request.opened', request })
+    if (this.#lastDisplay)
+      known.push({ type: 'display.changed', display: this.#lastDisplay })
+    return known
   }
 
   async call<K extends OpName>(name: K, args: OpArgs<K>): Promise<OpResult<K>> {
@@ -289,16 +338,104 @@ class DirectHermesClient implements DirectClient {
     const local = name === 'display.unwatch'
     if (capability && !queueable && !probe && !local) this.#require(capability)
     const handler = this.#handlers[name] as unknown as (a: typeof parsed) => unknown
+    const run = this.#run
     try {
       return (await handler(parsed)) as OpResult<K>
     } catch (error) {
-      throw asCindlError(error, name)
+      const cause = asCindlError(error, name)
+      if (this.#sessionEndedByHermes(cause, run)) this.#sessionEnded(cause)
+      throw cause
+    }
+  }
+
+  /**
+   * Cookie mode: the gate's 401 saying the browser's session is over, because
+   * no cookies came or the refresh cookie failed too (middleware.py:150-157,
+   * 186-211). Hermes's own web app goes to the login page on exactly these two
+   * (web/src/lib/api.ts:209-240); any other 401 is an error of its own. Native
+   * mode refreshes its tokens itself. The answer speaks only for the run its
+   * request was sent in: once a stop() or a new sign-in has moved the run on,
+   * a late 401 says nothing about the session signed in since.
+   */
+  #sessionEndedByHermes(cause: CindlError, run: number): boolean {
+    return (
+      run === this.#run &&
+      !this.#native &&
+      this.#signedIn &&
+      cause.code === 'unauthenticated' &&
+      SESSION_OVER.has(hermesReasonOf(cause))
+    )
+  }
+
+  #sessionEnded(cause: CindlError): void {
+    this.stop()
+    this.#forgetSession()
+    this.#setLink('signed-out', cause)
+    this.#refreshCapabilities()
+  }
+
+  /**
+   * The session is over, signed out here or ended by Hermes: forget what
+   * belonged to it. Open request cards close, since nothing here can answer
+   * them now; after a new sign-in, Hermes shows again the ones it still holds.
+   */
+  #forgetSession(): void {
+    this.#signedIn = false
+    this.#memoryProbe = undefined
+    for (const requestId of [...this.#requests.keys()])
+      this.#closeRequest(requestId, 'cancelled')
+  }
+
+  /**
+   * Cookie mode: POST /auth/logout, so Hermes clears the HttpOnly cookies,
+   * which nothing else can. Its redirect alone proves little, since a proxy
+   * in front of Hermes can answer one just the same, so GET /api/auth/me must
+   * then answer the gate's 401. Whether a copy of the cookies stops working
+   * depends on the provider: basic and Nous Portal revoke nothing, and
+   * self-hosted OIDC revokes the refresh token only when its IdP has a
+   * revocation endpoint (self_hosted/__init__.py:124-145); an access cookie
+   * lasts until it expires. A failure never blocks the local sign-out; it is
+   * shown. Resolves whether Hermes confirmed it.
+   */
+  async #endCookieSession(): Promise<boolean> {
+    const rest = this.#rest
+    if (!rest) return false
+    let confirmed = false
+    try {
+      await rest.logout()
+      confirmed = await this.#sessionGone(rest)
+      if (!confirmed) this.#log.log('warn', 'direct.logout-unconfirmed', {})
+    } catch (error) {
+      this.#log.log('warn', 'direct.logout-failed', {
+        code: asCindlError(error, 'auth.logout').code,
+      })
+    }
+    if (!confirmed)
+      this.#emit({
+        type: 'notice',
+        level: 'warning',
+        message:
+          'Hermes did not confirm the sign-out, so its session cookie may still sign this browser in. Sign out again.',
+      })
+    return confirmed
+  }
+
+  /** GET /api/auth/me answers the gate's 401: this browser has no Hermes session. */
+  async #sessionGone(rest: RestClient): Promise<boolean> {
+    try {
+      await rest.me()
+      return false
+    } catch (error) {
+      const cause = asCindlError(error, 'auth.me')
+      return cause.code === 'unauthenticated' && SESSION_OVER.has(hermesReasonOf(cause))
     }
   }
 
   async start(): Promise<void> {
     if (this.#started) return
     this.#started = true
+    const run = ++this.#run
+    this.#discoveryAttempt = 0
     if (!this.#origin) {
       // The link starts out unconfigured, so #setLink stays silent here and a
       // renderer waiting for its first link would wait forever: say it once.
@@ -309,11 +446,15 @@ class DirectHermesClient implements DirectClient {
       return
     }
     if (!this.#deviceLoaded) await this.#loadDevice()
-    await this.#discoverAndConnect()
+    await this.#discoverAndConnect(run)
   }
 
   stop(): void {
     this.#started = false
+    this.#run++
+    this.#deps.clock.clearTimeout(this.#discoveryRetry)
+    this.#unwatchSession?.()
+    this.#unwatchSession = undefined
     this.#screen?.close()
     this.#connection?.stop()
     this.#connection = undefined
@@ -391,6 +532,10 @@ class DirectHermesClient implements DirectClient {
 
   /** Leave the current origin and take up `parts`: nothing of the old session survives. */
   async #switchTo(parts: OriginParts): Promise<void> {
+    // Retire the sign-in left behind first: a refresh it still has in flight
+    // must never write the old origin's tokens back once the platform deleted
+    // them, nor touch a record for the same origin signed in again.
+    if (this.#native !== parts.native) this.#native?.retire()
     this.stop()
     this.#reset()
     this.#install(parts)
@@ -422,28 +567,41 @@ class DirectHermesClient implements DirectClient {
     if (changed) await storage.saveOutbox(this.#prompts.values())
   }
 
-  async #discoverAndConnect(): Promise<void> {
+  /**
+   * Ask Hermes what it is and whether this device is signed in, then
+   * connect. Each await may outlast the run that started it: stop(), or a
+   * newer start or sign-in, takes over, and then this one only returns.
+   */
+  async #discoverAndConnect(run: number): Promise<void> {
     const rest = this.#rest
-    if (!rest) return
-    this.#setLink('connecting')
+    if (!rest || run !== this.#run) return
+    // A retry keeps showing why the last attempt failed until one succeeds.
+    if (!this.#discoveryAttempt) this.#setLink('connecting')
+    let status: wire.StatusResponse
     try {
-      this.#status = await rest.status()
+      status = await rest.status()
     } catch (error) {
-      this.#offline(asCindlError(error, 'discovery'))
+      this.#discoveryFailed(asCindlError(error, 'discovery'), run)
       return
     }
-    if (this.#status.auth_required === false) {
+    if (run !== this.#run) return
+    this.#status = status
+    if (status.auth_required === false) {
       this.#setLink('incompatible', new CindlError('unsupported', LOOPBACK_MODE))
       this.#refreshCapabilities()
       return
     }
+    let signedIn: boolean
     try {
-      this.#signedIn = await this.#checkSignedIn()
+      signedIn = await this.#checkSignedIn()
     } catch (error) {
-      this.#offline(asCindlError(error, 'auth.me'))
+      this.#discoveryFailed(asCindlError(error, 'auth.me'), run)
       return
     }
-    if (!this.#signedIn) {
+    if (run !== this.#run) return
+    this.#discoveryAttempt = 0
+    this.#signedIn = signedIn
+    if (!signedIn) {
       this.#setLink('signed-out')
       this.#refreshCapabilities()
       return
@@ -451,9 +609,37 @@ class DirectHermesClient implements DirectClient {
     this.#connect()
   }
 
-  #offline(cause: CindlError): void {
-    this.#setLink(isTransient(cause) ? 'offline' : 'error', cause)
+  /**
+   * When Hermes did not answer discovery (no network, a timeout, a 5xx while
+   * it restarts, rate limiting), the link is offline with the cause and
+   * discovery runs again with the connection's backoff. Any other failure is
+   * an error to show, not to repeat: an answer that is not Hermes, a
+   * refusal, or a failure on this device, such as a secret store that cannot
+   * be read, which asking Hermes again cannot fix.
+   */
+  #discoveryFailed(cause: CindlError, run: number): void {
+    if (run !== this.#run) return
+    if (!hermesDidNotAnswer(cause)) {
+      this.#setLink('error', cause)
+      this.#refreshCapabilities()
+      return
+    }
+    this.#setLink('offline', cause)
     this.#refreshCapabilities()
+    this.#deps.clock.clearTimeout(this.#discoveryRetry)
+    this.#discoveryRetry = this.#deps.clock.setTimeout(() => {
+      void this.#discoverAndConnect(run)
+    }, this.#retryDelay(this.#discoveryAttempt++))
+  }
+
+  /** The connection's reconnect backoff (HermesConnection), jitter included. */
+  #retryDelay(attempt: number): number {
+    const { initialMs, maxMs } = this.#deps.connection?.backoff ?? {
+      initialMs: 1_000,
+      maxMs: 30_000,
+    }
+    const base = Math.min(maxMs, initialMs * 2 ** Math.min(attempt, 10))
+    return Math.round(base * (0.8 + 0.4 * (this.#deps.random ?? Math.random)()))
   }
 
   async #checkSignedIn(): Promise<boolean> {
@@ -516,6 +702,57 @@ class DirectHermesClient implements DirectClient {
       },
     })
     this.#connection.start()
+    if (!this.#native && !this.#unwatchSession && this.#deps.watchSession)
+      this.#unwatchSession = this.#deps.watchSession(() => void this.#checkSession(true))
+  }
+
+  /**
+   * Cookie mode: does this browser still have its Hermes session? Hermes
+   * checks one only when a socket opens (chat_ws.py:137-171), so a tab whose
+   * cookies another tab's sign-out cleared would otherwise keep talking on
+   * its open socket. Asked on the request tick and on the platform's cue; the
+   * gate's 401 ends the session here, any other failure waits for the next
+   * check. A tick shares a check in flight. A cue may come after that check
+   * was sent (another tab signed out since), so one more check follows it.
+   */
+  #checkSession(cue = false): Promise<void> {
+    const rest = this.#rest
+    if (this.#native || !rest || !this.#started || !this.#signedIn)
+      return Promise.resolve()
+    // Only a check this session sent is shared: one left from an earlier
+    // session (ended by Hermes, then signed in again) answers for that one.
+    const out = this.#sessionCheck
+    if (out?.run === this.#run) {
+      if (cue) this.#sessionRecheck = true
+      return out.done
+    }
+    const run = this.#run
+    this.#sessionRecheck = false
+    const check = {
+      run,
+      done: this.#askSession(rest, run).finally(() => {
+        if (this.#sessionCheck !== check) return
+        this.#sessionCheck = undefined
+        if (this.#sessionRecheck && run === this.#run) {
+          this.#sessionRecheck = false
+          void this.#checkSession()
+        }
+      }),
+    }
+    this.#sessionCheck = check
+    return check.done
+  }
+
+  async #askSession(rest: RestClient, run: number): Promise<void> {
+    try {
+      await rest.me()
+    } catch (error) {
+      const cause = asCindlError(error, 'auth.me')
+      // Only the session it asked about: a stop() or another sign-in since
+      // then started a new run, which this answer says nothing about.
+      if (rest === this.#rest && this.#sessionEndedByHermes(cause, run))
+        this.#sessionEnded(cause)
+    }
   }
 
   // --- link and capabilities ---------------------------------------------------
@@ -633,7 +870,7 @@ class DirectHermesClient implements DirectClient {
         )
         break
       case 'signed-out':
-        this.#signedIn = false
+        this.#forgetSession()
         this.#setLink('signed-out', state.lastError)
         break
       case 'incompatible':
@@ -877,6 +1114,8 @@ class DirectHermesClient implements DirectClient {
   }
 
   async #syncOpenRequests(): Promise<void> {
+    await this.#checkSession()
+    if (!this.#started || !this.#signedIn) return
     const conversations = new Set(
       [...this.#requests.values()].flatMap((tracked) =>
         tracked.conversationId ? [tracked.conversationId] : [],
@@ -998,6 +1237,8 @@ class DirectHermesClient implements DirectClient {
   }
 
   #emit(event: CindlEvent): void {
+    if (event.type === 'link.changed') this.#reported = true
+    if (event.type === 'display.changed') this.#lastDisplay = event.display
     if (event.type === 'session.status') {
       const conversation = this.#conversations.get(event.conversationId)
       if (conversation && conversation.status !== event.status)
@@ -1006,14 +1247,16 @@ class DirectHermesClient implements DirectClient {
           status: event.status,
         })
     }
-    for (const listener of [...this.#listeners]) {
-      try {
-        listener(event)
-      } catch (error) {
-        this.#log.log('error', 'direct.listener-failed', {
-          error: error instanceof Error ? error.name : 'unknown',
-        })
-      }
+    for (const listener of [...this.#listeners]) this.#deliver(listener, event)
+  }
+
+  #deliver(listener: (event: CindlEvent) => void, event: CindlEvent): void {
+    try {
+      listener(event)
+    } catch (error) {
+      this.#log.log('error', 'direct.listener-failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      })
     }
   }
 
@@ -1503,11 +1746,14 @@ class DirectHermesClient implements DirectClient {
    */
   async #probeMemory(): Promise<void> {
     if (this.#memoryProbe || !this.#signedIn) return
+    const run = this.#run
     try {
       await this.#restOrThrow().learningGraph(this.#configuredProfile)
       this.#memoryProbe = 'responds'
     } catch (error) {
-      if (asCindlError(error, 'learning graph').code !== 'not-found') return
+      const cause = asCindlError(error, 'learning graph')
+      if (this.#sessionEndedByHermes(cause, run)) this.#sessionEnded(cause)
+      if (cause.code !== 'not-found') return
       this.#memoryProbe = 'missing'
     }
     this.#refreshCapabilities()
@@ -1563,6 +1809,10 @@ class DirectHermesClient implements DirectClient {
         this.#started = true
         this.#setLink('connecting')
       }
+      // From here this sign-in owns the client: a discovery still running
+      // stops, and a stop() before it finishes keeps it from connecting.
+      const run = ++this.#run
+      this.#deps.clock.clearTimeout(this.#discoveryRetry)
       let status: wire.StatusResponse | undefined
       let failed: LinkPhase = 'signed-out'
       try {
@@ -1599,8 +1849,12 @@ class DirectHermesClient implements DirectClient {
         }
         throw cause
       }
+      // stop() came in meanwhile: the sign-in stands, but nothing connects
+      // until start(), which finds it again.
+      const stopped = run !== this.#run
       if (keep && switching) await this.#switchTo(parts)
       this.#status = status
+      if (stopped) return this.#link
       this.#started = true
       this.#signedIn = true
       this.#connect()
@@ -1608,14 +1862,16 @@ class DirectHermesClient implements DirectClient {
     },
     'auth.signOut': async () => {
       this.stop()
-      await this.#native?.signOut()
-      this.#signedIn = false
-      this.#memoryProbe = undefined
-      for (const requestId of [...this.#requests.keys()])
-        this.#closeRequest(requestId, 'cancelled')
+      let hermesConfirmed: boolean | undefined
+      if (this.#native) await this.#native.signOut()
+      else hermesConfirmed = await this.#endCookieSession()
+      this.#forgetSession()
       this.#setLink('signed-out')
       this.#refreshCapabilities()
-      return { localOnly: true as const }
+      // Cookie mode says whether Hermes confirmed it, so the web can offer another try.
+      return hermesConfirmed === undefined
+        ? { localOnly: true as const }
+        : { localOnly: true as const, hermesConfirmed }
     },
     'conversations.list': () => this.#listConversations(),
     'conversations.create': async ({ title }) => {
@@ -1988,6 +2244,7 @@ class DirectHermesClient implements DirectClient {
 
   /** Forget everything tied to the previous origin. */
   #reset(): void {
+    this.#lastDisplay = undefined
     this.#conversations.clear()
     this.#runtime.clear()
     this.#stored.clear()

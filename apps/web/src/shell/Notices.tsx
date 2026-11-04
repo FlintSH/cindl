@@ -8,7 +8,15 @@ import styles from './shell.module.css'
 export function Notices() {
   const notices = useCindlState((state) => state.notices)
   const [dismissed, setDismissed] = useState<ReadonlySet<number>>(new Set())
-  const visible = notices.filter((n) => !dismissed.has(n.id)).slice(-3)
+  // A notice that comes again (a sign-out tried again, say) shows once, as
+  // its latest, and is dismissed with every copy.
+  const latest = new Map<string, (typeof notices)[number]>()
+  for (const notice of notices)
+    if (!dismissed.has(notice.id)) {
+      latest.delete(notice.message)
+      latest.set(notice.message, notice)
+    }
+  const visible = [...latest.values()].slice(-3)
   // The live region stays mounted so screen readers announce notices added later.
   return (
     <div className={styles.notices} role="status" aria-live="polite">
@@ -19,7 +27,17 @@ export function Notices() {
             variant="quiet"
             icon
             aria-label="Dismiss notice"
-            onClick={() => setDismissed((current) => new Set([...current, notice.id]))}
+            onClick={() =>
+              setDismissed(
+                (current) =>
+                  new Set([
+                    ...current,
+                    ...notices
+                      .filter((n) => n.message === notice.message)
+                      .map((n) => n.id),
+                  ]),
+              )
+            }
           >
             <X size={14} aria-hidden="true" />
           </Button>

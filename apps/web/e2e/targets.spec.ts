@@ -8,10 +8,11 @@ const phones = [
 const screens: Array<{
   name: string
   route: string
-  open?: 'history' | 'margin' | 'palette'
+  open?: 'history' | 'margin' | 'margin-computer' | 'palette'
 }> = [
   { name: 'talk', route: '/#/talk' },
   { name: 'talk with margin', route: '/#/talk', open: 'margin' },
+  { name: 'margin computer', route: '/#/talk', open: 'margin-computer' },
   { name: 'history', route: '/#/talk', open: 'history' },
   { name: 'palette', route: '/#/talk', open: 'palette' },
   { name: 'work', route: '/#/work' },
@@ -32,10 +33,12 @@ for (const viewport of phones)
       await page.getByRole('main').waitFor()
       await page.evaluate(() => document.fonts.ready)
       const marginClose = page.getByRole('button', { name: 'Close the working margin' })
-      if (screen.open !== 'margin' && (await marginClose.count()))
-        await marginClose.click()
-      if (screen.open === 'margin' && !(await marginClose.count()))
+      const wantMargin = screen.open === 'margin' || screen.open === 'margin-computer'
+      if (!wantMargin && (await marginClose.count())) await marginClose.click()
+      if (wantMargin && !(await marginClose.count()))
         await page.getByRole('button', { name: 'Show the working margin' }).click()
+      if (screen.open === 'margin-computer')
+        await page.getByRole('tab', { name: 'Computer' }).click()
       if (screen.open === 'history')
         await page.getByRole('button', { name: /Switch conversation/ }).click()
       if (screen.open === 'palette') await page.keyboard.press('Control+K')

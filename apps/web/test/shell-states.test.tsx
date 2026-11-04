@@ -6,8 +6,10 @@ import {
   type LinkState,
 } from '@cindl/contracts'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { reviveError } from '../src/platform/client.ts'
+import { ClientKindContext } from '../src/platform/clientKind.ts'
+import { AppShell } from '../src/shell/AppShell.tsx'
 import { Notices } from '../src/shell/Notices.tsx'
 import { SignIn } from '../src/shell/SignIn.tsx'
 
@@ -252,5 +254,156 @@ describe('notices', () => {
     expect(screen.getByText(/Secure storage is unavailable/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss notice' }))
     expect(screen.queryByText(/Secure storage is unavailable/)).toBeNull()
+  })
+
+  it('shows a notice that comes again once, and dismisses every copy', async () => {
+    const again = 'Hermes did not confirm the sign-out (fixture).'
+    const notice = (message: string): CindlEvent => ({
+      type: 'notice',
+      level: 'warning',
+      message,
+    })
+    const listeners = new Set<(event: CindlEvent) => void>()
+    const api: CindlClientApi = {
+      call: () => Promise.resolve({} as never),
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+    }
+    const emit = (event: CindlEvent) =>
+      act(async () => {
+        for (const listener of listeners) listener(event)
+        await Promise.resolve()
+      })
+    render(
+      <CindlProvider api={api}>
+        <Notices />
+      </CindlProvider>,
+    )
+    await settle()
+    await emit(notice(again))
+    await emit(notice('Another notice (fixture).'))
+    await emit(notice(again))
+    await emit(notice(again))
+    expect(screen.getAllByText(again)).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Dismiss notice' })).toHaveLength(2)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Dismiss notice' })[1]!)
+    expect(screen.queryByText(again)).toBeNull()
+    expect(screen.getByText('Another notice (fixture).')).toBeTruthy()
+    // Said once more later, it shows again.
+    await emit(notice(again))
+    expect(screen.getAllByText(again)).toHaveLength(1)
+  })
+})
+
+describe('the sign-in screen through its own sign-in', () => {
+  /** AppShell on the desktop, signed out, with a client that connects while a sign-in waits. */
+  function desktopShell() {
+    window.history.replaceState(null, '', '#/talk')
+    vi.stubGlobal('matchMedia', (media: string) => ({
+      matches: false,
+      media,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }))
+    const listeners = new Set<(event: CindlEvent) => void>()
+    const link = (phase: LinkState['phase']) =>
+      act(async () => {
+        for (const listener of listeners)
+          listener({
+            type: 'link.changed',
+            link: {
+              phase,
+              demo: false,
+              since: new Date().toISOString(),
+              connectionEpoch: 0,
+            },
+          })
+        await Promise.resolve()
+      })
+    const attempts: Array<{ resolve: () => void; reject: (error: Error) => void }> = []
+    const api: CindlClientApi = {
+      call: ((name: string) => {
+        if (name !== 'auth.signIn') return Promise.resolve([])
+        // As the direct client does in main: connecting, while the system browser waits.
+        void link('connecting')
+        return new Promise<void>((resolve, reject) => attempts.push({ resolve, reject }))
+      }) as unknown as CindlClientApi['call'],
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+    }
+    render(
+      <ClientKindContext value="desktop">
+        <CindlProvider api={api}>
+          <AppShell />
+        </CindlProvider>
+      </ClientKindContext>,
+    )
+    const signIn = () => {
+      fireEvent.change(screen.getByLabelText('Hermes address'), {
+        target: { value: 'https://hermes.example.test' },
+      })
+      fireEvent.click(screen.getByRole('button', { name: 'Sign in' }))
+      return act(async () => {
+        await Promise.resolve()
+      })
+    }
+    return { link, attempts, signIn }
+  }
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('stays while the client connects, keeps Stop waiting in reach, and shows a refusal', async () => {
+    const shell = desktopShell()
+    await shell.link('signed-out')
+    await shell.signIn()
+    // Connecting, and still the sign-in screen, with its way out.
+    expect(screen.getByLabelText('Hermes address')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop waiting' }))
+    // The form is free again, and the screen stays: that attempt is still out.
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeTruthy()
+    await shell.signIn()
+    // Refused, as the client reports it: signed out, then the call fails.
+    await shell.link('signed-out')
+    await act(async () => {
+      shell.attempts[1]!.reject(
+        new CindlError('unauthenticated', 'Hermes refused the sign-in (fixture).'),
+      )
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('alert').textContent).toBe(
+      'Hermes refused the sign-in (fixture).',
+    )
+  })
+
+  it('lets go once its attempt settles, and not for an attempt a newer one replaced', async () => {
+    const shell = desktopShell()
+    await shell.link('signed-out')
+    await shell.signIn()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop waiting' }))
+    await shell.signIn()
+    // The first attempt ends as main ends a replaced one: the screen stays.
+    await act(async () => {
+      shell.attempts[0]!.reject(
+        new CindlError(
+          'unavailable',
+          'A newer sign-in or a sign-out replaced this sign-in.',
+        ),
+      )
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('button', { name: 'Stop waiting' })).toBeTruthy()
+    // The new one succeeds: the screen goes as the client connects.
+    await act(async () => {
+      shell.attempts[1]!.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.queryByLabelText('Hermes address')).toBeNull()
   })
 })

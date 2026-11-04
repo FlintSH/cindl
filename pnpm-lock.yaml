@@ -219,6 +219,9 @@ importers:
       '@cindl/contracts':
         specifier: workspace:*
         version: link:../../packages/contracts
+      '@cindl/hermes-adapter':
+        specifier: workspace:*
+        version: link:../../packages/hermes-adapter
       '@cindl/tokens':
         specifier: workspace:*
         version: link:../../packages/tokens

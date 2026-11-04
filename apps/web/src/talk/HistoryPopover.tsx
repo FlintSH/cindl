@@ -7,6 +7,7 @@ import { fuzzyScore } from '../shell/CommandPalette.tsx'
 import { Overlay } from '../shell/Overlay.tsx'
 import { Badge } from '../ui/primitives.tsx'
 import { relativeDay } from './format.ts'
+import { noteSwitch } from './places.ts'
 import styles from './talk.module.css'
 
 export function HistoryPopover({
@@ -36,6 +37,7 @@ export function HistoryPopover({
   }
   const open_ = (id: string) => {
     close()
+    if (id !== currentId) noteSwitch()
     navigate({ view: 'talk', conversationId: id })
   }
   return (

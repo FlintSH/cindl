@@ -25,15 +25,15 @@ pnpm exec vitest run packages/client-core/test/state.test.ts   # one file
 
 ## What to test where
 
-| Area                      | Test                                                                                                                                                                                                                     |
-| ------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `packages/contracts`      | Rules a schema enforces: confirmations, versions, offered choices, no passthrough operations                                                                                                                             |
-| `packages/client-core`    | One reducer test for each event rule, including replayed and out-of-order events                                                                                                                                         |
-| `packages/hermes-adapter` | Wire knowledge against the vendored upstream contract; redaction of every secret format; PKCE and redirect rules                                                                                                         |
-| `packages/tokens`         | Contrast of every shipped colour pairing in both themes                                                                                                                                                                  |
-| `packages/fixtures`       | That the synthetic scenario behaves like the contract says (conflicts, unsupported capabilities, answer-once)                                                                                                            |
-| `apps/web`                | Components through `CindlClientApi` with the synthetic scenario, never by writing to the store; stylesheet rules (scroll containers are positioned, colours come from tokens); lint rules for fixture and storage access |
-| `scripts/`                | Each gate against fixture repositories it must reject (see below)                                                                                                                                                        |
+| Area                      | Test                                                                                                                                                                                                                              |
+| ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `packages/contracts`      | Rules a schema enforces: confirmations, versions, offered choices, no passthrough operations                                                                                                                                      |
+| `packages/client-core`    | One reducer test for each event rule, including replayed and out-of-order events                                                                                                                                                  |
+| `packages/hermes-adapter` | Wire knowledge against the vendored upstream contract; redaction of every secret format; PKCE and redirect rules                                                                                                                  |
+| `packages/tokens`         | Contrast of every shipped colour pairing in both themes                                                                                                                                                                           |
+| `packages/fixtures`       | That the synthetic scenario behaves like the contract says (conflicts, unsupported capabilities, answer-once)                                                                                                                     |
+| `apps/web`                | Components through `CindlClientApi` with the synthetic scenario, never by writing to the store; stylesheet rules (scroll containers are positioned, colours come from tokens); lint rules for fixture, storage and adapter access |
+| `scripts/`                | Each gate against fixture repositories it must reject (see below)                                                                                                                                                                 |
 
 The adapter's integration tests are to run against a fake Hermes server whose
 frames are validated against the vendored upstream schemas. That server is not

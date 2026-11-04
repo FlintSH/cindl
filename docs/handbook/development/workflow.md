@@ -88,8 +88,15 @@ passthrough operation ([ADR 0007](../architecture/decisions/0007-operation-surfa
 A change is done when all of these hold and the evidence is in the pull
 request or hand-off:
 
-1. `pnpm verify` passes, plus any build the change touches.
-2. Behaviour changes have tests that fail without the change.
+1. Each commit passes its affected checks (the touched packages' tests,
+   typecheck and lint, and `pnpm docs:build` for handbook changes). Each
+   candidate handed off or merged passes `pnpm verify` and every build it
+   touches once, at its exact SHA; unchanged evidence is reused by showing the
+   diff does not reach it. Native, security and state-authority changes still
+   need current runtime or independent proof.
+2. Behaviour changes have tests that fail without the change, shown with a
+   positive control and the change's own meaningful mutations, survivors
+   classified, not by re-running inherited mutation campaigns.
 3. Documentation impact is mapped for each persona (user, operator,
    integration) and the handbook pages are updated in the same commit, or the
    commit carries a `Docs-Impact` trailer that explains why not (see the
@@ -104,7 +111,8 @@ request or hand-off:
 
 ## Gates
 
-Run these before you push. CI runs all of them (see
+Run these once for each candidate you hand off or push; while working, run the
+affected packages' checks. CI runs all of them (see
 [Quality gates](quality-gates.md) for details and fixes).
 
 | Command                                                                      | Enforces                                                                                                                                                                                                   |

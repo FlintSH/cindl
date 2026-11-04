@@ -29,6 +29,7 @@ import { Button, Dot } from '../ui/primitives.tsx'
 import { Composer, type ComposerHandle } from './Composer.tsx'
 import { HistoryPopover } from './HistoryPopover.tsx'
 import { MessageView } from './MessageView.tsx'
+import { keepPlace, placeOf, takeSwitch, useSelectedStep } from './places.ts'
 import { composerHint, presenceCopy } from './presence.ts'
 import { RequestCard, requestDomId } from './RequestCard.tsx'
 import { WorkingMargin } from './WorkingMargin.tsx'
@@ -70,14 +71,16 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     const [sheetOpen, setSheetOpen] = useState(false)
     const marginOpen = wide ? marginPreference : sheetOpen
     const setMarginOpen = wide ? setMarginPreference : setSheetOpen
-    const [selection, setSelection] = useState<{
-      conversationId: string
-      toolId: string
-    }>()
+    // The selected step lives in the conversation's place (places.ts).
+    const selectedToolId = useSelectedStep(conversationId)
     // Pinned to the newest content until the owner scrolls up to read.
-    const [atBottom, setAtBottom] = useState(true)
+    const [atBottom, setAtBottom] = useState(
+      () => !conversationId || placeOf(conversationId).scrollTop === undefined,
+    )
     const composer = useRef<ComposerHandle>(null)
     const scroller = useRef<HTMLDivElement>(null)
+    const switcher = useRef<HTMLButtonElement>(null)
+    const marginToggle = useRef<HTMLButtonElement>(null)
     // In-flight history loads. After `history.reset` the transcript is missing
     // again and, with nothing in flight, it is fetched again.
     const inflight = useRef(new Set<string>())
@@ -117,6 +120,21 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         },
       )
     }, [api, conversationId, conversation, loaded, canHistory, historyFailed])
+
+    // Chosen from the switcher, the conversation takes focus back to its switcher:
+    // the one the owner pressed went with the conversation it belonged to.
+    useEffect(() => {
+      if (takeSwitch()) switcher.current?.focus()
+    }, [conversationId])
+
+    // Coming back to a conversation puts the owner where they were reading.
+    useLayoutEffect(() => {
+      const el = scroller.current
+      if (!el || !conversationId) return
+      const { scrollTop } = placeOf(conversationId)
+      if (scrollTop !== undefined) el.scrollTop = scrollTop
+      setAtBottom(scrollTop === undefined)
+    }, [conversationId, loaded])
 
     useLayoutEffect(() => {
       const el = scroller.current
@@ -170,12 +188,16 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     }
 
     const presence = presenceCopy(link, activity)
-    // Selection belongs to one conversation; switching conversations clears it without an effect.
-    const selectedToolId =
-      selection?.conversationId === conversationId ? selection.toolId : undefined
+    // Selection belongs to one conversation and comes back with it. Selecting
+    // a step opens the working margin on Step; selecting it again clears it
+    // and leaves the margin's tool as it is, as "Clear the step" does.
     const selectTool = (toolId: string) => {
-      setSelection(selectedToolId === toolId ? undefined : { conversationId, toolId })
-      setMarginOpen(true)
+      const next = selectedToolId === toolId ? undefined : toolId
+      keepPlace(
+        conversationId,
+        next ? { toolId: next, tool: 'step' } : { toolId: undefined },
+      )
+      if (next) setMarginOpen(true)
     }
     const startSide = async () => {
       try {
@@ -212,6 +234,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         >
           <header className={styles.header}>
             <button
+              ref={switcher}
               type="button"
               className={styles.switcher}
               onClick={() => setHistoryOpen(true)}
@@ -244,6 +267,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                 </Button>
               ) : null}
               <Button
+                ref={marginToggle}
                 variant="quiet"
                 icon
                 aria-label={
@@ -266,6 +290,9 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                 const bottom =
                   el.scrollHeight - el.scrollTop - el.clientHeight < BOTTOM_SLACK_PX
                 if (bottom !== atBottom) setAtBottom(bottom)
+                keepPlace(conversationId, {
+                  scrollTop: bottom ? undefined : el.scrollTop,
+                })
               }}
             >
               <div
@@ -338,6 +365,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
               </div>
             ))}
             <Composer
+              key={conversationId}
               ref={composer}
               conversationId={conversationId}
               canStop={activity.turnOpen || activity.phase === 'executing'}
@@ -349,9 +377,11 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         {wide && marginOpen ? (
           <WorkingMargin
             conversationId={conversationId}
-            selectedToolId={selectedToolId}
-            onClearSelection={() => setSelection(undefined)}
-            onClose={() => setMarginOpen(false)}
+            onClose={() => {
+              setMarginOpen(false)
+              // The close button goes with the margin: focus goes to what reopens it.
+              marginToggle.current?.focus()
+            }}
             onShowRequest={revealRequest}
           />
         ) : null}
@@ -361,11 +391,10 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
             onClose={() => setSheetOpen(false)}
             label="Working margin"
             placement="sheet"
+            initialFocus={'[role="tab"][aria-selected="true"]'}
           >
             <WorkingMargin
               conversationId={conversationId}
-              selectedToolId={selectedToolId}
-              onClearSelection={() => setSelection(undefined)}
               onClose={() => setSheetOpen(false)}
               onShowRequest={revealRequest}
             />

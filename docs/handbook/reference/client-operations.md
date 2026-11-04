@@ -19,7 +19,7 @@ when the table and the contract differ.
 | `link.get`               | none                   | no            | Current connection state.                                                                                                          |
 | `capabilities.get`       | none                   | no            | Negotiated capabilities for this connection.                                                                                       |
 | `auth.signIn`            | none                   | yes           | Sign in to a hermes serve origin with the platform flow (native PKCE or same-origin login).                                        |
-| `auth.signOut`           | none                   | yes           | Forget this device’s tokens. Hermes v0.22.5 cannot revoke issued native tokens remotely.                                           |
+| `auth.signOut`           | none                   | yes           | Sign out here: native clients forget their tokens (Hermes v0.22.5 cannot revoke them); the web asks Hermes to clear its cookie.    |
 | `conversations.list`     | `sessions.list`        | no            | Hermes sessions for the active profile.                                                                                            |
 | `conversations.create`   | `sessions.create`      | yes           | Start a side conversation.                                                                                                         |
 | `conversations.setMain`  | none                   | no            | Pin the device’s main conversation (stored on this device).                                                                        |

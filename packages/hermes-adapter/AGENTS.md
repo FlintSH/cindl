@@ -38,10 +38,22 @@ Planned, not built: canonical sessions, steer and process operations.
   whose frames are validated against the vendored schemas. A test that only
   checks a mock it wrote proves nothing. Drive interleavings and failures with
   the fake's own controls rather than mocks: `beforeHandle`, `afterHandle`,
-  `respondError`, `failNext`, `failNextRest`, `frozen`, `dropConnections`;
+  `respondError`, `failNext`, `failNextRest`, `holdNextRest` (hold a REST
+  request, then answer it), `frozen`, `dropConnections`;
   `appRequest` for app-level prompts; `stopScreen`, `startScreen`,
   `otherProfileDisplay` and `displayViewers` for the screen and its socket,
   whose client bytes pass a full port of Hermes's `RfbClientFilter`; and
-  `store.serveAs` and `store.otherProfileScopes` for the served profile.
+  `store.serveAs` and `store.otherProfileScopes` for the served profile; the
+  `providers` option for registered auth providers (`session: false` is a
+  token-only one, no sign-in option); `auth.expireAccessTokens` and
+  `auth.revokeAll` to age or end sessions. Its tokens are stateless like
+  Hermes's password provider's: a rotation spends nothing, replays to the
+  same refresh token for 30 s as Hermes coalesces a burst, and after that
+  the old refresh token rotates again. For the web's cookie flow the fake
+  serves a SYNTHETIC `/login` page, `/auth/password-login` and
+  `/auth/logout`, which revokes nothing; logout and a failed rotation delete
+  every cookie name variant (`__Host-`, `__Secure-`, bare). A provider
+  without a password signs in through `/auth/login` and `/auth/callback`, with
+  the fake itself as an IdP that approves at once.
   Close fakes with `closeFakes`, which closes them all before it reports a
   contract violation, so a failing check never leaves one listening.

@@ -78,6 +78,8 @@ export class FakeAuth {
   refreshUnavailable = false
   readonly #byAccess = new Map<string, FakeSession>()
   readonly #byRefresh = new Map<string, FakeSession>()
+  /** Rotations replayed to their refresh token for 30 s (refresh_singleflight.py:24-28). */
+  readonly #rotated = new Map<string, { until: number; session: FakeSession }>()
   readonly #tickets = new Map<string, { expiresAt: number; info: TicketInfo }>()
   readonly #pending = new Map<string, Pending>()
   readonly #codes = new Map<string, IssuedCode>()
@@ -112,13 +114,26 @@ export class FakeAuth {
     return session
   }
 
-  /** Rotate: the presented refresh token and its access token stop working. */
+  /**
+   * Rotate, as Hermes's password provider does (basic/__init__.py:157-163):
+   * its tokens are signed and stateless, so nothing is spent. The presented
+   * refresh token and its access token keep working until they expire, and
+   * the refresh token rotates again later. Within 30 s Hermes hands the same
+   * refresh token the same rotated session instead, as it coalesces a burst
+   * of requests that all carried it (refresh_singleflight.py:1-11, 53-75; the
+   * cookie gate and the native route share it).
+   */
   refresh(refreshToken: string): FakeSession | undefined {
+    const now = this.#seconds()
+    for (const [token, replay] of this.#rotated)
+      if (replay.until <= now) this.#rotated.delete(token)
+    const replay = this.#rotated.get(refreshToken)
+    if (replay) return replay.session
     const session = this.#byRefresh.get(refreshToken)
-    if (!session || session.refreshExpiresAt <= this.#seconds()) return undefined
-    this.#byRefresh.delete(refreshToken)
-    this.#byAccess.delete(session.accessToken)
-    return this.mintSession()
+    if (!session || session.refreshExpiresAt <= now) return undefined
+    const rotated = this.mintSession()
+    this.#rotated.set(refreshToken, { until: now + 30, session: rotated })
+    return rotated
   }
 
   /** Test control: every current access token expires now (refresh tokens stay valid). */
@@ -130,6 +145,7 @@ export class FakeAuth {
   revokeAll(): void {
     this.#byAccess.clear()
     this.#byRefresh.clear()
+    this.#rotated.clear()
   }
 
   mintTicket(info: TicketInfo): string {

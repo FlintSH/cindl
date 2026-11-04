@@ -224,6 +224,25 @@ describe('sign-in origin', () => {
   })
 })
 
+describe('sign-out result', () => {
+  const result = clientOps['auth.signOut'].result
+
+  it('says whether Hermes confirmed a cookie sign-out, and nothing more for a native one', () => {
+    expect(result.parse({ localOnly: true })).toEqual({ localOnly: true })
+    for (const hermesConfirmed of [true, false])
+      expect(result.parse({ localOnly: true, hermesConfirmed })).toEqual({
+        localOnly: true,
+        hermesConfirmed,
+      })
+  })
+
+  it('takes nothing but a boolean for the confirmation', () => {
+    for (const hermesConfirmed of ['yes', 1, null])
+      expect(() => result.parse({ localOnly: true, hermesConfirmed })).toThrow()
+    expect(() => result.parse({ localOnly: false })).toThrow()
+  })
+})
+
 describe('identifiers', () => {
   it('accepts Hermes-shaped ids and names', () => {
     expect(

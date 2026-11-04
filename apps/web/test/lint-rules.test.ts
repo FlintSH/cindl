@@ -234,6 +234,59 @@ describe('Cindl lint invariants', () => {
     )
   })
 
+  it('keeps the adapter out of the web UI, except the platform client', async () => {
+    const code =
+      "import { loginPagePath } from '@cindl/hermes-adapter'\nexport const x = loginPagePath"
+    expect(await rulesFor(code, 'apps/web/src/shell/SignIn.tsx')).toContain(
+      'no-restricted-imports',
+    )
+    expect(await rulesFor(code, 'apps/web/src/platform/client.ts')).not.toContain(
+      'no-restricted-imports',
+    )
+    // The fixtures stay off limits in the same files.
+    expect(
+      await rulesFor(
+        "import { x } from '@cindl/fixtures'",
+        'apps/web/src/shell/SignIn.tsx',
+      ),
+    ).toContain('no-restricted-imports')
+  })
+
+  it.each([
+    [
+      'apps/web/src/talk/Probe.ts',
+      "import { x } from '@cindl/hermes-adapter/upstream/x'",
+      'no-restricted-imports',
+    ],
+    [
+      'apps/web/src/talk/Probe.ts',
+      "import { x } from '../../../../packages/hermes-adapter/src/index.ts'",
+      'no-restricted-imports',
+    ],
+    [
+      'apps/web/src/talk/Probe.ts',
+      "import { x } from '../../node_modules/@cindl/hermes-adapter/src/index.ts'",
+      'no-restricted-imports',
+    ],
+    [
+      'apps/web/src/talk/Probe.ts',
+      "import { x } from '../../../../packages//hermes-adapter/src/index.ts'",
+      'no-restricted-imports',
+    ],
+    [
+      'apps/web/src/talk/Probe.ts',
+      "export const load = () => import('@cindl/hermes-adapter')",
+      'no-restricted-syntax',
+    ],
+    [
+      'apps/web/src/platform/preferences.ts',
+      "export const load = () => import('@cindl/hermes-adapter')",
+      'no-restricted-syntax',
+    ],
+  ])('keeps the adapter out of %s in any form: %s', async (filePath, code, rule) => {
+    expect(await rulesFor(code, filePath)).toContain(rule)
+  })
+
   it('lets the demo switch load the labelled scenario', async () => {
     expect(
       await rulesFor(

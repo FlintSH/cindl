@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, ReactNode } from 'react'
+import type { ButtonHTMLAttributes, ReactNode, Ref } from 'react'
 import { forwardRef } from 'react'
 import { keyLabel } from '../shortcuts.ts'
 import styles from './primitives.module.css'
@@ -64,9 +64,20 @@ export function Keys({ keys }: { keys: readonly string[] }) {
   )
 }
 
-export function SectionTitle({ children, id }: { children: ReactNode; id?: string }) {
+export function SectionTitle({
+  children,
+  id,
+  ref,
+  tabIndex,
+}: {
+  children: ReactNode
+  id?: string
+  /** For a view that moves focus to its heading (for example after a delete). */
+  ref?: Ref<HTMLHeadingElement>
+  tabIndex?: number
+}) {
   return (
-    <h2 className={styles['section-title']} id={id}>
+    <h2 className={styles['section-title']} id={id} ref={ref} tabIndex={tabIndex}>
       {children}
     </h2>
   )

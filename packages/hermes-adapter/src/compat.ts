@@ -47,7 +47,62 @@ export const restEndpoints = {
   learningNode: { method: 'GET', path: '/api/learning/node', auth: 'session' },
   learningNodeWrite: { method: 'PUT', path: '/api/learning/node', auth: 'session' },
   learningNodeDelete: { method: 'DELETE', path: '/api/learning/node', auth: 'session' },
+  /**
+   * Hermes's own login page (dashboard_auth/routes.py:195-200). The web client
+   * sends the browser here, so Cindl never sees a password; the page posts
+   * `/auth/password-login` and Hermes sets the session cookies. `next` is
+   * honoured only as a safe same-origin path (`loginPagePath`).
+   */
+  loginPage: { method: 'GET', path: '/login', auth: 'public' },
+  /**
+   * Cookie sign-out (routes.py:496-512): clears the session cookies and
+   * answers 302 to /login. Its best-effort revoke depends on the provider: a
+   * no-op for basic (stateless tokens) and Nous Portal (no revocation grant),
+   * an RFC 7009 revocation of the refresh token for self-hosted OIDC when its
+   * IdP advertises a revocation_endpoint (plugins/dashboard_auth/basic/
+   * __init__.py:165-167, nous/__init__.py:67-70, self_hosted/__init__.py:
+   * 124-145). Either way a copy of the access cookie works until it expires.
+   * On the gate's public list (middleware.py:39-42): it reads the cookies it
+   * clears.
+   */
+  logout: { method: 'POST', path: '/auth/logout', auth: 'public' },
 } as const
+
+/**
+ * Hermes's `is_safe_next_path` (dashboard_auth/request_utils.py:16, 37-44): a
+ * same-origin path that is not the login or auth routes and not under /api.
+ * Stricter than Hermes: a backslash or a control character is refused too.
+ * Browsers read `/\host` as `//host` and drop tabs and newlines, so either
+ * would send the browser to another origin after sign-in.
+ */
+export function isSafeNextPath(path: string): boolean {
+  if (!path.startsWith('/') || path.startsWith('//')) return false
+  const unsafe = (char: string) => {
+    const code = char.charCodeAt(0)
+    return char === '\\' || code < 0x20 || code === 0x7f
+  }
+  if ([...path].some(unsafe)) return false
+  if (['/login', '/auth/', '/api/auth/'].some((p) => path === p || path.startsWith(p)))
+    return false
+  return !(path === '/api' || path.startsWith('/api/'))
+}
+
+/**
+ * The login page, returning to `next` (a path and query) after sign-in. Hermes
+ * percent-decodes `next` again at every hop before it lands there
+ * (`_validate_post_login_target`, routes.py:93-97): at the page and at
+ * `/auth/password-login` (routes.py:171) for a password provider, and once
+ * more at `/auth/login` for an OAuth one (routes.py:224-231, 369-371). Each
+ * `%` is escaped twice, so the password path lands on `next` exactly, while
+ * the OAuth path decodes an escape in it once more: only a `next` without `%`
+ * comes back the same on both. An unsafe `next` is left out, and Hermes lands
+ * on `/`.
+ */
+export function loginPagePath(next?: string): string {
+  const page = restEndpoints.loginPage.path
+  if (!next || !isSafeNextPath(next)) return page
+  return `${page}?next=${encodeURIComponent(next.replaceAll('%', '%2525'))}`
+}
 
 export type RestEndpointName = keyof typeof restEndpoints
 

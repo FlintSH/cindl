@@ -57,7 +57,7 @@ export class NativeAuth {
   #tokens: NativeTokenResponse | undefined
   #loading: Promise<void> | undefined
   #refreshing: Promise<boolean> | undefined
-  /** Bumped by sign-out: results of work started before it are discarded. */
+  /** Bumped by sign-out and retirement: results of work started before are discarded. */
   #generation = 0
 
   constructor(options: NativeAuthOptions) {
@@ -188,18 +188,36 @@ export class NativeAuth {
     }
   }
 
+  /**
+   * This origin's sign-in has been left for another: the client switched
+   * away. Work still in flight (a refresh, a load, a sign-in) can no longer
+   * store, return or delete tokens, and nothing later can use any: the
+   * stored record now belongs to whoever deletes it or signs this origin in
+   * again, under the same key or not. Unlike `signOut` it never touches the
+   * store itself.
+   */
+  retire(): void {
+    this.#generation++
+    this.#tokens = undefined
+    this.#loading = Promise.resolve()
+  }
+
   async #doRefresh(): Promise<boolean> {
     const tokens = await this.#current()
     if (!tokens) return false
     const generation = this.#generation
     try {
       const next = await this.#public.nativeRefresh(tokens.refresh_token, tokens.provider)
-      // A sign-out while the refresh was in flight wins: never write the rotated pair back.
+      // A sign-out or retirement while the refresh was in flight wins: never
+      // write the rotated pair back.
       if (generation !== this.#generation) return false
       await this.#store(next)
       this.#log.log('info', 'auth.refreshed', { provider: next.provider })
       return true
     } catch (error) {
+      // Signed out or retired meanwhile: the stored record is not this
+      // refresh's any more, so a late refusal must not delete it.
+      if (generation !== this.#generation) return false
       if (error instanceof CindlError && error.code === 'unauthenticated') {
         this.#log.log('info', 'auth.refresh-rejected')
         await this.signOut()
@@ -210,8 +228,12 @@ export class NativeAuth {
   }
 
   async #current(): Promise<NativeTokenResponse | undefined> {
-    // One shared load: concurrent first callers all see the stored tokens.
-    this.#loading ??= this.#load()
+    // One shared load: concurrent first callers all see the stored tokens. A
+    // load that failed is not kept, so the next caller reads the store again.
+    this.#loading ??= this.#load().catch((error: unknown) => {
+      this.#loading = undefined
+      throw error
+    })
     await this.#loading
     return this.#tokens
   }
@@ -219,7 +241,20 @@ export class NativeAuth {
   async #load(): Promise<void> {
     if (!this.#options.secrets.available) return
     const generation = this.#generation
-    const raw = await this.#options.secrets.get(this.#key)
+    let raw: string | undefined
+    try {
+      raw = await this.#options.secrets.get(this.#key)
+    } catch (error) {
+      // A failure on this device, not Hermes's answer: say so.
+      this.#log.log('warn', 'auth.secret-store-read-failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      })
+      throw new CindlError(
+        'internal',
+        'This device could not read its saved Hermes sign-in.',
+        'secret store read failed',
+      )
+    }
     if (!raw || generation !== this.#generation) return
     try {
       const parsed = NativeTokenResponse.safeParse(JSON.parse(raw))

@@ -21,6 +21,7 @@ import {
   FakeAuth,
   FIXTURE_LOGIN,
   FIXTURE_OWNER,
+  randomToken,
   validateLoopbackRedirect,
   type FakeSession,
 } from './auth.ts'
@@ -50,6 +51,32 @@ export interface FakeHermesOptions {
   version?: string
   /** Serve the per-entry memory routes (/api/learning/*). Default true; false answers 404. */
   learningRoutes?: boolean
+  /**
+   * Registered dashboard auth providers. Default: one interactive password
+   * provider. `session: false` is a token-only credential (drain), which is
+   * no sign-in option (dashboard_auth/registry.py:93-96).
+   */
+  providers?: FakeProvider[]
+}
+
+/** A dashboard auth provider the fake registers. */
+export interface FakeProvider {
+  name: string
+  displayName?: string
+  supportsPassword?: boolean
+  /** Interactive sign-in (`supports_session`); default true. */
+  session?: boolean
+}
+
+const DEFAULT_PROVIDERS: FakeProvider[] = [
+  { name: 'basic', displayName: 'Password (fixture)', supportsPassword: true },
+]
+
+/** A REST request the fake holds (holdNextRest). */
+export interface RestHold {
+  /** Resolves once the held request has arrived. */
+  readonly arrived: Promise<void>
+  release(answer?: { status: number; body: unknown }): void
 }
 
 export interface FakeHermes {
@@ -72,6 +99,11 @@ export interface FakeHermes {
   signIn(): FakeSession
   /** Test control: the next `METHOD /path` request answers `status` instead of being handled. */
   failNextRest(route: string, status: number): void
+  /**
+   * Test control: hold the next `METHOD /path` request until released; it is
+   * then handled as usual, or answered with `answer` instead.
+   */
+  holdNextRest(route: string): RestHold
   close(): Promise<void>
 }
 
@@ -108,6 +140,103 @@ function hostOf(authority: string): string {
   }
   return value.toLowerCase()
 }
+
+/** Python's `urllib.parse.unquote`, near enough: a malformed escape stays as it is. */
+function unquote(raw: string): string {
+  return raw.replace(/(?:%[0-9a-f]{2})+/gi, (run) => {
+    try {
+      return decodeURIComponent(run)
+    } catch {
+      return run
+    }
+  })
+}
+
+/**
+ * Hermes's `_validate_post_login_target` (dashboard_auth/routes.py:93-97) over
+ * `is_safe_next_path` (request_utils.py:16, 37-44): the decoded value when it
+ * is a same-origin path that is not the login or auth routes and not under
+ * /api, else ''. As upstream, a backslash or a tab passes; Cindl never builds
+ * such a `next` (`isSafeNextPath` in the adapter refuses both).
+ */
+function safeNext(raw: unknown): string {
+  if (typeof raw !== 'string' || !raw) return ''
+  const decoded = unquote(raw)
+  if (!decoded.startsWith('/') || decoded.startsWith('//')) return ''
+  if (
+    ['/login', '/auth/', '/api/auth/'].some((p) => decoded === p || decoded.startsWith(p))
+  )
+    return ''
+  return decoded === '/api' || decoded.startsWith('/api/') ? '' : decoded
+}
+
+const html = (text: string) => text.replace(/[&<>"']/g, (c) => `&#${c.charCodeAt(0)};`)
+
+/**
+ * A minimal stand-in for Hermes's login page (routes.py:195-200): SYNTHETIC,
+ * prefilled with the fixture credentials. The form posts
+ * `/auth/password-login` as Hermes's page does, then goes to the `next` it
+ * answers with. Each OAuth provider gets a link to `/auth/login` carrying
+ * `next`, as Hermes renders one (login_page.py:465-475).
+ */
+function loginPage(
+  next: string,
+  provider: string,
+  oauth: readonly FakeProvider[],
+): string {
+  const query = next ? `&next=${encodeURIComponent(next)}` : ''
+  const links = oauth.map(
+    (p) =>
+      `<p><a href="${html(`/auth/login?provider=${encodeURIComponent(p.name)}${query}`)}">Sign in with ${html(p.displayName ?? p.name)}</a></p>\n`,
+  )
+  return `<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Sign in (fixture Hermes)</title></head>
+<body>
+<p>Fake Hermes sign-in (synthetic fixture)</p>
+${links.join('')}<form id="login">
+<input type="hidden" name="provider" value="${html(provider)}">
+<input type="hidden" name="next" value="${html(next)}">
+<label>Username <input name="username" value="${html(FIXTURE_LOGIN.username)}"></label>
+<label>Password <input name="password" type="password" value="${html(FIXTURE_LOGIN.password)}"></label>
+<button type="submit">Sign in</button>
+</form>
+<script>
+document.getElementById('login').addEventListener('submit', async (event) => {
+  event.preventDefault()
+  const form = new FormData(event.target)
+  const response = await fetch('/auth/password-login', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(Object.fromEntries(form)),
+  })
+  if (response.ok) location.assign((await response.json()).next)
+})
+</script>
+</body></html>`
+}
+
+/** The code the OAuth stand-in hands /auth/callback: SYNTHETIC, never an IdP's. */
+const OAUTH_CODE = 'fixture-oauth-code'
+
+/** cookies.py `encode_pkce_payload`: base64url JSON, no padding. */
+const encodePkce = (parts: Record<string, string>) =>
+  Buffer.from(JSON.stringify(parts)).toString('base64url')
+
+function decodePkce(raw: string | undefined): Record<string, unknown> | undefined {
+  if (!raw) return undefined
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'))
+    return parsed && typeof parsed === 'object'
+      ? (parsed as Record<string, unknown>)
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/** Starlette's RedirectResponse quoting: URL syntax and `%` kept, anything else escaped. */
+const quoteLocation = (url: string) =>
+  url.replace(/[^A-Za-z0-9._~:/%#?=@[\]!$&'()*+,;-]/gu, (c) => encodeURIComponent(c))
 
 function cookies(req: IncomingMessage): Record<string, string> {
   const out: Record<string, string> = {}
@@ -156,6 +285,9 @@ export async function startFakeHermes(
   let offset = 0
   const clock = { now: () => Date.now() + offset }
   const mode = options.mode ?? 'gated'
+  const providers = options.providers ?? DEFAULT_PROVIDERS
+  /** The providers that can sign in (supports_session), as /auth/native/authorize accepts. */
+  const sessionProviders = providers.filter((provider) => provider.session !== false)
   const store = new FixtureStore()
   const auth = new FakeAuth(clock)
   const contract = new HermesContract()
@@ -215,13 +347,50 @@ export async function startFakeHermes(
     const session = auth.verifyAccess(at)
     if (session) return session
     const rotated = rt ? auth.refresh(rt) : undefined
-    if (!rotated) throw unauthorized('invalid_or_expired_session')
+    if (!rotated) {
+      // middleware.py:150-157: the dead cookies are cleared with the 401.
+      clearSessionCookies(res)
+      throw unauthorized('invalid_or_expired_session')
+    }
     setSessionCookies(res, rotated)
     return rotated
   }
 
-  const setSessionCookies = (res: ServerResponse, session: FakeSession) =>
+  /** Add Set-Cookie lines to a response, after any it already has. */
+  const addCookies = (res: ServerResponse, lines: string[]) => {
+    const before = res.getHeader('Set-Cookie')
     res.setHeader('Set-Cookie', [
+      ...(Array.isArray(before) ? before : before === undefined ? [] : [String(before)]),
+      ...lines,
+    ])
+  }
+
+  /**
+   * cookies.py:109-121 `_clear_cookie_variants`: a deletion for every name a
+   * browser may hold. Prefixed names need Secure (and `__Host-` Path=/); the
+   * bare one mirrors how this plain-HTTP fake sets it.
+   */
+  const deletions = (name: string, prefixedSameSite: 'lax' | 'none') => [
+    `__Host-${name}=; Max-Age=0; Path=/; HttpOnly; SameSite=${prefixedSameSite}; Secure`,
+    `__Secure-${name}=; Max-Age=0; Path=/; HttpOnly; SameSite=${prefixedSameSite}; Secure`,
+    `${name}=; Max-Age=0; HttpOnly; SameSite=Lax; Path=/`,
+  ]
+
+  /** cookies.py:123-128 `clear_session_cookies`, every variant. */
+  const clearSessionCookies = (res: ServerResponse) =>
+    addCookies(
+      res,
+      ['hermes_session_at', 'hermes_session_rt', 'hermes_session_provider'].flatMap(
+        (name) => deletions(name, 'lax'),
+      ),
+    )
+
+  /** cookies.py:147-151 `clear_pkce_cookie`, every variant. */
+  const clearPkceCookie = (res: ServerResponse) =>
+    addCookies(res, deletions('hermes_session_pkce', 'none'))
+
+  const setSessionCookies = (res: ServerResponse, session: FakeSession) =>
+    addCookies(res, [
       `hermes_session_at=${session.accessToken}; HttpOnly; SameSite=Lax; Path=/`,
       `hermes_session_rt=${session.refreshToken}; HttpOnly; SameSite=Lax; Path=/`,
       `hermes_session_provider=${session.provider}; HttpOnly; SameSite=Lax; Path=/`,
@@ -370,9 +539,15 @@ export async function startFakeHermes(
         latest_config_version: 1,
         gateway_running: false,
         active_sessions: gateway.live.size,
+        // status.py:383-405: every registered provider by name; native_pkce
+        // only while an interactive session provider is registered.
         auth_required: mode === 'gated',
-        auth_providers: mode === 'gated' ? ['basic'] : [],
-        auth_flows: mode === 'gated' ? ['cookie', 'native_pkce'] : [],
+        auth_providers:
+          mode === 'gated' ? providers.map((provider) => provider.name) : [],
+        auth_flows:
+          mode === 'gated'
+            ? ['cookie', ...(sessionProviders.length ? ['native_pkce'] : [])]
+            : [],
         nous_session_valid: 'unknown',
         overall: 'ok',
         profiles: [...store.profiles.keys()],
@@ -386,12 +561,17 @@ export async function startFakeHermes(
             }
           : {}),
       }
-    if (method === 'GET' && path === '/api/auth/providers')
+    if (method === 'GET' && path === '/api/auth/providers') {
+      // routes.py:203-212: interactive providers only; fail closed on none.
+      if (!sessionProviders.length) throw detail(503, 'no auth providers registered')
       return {
-        providers: [
-          { name: 'basic', display_name: 'Password (fixture)', supports_password: true },
-        ],
+        providers: sessionProviders.map((provider) => ({
+          name: provider.name,
+          display_name: provider.displayName ?? provider.name,
+          supports_password: provider.supportsPassword === true,
+        })),
       }
+    }
     if (method === 'GET' && path === '/auth/native/authorize') {
       const query = url.searchParams
       if ((query.get('code_challenge_method') ?? '').toUpperCase() !== 'S256')
@@ -443,15 +623,85 @@ export async function startFakeHermes(
         })
       return bearerPayload(session)
     }
+    if (method === 'GET' && path === '/login') {
+      const password = sessionProviders.find((provider) => provider.supportsPassword)
+      res.writeHead(200, {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Cache-Control': 'no-store',
+      })
+      const oauth = sessionProviders.filter((provider) => !provider.supportsPassword)
+      res.end(
+        loginPage(safeNext(url.searchParams.get('next')), password?.name ?? '', oauth),
+      )
+      return undefined
+    }
+    if (method === 'GET' && path === '/auth/login') {
+      // routes.py:217-233: a password provider goes to the login page; any
+      // other starts its own sign-in with next kept in the PKCE cookie. Here
+      // that is a stand-in IdP on the fake itself, which approves at once.
+      const name = url.searchParams.get('provider') ?? ''
+      const provider = providers.find((candidate) => candidate.name === name)
+      if (!provider) throw detail(404, `Unknown provider: '${name}'`)
+      if (provider.session === false)
+        throw detail(404, `Provider does not support interactive login: '${name}'`)
+      const next = safeNext(url.searchParams.get('next'))
+      if (provider.supportsPassword) {
+        res.writeHead(302, {
+          Location: next ? `/login?next=${encodeURIComponent(next)}` : '/login',
+        })
+        res.end()
+        return undefined
+      }
+      const state = randomToken(16)
+      addCookies(res, [
+        `hermes_session_pkce=${encodePkce({ provider: name, state, ...(next ? { next } : {}) })}; Max-Age=600; HttpOnly; SameSite=Lax; Path=/`,
+      ])
+      res.writeHead(302, { Location: `/auth/callback?code=${OAUTH_CODE}&state=${state}` })
+      res.end()
+      return undefined
+    }
+    if (method === 'GET' && path === '/auth/callback') {
+      // routes.py:338-379: the provider and next come only from the PKCE
+      // cookie, and the landing is decoded and checked once more.
+      const parts = decodePkce(cookies(req).hermes_session_pkce)
+      if (!parts) throw detail(400, 'Missing PKCE state cookie')
+      const provider = providers.find((candidate) => candidate.name === parts.provider)
+      if (!provider) throw detail(400, 'Unknown provider in cookie')
+      const state = url.searchParams.get('state') ?? ''
+      if (!state || state !== parts.state)
+        throw detail(400, 'OAuth state mismatch (CSRF check failed)')
+      if (url.searchParams.get('code') !== OAUTH_CODE) throw detail(400, 'Invalid code')
+      setSessionCookies(res, auth.mintSession())
+      clearPkceCookie(res)
+      res.writeHead(302, { Location: quoteLocation(safeNext(parts.next) || '/') })
+      res.end()
+      return undefined
+    }
     if (method === 'POST' && path === '/auth/password-login') {
+      // routes.py:447-494: a password provider by name, generic failures.
       const body = await json()
+      const provider = providers.find(
+        (candidate) => candidate.name === body.provider && candidate.supportsPassword,
+      )
+      if (!provider) throw detail(404, 'Unknown provider')
       if (
         body.username !== FIXTURE_LOGIN.username ||
         body.password !== FIXTURE_LOGIN.password
       )
         throw detail(401, 'Invalid credentials')
       setSessionCookies(res, auth.mintSession())
-      return { ok: true, next: '/' }
+      return { ok: true, next: safeNext(body.next) || '/' }
+    }
+    if (method === 'POST' && path === '/auth/logout') {
+      // routes.py:496-512: clear the session and PKCE cookies and 302 to
+      // /login. Its revoke is a no-op for the password provider
+      // (basic/__init__.py:165-167, stateless tokens), so the tokens
+      // themselves last until they expire.
+      clearSessionCookies(res)
+      clearPkceCookie(res)
+      res.writeHead(302, { Location: '/login' })
+      res.end()
+      return undefined
     }
     if (!path.startsWith('/api/')) throw detail(404, 'Not Found')
 
@@ -718,6 +968,11 @@ export async function startFakeHermes(
 
   /** One-shot REST failures by `METHOD /path` (failNextRest). */
   const restFailures = new Map<string, number>()
+  /** One-shot REST holds by `METHOD /path` (holdNextRest). */
+  const restHolds = new Map<
+    string,
+    { arrive: () => void; answer: Promise<{ status: number; body: unknown } | undefined> }
+  >()
 
   const server = createServer((req, res) => {
     const url = new URL(req.url ?? '/', 'http://fake-hermes.invalid')
@@ -741,14 +996,26 @@ export async function startFakeHermes(
       send(failure, { detail: 'Internal Server Error' })
       return
     }
-    route(req, res, url)
-      .then((body) => {
-        if (body !== undefined) send(200, body)
+    const handle = () =>
+      route(req, res, url)
+        .then((body) => {
+          if (body !== undefined) send(200, body)
+        })
+        .catch((error: unknown) => {
+          if (error instanceof HttpError) send(error.status, error.body)
+          else send(500, { detail: 'Internal Server Error' })
+        })
+    const hold = restHolds.get(name)
+    if (hold) {
+      restHolds.delete(name)
+      hold.arrive()
+      void hold.answer.then((answer) => {
+        if (answer) send(answer.status, answer.body)
+        else void handle()
       })
-      .catch((error: unknown) => {
-        if (error instanceof HttpError) send(error.status, error.body)
-        else send(500, { detail: 'Internal Server Error' })
-      })
+      return
+    }
+    void handle()
   })
 
   // --- WebSocket upgrades -----------------------------------------------------
@@ -871,6 +1138,20 @@ export async function startFakeHermes(
     signIn: () => auth.mintSession(),
     failNextRest(route, status) {
       restFailures.set(route, status)
+    },
+    holdNextRest(route) {
+      let arrive: () => void = () => undefined
+      const arrived = new Promise<void>((resolve) => {
+        arrive = resolve
+      })
+      let release: (answer?: { status: number; body: unknown }) => void = () => undefined
+      const answer = new Promise<{ status: number; body: unknown } | undefined>(
+        (resolve) => {
+          release = resolve
+        },
+      )
+      restHolds.set(route, { arrive, answer })
+      return { arrived, release: (reply) => release(reply) }
     },
     async close() {
       gateway.restart()

@@ -25,6 +25,50 @@ const MARKDOWN_LINK =
 
 const lineOf = (text, index) => text.slice(0, index).split('\n').length
 
+// The handbook site (VitePress 1.6.4) names heading anchors with this rule
+// (vitepress/dist/node: `slugify`). GitHub's rule differs: for "Hermes's" it
+// drops the apostrophe where the site writes a hyphen. Links between handbook
+// pages are checked against the site's anchors, which `pnpm docs:build` serves.
+// eslint-disable-next-line no-control-regex -- the site's rule strips control characters
+const CONTROL = /[\u0000-\u001f]/g
+const SPECIAL = /[\s~`!@#$%^&*()\-_+=[\]{}|\\;:"'“”‘’<>,.?/]+/g
+const COMBINING = /[\u0300-\u036F]/g
+export const siteSlug = (text) =>
+  text
+    .normalize('NFKD')
+    .replace(COMBINING, '')
+    .replace(CONTROL, '')
+    .replace(SPECIAL, '-')
+    .replace(/-{2,}/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .replace(/^(\d)/, '_$1')
+    .toLowerCase()
+
+/** The anchors the handbook site gives a page's headings. */
+export function headingAnchors(markdown) {
+  const anchors = new Set()
+  const seen = new Map()
+  for (const match of withoutFences(markdown).matchAll(/^#{1,6}[ \t]+(.+?)[ \t#]*$/gm)) {
+    const custom = /\s*\{#([\w-]+)\}$/.exec(match[1])
+    if (custom) {
+      anchors.add(custom[1])
+      continue
+    }
+    // The rendered text: code keeps its content, links their text; markup goes.
+    const text = match[1]
+      .replace(/`([^`]*)`/g, '$1')
+      .replace(/!?\[([^\]]*)\]\([^)]*\)/g, '$1')
+      .replace(/<[^>]+>/g, '')
+      .replace(/(\*{1,3}|_{1,3})(\S(?:.*?\S)?)\1/g, '$2')
+    const slug = siteSlug(text)
+    const count = seen.get(slug) ?? 0
+    seen.set(slug, count + 1)
+    // Later headings with the same text get -1, -2, ... (markdown-it-anchor).
+    anchors.add(count ? `${slug}-${count}` : slug)
+  }
+  return anchors
+}
+
 export function checkReferences(root) {
   // Untracked (but not ignored) files are included so new pages are checked before commit.
   const files = listFiles(root, { untracked: true })
@@ -56,6 +100,39 @@ export function checkReferences(root) {
   }
   const errors = []
   let checked = 0
+  const anchorsOf = new Map()
+  /** The site's anchors of a handbook page, or undefined when `path` is not one. */
+  const pageAnchors = (path) => {
+    const clean = path.replace(/\/+$/, '')
+    const page = [
+      clean.endsWith('.md') ? clean : undefined,
+      `${clean}.md`,
+      clean.replace(/\.html$/, '.md'),
+      `${clean}/index.md`,
+    ].find(
+      (candidate) =>
+        candidate?.startsWith('docs/handbook/') &&
+        candidate.endsWith('.md') &&
+        exists(candidate) &&
+        statSync(join(root, candidate)).isFile(),
+    )
+    if (!page) return undefined
+    if (!anchorsOf.has(page))
+      anchorsOf.set(page, headingAnchors(readFileSync(join(root, page), 'utf8')))
+    return anchorsOf.get(page)
+  }
+  /** A link between handbook pages must name an anchor the site gives its target. */
+  const checkAnchor = (file, path, target, where) => {
+    const fragment = target.includes('#') ? target.slice(target.indexOf('#') + 1) : ''
+    if (!fragment || !file.startsWith('docs/handbook/')) return
+    const anchors = pageAnchors(path)
+    if (!anchors) return
+    checked++
+    if (!anchors.has(decodeURIComponent(fragment)))
+      errors.push(
+        `${where}: links to ${target}, but the handbook site gives that page no #${fragment} anchor`,
+      )
+  }
 
   for (const file of files) {
     if (!TEXT_FILE.test(file) || NOT_SCANNED.some((pattern) => pattern.test(file)))
@@ -97,7 +174,10 @@ export function checkReferences(root) {
         )
         if (!inRepo) continue
         path = decodeURIComponent(inRepo[1])
-      } else if (/^(?:[a-z][a-z0-9+.-]*:|\/\/|#)/i.test(target)) continue
+      } else if (target.startsWith('#')) {
+        checkAnchor(file, file, target, where)
+        continue
+      } else if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(target)) continue
       else {
         const bare = decodeURIComponent(target.split('#')[0].split('?')[0])
         if (!bare) continue
@@ -116,6 +196,7 @@ export function checkReferences(root) {
       checked++
       if (path.startsWith('..') || !resolvesTo(path))
         errors.push(`${where}: links to ${target}, which does not exist`)
+      else checkAnchor(file, path, target, where)
     }
   }
   return { errors, checked }

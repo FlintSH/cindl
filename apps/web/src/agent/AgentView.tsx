@@ -16,8 +16,9 @@ import { formatRoute, type AgentSection } from '../router.ts'
 import { linkCopy } from '../shell/LinkStatus.tsx'
 import { Badge, Button, Dot, SectionTitle, type Tone } from '../ui/primitives.tsx'
 import { RequireCapability } from '../views/Capability.tsx'
-import { pruneRequestDrafts } from '../talk/RequestCard.tsx'
-import { DocumentEditor, forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
+import { useClientKind } from '../platform/clientKind.ts'
+import { signOutHere } from '../shell/session.ts'
+import { DocumentEditor } from '../views/DocumentEditor.tsx'
 import { useResource } from '../views/useResource.ts'
 import styles from '../views/views.module.css'
 
@@ -248,27 +249,33 @@ function Runtime() {
 function Device() {
   const api = useCindlApi()
   const link = useLink()
+  // Served by Hermes: the session is Hermes's cookie in this browser.
+  const served = useClientKind() === 'hermes'
   const [outcome, setOutcome] = useState<'done' | 'failed'>()
   return (
     <section className={styles.section} aria-labelledby="device-title">
       <SectionTitle id="device-title">This device</SectionTitle>
-      <p>
-        Signing out forgets this device's Hermes tokens. Hermes v0.22.5 cannot revoke
-        tokens it already issued, so this is a local sign-out: it does not end sessions on
-        other devices.
-      </p>
+      {served ? (
+        <p>
+          Signing out asks Hermes to clear its session cookie in this browser. Hermes may
+          not end the session on its side (its basic sign-in revokes nothing), so a copy
+          of that cookie can keep working until it expires, and other devices stay signed
+          in.
+        </p>
+      ) : (
+        <p>
+          Signing out forgets this device's Hermes tokens. Hermes v0.22.5 cannot revoke
+          tokens it already issued, so this is a local sign-out: it does not end sessions
+          on other devices.
+        </p>
+      )}
       <div className={styles.actions}>
         <Button
           disabled={link.phase === 'signed-out'}
           onClick={() => {
             setOutcome(undefined)
-            void api.call('auth.signOut', {}).then(
-              () => {
-                // Nothing typed on this device outlives the session.
-                pruneRequestDrafts(new Set())
-                forgetDocumentDrafts()
-                setOutcome('done')
-              },
+            void signOutHere(api).then(
+              () => setOutcome('done'),
               () => setOutcome('failed'),
             )
           }}

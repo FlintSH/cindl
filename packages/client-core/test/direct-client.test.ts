@@ -6,9 +6,10 @@ import {
 } from '@cindl/contracts'
 import { connectRawClient } from '@cindl/fixtures/fake-hermes'
 import { describe, expect, it } from 'vitest'
-import { webCryptoProvider } from '@cindl/hermes-adapter'
+import { nativeTokensKey, webCryptoProvider } from '@cindl/hermes-adapter'
 import {
   createDirectClient,
+  createStore,
   entry,
   selectOpenRequests,
   sha256Hex,
@@ -176,6 +177,117 @@ describe('direct client: signing in to another origin', () => {
       lastError: { code: 'offline' },
       server: { origin: UNREACHABLE },
     })
+  })
+})
+
+describe('direct client: the sign-in an origin switch leaves behind', () => {
+  const REFRESH = 'POST /auth/native/refresh'
+  const UNREACHABLE = 'http://127.0.0.1:1'
+
+  /** Signed in to A, with the probes that follow sign-in finished. */
+  async function onA() {
+    const a = await fakeHermes()
+    const h = await harness({ fake: a })
+    await h.waitFor(
+      () => h.store.getState().capabilities['memory.text']?.state === 'available',
+    )
+    return { a, h, keyA: nativeTokensKey(a.origin) }
+  }
+
+  /**
+   * A REST call on A whose token refresh is held at the fake until `release`:
+   * A's clock passes the access token's lifetime, so the call gets a 401 and
+   * refreshes once.
+   */
+  async function heldRefresh(h: Harness, a: Harness['fake']) {
+    a.advance(13 * 3600 * 1000)
+    const held = a.holdNextRest(REFRESH)
+    const call = h.client.call('memory.overview', {}).catch(() => undefined)
+    await held.arrived
+    return { held, call }
+  }
+
+  it('never lets a refresh for the origin it left write that sign-in back', async () => {
+    const { a, h, keyA } = await onA()
+    const b = await fakeHermes()
+    const { held, call } = await heldRefresh(h, a)
+    await h.client.call('auth.signIn', { origin: b.origin })
+    const keyB = nativeTokensKey(b.origin)
+    const recordB = h.secrets.map.get(keyB)
+    expect(recordB).toBeDefined()
+    // The platform deletes the record of the Hermes it left.
+    await h.secrets.delete(keyA)
+    held.release()
+    await call
+    expect(h.secrets.map.has(keyA)).toBe(false)
+    expect(h.secrets.map.get(keyB)).toBe(recordB)
+    expect(h.store.getState().link.server?.origin).toBe(b.origin)
+  })
+
+  it('never lets a late refresh overwrite the same origin signed in again', async () => {
+    const { a, h, keyA } = await onA()
+    const b = await fakeHermes()
+    const { held, call } = await heldRefresh(h, a)
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.secrets.delete(keyA)
+    // Back to A with a fresh sign-in: the same key, new tokens.
+    await h.client.call('auth.signIn', { origin: a.origin })
+    const fresh = h.secrets.map.get(keyA)
+    expect(fresh).toBeDefined()
+    held.release()
+    await call
+    expect(h.secrets.map.get(keyA)).toBe(fresh)
+  })
+
+  it('never lets a late refusal delete the same origin signed in again', async () => {
+    const { a, h, keyA } = await onA()
+    const b = await fakeHermes()
+    const { held, call } = await heldRefresh(h, a)
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.secrets.delete(keyA)
+    await h.client.call('auth.signIn', { origin: a.origin })
+    const fresh = h.secrets.map.get(keyA)
+    // The left sign-in's refresh is refused late, as an expired session would be.
+    held.release({
+      status: 401,
+      body: { error: 'session_expired', detail: 'expired (fixture)' },
+    })
+    await call
+    expect(h.secrets.map.get(keyA)).toBe(fresh)
+  })
+
+  it('lets a refresh in flight store when the switch fails', async () => {
+    const { a, h, keyA } = await onA()
+    const before = h.secrets.map.get(keyA)
+    const { held, call } = await heldRefresh(h, a)
+    expect(await codeOf(h.client.call('auth.signIn', { origin: UNREACHABLE }))).toBe(
+      'offline',
+    )
+    held.release()
+    await call
+    // A is still the session: its rotated tokens were kept.
+    const after = h.secrets.map.get(keyA)
+    expect(after).toBeDefined()
+    expect(after).not.toBe(before)
+    expect(h.store.getState().link).toMatchObject({ phase: 'online' })
+    expect(h.store.getState().link.server?.origin).toBe(a.origin)
+  })
+
+  it('keeps a refresh when the same origin is signed in to again, which is no switch', async () => {
+    const { a, h, keyA } = await onA()
+    const before = h.secrets.map.get(keyA)
+    const exchanges = () =>
+      a.calls.filter((c) => c.name === 'POST /auth/native/token').length
+    const signIns = exchanges()
+    const { held, call } = await heldRefresh(h, a)
+    await h.client.call('auth.signIn', { origin: a.origin })
+    held.release()
+    await call
+    // The refresh's rotated tokens were kept, and no new browser sign-in was needed.
+    const after = h.secrets.map.get(keyA)
+    expect(after).toBeDefined()
+    expect(after).not.toBe(before)
+    expect(exchanges()).toBe(signIns)
   })
 })
 
@@ -1745,5 +1857,123 @@ describe('direct client: refusals', () => {
     await expect(h.client.call('auth.signOut', {})).resolves.toEqual({ localOnly: true })
     expect(h.store.getState().link.phase).toBe('signed-out')
     expect(h.secrets.map.size).toBe(0)
+  })
+})
+
+describe('direct client: a subscriber that joins late', () => {
+  it('is told the link, capabilities, conversations, prompts and requests so far', async () => {
+    const base = memoryKv()
+    let full = false
+    // Once full, the device cannot record a prompt as sending, so it stays queued.
+    const kv: KeyValueStore & { map: Map<string, string> } = {
+      ...base,
+      set: (key, value) =>
+        full && value.includes('"state":"sending"')
+          ? Promise.reject(new Error('disk full (fixture)'))
+          : base.set(key, value),
+    }
+    const h = await harness({ kv })
+    approvalScript(h)
+    const { c, request } = await openRequest(h)
+    full = true
+    const stuck = await h.client.call('prompt.submit', {
+      conversationId: c.id,
+      clientId: 'p-stuck',
+      text: 'later (fixture)',
+    })
+    expect(stuck.state).toBe('queued-offline')
+    // An error boundary remounts the renderer, whose new store subscribes now.
+    const late = createStore({
+      phase: 'connecting',
+      since: '2026-01-01T00:00:00.000Z',
+      connectionEpoch: 0,
+    })
+    h.client.subscribe((event) => late.dispatch(event))
+    const state = late.getState()
+    expect(state.link).toEqual(h.store.getState().link)
+    expect(state.link.phase).toBe('online')
+    expect(state.capabilities).toEqual(h.store.getState().capabilities)
+    expect(entry(state.conversations, c.id)?.title).toBe(c.title)
+    expect(entry(state.requests, request.requestId)?.status).toBe('open')
+    expect(entry(state.prompts, 'p-stuck')?.state).toBe('queued-offline')
+    expect(state.display).toEqual(h.store.getState().display)
+  })
+
+  it('is not told the screen of the Hermes it left', async () => {
+    const h = await harness()
+    await h.waitFor(() => h.events.some((e) => e.type === 'display.changed'))
+    // Hermes B cannot read its screen, so B reports none of its own.
+    const b = await fakeHermes()
+    b.gateway.respondError = (method) =>
+      method === 'display.status'
+        ? { code: 5000, message: 'display.status failed (fixture)' }
+        : undefined
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.waitFor(() => h.store.getState().link.server?.origin === b.origin)
+    await online(h)
+    const boot = {
+      phase: 'connecting' as const,
+      since: '2026-01-01T00:00:00.000Z',
+      connectionEpoch: 0,
+    }
+    const late = createStore(boot)
+    h.client.subscribe((event) => late.dispatch(event))
+    expect(late.getState().link.server?.origin).toBe(b.origin)
+    expect(late.getState().display).toEqual(createStore(boot).getState().display)
+  })
+
+  it('hears nothing before the client has reported a link', async () => {
+    const fake = await fakeHermes()
+    const client = createDirectClient({
+      origin: fake.origin,
+      auth: 'native-pkce',
+      fetch: (url, init) => fetch(url, init),
+      socketFactory: () => {
+        throw new Error('not used (fixture)')
+      },
+      clock: systemClock,
+      kv: memoryKv(),
+      secrets: memorySecrets(),
+      crypto: webCryptoProvider(),
+    })
+    const events: CindlEvent[] = []
+    client.subscribe((event) => events.push(event))
+    expect(events).toEqual([])
+  })
+})
+
+describe('direct client: a failure on this device during discovery', () => {
+  it('shows a secret store it cannot read as an error, not offline, and reads it again on start', async () => {
+    const first = await harness()
+    first.client.stop()
+    // The same device starts again, and its secret store is locked at first.
+    let locked = true
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...first.secrets,
+      get: (key) =>
+        locked
+          ? Promise.reject(new Error('keystore locked (fixture)'))
+          : first.secrets.get(key),
+    }
+    const h = await harness({ fake: first.fake, secrets, signIn: false })
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'error',
+      lastError: {
+        code: 'internal',
+        message: 'This device could not read its saved Hermes sign-in.',
+      },
+    })
+    // Asking Hermes again cannot open the store, so discovery does not repeat.
+    const statusReads = () =>
+      h.fake.calls.filter((c) => c.name === 'GET /api/status').length
+    const reads = statusReads()
+    await pause(150)
+    expect(statusReads()).toBe(reads)
+    expect(h.store.getState().link.phase).toBe('error')
+    // Once the store opens, the next start reads it again and connects.
+    locked = false
+    h.client.stop()
+    await h.client.start()
+    await online(h)
   })
 })

@@ -49,6 +49,8 @@ the browser.
 | `GET /auth/native/authorize`               | public  | 302 to the loopback redirect with `code` and `state`                       | `routes.py:242-276, 289-336`               |
 | `POST /auth/native/token`                  | public  | `{access_token, refresh_token, token_type, expires_at, provider, user_id}` | `routes.py:111-117, 574-591`               |
 | `POST /auth/native/refresh`                | public  | same token set, rotated                                                    | `routes.py:594-617`                        |
+| `GET /login`                               | public  | nothing: Hermes's login page, where Cindl only sends the browser           | `routes.py:195-200`                        |
+| `POST /auth/logout`                        | public  | 302 to `/login`, session cookies cleared                                   | `routes.py:496-512`                        |
 | `GET /api/sessions/{id}/mutation-snapshot` | session | `{session_id, exists, runtime_revision, runtime_generation}`               | `web_routers/sessions.py:586-598`          |
 | `PATCH /api/sessions/{id}`                 | session | fenced metadata write, see [Sessions](#sessions)                           | `sessions.py:926-934`                      |
 | `GET /api/skills`                          | session | `[{name, description, category, enabled, provenance}]`                     | `web_routers/skills.py:343-376`            |
@@ -90,9 +92,13 @@ bearer to public endpoints.
   Keystore), one record per origin under `nativeTokensKey(origin)`
   (`cindl.hermes.native-tokens.v1|<origin>`), which the adapter exports so a
   platform migration never repeats the format. Without a store, Cindl keeps
-  them in memory and says so. Sign-out is
-  local: logout does not revoke native tokens, which are stateless (basic
-  provider defaults: 12 h access, 30 d refresh). Sign-out always deletes the
+  them in memory and says so. A store that fails to read is a failure on the
+  device ("This device could not read its saved Hermes sign-in."), never
+  Hermes not answering: discovery shows it as `error` without asking Hermes
+  again, and the next attempt reads the store afresh. Sign-out is
+  local: there is no native revoke route, so logout does not revoke native
+  tokens (with the basic provider they are stateless, 12 h access and 30 d
+  refresh; with OIDC they are the identity provider's tokens). Sign-out always deletes the
   stored record, even when the store has stopped encrypting, since its
   delete may still work; a delete that fails is logged.
 - Signing in to another origin is all or nothing in the direct client. A
@@ -101,6 +107,108 @@ bearer to public endpoints.
   and the error is rethrown. Without a working session the attempt shows as
   `connecting`, and a failure ends `signed-out` (or `incompatible` for a
   loopback-token Hermes) with the error as `lastError`.
+- A switch that succeeds retires the previous origin's sign-in before the
+  new one is installed (`NativeAuth.retire`). Work it still has in flight, a
+  token refresh above all, can no longer store, return or delete tokens, and
+  nothing uses its tokens again. So a record the platform deletes for the
+  origin it left stays deleted, and a late answer never writes over or
+  deletes the record of the new origin, or of the same origin signed in
+  again under the same key. A failed or cancelled switch retires nothing:
+  its refresh may still store. Signing in to the same origin again is no
+  switch, and sign-out is unchanged.
+
+### Web sign-in (cookie)
+
+The web client is served from Hermes's origin and runs the direct client with
+`auth: 'same-origin-cookie'`. It never handles a password or a token. Hermes's
+HttpOnly session cookies (`hermes_session_at`, `hermes_session_rt`,
+`hermes_session_provider`; `cookies.py:27-29, 60, 90-128`) ride on its
+same-origin requests, and it keeps nothing in browser storage.
+
+- Sign-in happens on Hermes's own page, `GET /login` (`routes.py:195-200`). Its
+  password form posts the provider, username, password and `next` to
+  `/auth/password-login`, which sets the cookies and answers
+  `{ok: true, next}` (`routes.py:447-494`, `login_page.py:401-430`); OAuth
+  providers go through `/auth/login`. Cindl calls neither, so neither is
+  pinned: it only sends the browser to the page. The page, both sign-in routes
+  and `/auth/logout` are on the gate's public list (`middleware.py:39-42`).
+- `loginPagePath(next)` builds that link. Hermes percent-decodes `next` again
+  at every hop before it lands there (`_validate_post_login_target`,
+  `routes.py:93-97`): at the page and at the password login
+  (`routes.py:171`), and once more at `/auth/login` on the OAuth path
+  (`routes.py:224-231, 369-371`). Cindl escapes each `%` twice, so the
+  password path lands on `next` exactly and the OAuth path decodes an escape
+  in it once more: only a `next` without `%` comes back the same on both.
+  Tests round-trip both paths through the fake. Hermes checks `next` again at
+  every hop. A `next` that
+  `is_safe_next_path` refuses (not a same-origin path, the login or auth
+  routes, or under `/api`; `request_utils.py:16, 37-44`) is left out, and
+  Hermes lands on `/`.
+- `isSafeNextPath` is stricter than Hermes: it also refuses a backslash or a
+  control character. Hermes accepts `/\host`, or a tab between two slashes,
+  which a browser resolves to another origin, and its page navigates to the
+  landing path after sign-in (`login_page.py:427`). So a crafted link to
+  Hermes's `/login` redirects off-site at v0.22.5. Cindl never builds one; the
+  fix belongs upstream.
+- `auth.signIn` checks `GET /api/auth/me` with the cookie. Without a session it
+  fails with "Sign in on the Hermes login page, then try again." and the link
+  stays `signed-out`. The socket needs no cookie: the ws-ticket is minted with
+  it and travels in the subprotocol, a fresh one on every reconnect. The agent
+  screen works the same way, through the ticket `display.observe` returns.
+- The gate rotates an expired access cookie through the refresh cookie on the
+  next request and sets the new cookies on that answer
+  (`middleware.py:135-147, 192-211`). Requests of one burst that carried the
+  same stale refresh cookie share that rotation for 30 s
+  (`middleware.py:222-238`, `refresh_singleflight.py:1-28`).
+- A 401 whose `error` is `unauthenticated` or `session_expired` is the gate
+  saying the browser's session is over: the refresh failed and it cleared the
+  dead cookies (`middleware.py:150-157`), or no cookies came at all, as after a
+  sign-out in another tab. The direct client then stops, closes the socket and
+  goes `signed-out` with that error, whether an operation or the background
+  memory probe met it. Hermes's own web app goes to the login page on exactly
+  these two (`web/src/lib/api.ts:209-240`). Any other 401, and any other
+  refusal, fails only its call. Native mode is unchanged: it refreshes its
+  tokens itself.
+- Hermes checks a session only when a socket opens (`chat_ws.py:137-171`), so
+  a socket outlives the cookies that opened it: a sign-out in another tab
+  clears the cookies the tabs share, not this tab's socket. In cookie mode the
+  direct client therefore asks `GET /api/auth/me` on its 15 s request tick and
+  whenever the platform's `watchSession` cue fires; the gate's 401 then ends
+  the session as above. The web's cue is the page becoming visible again, or
+  a `'signed-out'` message on the `BroadcastChannel` `cindl.session`, which
+  each tab posts once its `auth.signOut` settles. A tick shares the check in
+  flight; a cue that comes while one is out gets one more check after it, since
+  that check may predate another tab's sign-out. An answer counts only for the
+  session it was asked for, not one signed in since, and the same holds for a
+  401 to an operation or to the memory probe. Any other failure waits
+  for the next check, and native mode never asks. The check is a request like any other, so it also lets the gate renew
+  an expired access cookie: an open tab keeps the session in use for as long
+  as the sign-in renews it (basic does each time; an identity provider can
+  refuse), and closing the tabs leaves the cookies valid until they expire.
+- `auth.signOut` posts `POST /auth/logout` (`routes.py:496-512`). Hermes clears
+  the cookies, which only it can do since they are HttpOnly, and answers a 302
+  to `/login`, an opaque redirect to a browser under `redirect: 'manual'`.
+  A proxy in front of Hermes can answer one too, so Cindl counts the sign-out
+  as confirmed only when `GET /api/auth/me` then answers the gate's 401. That
+  shows only that this browser no longer presents a session the gate accepts;
+  a proxy that copied the gate's answer would pass too. A second
+  `auth.signOut` posts `/auth/logout` again. A failure never blocks the local
+  sign-out: the link still goes `signed-out`, with a warning notice to sign
+  out again. In cookie mode the result is `{localOnly: true, hermesConfirmed}`,
+  `hermesConfirmed` saying whether that 401 came, and the web's sign-in screen
+  offers to sign out on Hermes again while it is `false`; native results carry
+  no `hermesConfirmed`. What Hermes ends on its side depends on the provider. The basic, Nous and drain providers revoke nothing
+  (`plugins/dashboard_auth/basic/__init__.py:165-167`,
+  `nous/__init__.py:67-70`, `drain/__init__.py:106-107`), so a copy of the
+  cookies keeps working until it expires (basic defaults: 12 h access, 30 d
+  refresh). The self-hosted OIDC provider asks its identity provider to revoke
+  the refresh token, best effort, when that provider advertises a revocation
+  endpoint (RFC 7009; `plugins/dashboard_auth/self_hosted/__init__.py:124-145`);
+  the access token still works until it expires. Hermes calls every registered
+  provider's revoke with the cookie's refresh token (`routes.py:498-504`), so
+  with basic and OIDC both configured, a basic session's refresh token is also
+  posted to the identity provider's revocation endpoint, where it means
+  nothing.
 
 ## WebSocket `/api/ws`
 
@@ -329,6 +437,12 @@ opening it later tries again. If a re-attach times out while the socket is
 still up, Cindl drops that socket and reconnects with a fresh ticket instead
 of going online with conversations left unattached, whose events and requests
 would reach no one; repeated stalls back off like failed connects.
+
+When the session ends (a sign-out, the gate's 401 in cookie mode, or a
+reconnect whose ws-ticket Hermes refuses) every open card closes as
+`cancelled`, since nothing on this device can answer it. Hermes keeps the
+requests, so after a new sign-in the re-attach above offers the ones it still
+holds again.
 
 ### Skipping a clarify set
 
@@ -596,7 +710,7 @@ sections above.
   Cindl calls `runtime.describe` and nothing else yet: `runtime.describe`, `session.create`, `session.list`, `session.resume`, `session.info`, `session.events.since`, `session.interrupt`, `session.steer`, `prompt.submit`, `prompt.receipt`, `prompt.resolve_unknown`, `profiles.list`, `cron.status`.
 - Server requests Cindl answers: `approval`, `clarify`.
 - Notifications Cindl maps: `gateway.ready`, `message.start`, `message.delta`, `message.interim`, `message.complete`, `reasoning.delta`, `reasoning.available`, `thinking.delta`, `tool.generating`, `tool.start`, `tool.progress`, `tool.complete`, `tool.output_risk`, `status.update`, `session.info`, `session.usage`, `session.title`, `sessions.changed`, `error`, `notice`, `request.cancel`, `approval.cancelled`, `background.complete`, `cron.changed`, `display.status`, `display.lease`, `subagent.start`, `subagent.progress`, `subagent.complete`, `skills.changed`, `session.reclaimed`.
-- REST endpoints: `GET /api/status`, `GET /api/auth/providers`, `GET /api/auth/me`, `POST /api/auth/ws-ticket`, `GET /auth/native/authorize`, `POST /auth/native/token`, `POST /auth/native/refresh`, `GET /api/sessions/{id}/mutation-snapshot`, `PATCH /api/sessions/{id}`, `GET /api/skills`, `GET /api/skills/content`, `PUT /api/skills/content`, `GET /api/profiles/{name}/soul`, `PUT /api/profiles/{name}/soul`, `GET /api/memory`. The memory-entry routes
+- REST endpoints: `GET /api/status`, `GET /api/auth/providers`, `GET /api/auth/me`, `POST /api/auth/ws-ticket`, `GET /auth/native/authorize`, `POST /auth/native/token`, `POST /auth/native/refresh`, `GET /login`, `POST /auth/logout`, `GET /api/sessions/{id}/mutation-snapshot`, `PATCH /api/sessions/{id}`, `GET /api/skills`, `GET /api/skills/content`, `PUT /api/skills/content`, `GET /api/profiles/{name}/soul`, `PUT /api/profiles/{name}/soul`, `GET /api/memory`. The memory-entry routes
   `GET /api/learning/graph`, `GET /api/learning/node`, `PUT /api/learning/node`, `DELETE /api/learning/node` back the `memory.*` operations.
 
 ## Not used at v0.22.5
@@ -616,7 +730,38 @@ Cindl stays pinned and reports other versions as untested.
 
 ## Live probe
 
-An operator can check their own instance without changing anything:
+An operator can check their own instance without changing anything. The
+first live check needs no credentials:
+
+```sh
+node packages/hermes-adapter/scripts/live-probe.ts --origin https://hermes.example.test --discover
+```
+
+`--discover` reads only the two public routes, `GET /api/status` and
+`GET /api/auth/providers` (public at v0.22.5,
+`dashboard_auth/middleware.py:39-43`), and answers one question: can this
+Hermes sign Cindl in at all? It prints the version and whether it is the
+verified baseline, whether auth is required, the auth flows Cindl knows
+(others are only counted), and how many providers are registered and how
+many can sign in with native PKCE. Those are the interactive session
+providers (`dashboard_auth/registry.py:93-96`): the ones
+`GET /api/auth/providers` lists, that put `native_pkce` in `auth_flows`
+(`web_routers/status.py:383-405`) and that `/auth/native/authorize` accepts
+(`dashboard_auth/routes.py:203-212, 279-320`). It prints no provider name,
+id, host or token: the origin shows as `https://[redacted]`. It never reads
+a file or sends a credential, even when `--token-file` or `--cookie-file` is
+given, never opens a socket and never calls `/auth/native/authorize`, which
+creates sign-in state. The origin must pass the rule sign-in uses (below).
+
+- **0:** a provider supports native PKCE, so Cindl can sign in.
+- **5:** incompatible. Hermes runs in loopback-token mode, or no provider can
+  sign in with native PKCE, so no Cindl client can sign in until that
+  changes.
+- **4:** unreachable, or a public read failed without Hermes's own answer (a
+  proxy's 503 is not "no providers").
+- **2:** usage.
+
+The signed-in mode then checks what needs the owner's own sign-in:
 
 ```sh
 node packages/hermes-adapter/scripts/live-probe.ts --origin https://hermes.example.test --token-file ./access-token
@@ -627,13 +772,14 @@ node packages/hermes-adapter/scripts/live-probe.ts --origin https://hermes.examp
 `access_token`); `--cookie-file` holds a `Cookie` header value. The origin
 must pass the rule sign-in uses (https, or plain http only on 127.0.0.1 or
 [::1]); anything else exits 2 before a request is sent, so the token or
-cookie never travels in clear text. The probe calls only `GET /api/status`, `GET /api/auth/me`, `POST /api/auth/ws-ticket`
-(one ticket), the `/api/ws` handshake (`client.capabilities` without
-`server_requests`, then `gateway.capabilities` or `runtime.describe`) and one
-`session.list` whose rows it counts. It prints versions, auth flows, the
-authority, offered request kinds and the negotiated capability map. It never
-prints tokens, tickets, cookies, session titles or ids, never submits prompts
-and never mutates. Exit codes: 0 compatible, 2 usage, 3 not signed in, 4
+cookie never travels in clear text. Beyond `GET /api/status` it calls only
+`GET /api/auth/me`, `POST /api/auth/ws-ticket` (one ticket), the `/api/ws`
+handshake (`client.capabilities` without `server_requests`, then
+`gateway.capabilities` or `runtime.describe`) and one `session.list` whose
+rows it counts. So it adds the signed-in identity, the authority, the
+offered request kinds and the negotiated capability map. It never prints
+tokens, tickets, cookies, session titles or ids, never submits prompts and
+never mutates. Exit codes: 0 compatible, 2 usage, 3 not signed in, 4
 unreachable, 5 incompatible. Keep the token file out of the repository.
 
 ## Not yet verified live

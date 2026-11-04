@@ -50,11 +50,34 @@ const httpCodes: ReadonlyArray<[number, ErrorCode, string]> = [
   [429, 'unavailable', 'Hermes is rate limiting requests. Try again shortly.'],
 ]
 
+/**
+ * The errors that report Hermes did not answer (no network, a timeout, a 5xx
+ * while it restarts, rate limiting), by identity: a code alone cannot tell
+ * them from a failure on the device, which asCindlError also calls internal.
+ */
+const unanswered = new WeakSet<CindlError>()
+
+function noAnswer(error: CindlError): CindlError {
+  unanswered.add(error)
+  return error
+}
+
+/**
+ * Whether `error` is the adapter's report that Hermes did not answer, so
+ * asking again later may help. Its answers (a 4xx, a reply in an unexpected
+ * shape) and failures on this device (its secret store, an exception) are
+ * not, whatever their code.
+ */
+export function hermesDidNotAnswer(error: unknown): boolean {
+  return error instanceof CindlError && unanswered.has(error)
+}
+
 export function httpError(status: number, body: unknown, context: string): CindlError {
   const reason = bodyReason(body)
   const shown = SAFE_TOKEN.test(reason) ? ` (${reason})` : ''
   const detail = safeText(`${context}: HTTP ${status}${shown}`)
-  return withReason(httpErrorFor(status, detail), reason)
+  const error = withReason(httpErrorFor(status, detail), reason)
+  return status >= 500 || status === 429 ? noAnswer(error) : error
 }
 
 function httpErrorFor(status: number, detail: string): CindlError {
@@ -152,11 +175,13 @@ export class NotSentError extends CindlError {
 }
 
 export function offlineError(detail: string): CindlError {
-  return new CindlError('offline', 'Not connected to Hermes.', safeText(detail))
+  return noAnswer(new CindlError('offline', 'Not connected to Hermes.', safeText(detail)))
 }
 
 export function timeoutError(detail: string): CindlError {
-  return new CindlError('timeout', 'Hermes did not answer in time.', safeText(detail))
+  return noAnswer(
+    new CindlError('timeout', 'Hermes did not answer in time.', safeText(detail)),
+  )
 }
 
 export function protocolError(detail: string): CindlError {
