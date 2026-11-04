@@ -682,8 +682,11 @@ Hermes server, Chrome's Custom Tab, and a phone.
   run went ("last run yesterday at 7:30 AM, succeeded").
 - **Needs you** on Work names the conversation each request belongs to ("In
   Kiln inventory sheet"), as on the web.
-- **Tabs** that do not fit (Agent's five on a phone) fade at the edge that
-  hides more of them. SOUL.md's section label keeps its file name's case, and
+- **Tabs:** a page's tab strip fades at its end, so a tab cut off there
+  (Agent's five on a phone) reads as more to come, and the last tab scrolls
+  clear of the fade. React Native 0.88 draws an edge's fade at a fixed
+  strength whatever the scroll position, so the start has none: it would
+  wash out the first tab at rest. SOUL.md's section label keeps its file name's case, and
   an MCP server's state reads like the capability states ("Connected",
   "Error").
 - **Accessibility:** touch targets are at least 48dp (Android's guidance; the

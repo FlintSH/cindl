@@ -121,9 +121,13 @@ export function Tabs<T extends string>({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
-      // The edge fades while more tabs are off to that side (Agent's five at
-      // phone width), so a cut-off tab reads as "more this way".
-      fadingEdgeLength={theme.space[8]}
+      // The end fades, so a tab cut off there (Agent's five at phone width)
+      // reads as "more this way". React Native 0.88 draws each edge's fade at
+      // a fixed strength whatever the scroll position, so only the end gets
+      // one (the start would wash out the first tab at rest), and the end
+      // padding lets the last tab scroll clear of it (web parity).
+      fadingEdgeLength={{ start: 0, end: theme.space[8] }}
+      contentContainerStyle={{ paddingRight: theme.space[8] }}
       accessibilityLabel={label}
       accessibilityRole="tablist"
       style={{ flexGrow: 0, borderBottomWidth: 1, borderColor: theme.colors.border }}
