@@ -665,6 +665,15 @@ Hermes server, Chrome's Custom Tab, and a phone.
 - **Keyboard:** the composer and sheets stay above the on-screen keyboard; the
   bottom navigation steps aside while it is open. Enter adds a line; the Send
   button sends.
+- **Composer:** Send stays neutral (no ember) until there is text to send.
+  While Hermes works, **Stop** sits beside it as a bordered button with a
+  solid square, so it never reads as a checkbox. Message times read as the
+  phone's locale writes them, without a padded hour ("8:03 AM"), and a
+  document says when it was read in words ("Read today at 9:55 PM").
+- **Tabs** that do not fit (Agent's five on a phone) fade at the edge that
+  hides more of them. SOUL.md's section label keeps its file name's case, and
+  an MCP server's state reads like the capability states ("Connected",
+  "Error").
 - **Accessibility:** touch targets are at least 48dp (Android's guidance; the
   shared tokens' 44px is the floor for every client), TalkBack labels match the
   web labels, and the system font size, dark theme and "Remove animations"

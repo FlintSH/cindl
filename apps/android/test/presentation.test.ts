@@ -10,7 +10,7 @@ import {
   REFUSED_AFTER_SIGN_IN,
 } from '../src/shell/afterSignIn.ts'
 import { keyboardOverlap } from '../src/shell/keyboardOverlap.ts'
-import { duration, fuzzyScore } from '../src/talk/format.ts'
+import { clockTime, duration, fuzzyScore, momentInSentence } from '../src/talk/format.ts'
 import { composerHint, linkCopy, presenceCopy } from '../src/talk/presence.ts'
 import { buildTheme, resolveThemeName } from '../src/theme/model.ts'
 
@@ -105,6 +105,21 @@ describe('formatting shared with web', () => {
     expect(duration('2026-06-02T08:00:00.000Z', '2026-06-02T08:00:00.300Z')).toBe('<1s')
     expect(fuzzyScore('kiln', 'Kiln inventory sheet')).toBeLessThan(0)
     expect(fuzzyScore('xyz', 'Kiln inventory sheet')).toBeUndefined()
+  })
+
+  it('writes times like the web client: no padded hour, no seconds', () => {
+    const iso = '2026-06-02T08:03:09'
+    expect(clockTime(iso)).toBe(
+      new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+    )
+    if (Intl.DateTimeFormat().resolvedOptions().locale === 'en-US')
+      expect(clockTime(iso)).toMatch(/^8:03\sAM$/u)
+    const now = new Date(2026, 5, 10, 18, 0)
+    const at = (days: number) => new Date(2026, 5, 10 - days, 9, 55).toISOString()
+    expect(momentInSentence(at(0), now)).toMatch(/^today at \S/)
+    expect(momentInSentence(at(1), now)).toMatch(/^yesterday at \S/)
+    expect(momentInSentence(at(30), now)).toMatch(/^on \S.* at \S/)
+    expect(momentInSentence('not a date', now)).toBeUndefined()
   })
 })
 
