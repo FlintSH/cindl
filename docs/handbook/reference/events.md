@@ -14,11 +14,12 @@ remounted with a new store, after an error boundary, so never waits on a link
 that has already settled. A subscriber that joins before the first link hears
 only what comes next.
 
-The Hermes-to-Cindl mapping belongs to the live transport, which is not built
-yet (see the [acceptance matrix](../project/acceptance-matrix.md)). Today the
-events that describe Hermes's state come only from the synthetic demo scenario
-and the `client-core` tests. The desktop app emits its own connection state and
-notices (signed out, not connected) without a live Hermes connection.
+The direct client (`packages/client-core/src/direct`) maps what Hermes sends
+and answers onto these events in every real build: the web served from its
+Hermes's origin, the desktop app's main process and the Android app. The
+mapping is in [Hermes v0.22.5](hermes-v0.22.5.md). The synthetic demo scenario
+emits the same events. What each client has been run against is in the
+[acceptance matrix](../project/acceptance-matrix.md).
 
 ## Event summary
 
