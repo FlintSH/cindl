@@ -212,8 +212,8 @@ function NativeSignIn() {
         </div>
         {busy ? (
           <p className={styles.small} role="status">
-            Finish signing in in your browser. Stop waiting frees this screen; it does not
-            cancel the sign-in in your browser.
+            Finish signing in in your browser. Stop waiting frees this form for another
+            try; it does not cancel the sign-in in your browser.
           </p>
         ) : null}
         <p className={styles.small}>
