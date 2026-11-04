@@ -152,6 +152,32 @@ function expectStoreMatchesSeed(h: Harness): void {
     expect(h.store.getState()[key]).toEqual(late.getState()[key])
 }
 
+/**
+ * A browser leg whose first sign-in waits until the test fails it; later ones
+ * complete. No shipped shell overlaps two sign-ins in the client: desktop's
+ * inTurn lets the older attempt settle before the newer one reaches it, and
+ * Android refuses a second sign-in. The client keeps them apart all the same.
+ */
+function heldFirstLeg() {
+  const leg: { calls: number; arrived?: () => void; fail?: (error: Error) => void } = {
+    calls: 0,
+  }
+  const arrived = new Promise<void>((resolve) => (leg.arrived = resolve))
+  const authorizer = {
+    async authorize(buildUrl: (redirectUri: string) => string) {
+      if (++leg.calls === 1) {
+        leg.arrived?.()
+        await new Promise<never>((_, reject) => (leg.fail = reject))
+      }
+      const response = await fetch(buildUrl('http://127.0.0.1:53682/callback'), {
+        redirect: 'manual',
+      })
+      return response.headers.get('location') ?? ''
+    },
+  }
+  return { authorizer, arrived, fail: (error: Error) => leg.fail?.(error) }
+}
+
 /** The links the client reports from now on, as `phase@origin`. */
 function linkLog(h: Harness): string[] {
   const links: string[] = []
@@ -250,6 +276,22 @@ describe('direct client: signing in to another origin', () => {
     expect(await h.client.call('conversations.list', {})).toBeDefined()
   })
 
+  it("reads none of A's device state again, whether the sign-in elsewhere fails or not", async () => {
+    const h = await harness()
+    // A prompt saved as sending that A's client does not hold as such.
+    await seedSendingPrompt(h.kv, h.fake.origin)
+    const readsA = deviceReads(h, h.fake.origin)
+    const other = await fakeHermes({ nativeSignIn: 'deny' })
+    expect(await codeOf(h.client.call('auth.signIn', { origin: other.origin }))).not.toBe(
+      'resolved',
+    )
+    // Still on A, which shows no such prompt.
+    expect(entry(h.store.getState().prompts, 'p-was-sending')).toBeUndefined()
+    const b = await fakeHermes()
+    await h.client.call('auth.signIn', { origin: b.origin })
+    expect(readsA).toEqual([])
+  })
+
   it('switches only once the new sign-in succeeds', async () => {
     const h = await harness()
     const other = await fakeHermes()
@@ -282,6 +324,18 @@ describe('direct client: signing in to another origin', () => {
     expect(new Set(links)).toEqual(
       new Set([`connecting@${b.origin}`, `online@${b.origin}`]),
     )
+  })
+
+  it("asks B nothing before it has read B's device state", async () => {
+    const h = await harness({ signIn: false })
+    const b = await fakeHermes()
+    const read = holdDeviceRead(h, b.origin)
+    const signingIn = h.client.call('auth.signIn', { origin: b.origin })
+    await read.arrived
+    await pause(100)
+    expect(b.calls.filter((c) => c.kind === 'rest')).toEqual([])
+    read.release()
+    await signingIn
   })
 
   it('lets a stop() during the switch hold: no connect until start()', async () => {
@@ -329,33 +383,16 @@ describe('direct client: signing in to another origin', () => {
   })
 
   it("keeps an older sign-in's failure off a newer one's link", async () => {
-    // The first browser leg waits until it is failed by hand, as when the
-    // desktop replaces a sign-in still waiting on the browser.
-    const leg: { calls: number; arrived?: () => void; fail?: (error: Error) => void } = {
-      calls: 0,
-    }
-    const firstArrived = new Promise<void>((resolve) => (leg.arrived = resolve))
-    const authorizer = {
-      async authorize(buildUrl: (redirectUri: string) => string) {
-        if (++leg.calls === 1) {
-          leg.arrived?.()
-          await new Promise<never>((_, reject) => (leg.fail = reject))
-        }
-        const response = await fetch(buildUrl('http://127.0.0.1:53682/callback'), {
-          redirect: 'manual',
-        })
-        return response.headers.get('location') ?? ''
-      },
-    }
-    const h = await harness({ signIn: false, deps: { authorizer } })
+    const leg = heldFirstLeg()
+    const h = await harness({ signIn: false, deps: { authorizer: leg.authorizer } })
     const b = await fakeHermes()
     const c = await fakeHermes()
     const first = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
-    await firstArrived
+    await leg.arrived
     const statusC = c.holdNextRest('GET /api/status')
     const second = h.client.call('auth.signIn', { origin: c.origin })
     await statusC.arrived
-    leg.fail?.(new Error('browser closed (fixture)'))
+    leg.fail(new Error('browser closed (fixture)'))
     expect(await first).not.toBe('resolved')
     // C's sign-in is still under way, and its link shows nothing of B's failure.
     expect(h.store.getState().link).toMatchObject({
@@ -370,6 +407,24 @@ describe('direct client: signing in to another origin', () => {
         h.store.getState().link.phase === 'online' &&
         h.store.getState().link.server?.origin === c.origin,
     )
+  })
+
+  it("keeps an older sign-in's Hermes version off a newer one's failed link", async () => {
+    const leg = heldFirstLeg()
+    const h = await harness({ signIn: false, deps: { authorizer: leg.authorizer } })
+    const b = await fakeHermes({ version: '9.9.9-b' })
+    const c = await fakeHermes()
+    const first = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await leg.arrived
+    const statusC = c.holdNextRest('GET /api/status')
+    const second = codeOf(h.client.call('auth.signIn', { origin: c.origin }))
+    await statusC.arrived
+    leg.fail(new Error('browser closed (fixture)'))
+    expect(await first).not.toBe('resolved')
+    // C does not answer, so its failed link has no version to show: none of B's.
+    statusC.release({ status: 500, body: { detail: 'restarting (fixture)' } })
+    expect(await second).not.toBe('resolved')
+    expect(h.store.getState().link.server).toEqual({ origin: c.origin })
   })
 
   it('ends a failed first sign-in signed out with the error, not connecting', async () => {
