@@ -69,7 +69,7 @@ versions connect and show as outside that baseline.
 
 **Android (7.0 or later)**
 
-1. Download `Cindl-x.y.z.apk` from the [latest release](https://github.com/FlintSH/cindl/releases/latest)
+1. Download `cindl-x.y.z-android.apk` from the [latest release](https://github.com/FlintSH/cindl/releases/latest)
    and open it on your phone. Allow installs from your browser if Android asks.
 2. Enter your Hermes address and sign in. Hermes's sign-in page opens in a
    browser tab.
@@ -89,7 +89,7 @@ signed with this certificate:
 SHA-256: A4:10:5F:20:F7:FA:59:01:03:5E:B0:8D:B2:2E:02:CC:84:02:B9:22:F5:9D:77:D7:9E:53:2A:92:0E:2B:B9:B6
 ```
 
-Check it with `apksigner verify --print-certs Cindl-x.y.z.apk`. Android also
+Check it with `apksigner verify --print-certs cindl-x.y.z-android.apk`. Android also
 refuses to update Cindl with an APK signed by a different key. The AppImage and
 the Windows installer are not code-signed; check them against `SHA256SUMS`.
 
