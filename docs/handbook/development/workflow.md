@@ -136,6 +136,35 @@ not proposed (`.github/dependabot.yml`): `@types/node` follows the pinned Node
 toolchain in `.node-version`, and typescript-eslint does not support
 TypeScript 7 yet. Upgrade those in a deliberate, reviewed change.
 
+A security alert on a transitive package is triaged by where the package
+runs: in something Cindl ships (the web bundle, the desktop app, the Android
+bundle) or only in build and development tools. A fix that needs a major
+version under a tool that does not accept it yet waits for that tool, unless
+the vulnerable code can be reached. Overrides that were needed are in
+`pnpm-workspace.yaml`, each with the advisory and when to remove it.
+
+Open alerts, as of 2026-11-04:
+
+- **glob 13.0.6, GHSA-3g3m-2fjr-6pw4** (an aborted walk keeps reading
+  directories): build tools only.
+  - Only Expo's build tools depend on it, through `expo`: `@expo/cli`,
+    `@expo/config`, `@expo/config-plugins`, `@expo/fingerprint` and
+    `@expo/metro-config`. The web app depends on no glob, and the desktop app
+    only on glob 7.2.3 through electron-builder, below the affected range.
+    The Android production bundle holds no glob module (checked against its
+    source map).
+  - The bug needs a caller that bounds a walk with a `signal`. The installed
+    Expo tools have one that runs: `expo start` looks for a TypeScript file
+    with a 5-second `AbortSignal.timeout` (`@expo/cli`'s
+    `TypeScriptProjectPrerequisite`), but only when the project root has no
+    `tsconfig.json`, and `apps/android` has one. The only other such caller,
+    `@expo/cli`'s `anyMatchAsync`, is never called.
+  - The fix is glob 14, which Expo does not accept yet (`@expo/cli` 58.1.19
+    and `@expo/fingerprint` 0.21.9 ask for `^13`; the newest `@expo/config`,
+    `@expo/config-plugins` and `@expo/metro-config` no longer use glob) and
+    which changes how `ignore` patterns match. So there is no override:
+    update when Expo moves to glob 14.0.2 or later.
+
 ## Commits and pull requests
 
 - Imperative subject line ("Add the events reference"), a body that says why.
