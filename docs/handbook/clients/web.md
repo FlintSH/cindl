@@ -267,7 +267,9 @@ few tools for that conversation ([ADR 0013](../architecture/decisions/0013-conve
   again, or "Clear the step", empties Step and leaves it chosen.
 - **Computer**: the agent's screen, live, with the same rules as Work:
   watching sends nothing, taking control asks first, and leaving the tool,
-  the margin or the conversation closes the view and gives control back. A
+  the margin or the conversation closes the view and gives control back,
+  once it lands if taking it was still on its way. With the connection down
+  the hand-back cannot reach Hermes, and control stays with you. A
   conversation left on Computer shows the screen again whenever you return
   to it, and the screen does not idle while it is shown.
 

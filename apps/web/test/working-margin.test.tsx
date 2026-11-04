@@ -37,17 +37,27 @@ const goTo = async (hash: string) => {
   await settle()
 }
 
-/** The synthetic scenario, with a way to emit an event as Hermes would. */
-async function renderShell(hash = '#/talk/demo-main') {
+/**
+ * The synthetic scenario, with a way to emit an event as Hermes would, and
+ * optionally a take-control that waits until `landAcquire` lets it through.
+ */
+async function renderShell(hash = '#/talk/demo-main', { holdAcquire = false } = {}) {
   window.history.replaceState(null, '', hash)
   const scenario = createScenarioClient({ speed: 0 })
   const listeners = new Set<(event: CindlEvent) => void>()
   const calls: string[] = []
+  let land: (() => void) | undefined
   const api: CindlClientApi = {
-    call: (name, args) => {
+    call: ((name: never, args: never) => {
       calls.push(name)
+      if (holdAcquire && name === 'display.acquireControl')
+        return new Promise((resolve, reject) => {
+          land = () => {
+            scenario.call(name, args).then(resolve, reject)
+          }
+        })
       return scenario.call(name, args)
-    },
+    }) as CindlClientApi['call'],
     subscribe: (listener) => {
       listeners.add(listener)
       const stop = scenario.subscribe(listener)
@@ -66,6 +76,12 @@ async function renderShell(hash = '#/talk/demo-main') {
   await settle()
   return {
     calls,
+    scenario,
+    landAcquire: () =>
+      act(async () => {
+        land?.()
+        for (let i = 0; i < 6; i++) await Promise.resolve()
+      }),
     emit: (event: CindlEvent) =>
       act(async () => {
         for (const listener of listeners) listener(event)
@@ -241,6 +257,40 @@ describe('the working margin, as the conversation’s panel', () => {
       toolId: undefined,
       tool: undefined,
     })
+  })
+
+  it('gives control back for a take-control that lands after the Computer tool was left', async () => {
+    const hermes = await renderShell('#/talk/demo-main', { holdAcquire: true })
+    // State and lease only (no live picture in jsdom), with control allowed.
+    const capabilities = await hermes.scenario.call('capabilities.get', {})
+    await hermes.emit({
+      type: 'capabilities.changed',
+      capabilities: {
+        ...capabilities,
+        'computer.view': {
+          id: 'computer.view',
+          state: 'limited',
+          reason: 'Screen state and lease only (fixture).',
+          source: { transport: 'derived' },
+        },
+      },
+    })
+    fireEvent.click(tab(/^Computer$/))
+    await settle()
+    fireEvent.click(margin().getByRole('button', { name: 'Take control…' }))
+    fireEvent.click(margin().getByRole('button', { name: 'Take control now' }))
+    await settle()
+    // Left while the take-control is still on its way: nothing to give back yet.
+    fireEvent.click(tab(/^Waiting/))
+    await settle()
+    expect(hermes.calls).not.toContain('display.releaseControl')
+    await hermes.landAcquire()
+    await settle()
+    expect(hermes.calls.filter((name) => name === 'display.releaseControl')).toHaveLength(
+      1,
+    )
+    const display = await hermes.scenario.call('display.status', {})
+    expect(display.leaseHeldByThisDevice).toBe(false)
   })
 
   it('puts focus on the switcher of a conversation chosen from the switcher, and only then', async () => {
