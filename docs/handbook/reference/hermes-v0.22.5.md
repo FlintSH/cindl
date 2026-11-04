@@ -116,7 +116,11 @@ bearer to public endpoints.
   newer `start()` or another sign-in came first: the link is then theirs,
   and the failure only rejects. A `stop()` during it, the new origin's
   device state read included, keeps a sign-in that succeeds from
-  connecting: the link stays `offline` until the next `start()` finds it.
+  connecting: the link stays `offline`, and a `start()` after the sign-in
+  finds it. A `start()` that runs while the sign-in is still in flight may
+  look before the tokens are stored: its discovery then ends `signed-out`,
+  and nothing connects until `stop()` then `start()`, an app restart or
+  another sign-in.
 - A switch that succeeds retires the previous origin's sign-in before the
   new one is installed (`NativeAuth.retire`). Work it still has in flight, a
   token refresh above all, can no longer store, return or delete tokens, and

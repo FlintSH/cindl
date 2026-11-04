@@ -253,7 +253,9 @@ class DirectHermesClient implements DirectClient {
   #started = false
   /**
    * Bumped by start(), stop() and sign-in: work begun under an older value
-   * (a discovery, a sign-in) neither connects nor changes the link.
+   * (a discovery, a sign-in) neither connects nor shows its outcome on the
+   * link, except that a sign-in with a working session still switches to its
+   * origin when it succeeds, offline.
    */
   #run = 0
   #discoveryRetry: unknown
@@ -1870,8 +1872,9 @@ class DirectHermesClient implements DirectClient {
     'auth.signIn': async ({ origin }) => {
       // A working session (its link, tokens and connection) stays exactly as
       // it is until the new sign-in succeeds; a failed or cancelled one leaves
-      // it usable. Without one, the attempt shows on the link and a failure
-      // ends signed-out with the error.
+      // it usable. Without one, the attempt shows on the link, and a failure
+      // ends signed-out with the error while this sign-in still owns the
+      // client: not after a stop(), a newer start() or another sign-in.
       const signOuts = this.#signOuts
       const overtaken = () => {
         if (signOuts !== this.#signOuts)

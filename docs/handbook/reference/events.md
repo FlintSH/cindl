@@ -76,8 +76,10 @@ device's state, which matters when a new client is wired into a store that
 last saw another origin (desktop's restart after a failed sign-in). A switch
 to another origin says `connecting`, or `offline` when a `stop()` during the
 sign-in keeps it from connecting. The switch itself does not show the origin
-it leaves as `offline` first; a `stop()` that lands during the sign-in does,
-as any `stop()` does.
+it leaves as `offline` first. A `stop()` during the sign-in shows `offline`
+as any `stop()` does: for the origin it leaves when there is a working
+session, which a sign-in leaves only once it succeeds, and for the new origin
+when there is none, since that switch comes first.
 
 Before it connects, the direct client asks Hermes what it is
 (`GET /api/status`) and whether this device is signed in. When Hermes does not
@@ -94,7 +96,9 @@ is still started; `stop()` then `start()` does, as do an app restart and a new
 sign-in (Agent, Sign out, then sign in again). No shell shows that `lastError`
 today (Android's sign-in screen shows one only after a sign-in it started), so
 its message is not visible yet. A discovery or sign-in that `stop()`, a newer
-`start()` or another sign-in overtakes neither connects nor changes the link.
+`start()` or another sign-in overtakes neither connects nor shows its outcome
+on the link, except that a sign-in with a working session still switches to
+its origin when it succeeds, `offline`.
 
 ### `capabilities.changed`
 
