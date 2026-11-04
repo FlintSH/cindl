@@ -351,8 +351,10 @@ with no Hermes session shows **Sign in to Hermes** (or **Signed out**):
    nothing is saved. Pressed before the page opens (from step 2, while Cindl
    checks Hermes), it opens no browser; pressed while the page is open, the
    page can no longer finish the sign-in. Pressed in the moment before step
-   2, while Cindl reads which Hermes it last used, it is still missed. Once the browser has answered, the
-   sign-in finishes and is saved, even if Cancel is pressed while it does.
+   2, while Cindl reads which Hermes it last used, it is still missed: the
+   page opens, and a sign-in finished there is saved. Once the browser has
+   answered, the sign-in finishes and is saved, even if Cancel is pressed
+   while it does.
 5. `NativeAuth` exchanges the one-time code with `POST /auth/native/token` and
    keeps the token set encrypted with a key held in the Android Keystore
    (`expo-secure-store`); it refreshes the tokens before they expire. Only then

@@ -165,7 +165,8 @@ bearer to public endpoints.
   Hermes's status read until the browser has answered; its authorizer's own
   `cancel()` is what the client calls once the page is open. Two exceptions
   remain: Android's wrapper reads the origin it last used before it calls
-  the client, and a Cancel during that read is missed; and a sign-in that
+  the client, and a Cancel during that read is missed, so the page opens
+  and a sign-in finished there is saved; and a sign-in that
   needs no browser, because tokens for the new origin are already stored,
   is withdrawn by neither a Cancel nor a `stop()` (it finishes, online after
   a Cancel, offline after a `stop()`). A Cancel during a read already in

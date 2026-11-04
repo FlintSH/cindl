@@ -161,4 +161,7 @@ matrix's live transport row), and no code coverage is measured.
   pressed while the app reads which Hermes it last used (before the sign-in
   reaches the direct client) is missed; and a sign-in that needs no browser,
   because tokens for that Hermes are already stored, is not withdrawn by a
-  Cancel or a `stop()`. Neither authorizes or saves anything new.
+  Cancel or a `stop()`. The first can still end in stored tokens: the page
+  opens, and a sign-in finished there (by the owner, or by a live session
+  at an upstream identity provider with no input) is saved. The second
+  authorizes and saves nothing new.
