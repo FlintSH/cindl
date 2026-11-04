@@ -2,6 +2,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { base64Url, canonicalLoopbackRedirect } from '@cindl/hermes-adapter'
+import type { SecretKind } from './secrets.ts'
 
 /**
  * A SYNTHETIC stand-in for `hermes serve`'s native sign-in routes at v0.22.5
@@ -15,7 +16,8 @@ import { base64Url, canonicalLoopbackRedirect } from '@cindl/hermes-adapter'
  *
  * `hold()` keeps the next authorize responses pending until `release()`, so a
  * test can kill the app while the browser waits. The event log never holds
- * codes, verifiers or tokens.
+ * codes, states, verifiers or tokens; `onValue` hands each to the caller (in
+ * memory), so a run can scrub them from everything it writes.
  */
 export interface AuthEvent {
   kind: 'authorize' | 'token' | 'refresh' | 'other'
@@ -33,7 +35,10 @@ export interface FakeHermesAuth {
   close: () => Promise<void>
 }
 
-export async function startFakeHermesAuth(port = 0): Promise<FakeHermesAuth> {
+export async function startFakeHermesAuth(
+  port = 0,
+  onValue: (kind: SecretKind, value: string) => void = () => undefined,
+): Promise<FakeHermesAuth> {
   const codes = new Map<string, { challenge: string; used: boolean }>()
   const refreshable = new Set<string>()
   const events: AuthEvent[] = []
@@ -57,9 +62,12 @@ export async function startFakeHermesAuth(port = 0): Promise<FakeHermesAuth> {
   const tokenSet = () => {
     issued += 1
     const refresh = `synthetic-refresh-${issued}-${randomBytes(6).toString('hex')}`
+    const access = `synthetic-access-${issued}-${randomBytes(6).toString('hex')}`
     refreshable.add(refresh)
+    onValue('access token', access)
+    onValue('refresh token', refresh)
     return {
-      access_token: `synthetic-access-${issued}-${randomBytes(6).toString('hex')}`,
+      access_token: access,
       refresh_token: refresh,
       token_type: 'bearer',
       expires_at: Math.floor(Date.now() / 1000) + 3600,
@@ -93,6 +101,7 @@ export async function startFakeHermesAuth(port = 0): Promise<FakeHermesAuth> {
       if (request.method === 'GET' && url.pathname === '/auth/native/authorize') {
         const params = url.searchParams
         const state = params.get('state')
+        if (state) onValue('state', state)
         const challenge = params.get('code_challenge')
         let redirect: string | undefined
         try {
@@ -112,6 +121,7 @@ export async function startFakeHermesAuth(port = 0): Promise<FakeHermesAuth> {
           return send(response, 400, { detail: 'invalid request' })
         }
         const code = `synthetic-code-${randomBytes(8).toString('hex')}`
+        onValue('code', code)
         codes.set(code, { challenge, used: false })
         const location = new URL(redirect)
         location.searchParams.set('code', code)
@@ -125,6 +135,7 @@ export async function startFakeHermesAuth(port = 0): Promise<FakeHermesAuth> {
       }
       if (request.method === 'POST' && url.pathname === '/auth/native/token') {
         const body = await readJson(request)
+        if (body.code_verifier) onValue('verifier', body.code_verifier)
         const entry = codes.get(body.code ?? '')
         const verifierMatches =
           entry !== undefined &&

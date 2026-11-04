@@ -54,7 +54,10 @@ Working here:
 - Request identity, clarify drafts and answers go through
   `src/talk/requests.ts` only; `sendAnswer` refuses prompts Cindl never
   answers (`assertAnswerable`) before anything is sent.
-- Keep pure logic out of components so it can be tested without React Native.
+- Keep pure logic out of components; test a component rendered (react-dom in
+  jsdom), never a copy of its wiring. `test/render` stands in for the host
+  layer, safe-area, the icons, `expo` and `expo-crypto` (vitest.config.ts),
+  and only as far as a rendered screen needs.
 - The agent screen: never log frames, input or the screen socket's URL (it
   holds the single-use display ticket), and never start, stop or install the
   screen.
@@ -66,6 +69,26 @@ Working here:
   outcome in `e2e/outcome.ts`, where a blocked step fails the job, and the
   token-storage evidence in `e2e/keystore.ts`, which searches every file of
   the app's storage and the device log for the tokens the fake issued and
-  keeps facts, never a value) are unit-tested in `test/e2e.test.ts`. Use
+  keeps facts, never a value) are unit-tested in `test/e2e.test.ts`, and the
+  keyboard step's settle and one-moment reads (`e2e/keyboard.ts`) in
+  `test/e2e-keyboard.test.ts`; the
+  in-control order of `e2e/screenControl.ts` (check, then give control back)
+  runs on loopback against the fake Hermes in `test/e2e-screen.test.ts`. Use
   accessibility labels as selectors, so a renamed label breaks a test rather
   than TalkBack silently.
+- An emulator run publishes its artifact, so text from the device (logs, UI
+  dumps, error lines) is written only through `e2e/secrets.ts` (every token,
+  ticket, code, state and verifier the run issued or received becomes a
+  placeholder; tested in `test/e2e-secrets.test.ts`), and the browser is
+  never captured (`device.screenshot` keeps a capture only when Cindl alone is
+  in front, and none when unsure).
+- Overlays are `src/overlay` Dialog or Sheet only (never React Native's Modal):
+  they take TalkBack and keyboard focus in and give it back
+  (`src/overlay/opener.ts`), and AppShell's `BehindOverlays` hides and blocks
+  what they cover. A control that opens one records the press (`notePress`;
+  Button does). Keyboard focus is moved only by `modules/cindl-focus`
+  (`src/overlay/keyboardFocus.ts`), which React Native cannot do alone
+  (docs/handbook/clients/android.md, Accessibility).
+- Parse device output from a real run's lines, and judge what is on screen by
+  its geometry, never a flag: logcat's UID column and a "shown" keyboard
+  both differed on the device from what the code assumed (run 41681122382).

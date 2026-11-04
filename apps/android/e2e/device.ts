@@ -2,25 +2,59 @@ import { execFileSync } from 'node:child_process'
 import { writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
+import { redactText } from '@cindl/hermes-adapter'
+import { resetDeviceFrom, resetToCindl, type ResetPass } from './reset.ts'
 import {
   auditTargets,
   find,
   findTappable,
+  imeWindow,
+  keepCapture,
   label,
-  parseKeyboard,
+  onlyApp,
+  onlyAppInFront,
+  parseDisplaySize,
   parseUi,
   rawPixel,
   tapPoint,
-  type KeyboardState,
   type Match,
   type TargetAudit,
   type UiNode,
+  visibleKeyboard,
+  type VisibleKeyboard,
 } from './ui.ts'
 
 export const PACKAGE = 'dev.fl1nt.cindl'
 
-/** adb against the single emulator CI starts; `adb` comes from the pinned platform-tools. */
-export function createDevice(options: { adb: string; out: string }) {
+/** How each run sets up the emulator before the app is installed: settings only. */
+export const DEVICE_SETTINGS = [
+  // Deterministic UI dumps: system animations off (the app then also reduces motion).
+  'settings put global window_animation_scale 0',
+  'settings put global transition_animation_scale 0',
+  'settings put global animator_duration_scale 0',
+  'settings put system font_scale 1.0',
+  'settings put system accelerometer_rotation 0',
+  'settings put system user_rotation 0',
+  'settings put global always_finish_activities 0',
+  // The emulator reports a hardware keyboard even with hw.keyboard=no (every
+  // configuration line of CI run 41681122382 reads qwerty/v/v), and beside one
+  // the on-screen keyboard shows its window but not its keys. A phone has none.
+  'settings put secure show_ime_with_hard_keyboard 1',
+  'cmd uimode night no',
+] as const
+
+/**
+ * adb against the single emulator CI starts; `adb` comes from the pinned
+ * platform-tools. `scrub` runs over every text taken from the device that the
+ * run keeps (UI dumps, log lines in a health report); by default the adapter's
+ * redactText.
+ */
+export function createDevice(options: {
+  adb: string
+  out: string
+  scrub?: (text: string) => string
+}) {
+  const scrub = options.scrub ?? redactText
   const run = (args: string[], timeoutMs = 60_000) =>
     execFileSync(options.adb, args, {
       encoding: 'utf8',
@@ -34,21 +68,47 @@ export function createDevice(options: { adb: string; out: string }) {
   let lastRoot: UiNode | undefined
   let shots = 0
 
-  const dump = async (): Promise<UiNode> => {
+  /** A uiautomator dump's XML, retried while the device has none to give. */
+  const hierarchy = async (flags: string): Promise<string> => {
     for (let attempt = 1; ; attempt++) {
       try {
-        shell('uiautomator dump /sdcard/cindl-ui.xml', 30_000)
-        lastXml = run(['exec-out', 'cat', '/sdcard/cindl-ui.xml'])
-        if (lastXml.includes('<hierarchy')) {
-          lastRoot = parseUi(lastXml)
-          return lastRoot
-        }
+        shell(`uiautomator dump ${flags}/sdcard/cindl-ui.xml`, 30_000)
+        const xml = run(['exec-out', 'cat', '/sdcard/cindl-ui.xml'])
+        if (xml.includes('<hierarchy')) return xml
       } catch (error) {
         if (attempt >= 6) throw error
       }
       if (attempt >= 6) throw new Error('uiautomator dump returned no hierarchy')
       await sleep(1000)
     }
+  }
+
+  const dump = async (): Promise<UiNode> => {
+    lastXml = await hierarchy('')
+    lastRoot = parseUi(lastXml)
+    return lastRoot
+  }
+
+  /**
+   * What TalkBack is given: a dump of only the views important for
+   * accessibility (`--compressed`). It is not the last dump the other helpers
+   * read, nor the one kept beside a screenshot.
+   */
+  const accessibilityDump = async (): Promise<{ root: UiNode; xml: string }> => {
+    const xml = await hierarchy('--compressed ')
+    return { root: parseUi(xml), xml }
+  }
+
+  /** A dump as a file in the output directory, scrubbed, only when it shows Cindl alone. */
+  const keepDump = (
+    name: string,
+    { root, xml }: { root: UiNode; xml: string },
+  ): string | undefined => {
+    if (!onlyApp(root, PACKAGE)) return undefined
+    shots += 1
+    const file = `${String(shots).padStart(2, '0')}-${name}.xml`
+    writeFileSync(join(options.out, file), scrub(xml))
+    return file
   }
 
   /** Slow emulators sometimes show "… isn't responding" for system UI; keep waiting. */
@@ -155,15 +215,38 @@ export function createDevice(options: { adb: string; out: string }) {
     await sleep(900)
   }
 
-  const screenshot = (name: string): string => {
-    shots += 1
-    const file = `${String(shots).padStart(2, '0')}-${name}`
+  /** What has focus (`dumpsys window`); undefined when the device does not say. */
+  const focus = () => {
+    try {
+      return shell('dumpsys window | grep -E "mCurrentFocus|mFocusedApp" || true')
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * A screenshot, as a file in the output directory, only when it can show
+   * nothing but Cindl: Cindl's own window in focus just before the capture
+   * and, unchanged, just after it (ui.ts keepCapture). Another app in front
+   * (the browser during sign-in) can show a sign-in code or state in its
+   * address bar and pages. Otherwise, or when the device does not say,
+   * nothing is kept and this returns undefined. The last UI dump is kept
+   * beside it only when it, too, shows Cindl alone.
+   */
+  const screenshot = (name: string): string | undefined => {
+    const before = focus()
+    if (before === undefined || !onlyAppInFront(before, PACKAGE)) return undefined
     const png = execFileSync(options.adb, ['exec-out', 'screencap', '-p'], {
       timeout: 30_000,
       maxBuffer: 64 * 1024 * 1024,
     })
+    const after = focus()
+    if (after === undefined || !keepCapture(before, after, PACKAGE)) return undefined
+    shots += 1
+    const file = `${String(shots).padStart(2, '0')}-${name}`
     writeFileSync(join(options.out, `${file}.png`), png)
-    if (lastXml) writeFileSync(join(options.out, `${file}.xml`), lastXml)
+    if (lastXml && lastRoot && onlyApp(lastRoot, PACKAGE))
+      writeFileSync(join(options.out, `${file}.xml`), scrub(lastXml))
     return `${file}.png`
   }
 
@@ -192,8 +275,26 @@ export function createDevice(options: { adb: string; out: string }) {
   const audit = async (root?: UiNode): Promise<TargetAudit> =>
     auditTargets(root ?? (await dump()), { pkg: PACKAGE, density: density() })
 
-  const keyboard = (): KeyboardState =>
-    parseKeyboard(shell('dumpsys window InputMethod'), shell('dumpsys input_method'))
+  /** The display's size (`wm size`), read once; undefined when the device does not say. */
+  let displaySize: { width: number; height: number } | undefined
+  const display = () => {
+    try {
+      return (displaySize ??= parseDisplaySize(shell('wm size')))
+    } catch {
+      return undefined
+    }
+  }
+
+  /**
+   * Whether the keyboard is on screen, from its window's geometry in
+   * `dumpsys window windows` (ui.ts visibleKeyboard), not from flags.
+   */
+  const keyboardOnScreen = (): VisibleKeyboard =>
+    visibleKeyboard(
+      imeWindow(shell('dumpsys window windows')),
+      shell('dumpsys input_method'),
+      display(),
+    )
 
   const launch = () => {
     shell(`am start -W -n ${PACKAGE}/.MainActivity`, 90_000)
@@ -212,7 +313,7 @@ export function createDevice(options: { adb: string; out: string }) {
           line,
         )
       )
-        problems.push(line.trim().slice(0, 300))
+        problems.push(scrub(line.trim()).slice(0, 300))
     return problems
   }
 
@@ -220,6 +321,8 @@ export function createDevice(options: { adb: string; out: string }) {
     run,
     shell,
     dump,
+    accessibilityDump,
+    keepDump,
     waitFor,
     reveal,
     tapAt,
@@ -234,8 +337,17 @@ export function createDevice(options: { adb: string; out: string }) {
     pid,
     density,
     audit,
-    keyboard,
+    keyboardOnScreen,
     launch,
+    /** Back to Cindl with nothing over it (e2e/reset.ts), on this device's adb. */
+    resetToCindl: (): Promise<ResetPass[]> =>
+      resetToCindl(
+        resetDeviceFrom(
+          { shell, launch, key, dump, keyboard: keyboardOnScreen, sleep },
+          PACKAGE,
+        ),
+        PACKAGE,
+      ),
     health,
     lastXml: () => lastXml,
   }

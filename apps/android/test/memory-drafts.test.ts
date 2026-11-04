@@ -1,3 +1,4 @@
+/** @vitest-environment jsdom */
 import { afterEach, describe, expect, it } from 'vitest'
 import { titleOf } from '../src/library/memory.ts'
 import { forgetDrafts } from '../src/views/drafts.ts'
@@ -14,13 +15,14 @@ import {
   shellSession,
   type Entry,
   type Harness,
-} from './memoryScreen.ts'
+} from './memoryScreen.tsx'
 
 // Re-check de42f21: the reviewer's probes of drafts around an adoption, a
 // refused adoption and what a delete names (apps/web/test/memory-drafts.test.tsx
-// at 5d0be84), ported to Android on the screen in ./memoryScreen.ts with the web
-// assertions. Writes answer like the adapter (same index, new fingerprint), as in
-// the web probes. Where Android differs, the test says so. SYNTHETIC data only.
+// at 5d0be84), ported to Android with the web assertions on the rendered screen
+// (./memoryScreen.tsx: the shipped components in jsdom). Writes answer like the
+// adapter (same index, new fingerprint), as in the web probes. Where Android
+// differs, the test says so. SYNTHETIC data only.
 
 afterEach(() => forgetDrafts())
 
@@ -343,14 +345,14 @@ describe('the delete confirmation names the entry it deletes', () => {
 
 describe('TalkBack focus around adoption and locking', () => {
   // Android equivalents of the web's F1 and F2: TalkBack focus is sent by
-  // DocumentEditor's effect (memoryScreen records where it went).
+  // DocumentEditor's effect (the screen records where it went).
   it('F1: a completed adoption sends TalkBack focus into the draft', async () => {
     const h = drafts()
     await lockedByMerge(h)
     h.press('Use this draft for the entry now here')
     await h.settle()
     expect(lockedNow(h)).toBe(false)
-    expect(h.focusLog().at(-1)).toBe('draft')
+    expect(h.focusLog()).toEqual(['notice', 'draft'])
   })
 
   it('F2: a lock that takes Edit and Delete away sends TalkBack focus to the lock notice', async () => {
@@ -368,7 +370,7 @@ describe('TalkBack focus around adoption and locking', () => {
 describe('SO2: an involuntary sign-out', () => {
   it('forgets kept memory drafts before another sign-in', async () => {
     // Android: AppShell forgets kept drafts when the link reports signed-out
-    // (memoryScreen's shellSession runs its effect); the shell is not rendered here.
+    // (useSessionDrafts, rendered on its own here; the rest of the shell is not).
     const shell = shellSession()
     shell.link({ phase: 'online', demo: false })
     const h = drafts()

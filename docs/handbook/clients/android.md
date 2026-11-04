@@ -84,7 +84,9 @@ holds:
 - `cindl-<flavour>-test.apk` and `SHA256SUMS`;
 - `apk-report.json`: package, label, SDK levels, ABIs, permissions, network
   security config, signer, the bundle gate's result, the local Kotlin modules
-  found compiled into the dex (`kotlinModules`; the check fails without both)
+  found compiled into the dex (`kotlinModules`; the check fails without all
+  three: CindlFocus, CindlLoopback and CindlScreen, a list a unit test reads
+  against `apps/android/modules`)
   and whether any dex refers to WebView (`refersToWebView`, reported only);
 - `LICENSE.txt` (Cindl's MIT licence), `THIRD-PARTY-NOTICES.txt` (fonts,
   vendored material and every npm package in the build) and
@@ -143,15 +145,39 @@ until the owner decides about those terms.
   sheet and a side conversation before leaving the app; the approval card
   (Allow once and Deny only) and the question set; the sudo prompt's card
   offering nothing to send; agent output with a link (its host shown, a
-  confirmation with the full address before anything opens) and a withheld
-  remote image; a memory entry's delete warning and a reviewed
+  confirmation with the full address before anything opens, from a tap on the
+  link's text on either of its two lines, and while it is open, all TalkBack
+  is given: a compressed uiautomator dump, which lists only the views
+  important for accessibility, holds every label of the dialog and none of
+  the screen beneath it, and the check fails when nothing beneath it can be
+  told apart) and a withheld remote image; a memory entry's delete warning and a reviewed
   edit; the demo's synthetic screen drawn live in Work, Computer (a pixel
   of its desktop read back from the screen) and, after taking control, a tap
   drawing its orange pointer marker where it landed; sending a message with the
-  on-screen keyboard open (composer above the keyboard, navigation hidden);
-  every touch target at least 48dp; 200% font size and dark theme; a draft
+  on-screen keyboard open, navigation hidden: the keyboard on screen, not only
+  shown (its window visible and on screen, within the display's width, its
+  top inside the display and at least 15% of the display's height below it,
+  read in full from `dumpsys window windows`), and the composer's
+  bottom at or above that top, both read at one moment (the keyboard read
+  before and after the composer's dump and screenshot, unchanged; the step
+  notes that geometry, numbers and flags only, and fails if no keyboard
+  appears on screen); every touch target at least 48dp; 200% font size and dark theme; a draft
   surviving background, rotation, activity recreation; a cold start after the
   process is killed.
+
+  Not shown on the runners yet: the on-screen keyboard. Run 41681122382
+  passed that step on a keyboard Android called shown, with its top at the
+  display's bottom edge and none on screen; the step now fails on that. The
+  cause is the emulator, not the app's focus or show request: of Cindl's 9
+  show requests from a tap, 7 reached `onShown` and 2 were cancelled at
+  `PHASE_WM_POST_LAYOUT_NOTIFY_CONTROLS_CHANGED`. All 47 configuration lines
+  of that run (61 occurrences) read `qwerty/v/v`: the emulator reports a
+  hardware keyboard even with `hw.keyboard=no`, and beside one, Android's
+  keyboard shows its window and navigation strip but not its keys. Its show
+  animation then timed out. The
+  test device now turns on `show_ime_with_hard_keyboard` (show the on-screen
+  keyboard with a physical one), a setting, nothing installed.
+
 - **Production APK:** the sign-in screen (no demo data); sign-in through the
   emulator's browser (the AOSP image has no Chrome: run 41593367518 logged
   `org.chromium.webview_shell/.WebViewBrowserActivity`, which opens the page as
@@ -177,12 +203,26 @@ until the owner decides about those terms.
   - **Sign-out:** the sign-in screen comes back, the token set is deleted from
     the device, and no token issued during the run is in plain text in the
     app's files.
-  - **Logs:** no token the fake issued is in the device log (logcat, saved
-    after every step).
+  - **Logs:** no token, ticket, code, state or PKCE verifier the run issued
+    or received is in any line of the device log, Cindl's or another
+    process's (logcat with each line's UID, read after every step and kept
+    raw in memory only). Logcat prints a UID as a short user name (`root`)
+    or a number (`10151`); Cindl's lines are matched by its number or its
+    user name (`u0_a151`). One exception: Android's window manager logs the
+    link Cindl opened in the browser (`capturedLink=`), with its state; on
+    another process's WindowManager or WindowManagerShell line, the state
+    inside that link is scrubbed in the artifact but not counted. If no line can be told to be Cindl's, the check
+    fails rather than pass unchecked.
   - **The agent's screen:** the fake's synthetic screen, served over
     `/api/display/ws`, drawn by the Kotlin painter (a pixel of its desktop
     read back), and in control, a tap that reaches the fake through its lease
-    gate and draws the orange pointer marker where it landed.
+    gate and draws the orange pointer marker where it landed. The fake is
+    asked which view held control before the app gives control back: once the
+    lease returns to the agent, it no longer says
+    (`apps/android/test/e2e-screen.test.ts` runs that order on loopback). In
+    both suites the picture is read from the whole view: the step scrolls it
+    fully into view first (the tab bar clips it otherwise, and a clipped box
+    would map the screen's points elsewhere), and fails if it cannot.
   - **Chat:** a message answered by the fake.
 
   Against a second stand-in whose authorize page can be held open: the app
@@ -197,17 +237,67 @@ until the owner decides about those terms.
 The memory editor's lock, adoption and kept-draft flows need memory changed
 elsewhere while an entry is open, which the demo cannot do. Node tests run
 them instead (`apps/android/test/memory-identity.test.ts`,
-`memory-adoption.test.ts` and `memory-drafts.test.ts`, the web client's
-probes with their assertions) on `apps/android/test/memoryScreen.ts`, which
-keeps the editor's state and wiring and calls the same functions the
-components call. How those states render in React Native, where TalkBack
-focus lands and what TalkBack reads are not covered by an emulator test yet.
+`memory-adoption.test.ts`, `memory-drafts.test.ts` and
+`memory-filing.test.ts`, the web client's probes with their assertions) on the
+shipped components: `MemoryEntries`, `DocumentEditor` and the app's providers
+render with react-dom in jsdom (`apps/android/test/memoryScreen.tsx`), on a
+synthetic memory that answers like the adapter and can hold a request or its
+answer. React Native's host layer is replaced
+(`apps/android/test/render/react-native.tsx`), as React Native's own Jest
+preset does: views become DOM elements, accessibility props become ARIA (the
+label is the accessible name, the role and state what TalkBack reads), and a
+request to move TalkBack focus is recorded. That stand-in also simplifies what
+the screens use: a press is a click (none when `disabled` is set, as
+Pressable does), a Pressable is a stop for a keyboard's focus unless both
+`accessible` and `focusable` are false (as React Native 0.88 makes the view),
+a ScrollView scrolls nothing, Linking records the links it is asked to open,
+Animated values jump to their end, and Easing, StyleSheet and Platform are
+minimal. Four modules are replaced as well
+(`apps/android/vitest.config.ts`): `react-native-safe-area-context` (zero
+insets), the lucide icons (an empty element), `expo`
+(`apps/android/test/render/expo.ts`: the keyboard focus module records its
+calls; no other native module is linked) and `expo-crypto` (Node's random
+ids for the composer). The tests read the screen by role,
+name and text and see where focus is sent. They do not cover native drawing
+or layout, or what TalkBack itself announces; no emulator test covers those
+flows yet.
 
-System animations are off during the tests so UI dumps are stable (the app then
-also reduces its own motion). The `cindl-android-emulator-evidence` artifact
+Each step starts from a known screen, so one failure does not fail the steps
+after it: Cindl in front, nothing left open over it, and Talk selected, with
+or without a conversation (`apps/android/e2e/reset.ts`). Another app in front
+is answered with a relaunch, never system back. Back closes a dialog, a
+sheet or the keyboard a step left, and focus is read again right before it.
+That narrows the time in which another app can come to the front unseen; it
+does not close it: a few hundred milliseconds remain between that read and
+the key. A dialog or sheet counts only from a dump of Cindl's window alone,
+and only such a dump ends the reset. It gives up after six passes, naming
+each. A reset that takes more than one pass is noted in the step's report.
+
+The keyboard counts as open only while its window is up. Run 41696032323
+pressed back on a bare Talk at every step start, and so left the app. The
+input method's own "shown" flag, which AOSP leaves set after the keyboard
+hides, is the likely cause; the run's artifact does not show which flag was
+set. That the keyboard's window is gone once it hides is expected, not yet
+seen on the runners. Each reset that presses back for the keyboard notes the
+window's geometry, numbers and flags only, so the next run will show it. The sign-in cases start on the sign-in screen: if a step before
+left the app signed in, its data is cleared first. Sign-out is under Agent,
+This device. System animations are off during the tests so UI dumps are stable
+(the app then also reduces its own motion). The `cindl-android-emulator-evidence` artifact
 holds, per suite (`demo/`, `signin/`), screenshots, UI dumps, logcat per step,
 `report.json` (steps, device, the fake's request shapes) and `summary.md`, and
-for the production APK `keystore-evidence.json`. The fake auth server's log
+for the production APK `keystore-evidence.json`. Nothing in it holds a
+sign-in value: every token, ticket, code, state and verifier the fake Hermes
+and the auth stand-in issue or receive is replaced in device logs, UI dumps and
+report lines by a placeholder naming its kind (`[issued-code]`), and the
+adapter's redaction runs over the rest (`apps/android/e2e/secrets.ts`). The
+browser is never captured, because its address bar and pages show the code
+and state: a screenshot is kept only when Cindl's own window and activity
+have focus just before it and, unchanged, just after it, and a UI dump is
+kept beside it only when it shows nothing but Cindl. A system window in front
+(an "Application Not Responding" dialog, the notification shade), even over
+Cindl, no focused window, a focus that changed during the capture, or one
+the device does not report, captures nothing. The steps note what the
+browser showed instead. The fake auth server's log
 records only request shapes, never codes, verifiers or tokens.
 
 ## Demo and real builds
@@ -341,8 +431,10 @@ Hermes server, Chrome's Custom Tab, and a phone.
 
 - **Agent output** is untrusted: raw HTML is dropped, images are never loaded
   (a placeholder names the host), every link shows its destination host next to
-  its text, and opening one asks first, showing the full address. Very deep
-  nesting is shown as plain text.
+  its text, and opening one asks first, showing the full address. Closing
+  that question gives focus back to the text the link is in (a paragraph, a
+  heading or a table cell; a link has no view of its own). Very deep nesting
+  is shown as plain text.
 - **Decisions:** approvals offer only Allow once and Deny and lock on the first
   tap; withheld standing grants are explained under "Why only once?". A
   question set is answered (or each question skipped) and sent once; **Skip
@@ -410,8 +502,9 @@ Hermes server, Chrome's Custom Tab, and a phone.
     is none). The confirmation closes if the entry read there changes.
     Deleting warns first, because Hermes keeps no backup.
   - TalkBack focus moves into your draft when an adoption completes, and onto
-    the lock notice whenever the editor locks: Android cannot tell whether the
-    control TalkBack was on is the one the lock removed.
+    the lock notice whenever the editor locks: React Native does not tell the
+    app where TalkBack focus is, so Cindl cannot tell whether the control it
+    was on is one the lock removed.
   - After a save, the text it replaced stays on screen: restorable only onto
     the version that save produced, otherwise shown to copy.
   - Known limit: entries with identical text in one store look the same to
@@ -438,7 +531,85 @@ Hermes server, Chrome's Custom Tab, and a phone.
   shared tokens' 44px is the floor for every client), TalkBack labels match the
   web labels, and the system font size, dark theme and "Remove animations"
   setting are followed. A destination keeps its scroll position when you come
-  back to it.
+  back to it; while another is shown, it is hidden from TalkBack and closed to
+  a hardware keyboard's focus, so Tab never reaches a control no one can see.
+  Every overlay is the app's Dialog or Sheet (no native Modal).
+  While one is open, everything beneath it is hidden from TalkBack (the app's
+  content is marked "no-hide-descendants"), closed to a hardware keyboard's
+  focus, and its scrim takes every touch there. The scrim takes touches and
+  nothing else: it is neither clickable nor focusable to Android, so a
+  keyboard's focus never rests on it (React Native 0.88 makes a Pressable
+  focusable even with `accessible={false}`, unless it has `focusable={false}`
+  too). As it opens, TalkBack focus
+  moves to its title and a keyboard's focus to its first control. As it
+  closes, both go back to the control that opened it; if that control is
+  gone, to the overlay's nearer one (the discard dialog: the draft, else
+  Edit), else to the section's heading (a deleted memory entry: Entries), the
+  page's heading or Talk's conversation switcher, never to nothing. An action
+  that moves focus itself keeps it there: the working margin's Show gives
+  TalkBack focus to the card it shows and a keyboard's to the card's first
+  control. React Native does not tell the app where TalkBack focus is, so
+  the opener is the control pressed in the second before the overlay opened
+  (a TalkBack double tap presses it too). An overlay system back opened has
+  none, unless a control was pressed in that second: that control is then
+  taken for its opener. A keyboard's focus never moves in touch mode. Whether
+  TalkBack follows a hardware keyboard's focus is not verified. With one
+  overlay over another (none opens another today), the one beneath would stay
+  open to TalkBack and to a keyboard's focus: only the app's content is hidden
+  and blocked.
+
+  Not proven on a device yet: these focus rules and the focus module below
+  have not compiled or run on one. The next Android run is the first to build
+  them and to run the emulator case that checks them.
+
+  React Native 0.88 cannot hold a keyboard's focus in an overlay on its own,
+  so a small local Expo module does (`apps/android/modules/cindl-focus`: one
+  call blocks the focus of everything in a view, one gives focus to a view).
+  Blocking also takes focus from a view beneath that has it already (text
+  tapped, or a field), or keys would still reach it there; and a blocked view
+  is unblocked as it leaves the window, so React Native never reuses one still
+  blocked. Why plain React Native is not enough:
+  - `importantForAccessibility` and `accessibilityElementsHidden` (iOS only)
+    hide from TalkBack, not from Android's focus search, which goes by
+    focusability alone;
+  - `focusable={false}` on the screen behind would have to reach every
+    control, and TextInput (its manager maps no `focusable`), ScrollViews and
+    text links cannot be made unfocusable that way;
+  - `nextFocus*` on an overlay's edges covers Tab from its last control only:
+    the arrow keys and a middle control still search the whole window;
+  - no React Native call gives focus back to a button: `View.focus()` is
+    behind the experimental `enableImperativeFocus` flag (off by default),
+    and `hasTVPreferredFocus` makes the view focusable in touch mode for good,
+    so it would then take two taps.
+
+  The emulator tests tap the memory entry's text, so it has focus as the
+  delete warning opens, and check that it gives that focus up. They then send
+  Tab and the four arrow keys with the warning open, check after each that
+  the keyboard's focus is in the dialog,
+  then close it with back and check that focus is on "Delete entry…". The
+  rendered component tests check every step of this on the shipped Dialog and
+  Sheet, and on the shipped screens: a tool row and the conversation switcher
+  get focus back from what they open (the switcher even when another press
+  came less than a second before), the working margin's Show leaves focus on
+  the card it shows, a link in agent Markdown gets it back from its
+  confirmation, a page's heading is the fallback for what opens on the page,
+  and a press counts as an overlay's opener only in the second before it
+  opened. What TalkBack itself announces is not tested. The emulator tests audit touch targets the same way: only what the
+  owner can reach, so while an overlay is open only what is drawn above its
+  scrim, which they tell apart by its testID (Android reports it as the
+  node's resource-id; the scrim itself is no target). uiautomator's full dump
+  still lists the hidden nodes beneath it;
+  its compressed dump, what TalkBack is given, does not. When
+  nothing is drawn above it (a dump without drawing orders), every node
+  counts, and a screen where no target is measured fails the audit, as a run
+  that measures none does. A link inside a sentence is
+  exempt, as WCAG 2.5.8's inline exception allows: a span whose label is part
+  of its paragraph's text, with other words around it (the host Cindl shows
+  after every link is the link's, not words around it), and whose box lies
+  within the paragraph. So is the paragraph that holds such a link, which
+  Android may report as clickable because of it. A link alone on its line or
+  in a list item, a clickable text with no such link in it, and any other
+  link or button must be 48dp.
 
 ## Live screen
 

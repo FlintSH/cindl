@@ -120,6 +120,7 @@ export function DocumentEditor({
   // TalkBack focus follows the lock: into the draft when it lifts (an adoption
   // completed), onto the notice when it starts (it takes Edit and Delete away).
   const box = useRef<TextInputInstance>(null)
+  const edit = useRef<HostInstance | null>(null)
   const lockText = useRef<HostInstance>(null)
   const isLocked = Boolean(locked)
   const wasLocked = useRef(isLocked)
@@ -207,6 +208,9 @@ export function DocumentEditor({
       open={discarding}
       title="Discard your changes?"
       onCancel={() => setDiscarding(false)}
+      // System back opens it (no control did): focus goes back to the draft, or,
+      // once the draft is discarded, to Edit.
+      returnFocus={() => box.current ?? edit.current}
       actions={
         <>
           <Button
@@ -321,6 +325,7 @@ export function DocumentEditor({
             <Button label="Reload" variant="quiet" onPress={onReload} />
             {canWrite && !locked ? (
               <Button
+                ref={edit}
                 label="Edit"
                 onPress={() => {
                   setFailure(undefined)

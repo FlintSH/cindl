@@ -1,5 +1,6 @@
-import { useState, type ReactNode } from 'react'
-import { Pressable, ScrollView, Text, View } from 'react-native'
+import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { Pressable, ScrollView, Text, View, type HostInstance } from 'react-native'
+import { FocusFallback } from '../overlay/opener.ts'
 import { useTheme } from '../theme/theme.tsx'
 import { focusRing, SectionTitle, Txt } from '../ui/primitives.tsx'
 
@@ -16,38 +17,47 @@ export function Page({
   children: ReactNode
 }) {
   const theme = useTheme()
+  const heading = useRef<HostInstance | null>(null)
+  const focusHeading = useCallback(() => heading.current, [])
   return (
-    <ScrollView
-      style={{ flex: 1 }}
-      contentContainerStyle={{
-        gap: theme.space[6],
-        paddingHorizontal: theme.space[4],
-        paddingTop: theme.space[5],
-        paddingBottom: theme.space[10],
-      }}
-      keyboardShouldPersistTaps="handled"
-    >
-      <View style={{ gap: theme.space[1] }}>
-        <Text
-          accessibilityRole="header"
-          style={[theme.text.heading, { color: theme.colors.text }]}
-        >
-          {title}
-        </Text>
-        <Txt tone="secondary">{lead}</Txt>
-      </View>
-      {tabs}
-      {children}
-    </ScrollView>
+    // An overlay closed after what opened it went gives focus to the page's heading.
+    <FocusFallback value={focusHeading}>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{
+          gap: theme.space[6],
+          paddingHorizontal: theme.space[4],
+          paddingTop: theme.space[5],
+          paddingBottom: theme.space[10],
+        }}
+        keyboardShouldPersistTaps="handled"
+      >
+        <View style={{ gap: theme.space[1] }}>
+          <Text
+            ref={heading}
+            accessibilityRole="header"
+            style={[theme.text.heading, { color: theme.colors.text }]}
+          >
+            {title}
+          </Text>
+          <Txt tone="secondary">{lead}</Txt>
+        </View>
+        {tabs}
+        {children}
+      </ScrollView>
+    </FocusFallback>
   )
 }
 
 export function Section({ title, children }: { title: string; children: ReactNode }) {
   const theme = useTheme()
+  const heading = useRef<HostInstance | null>(null)
+  const focusHeading = useCallback(() => heading.current, [])
   return (
     <View style={{ gap: theme.space[3] }}>
-      <SectionTitle>{title}</SectionTitle>
-      {children}
+      <SectionTitle ref={heading}>{title}</SectionTitle>
+      {/* An overlay closed after what opened it here went gives focus to this heading. */}
+      <FocusFallback value={focusHeading}>{children}</FocusFallback>
     </View>
   )
 }

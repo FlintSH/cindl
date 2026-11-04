@@ -1,21 +1,21 @@
 import { useLink, useOpenRequests } from '@cindl/client-react'
-import { useEffect, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { StatusBar, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { AgentView } from '../agent/AgentView.tsx'
 import { LibraryView } from '../library/LibraryView.tsx'
 import { destinations, type Destination } from '../nav/navigation.ts'
 import { DestinationActiveProvider, useNav, useNavigate } from '../nav/NavProvider.tsx'
-import { useOverlayCount } from '../overlay/Portal.tsx'
+import { BehindOverlays } from '../overlay/Portal.tsx'
 import { TalkView } from '../talk/TalkView.tsx'
 import { useTheme } from '../theme/theme.tsx'
-import { forgetDrafts, sessionEnded } from '../views/drafts.ts'
 import { Layer } from '../views/Layer.tsx'
 import { WorkView } from '../work/WorkView.tsx'
 import { BottomNav } from './BottomNav.tsx'
 import { DemoBanner } from './DemoBanner.tsx'
 import { useKeyboardHeight } from './keyboard.tsx'
 import { Notices } from './Notices.tsx'
+import { useSessionDrafts } from './sessionDrafts.ts'
 import { SignIn } from './SignIn.tsx'
 
 function screen(destination: Destination): ReactNode {
@@ -46,18 +46,11 @@ export function AppShell() {
   const nav = useNav()
   const navigate = useNavigate()
   const keyboard = useKeyboardHeight()
-  const overlays = useOverlayCount()
   const [visited, setVisited] = useState<ReadonlySet<Destination>>(
     () => new Set(['talk']),
   )
   if (!visited.has(nav.destination)) setVisited(new Set([...visited, nav.destination]))
-  // Nothing typed on this device outlives the session, however it ended: the
-  // sign-out button, or Hermes refusing the session (web parity). Kept drafts
-  // go too, so none comes back after another sign-in, to this Hermes or another.
-  const ended = sessionEnded(link)
-  useEffect(() => {
-    if (ended) forgetDrafts()
-  }, [ended])
+  useSessionDrafts(link)
   // From a sign-in until the client is online, the sign-in screen stays: while the
   // browser is open the link says "connecting", and a failed attempt shows its error.
   const [signingIn, setSigningIn] = useState(false)
@@ -69,10 +62,7 @@ export function AppShell() {
   return (
     <View style={{ flex: 1, backgroundColor: theme.colors.canvas }}>
       <StatusBar barStyle={theme.name === 'dark' ? 'light-content' : 'dark-content'} />
-      <View
-        style={{ flex: 1 }}
-        importantForAccessibility={overlays > 0 ? 'no-hide-descendants' : 'auto'}
-      >
+      <BehindOverlays style={{ flex: 1 }}>
         <View
           style={{
             paddingTop: insets.top,
@@ -113,7 +103,7 @@ export function AppShell() {
             onSelect={(destination) => navigate({ type: 'go', destination })}
           />
         )}
-      </View>
+      </BehindOverlays>
     </View>
   )
 }

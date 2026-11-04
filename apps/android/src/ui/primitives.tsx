@@ -3,21 +3,26 @@ import {
   Children,
   Fragment,
   isValidElement,
+  useCallback,
   useEffect,
+  useRef,
   useState,
   type ReactNode,
+  type Ref,
 } from 'react'
 import {
   Animated,
   Pressable,
   Text,
   View,
+  type HostInstance,
   type StyleProp,
   type TextProps,
   type TextStyle,
   type ViewStyle,
 } from 'react-native'
 import { useReducedMotion } from '../theme/motion.tsx'
+import { notePress } from '../overlay/opener.ts'
 import { useStyles, useTheme, type CindlTheme } from '../theme/theme.tsx'
 import { ChevronRight, LoaderCircle, type LucideIcon } from './icons.ts'
 
@@ -90,6 +95,7 @@ export function Txt({
 export type ButtonVariant = 'default' | 'primary' | 'quiet' | 'danger'
 
 export function Button({
+  ref,
   label,
   accessibilityLabel,
   accessibilityHint,
@@ -102,6 +108,8 @@ export function Button({
   style,
   testID,
 }: {
+  /** The host view, for sending TalkBack focus to it. */
+  ref?: Ref<HostInstance>
   label: string
   /** Spoken label when it differs from the visible one (TalkBack wording matches web aria-labels). */
   accessibilityLabel?: string
@@ -119,6 +127,16 @@ export function Button({
   const theme = useTheme()
   const styles = useStyles(buttonStyles)
   const [focused, setFocused] = useState(false)
+  // Its own handle on the view, so a dialog or sheet it opens can give focus back to it.
+  const self = useRef<HostInstance | null>(null)
+  const attach = useCallback(
+    (node: HostInstance | null) => {
+      self.current = node
+      if (typeof ref === 'function') ref(node)
+      else if (ref) ref.current = node
+    },
+    [ref],
+  )
   const foreground =
     variant === 'primary'
       ? theme.colors.onAccent
@@ -129,12 +147,20 @@ export function Button({
           : theme.colors.text
   return (
     <Pressable
+      ref={attach}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       {...(accessibilityHint ? { accessibilityHint } : {})}
       accessibilityState={{ disabled, busy }}
       disabled={disabled}
-      {...(onPress ? { onPress } : {})}
+      {...(onPress
+        ? {
+            onPress: () => {
+              notePress(self)
+              onPress()
+            },
+          }
+        : {})}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       android_ripple={{ color: theme.colors.selection }}
@@ -261,10 +287,18 @@ export function Dot({ tone = 'neutral' }: { tone?: Tone }) {
  * Section label: label size, 600 weight, uppercase, 0.04em tracking, tertiary colour.
  * The upper case is visual only: TalkBack gets the text as written, as on the web.
  */
-export function SectionTitle({ children }: { children: string }) {
+export function SectionTitle({
+  ref,
+  children,
+}: {
+  /** The heading's view, for sending TalkBack focus to it. */
+  ref?: Ref<HostInstance>
+  children: string
+}) {
   const theme = useTheme()
   return (
     <Text
+      ref={ref}
       accessibilityRole="header"
       accessibilityLabel={children}
       style={[

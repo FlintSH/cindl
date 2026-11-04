@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react'
 import {
   AccessibilityInfo,
   Animated,
@@ -17,16 +17,60 @@ import { useReducedMotion } from '../theme/motion.tsx'
 import { useTheme } from '../theme/theme.tsx'
 import { X } from '../ui/icons.ts'
 import { Button } from '../ui/primitives.tsx'
+import { giveKeyboardFocus } from './keyboardFocus.ts'
+import {
+  justPressed,
+  takeFocusClaim,
+  useFocusFallback,
+  type FocusTarget,
+} from './opener.ts'
 import { Portal } from './Portal.tsx'
+import { SCRIM_ID } from './scrim.ts'
 
-/** Moves TalkBack focus to an overlay's title once it is on screen. */
-function useInitialFocus(ref: { current: HostInstance | null }) {
+type HostRef = { current: HostInstance | null }
+
+/**
+ * Once an overlay is on screen, moves TalkBack focus to its title and a
+ * hardware keyboard's focus to its first control (the frame's).
+ */
+function useInitialFocus(title: HostRef, frame: HostRef) {
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (ref.current) AccessibilityInfo.sendAccessibilityEvent(ref.current, 'focus')
+      if (title.current) AccessibilityInfo.sendAccessibilityEvent(title.current, 'focus')
+      giveKeyboardFocus(frame.current)
     }, 60)
     return () => clearTimeout(timer)
-  }, [ref])
+  }, [title, frame])
+}
+
+/**
+ * Gives TalkBack focus, and a hardware keyboard's, back when the overlay
+ * closes: to the control that opened it; when that control is gone (or
+ * nothing opened it, as with system back), to the overlay's `returnFocus`,
+ * then to the screen's fallback (a section's or page's heading, the
+ * conversation switcher), so it never lands on nothing. Not when the action
+ * that closed it moved focus itself (`claimFocus`).
+ */
+function useFocusReturn(targets: Array<FocusTarget | undefined>) {
+  const [opener] = useState(justPressed)
+  const latest = useRef(targets)
+  useLayoutEffect(() => {
+    latest.current = targets
+  })
+  useEffect(
+    () => () => {
+      const claimed = takeFocusClaim()
+      setTimeout(() => {
+        if (claimed) return
+        let node = opener?.current
+        for (const target of latest.current) node ??= target?.()
+        if (!node) return
+        AccessibilityInfo.sendAccessibilityEvent(node, 'focus')
+        giveKeyboardFocus(node)
+      }, 60)
+    },
+    [opener],
+  )
 }
 
 /** Fades (and for sheets, lifts) an overlay in; instant under reduced motion. */
@@ -61,10 +105,16 @@ function Scrim({ progress, onPress }: { progress: Animated.Value; onPress: () =>
         { backgroundColor: theme.colors.scrim, opacity: progress },
       ]}
     >
+      {/* A touch target only. Pressable passes `focusable` (true unless false)
+          after `accessible`, and React Native 0.88 applies both to the view's
+          focusability, so without focusable={false} the scrim would be a stop
+          for a keyboard's focus (CI run 41712256173: Tab went to it first). */}
       <Pressable
+        testID={SCRIM_ID}
         style={StyleSheet.absoluteFill}
         onPress={onPress}
         accessible={false}
+        focusable={false}
         importantForAccessibility="no"
       />
     </Animated.View>
@@ -82,6 +132,7 @@ export function Sheet({
   title,
   closeLabel = 'Close',
   headerAside,
+  returnFocus,
   children,
 }: {
   open: boolean
@@ -89,8 +140,11 @@ export function Sheet({
   title: string
   closeLabel?: string
   headerAside?: ReactNode
+  /** Where focus goes on close when the control that opened the sheet is gone. */
+  returnFocus?: FocusTarget
   children: ReactNode
 }) {
+  const fallback = useFocusFallback()
   useBackHandler(() => {
     onClose()
     return true
@@ -103,6 +157,7 @@ export function Sheet({
         closeLabel={closeLabel}
         onClose={onClose}
         headerAside={headerAside}
+        returnTo={[returnFocus, fallback]}
       >
         {children}
       </SheetFrame>
@@ -115,12 +170,14 @@ function SheetFrame({
   closeLabel,
   onClose,
   headerAside,
+  returnTo,
   children,
 }: {
   title: string
   closeLabel: string
   onClose: () => void
   headerAside: ReactNode
+  returnTo: Array<FocusTarget | undefined>
   children: ReactNode
 }) {
   const theme = useTheme()
@@ -129,12 +186,16 @@ function SheetFrame({
   const { height } = useWindowDimensions()
   const progress = useEntrance()
   const titleRef = useRef<HostInstance>(null)
-  useInitialFocus(titleRef)
+  const frameRef = useRef<HostInstance>(null)
+  useInitialFocus(titleRef, frameRef)
+  useFocusReturn(returnTo)
   const bottom = keyboard > 0 ? Math.max(keyboard, insets.bottom) : insets.bottom
   return (
     <View style={StyleSheet.absoluteFill}>
       <Scrim progress={progress} onPress={onClose} />
       <Animated.View
+        ref={frameRef}
+        collapsable={false}
         style={{
           position: 'absolute',
           left: 0,
@@ -207,15 +268,19 @@ export function Dialog({
   open,
   title,
   onCancel,
+  returnFocus,
   children,
   actions,
 }: {
   open: boolean
   title: string
   onCancel: () => void
+  /** Where focus goes on close when the control that opened the dialog is gone. */
+  returnFocus?: FocusTarget
   children?: ReactNode
   actions: ReactNode
 }) {
+  const fallback = useFocusFallback()
   useBackHandler(() => {
     onCancel()
     return true
@@ -223,7 +288,12 @@ export function Dialog({
   if (!open) return null
   return (
     <Portal>
-      <DialogFrame title={title} onCancel={onCancel} actions={actions}>
+      <DialogFrame
+        title={title}
+        onCancel={onCancel}
+        actions={actions}
+        returnTo={[returnFocus, fallback]}
+      >
         {children}
       </DialogFrame>
     </Portal>
@@ -235,18 +305,22 @@ function DialogFrame({
   onCancel,
   children,
   actions,
+  returnTo,
 }: {
   title: string
   onCancel: () => void
   children: ReactNode
   actions: ReactNode
+  returnTo: Array<FocusTarget | undefined>
 }) {
   const theme = useTheme()
   const insets = useSafeAreaInsets()
   const keyboard = useKeyboardHeight()
   const progress = useEntrance()
   const titleRef = useRef<HostInstance>(null)
-  useInitialFocus(titleRef)
+  const frameRef = useRef<HostInstance>(null)
+  useInitialFocus(titleRef, frameRef)
+  useFocusReturn(returnTo)
   return (
     <View
       style={[
@@ -262,6 +336,8 @@ function DialogFrame({
     >
       <Scrim progress={progress} onPress={onCancel} />
       <Animated.View
+        ref={frameRef}
+        collapsable={false}
         style={{
           width: '100%',
           maxWidth: 440,

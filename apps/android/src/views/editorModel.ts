@@ -151,8 +151,8 @@ export function draftNotice(input: {
 /**
  * Where TalkBack focus goes when the lock changes: into the draft when a lock
  * lifts (an adoption completed), onto the lock notice when one starts (it
- * takes Edit and Delete away; Android cannot tell which control TalkBack was
- * on, so the notice gets focus whenever the editor locks).
+ * takes Edit and Delete away; React Native does not say which control
+ * TalkBack was on, so the notice gets focus whenever the editor locks).
  */
 export function focusAfterLock(
   wasLocked: boolean,
