@@ -111,6 +111,24 @@ async function seedSendingPrompt(kv: KeyValueStore, origin: string): Promise<str
   return key
 }
 
+/** Hold the first device-state read for `origin`, which the switch makes. */
+function holdDeviceRead(h: Harness, origin: string) {
+  const realGet = h.kv.get.bind(h.kv)
+  const hold: { armed: boolean; arrived?: () => void; release?: () => void } = {
+    armed: true,
+  }
+  const arrived = new Promise<void>((resolve) => (hold.arrived = resolve))
+  h.kv.get = async (key: string) => {
+    if (hold.armed && key.includes(`|${origin}|`)) {
+      hold.armed = false
+      hold.arrived?.()
+      await new Promise<void>((resolve) => (hold.release = resolve))
+    }
+    return realGet(key)
+  }
+  return { arrived, release: () => hold.release?.() }
+}
+
 /** The store holds what a renderer subscribing now is told. */
 function expectStoreMatchesSeed(h: Harness): void {
   const late = createStore({
@@ -252,6 +270,33 @@ describe('direct client: signing in to another origin', () => {
     expect(links[0]).toBe(`connecting@${b.origin}`)
     expect(new Set(links)).toEqual(
       new Set([`connecting@${b.origin}`, `online@${b.origin}`]),
+    )
+  })
+
+  it('lets a stop() during the switch hold: no connect until start()', async () => {
+    const h = await harness({ signIn: false })
+    const b = await fakeHermes()
+    const read = holdDeviceRead(h, b.origin)
+    const signingIn = h.client.call('auth.signIn', { origin: b.origin })
+    await read.arrived
+    h.client.stop()
+    read.release()
+    // The sign-in stands, but nothing connects, and the link says so for B.
+    expect(await signingIn).toMatchObject({
+      phase: 'offline',
+      server: { origin: b.origin },
+    })
+    await pause(100)
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'offline',
+      server: { origin: b.origin },
+    })
+    expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
+    await h.client.start()
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === b.origin,
     )
   })
 
@@ -2391,24 +2436,6 @@ describe('direct client: a sign-out whose own delete is slow', () => {
 })
 
 describe('direct client: the switch after a sign-in with a working session', () => {
-  /** Hold the first device-state read for `origin`, which the switch makes. */
-  function holdDeviceRead(h: Harness, origin: string) {
-    const realGet = h.kv.get.bind(h.kv)
-    const hold: { armed: boolean; arrived?: () => void; release?: () => void } = {
-      armed: true,
-    }
-    const arrived = new Promise<void>((resolve) => (hold.arrived = resolve))
-    h.kv.get = async (key: string) => {
-      if (hold.armed && key.includes(`|${origin}|`)) {
-        hold.armed = false
-        hold.arrived?.()
-        await new Promise<void>((resolve) => (hold.release = resolve))
-      }
-      return realGet(key)
-    }
-    return { arrived, release: () => hold.release?.() }
-  }
-
   it('fails the sign-in on a sign-out there: the client stays on A, signed out, with no tokens', async () => {
     const h = await harness()
     const b = await fakeHermes()

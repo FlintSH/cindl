@@ -563,19 +563,10 @@ class DirectHermesClient implements DirectClient {
   }
 
   /**
-   * Leave the current origin and take up `parts`, as a sign-in to it begins:
-   * nothing of the old session survives.
-   */
-  async #switchTo(parts: OriginParts): Promise<void> {
-    this.#leaveFor(parts, 'connecting')
-    await this.#loadDevice()
-  }
-
-  /**
-   * The same switch, with the new origin's device state already read: it
-   * awaits nothing, so no sign-out or stop() can land halfway through it.
-   * `phase` is the new origin's first link: connecting when a connect
-   * follows, offline when a stop() keeps it from connecting.
+   * Switch with the new origin's device state already read: it awaits
+   * nothing, so no sign-out or stop() can land halfway through it. `phase`
+   * is the new origin's first link: connecting when a connect follows,
+   * offline when a stop() keeps it from connecting.
    */
   #switchToRead(
     parts: OriginParts,
@@ -587,6 +578,7 @@ class DirectHermesClient implements DirectClient {
     if (this.#takeDevice(device)) void parts.storage.saveOutbox(this.#prompts.values())
   }
 
+  /** Leave the current origin and take up `parts`: nothing of the old session survives. */
   #leaveFor(parts: OriginParts, phase: 'connecting' | 'offline'): void {
     // Retire the sign-in left behind first: a refresh it still has in flight
     // must never write the old origin's tokens back once the platform deleted
@@ -1889,7 +1881,7 @@ class DirectHermesClient implements DirectClient {
       const switching = origin !== this.#origin
       const parts = switching ? this.#parts(origin) : this.#currentParts()
       if (!keep) {
-        if (switching) await this.#switchTo(parts)
+        if (switching) this.#leaveFor(parts, 'connecting')
         this.#started = true
         this.#setLink('connecting')
       }
@@ -1899,6 +1891,9 @@ class DirectHermesClient implements DirectClient {
       // stops, and a stop() before it finishes keeps it from connecting.
       const run = ++this.#run
       this.#deps.clock.clearTimeout(this.#discoveryRetry)
+      // Without a session the switch came first. Its device state loads only
+      // now, so a stop() during the read keeps this sign-in from connecting.
+      if (!keep && switching) await this.#loadDevice()
       let status: wire.StatusResponse | undefined
       let failed: LinkPhase = 'signed-out'
       try {
