@@ -456,3 +456,51 @@ describe('NativeAuth: a failing read that a sign-out or retirement overtakes', (
     expect(await auth.identity()).toBeUndefined()
   })
 })
+
+describe('NativeAuth: what a failed code exchange says', () => {
+  it('says the code expired when Hermes refuses it (its 400)', async () => {
+    const fake = await fakeHermes()
+    const auth = new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      secrets: vault(),
+      crypto,
+    })
+    const refused = await auth
+      .signIn(
+        browserLeg((callback) => callback.replace(/code=[^&]+/, 'code=forged-fixture')),
+      )
+      .then(
+        () => undefined,
+        (error: unknown) => error as CindlError,
+      )
+    expect(refused?.code).toBe('unauthenticated')
+    expect(refused?.message).toBe(
+      'The Hermes sign-in code expired or was already used. Sign in again.',
+    )
+  })
+
+  it('lets a platform that will not send the exchange say so itself', async () => {
+    const fake = await fakeHermes()
+    const refusal = new CindlError(
+      'invalid',
+      'Refused a request outside the Hermes origin you confirmed.',
+    )
+    const auth = new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) =>
+        new URL(url).pathname === '/auth/native/token'
+          ? Promise.reject(refusal)
+          : fetch(url, init),
+      timers,
+      secrets: vault(),
+      crypto,
+    })
+    const refused = await auth.signIn(browserLeg()).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(refused).toBe(refusal)
+  })
+})

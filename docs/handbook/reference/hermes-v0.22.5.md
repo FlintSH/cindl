@@ -82,7 +82,10 @@ bearer to public endpoints.
   pending per client IP and 256 overall (`native_flow.py:28-33`).
 - `POST /auth/native/token {code, code_verifier}`: the code is removed before
   the PKCE check, so a wrong verifier burns it; every failure is a generic 400
-  (`native_flow.py:145-158`, `routes.py:574-591`).
+  (`native_flow.py:145-158`, `routes.py:574-591`). Cindl reads that 400, and
+  only an HTTP 400, as a code that expired or was already used; a platform's
+  own refusal to send the exchange (the desktop's pinned origin, Android's
+  https rule) reads as itself.
 - `POST /auth/native/refresh {refresh_token, provider?}`: 401
   `{error: "session_expired"}` when every provider rejects the token, 503 when
   one is unreachable (`routes.py:594-617`). Cindl rotates once per expiry,

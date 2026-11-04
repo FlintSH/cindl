@@ -4,6 +4,7 @@ import {
   asCindlError,
   hermesDidNotAnswer,
   httpError,
+  httpStatusOf,
   offlineError,
   protocolError,
   timeoutError,
@@ -36,5 +37,14 @@ describe('hermesDidNotAnswer', () => {
     expect(hermesDidNotAnswer(device)).toBe(false)
     expect(hermesDidNotAnswer(new CindlError('offline', 'Superseded.'))).toBe(false)
     expect(hermesDidNotAnswer(new Error('not a CindlError (fixture)'))).toBe(false)
+  })
+})
+
+describe('httpStatusOf', () => {
+  it('gives the status an HTTP answer came with, and nothing for anything else', () => {
+    expect(httpStatusOf(httpError(400, {}, 'POST /auth/native/token'))).toBe(400)
+    expect(httpStatusOf(httpError(503, {}, 'GET /api/status'))).toBe(503)
+    expect(httpStatusOf(new CindlError('invalid', 'Refused (fixture).'))).toBeUndefined()
+    expect(httpStatusOf(offlineError('GET /api/status: network error'))).toBeUndefined()
   })
 })

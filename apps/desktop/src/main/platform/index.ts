@@ -79,7 +79,7 @@ export function pinnedFetch(
       target = new URL(url)
     } catch {
       return Promise.reject(
-        new CindlError('invalid', 'Refused a request with an invalid URL'),
+        new CindlError('invalid', 'Refused a request with an invalid URL.'),
       )
     }
     const allowed = origin()
@@ -87,7 +87,7 @@ export function pinnedFetch(
       return Promise.reject(
         new CindlError(
           'invalid',
-          'Refused a request outside the Hermes origin you confirmed',
+          'Refused a request outside the Hermes origin you confirmed.',
         ),
       )
     return fetch(url, init)

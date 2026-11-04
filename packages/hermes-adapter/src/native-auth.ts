@@ -1,5 +1,6 @@
 import { CindlError } from '@cindl/contracts'
 import { silentDiagnostics, type Diagnostics } from './diagnostics.ts'
+import { httpStatusOf } from './errors.ts'
 import {
   buildAuthorizeUrl,
   createPkcePair,
@@ -121,7 +122,9 @@ export class NativeAuth {
     try {
       tokens = await this.#public.nativeToken(callback.code, pkce.verifier)
     } catch (error) {
-      if (error instanceof CindlError && error.code === 'invalid')
+      // Hermes answers every failed exchange with a 400 (native_flow.py:145-158).
+      // Anything else, such as the platform refusing to send, reads as itself.
+      if (error instanceof CindlError && httpStatusOf(error) === 400)
         throw new CindlError(
           'unauthenticated',
           'The Hermes sign-in code expired or was already used. Sign in again.',
