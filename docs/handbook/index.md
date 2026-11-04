@@ -5,8 +5,8 @@ repository as the code so a behaviour change and its documentation are
 reviewed together, in the same commit. Every page states the commit it was
 built from, and whether the build included uncommitted changes.
 
-Cindl is pre-release. The pages say plainly what is built, what is only
-designed, and what has not been validated against a live Hermes yet; the
+The pages say plainly what is built, what is only designed, and what has not
+been validated against a live Hermes yet; the
 [acceptance matrix](project/acceptance-matrix.md) tracks each requirement and
 its evidence.
 
