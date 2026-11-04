@@ -56,8 +56,8 @@ Working here:
   answers (`assertAnswerable`) before anything is sent.
 - Keep pure logic out of components; test a component rendered (react-dom in
   jsdom), never a copy of its wiring. `test/render` stands in for the host
-  layer, safe-area, the icons, `expo` and `expo-crypto` (vitest.config.ts),
-  and only as far as a rendered screen needs.
+  layer, safe-area, the icons, `react-native-svg`, `expo` and `expo-crypto`
+  (vitest.config.ts), and only as far as a rendered screen needs.
 - The agent screen: never log frames, input or the screen socket's URL (it
   holds the single-use display ticket), and never start, stop or install the
   screen.

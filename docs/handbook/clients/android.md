@@ -252,12 +252,12 @@ Pressable does), a Pressable is a stop for a keyboard's focus unless both
 `accessible` and `focusable` are false (as React Native 0.88 makes the view),
 a ScrollView scrolls nothing, Linking records the links it is asked to open,
 Animated values jump to their end, and Easing, StyleSheet and Platform are
-minimal. Four modules are replaced as well
+minimal. Five modules are replaced as well
 (`apps/android/vitest.config.ts`): `react-native-safe-area-context` (zero
-insets), the lucide icons (an empty element), `expo`
-(`apps/android/test/render/expo.ts`: the keyboard focus module records its
-calls; no other native module is linked) and `expo-crypto` (Node's random
-ids for the composer). The tests read the screen by role,
+insets), the lucide icons and `react-native-svg` (Cindl's mark; both draw
+nothing), `expo` (`apps/android/test/render/expo.ts`: the keyboard focus
+module records its calls; no other native module is linked) and
+`expo-crypto` (Node's random ids for the composer). The tests read the screen by role,
 name and text and see where focus is sent. They do not cover native drawing
 or layout, or what TalkBack itself announces; no emulator test covers those
 flows yet.

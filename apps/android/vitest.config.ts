@@ -23,6 +23,7 @@ export default defineProject({
       },
       { find: /^expo$/, replacement: here('./test/render/expo.ts') },
       { find: /^expo-crypto$/, replacement: here('./test/render/expo-crypto.ts') },
+      { find: /^react-native-svg$/, replacement: here('./test/render/svg.tsx') },
     ],
   },
   test: { name: 'android', environment: 'node', include: ['test/**/*.test.{ts,tsx}'] },
