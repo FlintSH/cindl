@@ -710,6 +710,35 @@ describe('a stop() during a sign-in, through the real Android client', () => {
   })
 })
 
+describe('Cancel sign-in before its browser opens, through the real Android client', () => {
+  // The direct client's cancelSignIn() withdraws the sign-in wherever it is:
+  // before the browser leg (Hermes's status read, the stored sign-in, the
+  // device read, PKCE) the authorizer has no attempt to cancel yet.
+  it("a Cancel during B's status read opens no browser, starts no listener and saves nothing", async () => {
+    const b = await fakeHermes()
+    const { stores, listener, browser, platform } = device()
+    const { client, store } = await launch(platform)
+    const statusB = b.holdNextRest('GET /api/status')
+    const signingIn = client.api.call('auth.signIn', { origin: b.origin }).then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    )
+    await statusB.arrived
+    // What the sign-in screen's Cancel sign-in does.
+    client.cancelSignIn()
+    statusB.release()
+    expect(await signingIn).toBe('Sign-in was cancelled. Nothing was saved.')
+    expect(browser.opened).toEqual([])
+    expect(listener.attempts.size).toBe(0)
+    expect(calls(b, 'POST /auth/native/token')).toBe(0)
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBeUndefined()
+    expect(store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      server: { origin: b.origin },
+    })
+  })
+})
+
 describe('a sign-in withdrawn while its attempt marker is written, through the real Android client', () => {
   /** The device's stores, with the first write of a sign-in's attempt marker held until opened. */
   function holdingMarker() {

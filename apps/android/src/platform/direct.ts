@@ -25,7 +25,12 @@ export interface AndroidClient {
   /** Loads device state and connects when signed in. Call once the UI has subscribed. */
   start: () => Promise<void>
   stop: () => void
-  /** Stops waiting for the browser; the sign-in in progress then fails as cancelled. */
+  /**
+   * The owner's Cancel: the sign-in in progress fails as cancelled and saves
+   * nothing, from Hermes's status read until the browser has answered. Before
+   * the page opens, it opens no page; while it is open, its listener stops
+   * (the direct client cancels the browser leg).
+   */
   cancelSignIn: () => void
 }
 
@@ -153,6 +158,6 @@ export async function createAndroidClient(
     api,
     start: () => direct.start(),
     stop: () => direct.stop(),
-    cancelSignIn: () => platform.authorizer.cancel(),
+    cancelSignIn: () => direct.cancelSignIn(),
   }
 }
