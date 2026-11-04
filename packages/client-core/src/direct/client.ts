@@ -142,6 +142,15 @@ export interface DirectClient extends CindlClientApi {
    * for it after this, and one under way stops being waited on.
    */
   stop(): void
+  /**
+   * The owner's Cancel: withdraw the native sign-ins in flight as stop()
+   * does, without stopping the client. Each fails with `unauthenticated`
+   * "Sign-in was cancelled. Nothing was saved."; one whose browser has
+   * already answered still finishes. The client createDirectClient makes
+   * always has it; a wrapper that passes a client on (the web's, which has
+   * no browser leg) may leave it out.
+   */
+  cancelSignIn?(): void
 }
 
 type Handler<K extends OpName> = (args: OpArgs<K>) => Promise<OpResult<K>> | OpResult<K>
@@ -180,6 +189,10 @@ const isTransient = (error: unknown) =>
 const signedOutWhileSigningIn = () =>
   new CindlError('unauthenticated', 'Signed out while signing in.')
 
+/** The same outcome as Android's listener gives a cancelled attempt. */
+const signInCancelled = () =>
+  new CindlError('unauthenticated', 'Sign-in was cancelled. Nothing was saved.')
+
 /** A native sign-in's SignInStop, withdrawn once its run has moved on. */
 function signInStop() {
   let stopped: CindlError | undefined
@@ -214,7 +227,7 @@ function signInStop() {
  * converges. Platform-agnostic: storage, sockets, clocks, crypto and the
  * browser leg come in through `DirectClientDeps`.
  */
-export function createDirectClient(deps: DirectClientDeps): DirectClient {
+export function createDirectClient(deps: DirectClientDeps): Required<DirectClient> {
   return new DirectHermesClient(deps)
 }
 
@@ -525,6 +538,15 @@ class DirectHermesClient implements DirectClient {
     if (phase === 'online' || phase === 'connecting' || phase === 'reconnecting')
       this.#setLink('offline')
     this.#refreshCapabilities()
+  }
+
+  /**
+   * The run stays, so a sign-in without a working session still owns the
+   * client and shows its failure on the link (signed-out, with the cancel);
+   * one with a working session leaves that session as it was.
+   */
+  cancelSignIn(): void {
+    this.#withdrawSignIns(signInCancelled())
   }
 
   /**

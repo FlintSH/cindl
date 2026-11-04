@@ -143,6 +143,20 @@ bearer to public endpoints.
   nothing is withdrawn; on Android, a `stop()` after the callback reached
   the listener but before the authorizer finished cleaning up still
   withdraws it, and nothing is saved.
+- The owner's Cancel is the direct client's `cancelSignIn()`: it withdraws
+  a native sign-in the same way at any of those points (Hermes's status
+  read, the stored sign-in read, the new origin's device state, the browser
+  leg), without stopping the client. The sign-in fails with
+  `unauthenticated` ("Sign-in was cancelled. Nothing was saved."), the
+  outcome Android's listener gives a cancelled attempt. Without a working
+  session the sign-in still owns the client, so the link ends `signed-out`
+  with that error on the origin it took up; with one, the session stays as
+  it was. A sign-in whose browser has answered still finishes and connects.
+  Android's Cancel still reaches only its authorizer
+  (`apps/android/src/platform/direct.ts`), which has no attempt before the
+  browser leg, so a Cancel during those reads is lost there until it calls
+  `cancelSignIn()`; with an upstream OIDC provider that has a live session,
+  that sign-in can then finish and store its tokens.
 - A switch that succeeds retires the previous origin's sign-in before the
   new one is installed (`NativeAuth.retire`). Work it still has in flight, a
   token refresh above all, can no longer store, return or delete tokens, and

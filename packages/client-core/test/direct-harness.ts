@@ -86,7 +86,7 @@ function breakableSockets() {
 
 export interface Harness {
   fake: FakeHermes
-  client: DirectClient
+  client: Required<DirectClient>
   /** Make sends fail as if the socket had silently closed. */
   breakSends(broken: boolean): void
   events: CindlEvent[]
