@@ -116,6 +116,7 @@ export function buildSidebar(handbook) {
           ),
         },
         page('security/threat-model.md'),
+        page('security/test-evidence.md'),
       ],
       ['architecture', 'security'],
     ),
