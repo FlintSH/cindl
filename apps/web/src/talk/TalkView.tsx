@@ -29,7 +29,7 @@ import { shortcutText } from '../shortcuts.ts'
 import { Button, Dot } from '../ui/primitives.tsx'
 import { Composer, type ComposerHandle } from './Composer.tsx'
 import { HistoryPopover } from './HistoryPopover.tsx'
-import { MessageView } from './MessageView.tsx'
+import { MessageView, turnStateOf } from './MessageView.tsx'
 import {
   keepPlace,
   noteFresh,
@@ -382,6 +382,11 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                     selectedToolId={selectedToolId}
                     blockedToolIds={activity.blockedToolIds}
                     onSelectTool={selectTool}
+                    turn={
+                      message.status === 'streaming'
+                        ? turnStateOf(activity.phase)
+                        : undefined
+                    }
                   />
                 ))}
                 {activity.openRequests.map((request) => (

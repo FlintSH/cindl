@@ -25,18 +25,34 @@ const originNote: Partial<Record<NonNullable<Message['origin']>, string>> = {
   proactive: 'Unprompted',
 }
 
+/**
+ * What a streaming reply's header says, from the conversation's observed
+ * phase: counting while Hermes works, "Waiting for you" while it is blocked on
+ * the owner, nothing (just its time) when Cindl cannot tell. A reply blocked
+ * overnight never claims to have worked all night.
+ */
+export type TurnState = 'working' | 'waiting' | undefined
+
+export function turnStateOf(phase: string): TurnState {
+  if (phase === 'waiting-on-you') return 'waiting'
+  return phase === 'executing' || phase === 'queued' ? 'working' : undefined
+}
+
 export function MessageView({
   message,
   agentName,
   selectedToolId,
   blockedToolIds,
   onSelectTool,
+  turn,
 }: {
   message: Message
   agentName: string
   selectedToolId: string | undefined
   blockedToolIds: ReadonlySet<string>
   onSelectTool: (toolId: string) => void
+  /** The conversation's turn, for a streaming reply's header. */
+  turn?: TurnState
 }) {
   const time = messageTime(message.createdAt)
   // Spoken as part of the message's name: "You, today at 8:03 AM".
@@ -74,8 +90,10 @@ export function MessageView({
       <header className={styles.assistantMeta}>
         <span className={styles.assistantName}>{agentName}</span>
         {note ? <span className={styles.origin}>{note}</span> : null}
-        {streaming ? (
+        {streaming && turn === 'working' ? (
           <Working since={message.createdAt} />
+        ) : streaming && turn === 'waiting' ? (
+          <span className={styles.working}>Waiting for you</span>
         ) : time ? (
           <time dateTime={message.createdAt} title={fullTime(message.createdAt)}>
             {time}

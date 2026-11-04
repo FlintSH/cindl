@@ -151,6 +151,8 @@ test('the palette wraps, marks the theme in use, and the shortcuts list closes f
     'Current',
   )
   await page.keyboard.press('Escape')
+  // Escape's close runs as a task: a `?` sent before it lands in the palette's box.
+  await expect(palette).toBeHidden()
   await page.locator('body').press('?')
   const help = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
   await expect(help).toBeVisible()

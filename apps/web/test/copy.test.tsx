@@ -88,12 +88,19 @@ describe('copying', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Copy reply' }))
     await settle()
     expect(writeText).toHaveBeenCalledWith('First **part**.\n\nSecond part.')
+    const streaming = { ...message, status: 'streaming' as const }
     view.rerender(
-      withClient(
-        <MessageView message={{ ...message, status: 'streaming' }} {...props} />,
-      ),
+      withClient(<MessageView message={streaming} turn="working" {...props} />),
     )
     expect(screen.queryByRole('button', { name: 'Copy reply' })).toBeNull()
     expect(screen.getByText(/^Working/)).toBeTruthy()
+    // Blocked on the owner, a reply that started long ago never counts up.
+    const old = { ...streaming, createdAt: '2026-06-02T08:13:00.000Z' }
+    view.rerender(withClient(<MessageView message={old} turn="waiting" {...props} />))
+    expect(screen.getByText('Waiting for you')).toBeTruthy()
+    expect(screen.queryByText(/^Working/)).toBeNull()
+    // When Cindl cannot tell, it claims nothing: just the reply's time.
+    view.rerender(withClient(<MessageView message={old} turn={undefined} {...props} />))
+    expect(screen.queryByText(/^Working|Waiting for you/)).toBeNull()
   })
 })

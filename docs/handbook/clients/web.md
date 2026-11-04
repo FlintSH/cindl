@@ -311,8 +311,12 @@ in use is marked "Current". The shortcuts list has a close button as well as
   a tooltip. On Talk, typing while nothing that takes text has focus goes
   on in the message box (as `/` does); shortcut keys, Space and keys with
   Ctrl, Alt or ⌘ keep their own jobs.
-- **A reply in progress** counts up in its header ("Working for 12s") from
-  when it started, in place of its time.
+- **A reply in progress** says what it is doing in its header, in place of
+  its time, from the conversation's state as Cindl sees it: while Hermes
+  works, it counts up from when the reply started ("Working for 12s"); while
+  the reply waits on you, it says "Waiting for you" (a reply blocked
+  overnight never claims to have worked all night); when Cindl cannot tell,
+  it shows the time.
 - **New conversations** you start in Cindl (the header's +, the conversation
   list, the palette or `Ctrl/⌘ Shift O`) open with focus in the message box.
   A conversation with nothing in it yet says so in one line, instead of an
