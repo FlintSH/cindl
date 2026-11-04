@@ -89,18 +89,28 @@ Cindl's own small server on loopback and point the front's path at it:
 python3 apps/web/serve/cindl-serve.py --root apps/web/dist --port 8099
 ```
 
-It needs only Python 3, listens on loopback only and serves just the build's
-regular files, read once at start: no symlinks, no directory listings and
-nothing outside the build. It sends the headers above (`frame-ancestors
+It needs only Python 3.7 or later, listens on loopback only and serves just
+the build's regular files, read once at start: no symlinks, no directory
+listings and nothing outside the build. It refuses to start if it cannot read
+all of the build, or if a file there has a name it could not serve; serving a
+new build means restarting it. It sends the headers above (`frame-ancestors
 'none'`, `nosniff`, `no-cache` for the page and other unhashed files, long
-caching for hashed assets) and the content types the build needs. Its own
-answers to a malformed request carry the same headers, as plain text that
-quotes nothing, and a request without a usable HTTP version gets no answer at
-all, since none could carry them. It closes a connection that sends nothing
-for 10 seconds (`--idle-timeout`, at most 300). It ignores request headers,
-cookies included, and logs only the request line, with control bytes written
-as `\xNN`. It takes the mount path as is (`/cindl/assets/...`) or with the
-front's mount stripped (`/assets/...`).
+caching for the hashed files under `assets/`), `Referrer-Policy: no-referrer`
+and the content types the build needs. Its own answers to a malformed request
+carry the same headers, as plain text that quotes nothing, and a request
+without a usable HTTP version gets no answer at all, since none could carry
+them. A request must arrive whole within 10 seconds (`--idle-timeout`, 1 to
+300), a connection that sends or reads nothing for that long is closed, and
+beyond 64 connections at once a new one is closed straight away. It ignores
+request headers, cookies included, and logs only the request line, in plain
+ASCII, with anything else written as `\xNN` and long lines cut short. It
+takes the mount path as is (`/cindl/assets/...`) or with the front's mount
+stripped (`/assets/...`), and refuses a mount that names a path in the build.
+
+Whoever can write the build directory decides what the Hermes origin serves at
+`/cindl/`, so keep it writable by the operator only. Run the server under a
+supervisor that restarts it, such as a systemd unit: while it is down, another
+local process could take its port and be served there.
 
 A front that strips the mount, as Tailscale Serve does, never shows the server
 the bare `/cindl`, and Tailscale Serve does not redirect it to `/cindl/`
