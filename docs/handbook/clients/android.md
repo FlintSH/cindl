@@ -674,11 +674,12 @@ Hermes server, Chrome's Custom Tab, and a phone.
   new one does not open the on-screen keyboard by itself.
 - **Times** read as the phone's locale writes them, without a padded hour,
   and know the day: "8:03 AM" today, "Yesterday, 8:03 AM", then the date
+  (with its year when it is another year's)
   (TalkBack hears "Hermes, yesterday at 8:03 AM"). The conversation list
   shows today's conversations by the clock and older ones by the day; a
   document says when it was read in words ("Read today at 9:55 PM"); a
-  routine says when it runs next and how its last run went ("last run
-  yesterday at 7:30 AM, succeeded").
+  routine says when it runs next (only a time still ahead) and how its last
+  run went ("last run yesterday at 7:30 AM, succeeded").
 - **Needs you** on Work names the conversation each request belongs to ("In
   Kiln inventory sheet"), as on the web.
 - **Tabs** that do not fit (Agent's five on a phone) fade at the edge that

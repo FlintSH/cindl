@@ -152,6 +152,10 @@ describe('formatting shared with web', () => {
         now,
       ),
     ).toBe(`Weekdays at 07:30 · last run yesterday at ${clockTime(at(1, 7))}, skipped`)
+    expect(
+      routineDetail({ schedule: 'Hourly', enabled: true, nextRunAt: at(0, 7) }, now),
+    ).toBe('Hourly')
+    expect(listTime(new Date(2025, 10, 4, 8, 3).toISOString(), now)).toMatch(/2025/)
   })
 })
 
