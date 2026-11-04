@@ -392,6 +392,21 @@ describe('direct client: signing in to another origin', () => {
   })
 })
 
+describe('direct client: signing in again to the same origin', () => {
+  it('reads none of its device state again, so a saved copy cannot replace what it holds', async () => {
+    const h = await harness()
+    await h.client.call('auth.signOut', {})
+    // A prompt saved as sending that this client does not hold as such, as a
+    // failed outbox write can leave one behind.
+    await seedSendingPrompt(h.kv, h.fake.origin)
+    const reads = deviceReads(h, h.fake.origin)
+    await h.client.call('auth.signIn', { origin: h.fake.origin })
+    await online(h)
+    expect(reads).toEqual([])
+    expect(entry(h.store.getState().prompts, 'p-was-sending')).toBeUndefined()
+  })
+})
+
 describe('direct client: the sign-in an origin switch leaves behind', () => {
   const REFRESH = 'POST /auth/native/refresh'
   const UNREACHABLE = 'http://127.0.0.1:1'
