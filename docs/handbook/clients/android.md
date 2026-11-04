@@ -347,12 +347,10 @@ with no Hermes session shows **Sign in to Hermes** (or **Signed out**):
    owner signs in on Hermes's page (passwords and second factors are never
    typed into Cindl). The page Cindl shows afterwards says to **close the tab**:
    Android 15 and later do not let an app bring itself back over the browser.
-   **Cancel sign-in** stops the attempt until the browser has answered, and
-   nothing is saved. Pressed before the page opens (from step 2, while Cindl
-   checks Hermes), it opens no browser; pressed while the page is open, the
-   page can no longer finish the sign-in. Pressed in the moment before step
-   2, while Cindl reads which Hermes it last used, it is still missed: the
-   page opens, and a sign-in finished there is saved. Once the browser has
+   **Cancel sign-in** stops the attempt from the moment **Sign in** is
+   pressed until the browser has answered, and nothing is saved. Pressed
+   before the page opens, it opens no browser; pressed while the page is
+   open, the page can no longer finish the sign-in. Once the browser has
    answered, the sign-in finishes and is saved, even if Cancel is pressed
    while it does.
 5. `NativeAuth` exchanges the one-time code with `POST /auth/native/token` and

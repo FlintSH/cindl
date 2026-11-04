@@ -737,6 +737,41 @@ describe('Cancel sign-in before its browser opens, through the real Android clie
       server: { origin: b.origin },
     })
   })
+
+  it('a Cancel pressed with Sign in, before the client is called, opens no browser and saves nothing (re-check PA1)', async () => {
+    const b = await fakeHermes()
+    const { stores, listener, browser, platform } = device()
+    const { client } = await launch(platform)
+    const signingIn = client.api.call('auth.signIn', { origin: b.origin }).then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    )
+    // In the same turn as Sign in, the earliest a Cancel can come: the wrapper
+    // must already have handed the sign-in to the client, with no wait first
+    // (it used to read the stored origin first, and the Cancel was lost).
+    client.cancelSignIn()
+    expect(await signingIn).toBe('Sign-in was cancelled. Nothing was saved.')
+    expect(browser.opened).toEqual([])
+    expect(listener.attempts.size).toBe(0)
+    expect(calls(b, 'POST /auth/native/token')).toBe(0)
+    expect(stored(stores, nativeTokensKey(b.origin))).toBeUndefined()
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBeUndefined()
+  })
+
+  it('a Cancel after the browser answered does not stop the sign-in: it finishes and is saved', async () => {
+    const b = await fakeHermes()
+    const { stores, platform } = device()
+    const { client, store } = await launch(platform)
+    const exchange = b.holdNextRest('POST /auth/native/token')
+    const signingIn = client.api.call('auth.signIn', { origin: b.origin })
+    await exchange.arrived
+    client.cancelSignIn()
+    exchange.release()
+    await expect(signingIn).resolves.toBeDefined()
+    await until(() => store.getState().link.phase === 'online')
+    expect(stored(stores, nativeTokensKey(b.origin))).toMatch(/access_token/)
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBe(b.origin)
+  })
 })
 
 describe('a sign-in withdrawn while its attempt marker is written, through the real Android client', () => {

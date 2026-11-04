@@ -1,6 +1,9 @@
 import { createContext, useContext } from 'react'
 
-/** What the sign-in screen may do besides calling the client: stop waiting for the browser. */
+/**
+ * What the sign-in screen may do besides calling the client: cancel the
+ * sign-in, until the browser has answered.
+ */
 export interface SignInControls {
   cancel: () => void
 }

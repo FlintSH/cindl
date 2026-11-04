@@ -129,9 +129,13 @@ export async function createAndroidClient(
     // failed sign-in leaves the client on the origin it had.
     const working = configured
     try {
-      const previous = await readStoredOrigin(platform.keyValue)
       configured = origin
+      // The client first, with no wait before it: until its sign-in starts it
+      // has nothing for Cancel to withdraw (re-check PA1). The stored origin
+      // is only needed after a success, and only this wrapper writes it, one
+      // sign-in at a time, so reading it then gives the same answer.
       const link = await direct.call('auth.signIn', { origin })
+      const previous = await readStoredOrigin(platform.keyValue)
       await platform.keyValue.set(ORIGIN_KEY, origin)
       if (previous !== undefined && previous !== origin) await forget(previous)
       return link
