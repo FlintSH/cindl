@@ -549,6 +549,8 @@
   background: var(--color-surface);
 }
 .marginHeader {
+  /* Never shrinks below its tabs, however tall the tool under it (200% text in a sheet). */
+  flex: none;
   display: flex;
   align-items: center;
   gap: var(--space-1);

@@ -46,6 +46,21 @@ export function keepPlace(conversationId: string, change: Partial<Place>) {
   for (const listener of listeners) listener()
 }
 
+// The owner switched conversations from the switcher: the conversation that
+// opens puts focus back on its switcher, which the old one took with it.
+let switched = false
+
+export function noteSwitch() {
+  switched = true
+}
+
+/** Whether the conversation now opening came from the switcher (asked once). */
+export function takeSwitch(): boolean {
+  const was = switched
+  switched = false
+  return was
+}
+
 /** The session ended: nothing typed or read on this device outlives it. */
 export function forgetPlaces() {
   places.clear()

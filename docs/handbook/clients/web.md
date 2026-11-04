@@ -258,19 +258,26 @@ from the desktop app's custom protocol.
 Beside the conversation (a sheet below 1280px), the working margin holds a
 few tools for that conversation ([ADR 0013](../architecture/decisions/0013-conversation-panel.md)):
 
-- **Waiting**: what the conversation waits on, with the count on the tab. Show
-  reveals the request's card in the conversation; the card itself is never
-  repeated in the margin.
+- **Waiting**: what this conversation waits on, with the count on the tab.
+  Work's badge counts every conversation, so the two can differ. Show reveals
+  the request's card in the conversation; the card itself is never repeated
+  in the margin.
 - **Step**: the selected step's tool, status and redacted input and result.
-  Selecting a step in the conversation opens the margin here.
+  Selecting a step in the conversation opens the margin here; selecting it
+  again, or "Clear the step", empties Step and leaves it chosen.
 - **Computer**: the agent's screen, live, with the same rules as Work:
-  watching sends nothing, taking control asks first, and leaving the tool or
-  the conversation closes the view.
+  watching sends nothing, taking control asks first, and leaving the tool,
+  the margin or the conversation closes the view and gives control back. A
+  conversation left on Computer shows the screen again whenever you return
+  to it, and the screen does not idle while it is shown.
 
 It switches only when you choose a tool or select a step: a new request
 changes Waiting's count, not the tool. Each conversation keeps its own tool
 while you move between them. The arrow keys, Home and End move between the
-tools.
+tools; with Alt, Ctrl or ⌘ held they are left to the browser. The sheet opens
+with focus on the chosen tool, closing the column puts focus on the button
+that shows it, and a conversation chosen from the switcher opens with focus
+on its switcher.
 
 ## Keyboard
 

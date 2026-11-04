@@ -29,7 +29,7 @@ import { Button, Dot } from '../ui/primitives.tsx'
 import { Composer, type ComposerHandle } from './Composer.tsx'
 import { HistoryPopover } from './HistoryPopover.tsx'
 import { MessageView } from './MessageView.tsx'
-import { keepPlace, placeOf, useSelectedStep } from './places.ts'
+import { keepPlace, placeOf, takeSwitch, useSelectedStep } from './places.ts'
 import { composerHint, presenceCopy } from './presence.ts'
 import { RequestCard, requestDomId } from './RequestCard.tsx'
 import { WorkingMargin } from './WorkingMargin.tsx'
@@ -79,6 +79,8 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     )
     const composer = useRef<ComposerHandle>(null)
     const scroller = useRef<HTMLDivElement>(null)
+    const switcher = useRef<HTMLButtonElement>(null)
+    const marginToggle = useRef<HTMLButtonElement>(null)
     // In-flight history loads. After `history.reset` the transcript is missing
     // again and, with nothing in flight, it is fetched again.
     const inflight = useRef(new Set<string>())
@@ -118,6 +120,12 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         },
       )
     }, [api, conversationId, conversation, loaded, canHistory, historyFailed])
+
+    // Chosen from the switcher, the conversation takes focus back to its switcher:
+    // the one the owner pressed went with the conversation it belonged to.
+    useEffect(() => {
+      if (takeSwitch()) switcher.current?.focus()
+    }, [conversationId])
 
     // Coming back to a conversation puts the owner where they were reading.
     useLayoutEffect(() => {
@@ -181,10 +189,14 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
 
     const presence = presenceCopy(link, activity)
     // Selection belongs to one conversation and comes back with it. Selecting
-    // a step opens the working margin on Step; selecting it again clears it.
+    // a step opens the working margin on Step; selecting it again clears it
+    // and leaves the margin's tool as it is, as "Clear the step" does.
     const selectTool = (toolId: string) => {
       const next = selectedToolId === toolId ? undefined : toolId
-      keepPlace(conversationId, { toolId: next, tool: next ? 'step' : undefined })
+      keepPlace(
+        conversationId,
+        next ? { toolId: next, tool: 'step' } : { toolId: undefined },
+      )
       if (next) setMarginOpen(true)
     }
     const startSide = async () => {
@@ -222,6 +234,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         >
           <header className={styles.header}>
             <button
+              ref={switcher}
               type="button"
               className={styles.switcher}
               onClick={() => setHistoryOpen(true)}
@@ -254,6 +267,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                 </Button>
               ) : null}
               <Button
+                ref={marginToggle}
                 variant="quiet"
                 icon
                 aria-label={
@@ -363,7 +377,11 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         {wide && marginOpen ? (
           <WorkingMargin
             conversationId={conversationId}
-            onClose={() => setMarginOpen(false)}
+            onClose={() => {
+              setMarginOpen(false)
+              // The close button goes with the margin: focus goes to what reopens it.
+              marginToggle.current?.focus()
+            }}
             onShowRequest={revealRequest}
           />
         ) : null}
@@ -373,6 +391,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
             onClose={() => setSheetOpen(false)}
             label="Working margin"
             placement="sheet"
+            initialFocus={'[role="tab"][aria-selected="true"]'}
           >
             <WorkingMargin
               conversationId={conversationId}

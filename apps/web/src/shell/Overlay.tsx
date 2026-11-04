@@ -11,20 +11,30 @@ export function Overlay({
   label,
   children,
   placement = 'center',
+  initialFocus,
 }: {
   open: boolean
   onClose: () => void
   label: string
   children: ReactNode
   placement?: 'center' | 'top' | 'side' | 'sheet'
+  /**
+   * Where focus starts, as a selector inside the dialog. Without one the
+   * browser picks the first focusable element, which may be a control the
+   * keyboard order skips (an unselected tab).
+   */
+  initialFocus?: string
 }) {
   const ref = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const dialog = ref.current
     if (!dialog) return
-    if (open && !dialog.open) dialog.showModal()
+    if (open && !dialog.open) {
+      dialog.showModal()
+      if (initialFocus) dialog.querySelector<HTMLElement>(initialFocus)?.focus()
+    }
     if (!open && dialog.open) dialog.close()
-  }, [open])
+  }, [open, initialFocus])
   return (
     <dialog
       ref={ref}

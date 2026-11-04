@@ -1,8 +1,8 @@
 # 0013 The working margin as the conversation's panel
 
-**Status:** Accepted (owner direction, 2026-11-03). Web and the desktop app
-(same renderer): being built. Android: to follow, in its working-margin
-sheet.
+**Status:** Accepted (owner direction, 2026-11-03). Web: built and tested in
+a browser on the synthetic demo; the desktop app shares that renderer but has
+not been run with it. Android: to follow, in its working-margin sheet.
 
 **Context.** The owner asked Cindl to take the paradigm of the right-hand
 panel inside a conversation in T3 Code: a panel beside the conversation that
@@ -35,18 +35,24 @@ left navigation, which stays as it is.
     card never appears twice.
   - **Step**: the selected step's evidence (tool, status, redacted input and
     result previews). Selecting a step in the conversation opens the margin on
-    Step.
+    Step; selecting it again, or "Clear the step", empties Step and leaves it
+    chosen.
   - **Computer**: the agent's screen, live, beside the conversation, with the
     same watch and take-control rules as Work (ADR 0012). Only with
     `computer.view` usable; otherwise it says why. Leaving the tool, the
-    margin or the conversation closes its view.
+    margin or the conversation closes its view, and gives control back if
+    this device took it there (as leaving Work does): Hermes's input is never
+    paused behind a screen nobody is watching. A conversation left on
+    Computer opens the view again whenever it is shown, so while it is on
+    screen the agent's screen is watched and does not idle (ADR 0012).
 - Switching is deliberate. Nothing changes the tool by itself: counts change,
   the tool does not. Each conversation keeps its own tool and selected step,
   with its unsent message and reading position, in memory until the session
   ends.
 - Presentation is unchanged: a 400px column on wide windows, remembered open
-  or closed; a modal sheet below 1280px, which returns focus to what opened
-  it. The header toggle and `Mod+.` show or hide it.
+  or closed; a modal sheet below 1280px, which opens with focus on the chosen
+  tool's tab and returns focus to what opened it. The header toggle and
+  `Mod+.` show or hide it; closing the column puts focus on that toggle.
 - **Not taken:** owner-added or reordered tabs, an add menu (the set is
   small), dragging, resizing (later), coding tools, side chats, and any
   widget or plugin framework. The navigation (spine, bottom bar, destinations

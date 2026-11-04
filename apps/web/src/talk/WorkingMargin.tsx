@@ -87,7 +87,11 @@ export function WorkingMargin({
   ]
   const choose = (next: MarginTool) => keepPlace(conversationId, { tool: next })
   const move = (event: KeyboardEvent<HTMLDivElement>) => {
-    const at = tools.findIndex((t) => t.id === tool)
+    // Alt+Left and the like belong to the browser.
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
+    // From the tab that has focus, which need not be the selected one.
+    const focused = tools.findIndex((t) => tabs.current.get(t.id) === event.target)
+    const at = focused >= 0 ? focused : tools.findIndex((t) => t.id === tool)
     const to =
       event.key === 'ArrowRight'
         ? (at + 1) % tools.length
@@ -153,6 +157,8 @@ export function WorkingMargin({
         role="tabpanel"
         id={`${id}-panel`}
         aria-labelledby={`${id}-${tool}`}
+        // Reachable from the tabs even when it holds nothing focusable.
+        tabIndex={0}
       >
         {tool === 'waiting' ? (
           <Waiting requests={requests} onShowRequest={onShowRequest} />
@@ -163,7 +169,11 @@ export function WorkingMargin({
               <div>
                 <Button
                   variant="quiet"
-                  onClick={() => keepPlace(conversationId, { toolId: undefined })}
+                  onClick={() => {
+                    keepPlace(conversationId, { toolId: undefined })
+                    // The button goes with the step: focus stays on the tool.
+                    tabs.current.get('step')?.focus()
+                  }}
                 >
                   Clear the step
                 </Button>

@@ -6,7 +6,7 @@ import {
   useOpenRequests,
 } from '@cindl/client-react'
 import { isCindlError, type Routine } from '@cindl/contracts'
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { RequestCard } from '../talk/RequestCard.tsx'
 import { ScreenView } from './ScreenView.tsx'
 import { relativeDay } from '../talk/format.ts'
@@ -172,6 +172,20 @@ export function Computer() {
   }
   const canControl = useCan('computer.control')
   const display = useCindlState((state) => state.display)
+  // Control belongs to the view that shows the screen. Leaving it (another
+  // tool, another view, the margin closed) gives control back, so Hermes's
+  // input is never paused behind a screen no one here is watching.
+  const holding = useRef(false)
+  useEffect(() => {
+    holding.current = display?.leaseHeldByThisDevice === true
+  })
+  useEffect(
+    () => () => {
+      if (holding.current)
+        void api.call('display.releaseControl', {}).catch(() => undefined)
+    },
+    [api],
+  )
   // `limited` means state and lease only: the live picture needs `available`.
   const view = useCindlState((state) => state.capabilities['computer.view'])
   const [confirming, setConfirming] = useState(false)
@@ -240,7 +254,8 @@ export function Computer() {
       {confirming ? (
         <p className={styles.note}>
           Taking control pauses Hermes's input on its screen and evicts any other
-          controller. Your keystrokes go to the agent's computer.
+          controller. Your keystrokes go to the agent's computer. Leaving this view gives
+          control back.
         </p>
       ) : null}
       {display.status === 'running' && view?.state === 'available' ? (

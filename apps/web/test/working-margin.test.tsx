@@ -7,7 +7,7 @@ import { createScenarioClient, scenarioData } from '@cindl/fixtures/scenario'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from '../src/shell/AppShell.tsx'
-import { forgetPlaces } from '../src/talk/places.ts'
+import { forgetPlaces, keepPlace, noteSwitch, placeOf } from '../src/talk/places.ts'
 
 beforeEach(() => {
   // jsdom has no matchMedia: a wide window, where the margin is a column.
@@ -42,8 +42,12 @@ async function renderShell(hash = '#/talk/demo-main') {
   window.history.replaceState(null, '', hash)
   const scenario = createScenarioClient({ speed: 0 })
   const listeners = new Set<(event: CindlEvent) => void>()
+  const calls: string[] = []
   const api: CindlClientApi = {
-    call: (name, args) => scenario.call(name, args),
+    call: (name, args) => {
+      calls.push(name)
+      return scenario.call(name, args)
+    },
     subscribe: (listener) => {
       listeners.add(listener)
       const stop = scenario.subscribe(listener)
@@ -61,6 +65,7 @@ async function renderShell(hash = '#/talk/demo-main') {
   await settle()
   await settle()
   return {
+    calls,
     emit: (event: CindlEvent) =>
       act(async () => {
         for (const listener of listeners) listener(event)
@@ -147,5 +152,104 @@ describe('the working margin, as the conversation’s panel', () => {
     await settle()
     expect(selected()).toEqual(['Step'])
     expect(tab(/^Waiting/).textContent).toBe('Waiting 3')
+  })
+
+  it('un-pressing a step leaves Step chosen, as "Clear the step" does', async () => {
+    await renderShell()
+    const step = screen.getByRole('button', { name: /Checked the studio calendar/ })
+    fireEvent.click(step)
+    await settle()
+    fireEvent.click(step)
+    await settle()
+    expect(selected()).toEqual(['Step'])
+    expect(margin().getByText(/Select a step in the conversation/)).toBeTruthy()
+  })
+
+  it('keeps the selected step while another tool is chosen, for when Step is chosen again', async () => {
+    await renderShell()
+    fireEvent.click(screen.getByRole('button', { name: /Checked the studio calendar/ }))
+    await settle()
+    fireEvent.click(tab(/^Waiting/))
+    await settle()
+    expect(selected()).toEqual(['Waiting 2'])
+    fireEvent.click(tab(/^Step$/))
+    await settle()
+    expect(margin().getByText('calendar.search')).toBeTruthy()
+  })
+
+  it('"Clear the step" leaves focus on the Step tab', async () => {
+    await renderShell()
+    fireEvent.click(screen.getByRole('button', { name: /Checked the studio calendar/ }))
+    await settle()
+    fireEvent.click(margin().getByRole('button', { name: 'Clear the step' }))
+    await settle()
+    expect(document.activeElement).toBe(tab(/^Step$/))
+  })
+
+  it('moves from the tab that has focus, and leaves modified arrows to the browser', async () => {
+    await renderShell()
+    fireEvent.click(tab(/^Step$/))
+    await settle()
+    // Focus on a tab that is not the chosen one, as a dialog can leave it.
+    const waiting = tab(/^Waiting/)
+    waiting.focus()
+    fireEvent.keyDown(waiting, { key: 'ArrowRight' })
+    await settle()
+    expect(selected()).toEqual(['Step'])
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight', altKey: true })
+    fireEvent.keyDown(document.activeElement!, { key: 'End', ctrlKey: true })
+    await settle()
+    expect(selected()).toEqual(['Step'])
+  })
+
+  it('says why the Computer tool shows no screen when Hermes does not offer one', async () => {
+    const hermes = await renderShell()
+    await hermes.emit({
+      type: 'capabilities.changed',
+      capabilities: {
+        'computer.view': {
+          id: 'computer.view',
+          state: 'unsupported',
+          reason: 'This Hermes has no agent screen (fixture).',
+          source: { transport: 'derived' },
+        },
+      },
+    })
+    fireEvent.click(tab(/^Computer$/))
+    await settle()
+    expect(margin().getByText(/Agent computer: Not supported\./)).toBeTruthy()
+    expect(margin().getByText(/This Hermes has no agent screen/)).toBeTruthy()
+    expect(hermes.calls).not.toContain('display.watch')
+  })
+
+  it('forgets every place when the session ends, however it ended', async () => {
+    const hermes = await renderShell()
+    keepPlace('demo-main', { draft: 'Unsent (fixture)', tool: 'computer' })
+    await hermes.emit({
+      type: 'link.changed',
+      link: {
+        phase: 'signed-out',
+        demo: false,
+        since: new Date().toISOString(),
+        connectionEpoch: 2,
+      },
+    })
+    await settle()
+    expect(placeOf('demo-main')).toEqual({
+      draft: '',
+      scrollTop: undefined,
+      toolId: undefined,
+      tool: undefined,
+    })
+  })
+
+  it('puts focus on the switcher of a conversation chosen from the switcher, and only then', async () => {
+    await renderShell()
+    await goTo('#/talk/demo-inventory')
+    const switcher = () => screen.getByRole('button', { name: /Switch conversation/ })
+    expect(document.activeElement).not.toBe(switcher())
+    noteSwitch()
+    await goTo('#/talk/demo-main')
+    expect(document.activeElement).toBe(switcher())
   })
 })
