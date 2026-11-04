@@ -260,7 +260,9 @@ class DirectHermesClient implements DirectClient {
   /** The screen state last reported, as it was reported. */
   #lastDisplay: DisplayState | undefined
   /** Cookie mode: the session check in flight, so a tick and a cue share one request. */
-  #sessionCheck: Promise<void> | undefined
+  #sessionCheck: { run: number; done: Promise<void> } | undefined
+  /** A cue came while a check was in flight, so one more check follows it. */
+  #sessionRecheck = false
   #unwatchSession: (() => void) | undefined
   #deviceLoaded = false
 
@@ -699,7 +701,7 @@ class DirectHermesClient implements DirectClient {
     })
     this.#connection.start()
     if (!this.#native && !this.#unwatchSession && this.#deps.watchSession)
-      this.#unwatchSession = this.#deps.watchSession(() => void this.#checkSession())
+      this.#unwatchSession = this.#deps.watchSession(() => void this.#checkSession(true))
   }
 
   /**
@@ -708,24 +710,45 @@ class DirectHermesClient implements DirectClient {
    * cookies another tab's sign-out cleared would otherwise keep talking on
    * its open socket. Asked on the request tick and on the platform's cue; the
    * gate's 401 ends the session here, any other failure waits for the next
-   * check.
+   * check. A tick shares a check in flight. A cue may come after that check
+   * was sent (another tab signed out since), so one more check follows it.
    */
-  #checkSession(): Promise<void> {
+  #checkSession(cue = false): Promise<void> {
     const rest = this.#rest
     if (this.#native || !rest || !this.#started || !this.#signedIn)
       return Promise.resolve()
-    this.#sessionCheck ??= this.#askSession(rest).finally(() => {
-      this.#sessionCheck = undefined
-    })
-    return this.#sessionCheck
+    // Only a check this session sent is shared: one left from an earlier
+    // session (ended by Hermes, then signed in again) answers for that one.
+    const out = this.#sessionCheck
+    if (out?.run === this.#run) {
+      if (cue) this.#sessionRecheck = true
+      return out.done
+    }
+    const run = this.#run
+    this.#sessionRecheck = false
+    const check = {
+      run,
+      done: this.#askSession(rest, run).finally(() => {
+        if (this.#sessionCheck !== check) return
+        this.#sessionCheck = undefined
+        if (this.#sessionRecheck && run === this.#run) {
+          this.#sessionRecheck = false
+          void this.#checkSession()
+        }
+      }),
+    }
+    this.#sessionCheck = check
+    return check.done
   }
 
-  async #askSession(rest: RestClient): Promise<void> {
+  async #askSession(rest: RestClient, run: number): Promise<void> {
     try {
       await rest.me()
     } catch (error) {
       const cause = asCindlError(error, 'auth.me')
-      if (rest === this.#rest && this.#sessionEndedByHermes(cause))
+      // Only the session it asked about: a stop() or another sign-in since
+      // then started a new run, which this answer says nothing about.
+      if (run === this.#run && rest === this.#rest && this.#sessionEndedByHermes(cause))
         this.#sessionEnded(cause)
     }
   }

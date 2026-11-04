@@ -173,9 +173,11 @@ same-origin requests, and it keeps nothing in browser storage.
   whenever the platform's `watchSession` cue fires; the gate's 401 then ends
   the session as above. The web's cue is the page becoming visible again, or
   a `'signed-out'` message on the `BroadcastChannel` `cindl.session`, which
-  each tab posts once its `auth.signOut` settles. Cues share the one request
-  in flight, any other failure waits for the next check, and native mode never
-  asks. The check is a request like any other, so it also lets the gate renew
+  each tab posts once its `auth.signOut` settles. A tick shares the check in
+  flight; a cue that comes while one is out gets one more check after it, since
+  that check may predate another tab's sign-out. An answer counts only for the
+  session it was asked for, not one signed in since. Any other failure waits
+  for the next check, and native mode never asks. The check is a request like any other, so it also lets the gate renew
   an expired access cookie: an open tab keeps its session in use.
 - `auth.signOut` posts `POST /auth/logout` (`routes.py:496-512`). Hermes clears
   the cookies, which only it can do since they are HttpOnly, and answers a 302

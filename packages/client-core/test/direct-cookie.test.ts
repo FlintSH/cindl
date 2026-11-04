@@ -525,6 +525,53 @@ describe('direct client in cookie mode: a sign-out in another tab', () => {
     await pause(20)
     expect(b.store.getState().link.phase).toBe('online')
   })
+
+  it('checks once more for a cue that comes while a check is out, as when another tab signs out', async () => {
+    const page = pageCue()
+    const { fake, a, b } = await twoTabs(
+      { connection: { requestSyncMs: 0 } },
+      { watchSession: page.watchSession },
+    )
+    // b's check goes out while the cookies still work, and Hermes holds it.
+    const held = fake.holdNextRest('GET /api/auth/me')
+    page.fire()
+    await held.arrived
+    // a signs out meanwhile, and its announcement reaches b with the check still out.
+    await a.client.call('auth.signOut', {})
+    page.fire()
+    const checks = requests(fake, 'GET /api/auth/me')
+    held.release()
+    // The held check answers for the session as it was; the one after it finds it gone.
+    await b.waitFor(() => b.store.getState().link.phase === 'signed-out')
+    expect(requests(fake, 'GET /api/auth/me')).toBe(checks + 1)
+  })
+
+  it('lets no answer about an ended session end the next one', async () => {
+    const page = pageCue()
+    const { fake, jar, a, b } = await twoTabs(
+      { connection: { requestSyncMs: 0 } },
+      { watchSession: page.watchSession },
+    )
+    await a.client.call('auth.signOut', {})
+    // b's check goes out without cookies, and Hermes holds it.
+    const held = fake.holdNextRest('GET /api/auth/me')
+    page.fire()
+    await held.arrived
+    // b's session ends another way meanwhile (its reconnect is refused), and b signs in again.
+    fake.gateway.dropConnections()
+    await b.waitFor(() => b.store.getState().link.phase === 'signed-out')
+    await passwordLogin(fake, jar)
+    await b.client.call('auth.signIn', { origin: fake.origin })
+    await b.waitFor(() => b.store.getState().link.phase === 'online')
+    // A cue now gets a check of its own, not the old one still out.
+    const checks = requests(fake, 'GET /api/auth/me')
+    page.fire()
+    await b.waitFor(() => requests(fake, 'GET /api/auth/me') === checks + 1)
+    // The old check's 401 comes back only now: it says nothing about this session.
+    held.release()
+    await pause(40)
+    expect(b.store.getState().link.phase).toBe('online')
+  })
 })
 
 describe('direct client in native mode: no cookie session to check', () => {
