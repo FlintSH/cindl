@@ -25,11 +25,19 @@ import { usePreference } from '../platform/preferences.ts'
 import { useMediaQuery } from '../platform/useMediaQuery.ts'
 import { Overlay } from '../shell/Overlay.tsx'
 import { navigate } from '../router.ts'
+import { shortcutText } from '../shortcuts.ts'
 import { Button, Dot } from '../ui/primitives.tsx'
 import { Composer, type ComposerHandle } from './Composer.tsx'
 import { HistoryPopover } from './HistoryPopover.tsx'
 import { MessageView } from './MessageView.tsx'
-import { keepPlace, placeOf, takeSwitch, useSelectedStep } from './places.ts'
+import {
+  keepPlace,
+  noteFresh,
+  placeOf,
+  takeFresh,
+  takeSwitch,
+  useSelectedStep,
+} from './places.ts'
 import { composerHint, presenceCopy } from './presence.ts'
 import { RequestCard, requestDomId } from './RequestCard.tsx'
 import { WorkingMargin } from './WorkingMargin.tsx'
@@ -95,6 +103,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         if (!canCreate) return
         try {
           const created = await api.call('conversations.create', {})
+          noteFresh()
           navigate({ view: 'talk', conversationId: created.id })
         } catch (err) {
           setProblem(failureText(err, 'The side conversation could not be started.'))
@@ -131,10 +140,41 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     }, [api, conversationId, conversation, loaded, canHistory, historyFailed])
 
     // Chosen from the switcher, the conversation takes focus back to its switcher:
-    // the one the owner pressed went with the conversation it belonged to.
+    // the one the owner pressed went with the conversation it belonged to. One
+    // Cindl just created opens with focus in its message box, once that is shown.
+    const composeOnArrival = useRef(false)
     useEffect(() => {
-      if (takeSwitch()) switcher.current?.focus()
+      const fresh = takeFresh()
+      const switched = takeSwitch()
+      if (fresh) composeOnArrival.current = true
+      else if (switched) switcher.current?.focus()
     }, [conversationId])
+    useEffect(() => {
+      if (!composeOnArrival.current || !composer.current) return
+      composeOnArrival.current = false
+      composer.current.focus()
+    })
+
+    // Typing on Talk with nothing to type into goes on in the message box, as
+    // `/` does. Shortcut keys, Space and keys with Ctrl, Alt or ⌘ keep their jobs.
+    useEffect(() => {
+      const onKey = (event: KeyboardEvent) => {
+        if (event.defaultPrevented || event.isComposing) return
+        if (event.ctrlKey || event.metaKey || event.altKey) return
+        if (event.key.length !== 1 || ' /?'.includes(event.key)) return
+        const target = event.target
+        if (
+          target instanceof HTMLElement &&
+          (target.isContentEditable ||
+            ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName))
+        )
+          return
+        if (document.querySelector('dialog[open]')) return
+        composer.current?.focus()
+      }
+      window.addEventListener('keydown', onKey)
+      return () => window.removeEventListener('keydown', onKey)
+    }, [])
 
     // Coming back to a conversation puts the owner where they were reading.
     useLayoutEffect(() => {
@@ -177,6 +217,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                     await api.call('conversations.setMain', {
                       conversationId: created.id,
                     })
+                    noteFresh()
                     navigate({ view: 'talk', conversationId: created.id })
                   } catch (err) {
                     setProblem(failureText(err, 'The conversation could not be started.'))
@@ -197,6 +238,8 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     }
 
     const presence = presenceCopy(link, activity)
+    // The open cards sit at the end of the conversation: below, while the owner reads back.
+    const waitingBelow = activity.openRequests.some((r) => r.kind !== 'unsupported')
     // Selection belongs to one conversation and comes back with it. Selecting
     // a step opens the working margin on Step; selecting it again clears it
     // and leaves the margin's tool as it is, as "Clear the step" does.
@@ -211,6 +254,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     const startSide = async () => {
       try {
         const created = await api.call('conversations.create', {})
+        noteFresh()
         navigate({ view: 'talk', conversationId: created.id })
       } catch (err) {
         setProblem(failureText(err, 'The side conversation could not be started.'))
@@ -248,6 +292,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
               className={styles.switcher}
               onClick={() => setHistoryOpen(true)}
               aria-haspopup="dialog"
+              title={`Switch conversation (${shortcutText('switch-conversation')})`}
             >
               <span className={styles.switcherTitle}>{conversation.title}</span>
               {conversation.kind === 'main' ? (
@@ -269,7 +314,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                   variant="quiet"
                   icon
                   aria-label="New side conversation"
-                  title="New side conversation"
+                  title={`New side conversation (${shortcutText('new-side')})`}
                   onClick={() => void startSide()}
                 >
                   <Plus size={18} aria-hidden="true" />
@@ -283,7 +328,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                   marginOpen ? 'Hide the working margin' : 'Show the working margin'
                 }
                 aria-pressed={marginOpen}
-                title="Working margin"
+                title={`${marginOpen ? 'Hide' : 'Show'} the working margin (${shortcutText('toggle-margin')})`}
                 onClick={() => setMarginOpen(!marginOpen)}
               >
                 <PanelRight size={18} aria-hidden="true" />
@@ -342,15 +387,38 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                 {activity.openRequests.map((request) => (
                   <RequestCard key={request.requestId} request={request} />
                 ))}
+                {loaded && !messages.length && !activity.openRequests.length ? (
+                  <p className={styles.emptyConversation}>
+                    {conversation.kind === 'main'
+                      ? 'Nothing here yet.'
+                      : 'Nothing here yet. This side conversation runs apart from the main one.'}
+                  </p>
+                ) : null}
               </div>
             </div>
             {!atBottom ? (
               <Button
                 className={styles.jump}
-                onClick={jumpToLatest}
-                aria-label="Jump to latest messages"
+                // A press never takes focus (the pill goes away as it lands);
+                // from the keyboard, focus goes on to the message box.
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={(event) => {
+                  const fromKeyboard = document.activeElement === event.currentTarget
+                  jumpToLatest()
+                  if (fromKeyboard) composer.current?.focus()
+                }}
+                aria-label={
+                  waitingBelow
+                    ? 'Jump to latest messages, where Hermes waits on you'
+                    : 'Jump to latest messages'
+                }
               >
                 <ArrowDown size={15} aria-hidden="true" /> Latest
+                {waitingBelow ? (
+                  <span className={styles.jumpNote} aria-hidden="true">
+                    Needs you
+                  </span>
+                ) : null}
               </Button>
             ) : null}
           </div>

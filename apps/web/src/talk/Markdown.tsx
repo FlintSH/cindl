@@ -1,6 +1,7 @@
-import { memo } from 'react'
+import { memo, useRef, type ReactNode } from 'react'
 import ReactMarkdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { CopyButton } from '../ui/CopyButton.tsx'
 import styles from './markdown.module.css'
 
 /**
@@ -42,6 +43,23 @@ function BlockedImage({
   )
 }
 
+/** A code block, with a button that copies exactly the code shown. */
+function CodeBlock({ children }: { children?: ReactNode }) {
+  const pre = useRef<HTMLPreElement>(null)
+  return (
+    <div className={styles.code}>
+      <pre ref={pre} className={styles.pre}>
+        {children}
+      </pre>
+      <CopyButton
+        label="Copy code"
+        className={styles.copyCode}
+        text={() => pre.current?.textContent ?? ''}
+      />
+    </div>
+  )
+}
+
 const components: Components = {
   a: ({ href, children }) => {
     const safe = typeof href === 'string' && /^(https?:|mailto:)/i.test(href)
@@ -59,7 +77,7 @@ const components: Components = {
     )
   },
   img: ({ src, alt }) => <BlockedImage src={src} alt={alt} />,
-  pre: ({ children }) => <pre className={styles.pre}>{children}</pre>,
+  pre: ({ children }) => <CodeBlock>{children}</CodeBlock>,
   table: ({ children }) => (
     <div className={styles.tableWrap}>
       <table>{children}</table>

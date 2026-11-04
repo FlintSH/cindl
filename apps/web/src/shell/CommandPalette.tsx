@@ -147,6 +147,18 @@ export function CommandPalette({
           })}
           {results.length === 0 ? <li className={styles.empty}>No matches</li> : null}
         </ul>
+        {/* For a keyboard; hidden on touch screens (palette.module.css). */}
+        <p className={styles.footer} aria-hidden="true">
+          <span>
+            <kbd>↑</kbd> <kbd>↓</kbd> to move
+          </span>
+          <span>
+            <kbd>Enter</kbd> to run
+          </span>
+          <span>
+            <kbd>Esc</kbd> to close
+          </span>
+        </p>
       </div>
     </Overlay>
   )

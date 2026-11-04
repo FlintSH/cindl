@@ -62,6 +62,12 @@ export function keyLabel(key: string): string {
   return key
 }
 
+/** A shortcut as tooltips write it: "Ctrl+Shift+O", or "⌘⇧O" on a Mac. */
+export function shortcutText(id: ShortcutId): string {
+  const keys = shortcuts.find((shortcut) => shortcut.id === id)?.keys ?? []
+  return keys.map(keyLabel).join(isMac() ? '' : '+')
+}
+
 function matches(shortcut: Shortcut, event: KeyboardEvent): boolean {
   const wantMod = shortcut.keys.includes('Mod')
   const wantAlt = shortcut.keys.includes('Alt')

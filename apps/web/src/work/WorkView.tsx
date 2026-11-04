@@ -5,12 +5,18 @@ import {
   useConversations,
   useOpenRequests,
 } from '@cindl/client-react'
-import { isCindlError, type DisplayState, type Routine } from '@cindl/contracts'
+import {
+  isCindlError,
+  type DisplayState,
+  type Routine,
+  type ServerRequest,
+} from '@cindl/contracts'
 import { ChevronRight } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
+import { formatRoute } from '../router.ts'
 import { RequestCard } from '../talk/RequestCard.tsx'
 import { ScreenView } from './ScreenView.tsx'
-import { relativeDay } from '../talk/format.ts'
+import { routineDetail } from '../talk/format.ts'
 import { Badge, Button, SectionTitle } from '../ui/primitives.tsx'
 import { RequireCapability } from '../views/Capability.tsx'
 import { useResource } from '../views/useResource.ts'
@@ -93,12 +99,7 @@ function Routines() {
         {routines.map((routine) => (
           <li key={routine.id} className={styles.row}>
             <span className={styles.rowTitle}>{routine.name}</span>
-            <span className={styles.rowDetail}>
-              {routine.schedule}
-              {routine.lastRun
-                ? ` · last run ${relativeDay(routine.lastRun.at)} (${routine.lastRun.status})`
-                : ''}
-            </span>
+            <span className={styles.rowDetail}>{routineDetail(routine)}</span>
             <span className={styles.rowAside}>
               <Badge tone={routine.enabled ? 'success' : 'neutral'}>
                 {routine.enabled ? 'Active' : 'Paused'}
@@ -281,6 +282,25 @@ export function Computer() {
   )
 }
 
+/**
+ * Where a request comes from, above its card: Needs you lists every
+ * conversation's, so each names its conversation and links to it.
+ */
+function Provenance({ request }: { request: ServerRequest }) {
+  const conversations = useConversations()
+  if (!request.conversationId)
+    return <p className={styles.provenance}>Not part of a conversation</p>
+  const conversation = conversations.find((c) => c.id === request.conversationId)
+  return (
+    <p className={styles.provenance}>
+      In{' '}
+      <a href={formatRoute({ view: 'talk', conversationId: request.conversationId })}>
+        {conversation?.title ?? 'its conversation'}
+      </a>
+    </p>
+  )
+}
+
 export function WorkView() {
   const requests = useOpenRequests()
   return (
@@ -297,7 +317,12 @@ export function WorkView() {
             <SectionTitle id="needs-you">Needs you</SectionTitle>
           </div>
           {requests.length ? (
-            requests.map((r) => <RequestCard key={r.requestId} request={r} />)
+            requests.map((r) => (
+              <div key={r.requestId} className={styles.needsItem}>
+                <Provenance request={r} />
+                <RequestCard request={r} />
+              </div>
+            ))
           ) : (
             <p className={styles.empty}>Nothing is waiting on you.</p>
           )}

@@ -185,6 +185,73 @@ test('the connection status says its state, not only its colour', async ({ page 
   await expect(page).toHaveTitle(/^\(3\) Cindl/)
 })
 
+test('typing on Talk with nothing to type into goes on in the message box', async ({
+  page,
+}) => {
+  await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur())
+  await page.keyboard.type('hi')
+  const box = page.getByRole('textbox', { name: 'Message Hermes' })
+  await expect(box).toBeFocused()
+  await expect(box).toHaveValue('hi')
+})
+
+test('"Latest" says what waits below and never drops focus', async ({ page }) => {
+  const timeline = page.getByRole('log', { name: 'Messages' }).locator('xpath=..')
+  const toTop = () =>
+    timeline.evaluate((el) => {
+      el.scrollTop = 0
+      el.dispatchEvent(new Event('scroll'))
+    })
+  const box = page.getByRole('textbox', { name: 'Message Hermes' })
+  await box.focus()
+  await toTop()
+  const latest = page.getByRole('button', {
+    name: 'Jump to latest messages, where Hermes waits on you',
+  })
+  await expect(latest).toContainText('Needs you')
+  await latest.click()
+  await expect(latest).toBeHidden()
+  await expect(box).toBeFocused()
+  // From the keyboard, focus goes on to the message box as the pill leaves.
+  await toTop()
+  await latest.focus()
+  await page.keyboard.press('Enter')
+  await expect(latest).toBeHidden()
+  await expect(box).toBeFocused()
+})
+
+test('a new side conversation opens ready to write in, and says it is empty', async ({
+  page,
+}) => {
+  const box = page.getByRole('textbox', { name: 'Message Hermes' })
+  await page.getByRole('button', { name: 'New side conversation' }).click()
+  await expect(
+    page.getByRole('region', { name: 'Conversation: New side conversation' }),
+  ).toBeVisible()
+  await expect(box).toBeFocused()
+  await expect(
+    page.getByText('This side conversation runs apart from the main one.'),
+  ).toBeVisible()
+  // From the conversation list too.
+  await page.keyboard.press(`${mod}+J`)
+  await page
+    .getByRole('dialog', { name: 'Conversations' })
+    // Exact: the conversation just made is itself titled "New side conversation".
+    .getByRole('button', { name: 'New side conversation', exact: true })
+    .click()
+  await expect(box).toBeFocused()
+})
+
+test('Needs you names the conversation each request belongs to', async ({ page }) => {
+  await page.goto('/#/work')
+  const needsYou = page.getByRole('region', { name: 'Needs you' })
+  await expect(needsYou.getByRole('link', { name: 'Today' })).toHaveCount(2)
+  await needsYou.getByRole('link', { name: 'Kiln inventory sheet' }).click()
+  await expect(
+    page.getByRole('region', { name: 'Conversation: Kiln inventory sheet' }),
+  ).toBeVisible()
+})
+
 test('SOUL edits require a reviewed diff and confirmation', async ({ page }) => {
   await page.goto('/#/agent/identity')
   await page.getByRole('button', { name: 'Edit' }).click()

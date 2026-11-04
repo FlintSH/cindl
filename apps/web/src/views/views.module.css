@@ -59,6 +59,18 @@
   flex-direction: column;
   gap: var(--space-3);
 }
+/* Needs you: a request's conversation, then its card. */
+.needsItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1_5);
+}
+.provenance {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-label-size);
+  line-height: var(--text-label-line);
+}
 .sectionHead {
   display: flex;
   align-items: baseline;

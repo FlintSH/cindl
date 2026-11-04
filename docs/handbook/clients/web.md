@@ -308,15 +308,45 @@ in use is marked "Current". The shortcuts list has a close button as well as
 
 - **Composer.** Send stays neutral until there is text to send; while Hermes
   works, Stop sits beside it as a bordered button. Both say what they do in
-  a tooltip.
+  a tooltip. On Talk, typing while nothing that takes text has focus goes
+  on in the message box (as `/` does); shortcut keys, Space and keys with
+  Ctrl, Alt or ⌘ keep their own jobs.
+- **A reply in progress** counts up in its header ("Working for 12s") from
+  when it started, in place of its time.
+- **New conversations** you start in Cindl (the header's +, the conversation
+  list, the palette or `Ctrl/⌘ Shift O`) open with focus in the message box.
+  A conversation with nothing in it yet says so in one line, instead of an
+  empty page.
+- **Copy.** A finished reply's header has Copy (on hover or focus; phones and
+  touch screens keep their own text selection), and so does every code block.
+  Copy takes only the reply's own words, as Markdown, not its steps. The
+  desktop app refuses the browser's clipboard permission, so Cindl falls back
+  to the copy command there, which needs only the click; nothing is ever read
+  from the clipboard.
+- **Latest.** When you have scrolled up, "Latest" brings you back down. It
+  adds "Needs you" while a decision waits at the end of the conversation.
+  Pressing it never moves focus; from the keyboard, focus goes on to the
+  message box.
+- **Tooltips** on the header's buttons and the conversation switcher name
+  their shortcut ("New side conversation (Ctrl+Shift+O)"), and the command
+  palette lists its keys along its foot (hidden on touch screens).
+- **Needs you** on Work says which conversation each request belongs to, and
+  links to it ("In Kiln inventory sheet"); a prompt that belongs to none says
+  so.
+- **Routines** say when they run next and how their last run went, in words:
+  "Weekdays at 07:30 · next today at 7:30 AM · last run yesterday at 7:30 AM,
+  succeeded".
 - **Page title.** While something waits on you, the tab's title (and the
   desktop window's) leads with the same count as Work's badge: "(2) Cindl".
 - **Connection status.** The dot at the foot of the navigation says its state
   in its tooltip and to screen readers ("Connection: Connected. Show
   details"), not only in its colour.
-- **Times.** Message times follow your locale without a padded hour
-  ("8:03 AM"); a document says when it was read in words ("Read today at
-  9:55 PM"); a step's status reads as its row does ("Done", "Failed").
+- **Times.** Message times follow your locale without a padded hour and know
+  the day: "8:03 AM" today, "Yesterday, 8:03 AM", then the date; hovering one
+  gives the whole date. The conversation list shows today's conversations by
+  the clock and older ones by the day. A document says when it was read in
+  words ("Read today at 9:55 PM"); a step's status reads as its row does
+  ("Done", "Failed").
 - **Lists and tabs.** Rows that open something end in a chevron and are
   divided like every other list; "All skills" leads back with one. On a
   phone a section strip that does not fit (Agent's five) fades at its edge

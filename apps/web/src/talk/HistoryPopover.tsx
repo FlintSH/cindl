@@ -6,8 +6,8 @@ import { navigate } from '../router.ts'
 import { fuzzyScore } from '../shell/CommandPalette.tsx'
 import { Overlay } from '../shell/Overlay.tsx'
 import { Badge, Button } from '../ui/primitives.tsx'
-import { relativeDay } from './format.ts'
-import { noteSwitch } from './places.ts'
+import { listTime } from './format.ts'
+import { noteFresh, noteSwitch } from './places.ts'
 import styles from './talk.module.css'
 
 export function HistoryPopover({
@@ -127,7 +127,7 @@ export function HistoryPopover({
                   <Badge tone="info">Working</Badge>
                 ) : null}
                 <span className={styles.historyMeta}>
-                  {relativeDay(conversation.updatedAt)}
+                  {listTime(conversation.updatedAt)}
                 </span>
                 {conversation.preview ? (
                   <span className={styles.historyPreview}>{conversation.preview}</span>
@@ -146,7 +146,10 @@ export function HistoryPopover({
               className={styles.historyNew}
               onClick={() =>
                 void api.call('conversations.create', {}).then(
-                  (created) => open_(created.id),
+                  (created) => {
+                    noteFresh()
+                    open_(created.id)
+                  },
                   (err: unknown) =>
                     setError(
                       isCindlError(err)
