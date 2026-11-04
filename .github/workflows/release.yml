@@ -56,7 +56,8 @@ jobs:
           const version = process.argv[2]
           const manifests = execFileSync('git', ['ls-files', 'package.json', 'apps/*/package.json', 'packages/*/package.json'], { encoding: 'utf8' }).trim().split('\n')
           const wrong = manifests.filter((file) => JSON.parse(readFileSync(file, 'utf8')).version !== version)
-          if (!/version: '(\d+\.\d+\.\d+)'/.exec(readFileSync('apps/android/app.config.ts', 'utf8'))?.slice(1).includes(version)) wrong.push('apps/android/app.config.ts')
+          const android = /^export const VERSION = '([^']*)'$/m.exec(readFileSync('apps/android/app.config.ts', 'utf8'))?.[1]
+          if (android !== version) wrong.push('apps/android/app.config.ts')
           if (wrong.length) {
             console.log(`::error::not at version ${version}: ${wrong.join(', ')}`)
             process.exit(1)
@@ -105,12 +106,14 @@ jobs:
       - name: Build and check the web client
         run: pnpm check:dist
 
+      # Fixed order, times, owners and modes, so a build of the same commit anywhere packs
+      # to the same bytes (docs/handbook/development/workflow.md, "Releasing").
       - name: Pack the real build deterministically, with the loopback server
         run: |
           out="$RUNNER_TEMP/release"
           mkdir -p "$out"
-          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --format=gnu \
-            -cf "$out/cindl-web-$VERSION.tar" -C apps/web/dist .
+          tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner --mode='u=rwX,go=rX' \
+            --format=gnu -cf "$out/cindl-web-$VERSION.tar" -C apps/web/dist .
           cp apps/web/serve/cindl-serve.py "$out/cindl-serve.py"
           (cd apps/web/dist && find . -type f | sort | xargs sha256sum)
 

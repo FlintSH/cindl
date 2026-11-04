@@ -56,8 +56,11 @@ signs in with Hermes's own session cookie. Usually that is the reverse proxy
 that already terminates HTTPS for Hermes:
 
 1. Build it: `pnpm install --frozen-lockfile`, then
-   `pnpm --filter @cindl/web build`. The files are in `apps/web/dist`. The
-   build holds no address: it finds Hermes at the origin that serves it.
+   `pnpm --filter @cindl/web build`. The files are in `apps/web/dist`. Or
+   take a release's `cindl-web-x.y.z.tar` and unpack it into an empty
+   directory (`mkdir cindl-web && tar -xf cindl-web-x.y.z.tar -C cindl-web`),
+   then use that directory where these steps say `apps/web/dist`. The build
+   holds no address: it finds Hermes at the origin that serves it.
 2. Serve `apps/web/dist` at `/cindl/` (another sub-path works too):
    `index.html` for `/cindl/`, each file under it with its content type, and
    a redirect from `/cindl` to `/cindl/`. The types: `.html` `text/html`,

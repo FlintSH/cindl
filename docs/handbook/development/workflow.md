@@ -182,6 +182,15 @@ Open alerts, as of 2026-11-04:
   5. opens a **draft** release with `SHA256SUMS` and the notices.
 - **Publish:** a person checks the draft (the assets, `SHA256SUMS`, and the
   APK's certificate) and publishes it.
+- **Reproduce the web tar:** at the tag, run `pnpm install --frozen-lockfile`
+  and `pnpm --filter @cindl/web build`, then pack `apps/web/dist` as the
+  release does and compare its SHA-256 with the release's `SHA256SUMS`:
+
+  ```sh
+  tar --sort=name --mtime='@0' --owner=0 --group=0 --numeric-owner \
+    --mode='u=rwX,go=rX' --format=gnu -cf cindl-web-X.Y.Z.tar -C apps/web/dist .
+  ```
+
 - **Signing:**
   - The Android signing secrets live only in the `release` environment, which
     accepts `v*` tags only.
