@@ -141,10 +141,18 @@ export const clientOps = {
   }),
   'auth.signOut': op({
     args: z.object({}),
-    result: z.object({ localOnly: z.literal(true) }),
+    result: z.object({
+      localOnly: z.literal(true),
+      /**
+       * Cookie mode (the web) only: whether Hermes cleared this browser's
+       * session, shown by POST /auth/logout and then the gate's 401 on
+       * GET /api/auth/me. Absent for native clients.
+       */
+      hermesConfirmed: z.boolean().optional(),
+    }),
     mutates: true,
     summary:
-      'Forget this device’s tokens. Hermes v0.22.5 cannot revoke issued native tokens remotely.',
+      'Sign out here: native clients forget their tokens (Hermes v0.22.5 cannot revoke them); the web asks Hermes to clear its cookie.',
   }),
   'conversations.list': op({
     args: z.object({ includeArchived: z.boolean().optional() }),
