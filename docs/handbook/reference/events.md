@@ -73,7 +73,9 @@ When the direct client switches to another origin, it names that origin on
 the link before it sends anything from it, such as the prompts this device
 recovers from its outbox there, so the reducer keeps them. That link says
 `connecting`, or `offline` when a `stop()` during the sign-in keeps it from
-connecting. The origin it leaves does not show `offline` first.
+connecting. The switch itself does not show the origin it leaves as
+`offline` first; a `stop()` that lands during the sign-in does, as any
+`stop()` does.
 
 Before it connects, the direct client asks Hermes what it is
 (`GET /api/status`) and whether this device is signed in. When Hermes does not

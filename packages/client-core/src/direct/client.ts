@@ -276,7 +276,7 @@ class DirectHermesClient implements DirectClient {
   /**
    * Bumped by auth.signOut. A native sign-in begun before it fails: it opens
    * no browser after it, keeps no tokens (any it wrote, the sign-out deletes)
-   * and never switches the client.
+   * and does not switch the client after it.
    */
   #signOuts = 0
   #deviceLoaded = false
