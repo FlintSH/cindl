@@ -28,6 +28,18 @@ const originNote: Partial<Record<NonNullable<Message['origin']>, string>> = {
   proactive: 'Unprompted',
 }
 
+/**
+ * What a streaming reply's header says, from the conversation's observed
+ * phase (web parity): counting while Hermes works, "Waiting for you" while it
+ * is blocked on the owner, just its time when Cindl cannot tell.
+ */
+export type TurnState = 'working' | 'waiting' | undefined
+
+export function turnStateOf(phase: string): TurnState {
+  if (phase === 'waiting-on-you') return 'waiting'
+  return phase === 'executing' || phase === 'queued' ? 'working' : undefined
+}
+
 /** Owner messages are compact right-aligned bubbles; Hermes replies are full-width reading blocks. */
 export const MessageView = memo(function MessageView({
   message,
@@ -35,12 +47,15 @@ export const MessageView = memo(function MessageView({
   selectedToolId,
   blockedToolIds,
   onSelectTool,
+  turn,
 }: {
   message: Message
   agentName: string
   selectedToolId: string | undefined
   blockedToolIds: ReadonlySet<string>
   onSelectTool: (toolId: string) => void
+  /** The conversation's turn, for a streaming reply's header. */
+  turn?: TurnState
 }) {
   const theme = useTheme()
   const time = messageTime(message.createdAt)
@@ -79,7 +94,13 @@ export const MessageView = memo(function MessageView({
         accessible
         accessibilityRole="header"
         accessibilityLabel={`${agentName}${note ? `, ${note}` : ''}${
-          streaming ? ', working' : moment ? `, ${moment}` : ''
+          streaming && turn === 'working'
+            ? ', working'
+            : streaming && turn === 'waiting'
+              ? ', waiting for you'
+              : moment
+                ? `, ${moment}`
+                : ''
         }`}
         style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}
       >
@@ -91,8 +112,12 @@ export const MessageView = memo(function MessageView({
             {note}
           </Txt>
         ) : null}
-        {streaming ? (
+        {streaming && turn === 'working' ? (
           <Working since={message.createdAt} />
+        ) : streaming && turn === 'waiting' ? (
+          <Txt variant="label" tone="tertiary">
+            Waiting for you
+          </Txt>
         ) : time ? (
           <Txt variant="label" tone="tertiary">
             {time}

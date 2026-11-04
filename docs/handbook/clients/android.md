@@ -667,8 +667,9 @@ Hermes server, Chrome's Custom Tab, and a phone.
   button sends.
 - **Composer:** Send stays neutral (no ember) until there is text to send.
   While Hermes works, **Stop** sits beside it as a bordered button with a
-  solid square, so it never reads as a checkbox. A reply in progress counts
-  up in its header ("Working for 12s") in place of its time. A conversation
+  solid square, so it never reads as a checkbox. A reply in progress says
+  in its header, in place of its time, "Working for 12s" while Hermes works
+  and "Waiting for you" while it waits on you (web parity). A conversation
   with nothing in it yet says so in one line, instead of an empty screen; a
   new one does not open the on-screen keyboard by itself.
 - **Times** read as the phone's locale writes them, without a padded hour,
