@@ -59,14 +59,17 @@ in through Hermes's own `/login` page.
   - Other Cindl tabs in this browser follow at once: the tab that signed out
     tells them (a `BroadcastChannel`), and each asks Hermes whether its
     session still works, as it also does on becoming visible again and every
-    15 seconds. Those whose session is gone show sign-in.
+    15 seconds while open (browsers slow that in a hidden tab, and the check
+    on becoming visible covers the return). Those whose session is gone show
+    sign-in.
   - Hermes confirms a sign-out when, after it, it no longer accepts this
     browser's session. If it does not, Cindl signs out here and says so, and
     the sign-in screen offers "Sign out on Hermes" until Hermes confirms it.
-  - An open Cindl tab keeps its session in use. Its 15-second check is a
-    request like any other, so once the access cookie expires the gate renews
-    the cookies through the refresh cookie. Close the tab, or sign out, to let
-    the session lapse.
+  - An open Cindl tab keeps its session from lapsing: its 15-second check is
+    a request like any other, so once the access cookie expires the gate
+    renews the cookies through the refresh cookie. Closing the tabs only
+    stops that; the cookies keep signing this browser in until they expire.
+    Only signing out clears them here.
 - **Browsers.** Tested in Chrome only; Safari and Firefox are untested. The
   page's own policy allows same-origin WebSockets (`connect-src 'self'`);
   WebKit fixed that case in 2022 (bug 235873), and older Safari blocks them.

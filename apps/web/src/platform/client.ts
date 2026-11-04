@@ -84,12 +84,14 @@ export async function probeThisOrigin(
  * Where Hermes's login page sends the browser back to: this build's own
  * directory (the mount, such as `/cindl/`) and the view, never a query or
  * whatever else the page was loaded at. Hermes decodes `next` once more on an
- * OAuth sign-in than on a password one, so a view whose address holds a `%`
- * could come back as another view: it returns to the mount alone.
+ * OAuth sign-in than on a password one, so a `%` anywhere in it could come
+ * back as another path: a view holding one returns to the mount alone, and a
+ * mount holding one to Hermes's own landing page.
  */
 export const returnPath = () => {
   const mount = new URL('./', window.location.href).pathname
   const view = window.location.hash
+  if (mount.includes('%')) return '/'
   return view.includes('%') ? mount : `${mount}${view}`
 }
 

@@ -62,15 +62,20 @@ export function browserSessionCue(check: () => void): () => void {
 /** Tells this browser's other Cindl tabs on this origin that this one signed out. */
 export function announceSignOut(): void {
   if (typeof BroadcastChannel !== 'function') return
-  const tabs = new BroadcastChannel(SESSION_CHANNEL)
-  tabs.postMessage('signed-out')
-  tabs.close()
+  try {
+    const tabs = new BroadcastChannel(SESSION_CHANNEL)
+    tabs.postMessage('signed-out')
+    tabs.close()
+  } catch {
+    // Only a cue: the other tabs still check on their own.
+  }
 }
 
 /**
  * The client, announcing every sign-out here once it settles, whatever its
  * outcome: the other tabs' session may have ended with this one, and they
- * share its cookie.
+ * share its cookie. The caller gets the same outcome, and a rejection it
+ * leaves unhandled is still reported.
  */
 export function announcingSignOut(client: DirectClient): DirectClient {
   return {
@@ -79,8 +84,7 @@ export function announcingSignOut(client: DirectClient): DirectClient {
     subscribe: (listener) => client.subscribe(listener),
     call: (name, args) => {
       const result = client.call(name, args)
-      if (name === 'auth.signOut') void result.then(announceSignOut, announceSignOut)
-      return result
+      return name === 'auth.signOut' ? result.finally(announceSignOut) : result
     },
   }
 }

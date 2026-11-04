@@ -31,7 +31,7 @@ import { ClientKindContext, type ClientKind } from '../src/platform/clientKind.t
 import { AppShell } from '../src/shell/AppShell.tsx'
 import { NotConnected } from '../src/shell/NotConnected.tsx'
 import { SignIn } from '../src/shell/SignIn.tsx'
-import { forgetSignOut, signOutHere } from '../src/shell/signOut.ts'
+import { forgetSignOut, signOutHere } from '../src/shell/session.ts'
 
 afterEach(() => {
   cleanup()
@@ -339,6 +339,11 @@ describe('signing in when served by Hermes', () => {
     expect(assign).toHaveBeenCalledWith(`/login?next=${encodeURIComponent('/cindl/')}`)
   })
 
+  it("returns to Hermes's own landing page from a mount whose path holds a %", () => {
+    at(`${ORIGIN}/cindl%2Fx/#/talk`)
+    expect(returnPath()).toBe('/')
+  })
+
   it('offers to sign out on Hermes again until Hermes confirms it', async () => {
     const outcomes = [false, false, true]
     const call = vi.fn((name: string) =>
@@ -433,6 +438,19 @@ describe("the browser's session cue", () => {
     }
   })
 
+  it('without BroadcastChannel, still checks when the page comes back, and announces nothing', () => {
+    vi.stubGlobal('BroadcastChannel', undefined)
+    vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
+    const check = vi.fn()
+    const stop = browserSessionCue(check)
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(check).toHaveBeenCalledTimes(1)
+    expect(() => announceSignOut()).not.toThrow()
+    stop()
+    document.dispatchEvent(new Event('visibilitychange'))
+    expect(check).toHaveBeenCalledTimes(1)
+  })
+
   it('takes nothing else on the channel for a cue, and goes quiet once unsubscribed', async () => {
     const check = vi.fn()
     const stop = browserSessionCue(check)
@@ -483,6 +501,75 @@ describe("the browser's session cue", () => {
     } finally {
       tabs.close()
     }
+  })
+})
+
+describe('"Check again" in the shell', () => {
+  it('keeps the sign-in screen while the client connects, and shows why it is still signed out', async () => {
+    window.history.replaceState(null, '', '#/agent/device')
+    vi.stubGlobal('location', { ...window.location, origin: ORIGIN })
+    const listeners = new Set<(event: CindlEvent) => void>()
+    const link = (phase: LinkState['phase']) =>
+      act(async () => {
+        for (const listener of listeners)
+          listener({
+            type: 'link.changed',
+            link: {
+              phase,
+              demo: false,
+              since: new Date().toISOString(),
+              connectionEpoch: 3,
+            },
+          })
+        await Promise.resolve()
+      })
+    let answer: (() => void) | undefined
+    const api: CindlClientApi = {
+      call: ((name: string) => {
+        if (name !== 'auth.signIn') return Promise.resolve([])
+        // As the direct client does: it says it is connecting, then Hermes refuses.
+        void link('connecting')
+        return new Promise((_, reject) => {
+          answer = () =>
+            reject(
+              new CindlError(
+                'unauthenticated',
+                'Sign in on the Hermes login page, then try again.',
+              ),
+            )
+        })
+      }) as unknown as CindlClientApi['call'],
+      subscribe: (listener) => {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+    }
+    render(
+      <ClientKindContext value="hermes">
+        <CindlProvider api={api}>
+          <AppShell />
+        </CindlProvider>
+      </ClientKindContext>,
+    )
+    await link('signed-out')
+    fireEvent.click(screen.getByRole('button', { name: 'Check again' }))
+    await act(async () => {
+      await Promise.resolve()
+    })
+    // Connecting, and still the sign-in screen, its check out.
+    expect(screen.getByRole('heading', { name: 'Sign in to Hermes' })).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Checking…' })).toBeTruthy()
+    // Refused, as the client reports it: the link is signed out, then the call fails.
+    await link('signed-out')
+    await act(async () => {
+      answer?.()
+      await Promise.resolve()
+    })
+    expect(screen.getByRole('alert').textContent).toBe(
+      'Sign in on the Hermes login page, then try again.',
+    )
   })
 })
 

@@ -250,23 +250,42 @@ test('a sign-out in one tab reaches the other tabs at once, and one Hermes did n
     fake.failNextRest('POST /auth/logout', 500)
     await a.goto(`${site.origin}/cindl/#/agent/device`)
     await a.getByRole('button', { name: 'Sign out on this device' }).click()
-    const again = a.getByRole('button', { name: 'Sign out on Hermes' })
+    // Named "Signing out…" while its request is out.
+    const again = a.getByRole('button', { name: /^(Sign out on Hermes|Signing out…)$/ })
     await expect(again).toBeVisible()
     await expect(a.getByText(/Hermes has not confirmed the sign-out/)).toBeVisible()
     await expect.poll(() => checks.length).toBe(before + 1)
     await expect(online(b)).toBeVisible()
     expect(await session()).toBeGreaterThan(0)
 
-    // Tried again from the keyboard and still refused: the offer stays, with focus on it.
-    fake.failNextRest('POST /auth/logout', 500)
+    // Tried again from the keyboard and still refused. While Hermes holds the
+    // request the button is disabled, which takes focus off it; once the
+    // refusal lands, focus is back on the offer.
+    const signInHere = a.getByRole('button', { name: 'Sign in on Hermes' })
+    let held = fake.holdNextRest('POST /auth/logout')
     await again.focus()
     await a.keyboard.press('Enter')
+    await held.arrived
+    await expect(again).toBeDisabled()
+    await expect(again).not.toBeFocused()
+    held.release({ status: 500, body: {} })
     await expect.poll(() => checks.length).toBe(before + 2)
     await expect(again).toBeEnabled()
     await expect(again).toBeFocused()
 
+    // Once more, with the owner moving focus elsewhere while it is out: it stays there.
+    held = fake.holdNextRest('POST /auth/logout')
+    await a.keyboard.press('Enter')
+    await held.arrived
+    await signInHere.focus()
+    held.release({ status: 500, body: {} })
+    await expect.poll(() => checks.length).toBe(before + 3)
+    await expect(again).toBeEnabled()
+    await expect(signInHere).toBeFocused()
+
     // Hermes clears the cookie this time: this tab confirms it and moves focus
     // to signing in, and the other tab, told at once, signs out too.
+    await again.focus()
     await a.keyboard.press('Enter')
     await expect(
       a
@@ -274,22 +293,34 @@ test('a sign-out in one tab reaches the other tabs at once, and one Hermes did n
         .filter({ hasText: 'Hermes cleared its session cookie in this browser.' }),
     ).toBeVisible()
     await expect(again).toHaveCount(0)
-    await expect(a.getByRole('button', { name: 'Sign in on Hermes' })).toBeFocused()
+    await expect(signInHere).toBeFocused()
     await expect(b.getByRole('button', { name: 'Sign in on Hermes' })).toBeVisible()
-    expect(checks.length).toBe(before + 3)
+    expect(checks.length).toBe(before + 4)
     expect(await session()).toBe(0)
 
-    // Expected errors only: Hermes's two failed logouts, the gate's 401 before
-    // the sign-in and after the sign-out, and the fake login page's missing icon.
+    // "Check again" with no session: Hermes says so, and focus is back on the button.
+    const checkAgain = a.getByRole('button', { name: /^(Check again|Checking…)$/ })
+    held = fake.holdNextRest('GET /api/auth/me')
+    await checkAgain.focus()
+    await a.keyboard.press('Enter')
+    await held.arrived
+    await expect(checkAgain).not.toBeFocused()
+    held.release()
+    await expect(a.getByRole('alert')).toHaveText(
+      'Sign in on the Hermes login page, then try again.',
+    )
+    await expect(checkAgain).toBeFocused()
+
+    // Expected errors only: Hermes's three failed logouts, the gate's 401
+    // before the sign-in, after the sign-out and on "Check again", and the
+    // fake login page's missing icon.
     const failed = `Failed to load resource: the server responded with a status of 500 (Internal Server Error) (${site.origin}/auth/logout)`
     const refused = `Failed to load resource: the server responded with a status of 401 (Unauthorized) (${site.origin}/api/auth/me)`
     const noIcon = `Failed to load resource: the server responded with a status of 404 (Not Found) (${site.origin}/favicon.ico)`
     expect(errors.filter((error) => error !== `a: ${noIcon}`).sort()).toEqual(
       [
-        `a: ${refused}`,
-        `a: ${failed}`,
-        `a: ${failed}`,
-        `a: ${refused}`,
+        ...Array.from({ length: 3 }, () => `a: ${failed}`),
+        ...Array.from({ length: 3 }, () => `a: ${refused}`),
         `b: ${refused}`,
       ].sort(),
     )

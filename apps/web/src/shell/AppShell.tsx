@@ -16,7 +16,7 @@ import { pruneRequestDrafts } from '../talk/RequestCard.tsx'
 import { forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
 import { Notices } from './Notices.tsx'
 import { SignIn } from './SignIn.tsx'
-import { forgetSignOut } from './signOut.ts'
+import { forgetSignOut, useCheckingSignIn } from './session.ts'
 import { LinkStatusDot } from './LinkStatus.tsx'
 import { NavList } from './Navigation.tsx'
 import { ShortcutsDialog } from './ShortcutsDialog.tsx'
@@ -27,9 +27,15 @@ export function AppShell() {
   const link = useLink()
   const open = useOpenRequests()
   const canCreate = useCan('sessions.create')
+  const checking = useCheckingSignIn()
   // Native clients without a session sign in first; the demo never needs to.
+  // A "Check again" still out keeps the sign-in screen while the client
+  // connects, so its outcome lands where it was asked.
   const needsSignIn =
-    !link.demo && (link.phase === 'unconfigured' || link.phase === 'signed-out')
+    !link.demo &&
+    (link.phase === 'unconfigured' ||
+      link.phase === 'signed-out' ||
+      (checking && link.phase === 'connecting'))
   const [theme] = usePreference('theme')
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)

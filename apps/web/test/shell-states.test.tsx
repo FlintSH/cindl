@@ -253,4 +253,46 @@ describe('notices', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss notice' }))
     expect(screen.queryByText(/Secure storage is unavailable/)).toBeNull()
   })
+
+  it('shows a notice that comes again once, and dismisses every copy', async () => {
+    const again = 'Hermes did not confirm the sign-out (fixture).'
+    const notice = (message: string): CindlEvent => ({
+      type: 'notice',
+      level: 'warning',
+      message,
+    })
+    const listeners = new Set<(event: CindlEvent) => void>()
+    const api: CindlClientApi = {
+      call: () => Promise.resolve({} as never),
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+    }
+    const emit = (event: CindlEvent) =>
+      act(async () => {
+        for (const listener of listeners) listener(event)
+        await Promise.resolve()
+      })
+    render(
+      <CindlProvider api={api}>
+        <Notices />
+      </CindlProvider>,
+    )
+    await settle()
+    await emit(notice(again))
+    await emit(notice('Another notice (fixture).'))
+    await emit(notice(again))
+    await emit(notice(again))
+    expect(screen.getAllByText(again)).toHaveLength(1)
+    expect(screen.getAllByRole('button', { name: 'Dismiss notice' })).toHaveLength(2)
+    fireEvent.click(screen.getAllByRole('button', { name: 'Dismiss notice' })[1]!)
+    expect(screen.queryByText(again)).toBeNull()
+    expect(screen.getByText('Another notice (fixture).')).toBeTruthy()
+    // Said once more later, it shows again.
+    await emit(notice(again))
+    expect(screen.getAllByText(again)).toHaveLength(1)
+  })
 })
