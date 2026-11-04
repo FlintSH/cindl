@@ -93,10 +93,14 @@ It needs only Python 3, listens on loopback only and serves just the build's
 regular files, read once at start: no symlinks, no directory listings and
 nothing outside the build. It sends the headers above (`frame-ancestors
 'none'`, `nosniff`, `no-cache` for the page and other unhashed files, long
-caching for hashed assets) and the content types the build needs. It ignores
-request headers, cookies included, and logs only the request line. It takes
-the mount path as is (`/cindl/assets/...`) or with the front's mount stripped
-(`/assets/...`).
+caching for hashed assets) and the content types the build needs. Its own
+answers to a malformed request carry the same headers, as plain text that
+quotes nothing, and a request without a usable HTTP version gets no answer at
+all, since none could carry them. It closes a connection that sends nothing
+for 10 seconds (`--idle-timeout`, at most 300). It ignores request headers,
+cookies included, and logs only the request line, with control bytes written
+as `\xNN`. It takes the mount path as is (`/cindl/assets/...`) or with the
+front's mount stripped (`/assets/...`).
 
 A front that strips the mount, as Tailscale Serve does, never shows the server
 the bare `/cindl`, and Tailscale Serve does not redirect it to `/cindl/`

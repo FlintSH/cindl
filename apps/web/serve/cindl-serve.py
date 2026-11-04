@@ -11,9 +11,12 @@ sentinel /.cindl-bare a stripping front can map it to, redirect to the mount
 path with a slash, which the build's relative asset paths need.
 
 Every response carries Content-Security-Policy: frame-ancestors 'none' and
-X-Content-Type-Options: nosniff. Files without a content hash in their name
-(index.html among them) are sent with Cache-Control: no-cache; hashed assets
-may be cached for good. Usage:
+X-Content-Type-Options: nosniff, its errors for malformed requests included.
+A request without a usable HTTP version can take no headers back, so it gets
+no answer. Files without a content hash in their name (index.html among
+them) are sent with Cache-Control: no-cache; hashed assets may be cached for
+good. A connection that sends nothing for --idle-timeout seconds is closed,
+and the log escapes control bytes. Usage:
 
     python3 cindl-serve.py --root DIR --port 8099 [--host 127.0.0.1] [--mount /cindl]
 """
@@ -35,16 +38,26 @@ TYPES = {
     ".woff2": "font/woff2",
     ".map": "application/json; charset=utf-8",
 }
+TEXT = "text/plain; charset=utf-8"
 # Vite names assets with a content hash: index-0lhCoXes.js, InstrumentSans-Variable-tWV223Ma.woff2.
 HASHED = re.compile(r"-[A-Za-z0-9_-]{8}\.(js|css|woff2|map)$|-[A-Za-z0-9_-]{8}\.js\.map$")
 # Request paths are plain: letters, digits, dot, dash, underscore and slash.
-PLAIN = re.compile(r"^/[A-Za-z0-9._/-]*$")
+PLAIN = re.compile(r"/[A-Za-z0-9._/-]*")
+# A mount is plain segments, none of them empty or starting with a dot.
+MOUNT = re.compile(r"(?:/[A-Za-z0-9_-][A-Za-z0-9._-]*)+")
 BARE = "/.cindl-bare"
 COMMON = (
     ("Content-Security-Policy", "frame-ancestors 'none'"),
     ("X-Content-Type-Options", "nosniff"),
     ("Referrer-Policy", "no-referrer"),
 )
+IDLE_TIMEOUT = 10.0
+MAX_IDLE_TIMEOUT = 300.0
+# The log quotes request lines as received: control bytes (an escape sequence
+# meant for a terminal) are written as \xNN, and a backslash as \\.
+ESCAPES = {c: "\\x%02x" % c for c in [*range(0x20), *range(0x7F, 0xA0)]}
+ESCAPES[ord("\\")] = "\\\\"
+LOGGED = str.maketrans(ESCAPES)
 
 
 def load(root):
@@ -69,10 +82,12 @@ def load(root):
     return files
 
 
-def handler(files, mount):
+def handler(files, mount, idle):
     class Handler(BaseHTTPRequestHandler):
         server_version = "cindl-serve"
         sys_version = ""
+        # Without one, a connection that never finishes its request holds its thread for good.
+        timeout = idle
 
         def do_GET(self):
             self.answer(head=False)
@@ -81,27 +96,41 @@ def handler(files, mount):
             self.answer(head=True)
 
         def refuse(self):
-            self.reply(405, b"Method Not Allowed\n", "text/plain; charset=utf-8", [("Allow", "GET, HEAD")])
+            self.reply(405, b"Method Not Allowed\n", TEXT, [("Allow", "GET, HEAD")])
 
         do_POST = do_PUT = do_PATCH = do_DELETE = do_OPTIONS = refuse
+
+        def send_error(self, code, message=None, explain=None):
+            # The standard library's own error page, for a malformed request
+            # line, an unknown method or a line too long, is HTML that quotes
+            # the request and lacks the headers above. This one quotes nothing.
+            self.close_connection = True
+            phrase = self.responses.get(code, ("Error",))[0]
+            body = ("%s\n" % phrase).encode()
+            self.reply(code, body, TEXT, [("Connection", "close")], self.command == "HEAD")
 
         def answer(self, head):
             path = self.path.split("?", 1)[0]
             parts = path.split("/")
-            if not PLAIN.match(path) or "//" in path or "." in parts or ".." in parts:
-                return self.reply(404, b"Not Found\n", "text/plain; charset=utf-8", head=head)
+            if not PLAIN.fullmatch(path) or "//" in path or "." in parts or ".." in parts:
+                return self.reply(404, b"Not Found\n", TEXT, head=head)
             if path in (mount, BARE):
-                return self.reply(301, b"", "text/plain; charset=utf-8", [("Location", mount + "/")], head)
+                return self.reply(301, b"", TEXT, [("Location", mount + "/")], head)
             relative = path[len(mount) + 1 :] if path.startswith(mount + "/") else path[1:]
             body = files.get(relative or "index.html")
             if body is None:
-                return self.reply(404, b"Not Found\n", "text/plain; charset=utf-8", head=head)
+                return self.reply(404, b"Not Found\n", TEXT, head=head)
             name = relative or "index.html"
             cache = "public, max-age=31536000, immutable" if HASHED.search(name) else "no-cache"
             kind = TYPES[os.path.splitext(name)[1]]
             self.reply(200, body, kind, [("Cache-Control", cache)], head)
 
         def reply(self, status, body, kind, extra=(), head=False):
+            if self.request_version == "HTTP/0.9":
+                # No version, or one never parsed: an answer here could carry no headers.
+                self.log_message('"%s" not answered: no HTTP version', self.requestline)
+                self.close_connection = True
+                return
             self.send_response(status)
             for name, value in COMMON:
                 self.send_header(name, value)
@@ -117,7 +146,7 @@ def handler(files, mount):
                 self.wfile.write(body)
 
         def log_message(self, format, *args):
-            sys.stderr.write("cindl-serve: %s\n" % (format % args))
+            sys.stderr.write("cindl-serve: %s\n" % (format % args).translate(LOGGED))
 
     return Handler
 
@@ -128,23 +157,31 @@ def main(argv=None):
     parser.add_argument("--port", type=int, required=True, help="loopback port; 0 picks one")
     parser.add_argument("--host", default="127.0.0.1", help="a loopback address (default 127.0.0.1)")
     parser.add_argument("--mount", default="/cindl", help="the public mount path (default /cindl)")
+    parser.add_argument(
+        "--idle-timeout",
+        type=float,
+        default=IDLE_TIMEOUT,
+        help="seconds a connection may send nothing before it is closed (default 10, at most 300)",
+    )
     args = parser.parse_args(argv)
     try:
         loopback = ipaddress.ip_address(args.host).is_loopback
     except ValueError:
         loopback = False
     if not loopback:
-        raise SystemExit(f"cindl-serve: {args.host} is not a loopback address; it serves loopback only")
+        raise SystemExit(f"cindl-serve: {args.host!r} is not a loopback address; it serves loopback only")
     mount = args.mount.rstrip("/")
-    if not mount.startswith("/") or not PLAIN.match(mount) or mount == "":
-        raise SystemExit(f"cindl-serve: the mount must be a path such as /cindl, not {args.mount}")
+    if not MOUNT.fullmatch(mount):
+        raise SystemExit(f"cindl-serve: the mount must be a path such as /cindl, not {args.mount!r}")
+    if not 0 < args.idle_timeout <= MAX_IDLE_TIMEOUT:
+        raise SystemExit(f"cindl-serve: --idle-timeout must be above 0 and at most {MAX_IDLE_TIMEOUT:g} seconds")
     files = load(args.root)
 
     class Server(ThreadingHTTPServer):
         address_family = socket.AF_INET6 if ":" in args.host else socket.AF_INET
         daemon_threads = True
 
-    server = Server((args.host, args.port), handler(files, mount))
+    server = Server((args.host, args.port), handler(files, mount, args.idle_timeout))
     host, port = str(server.server_address[0]), server.server_address[1]
     shown = f"[{host}]" if ":" in host else host
     print(f"cindl-serve: {len(files)} files on http://{shown}:{port} for {mount}/", flush=True)
