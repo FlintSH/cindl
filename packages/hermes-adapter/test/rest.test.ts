@@ -2,7 +2,13 @@ import { createServer, type Server } from 'node:http'
 import type { AddressInfo } from 'node:net'
 import { CindlError } from '@cindl/contracts'
 import { describe, expect, it } from 'vitest'
-import { hermesReasonOf, RestClient, rpcError, type FetchLike } from '../src/index.ts'
+import {
+  hermesDidNotAnswer,
+  hermesReasonOf,
+  RestClient,
+  rpcError,
+  type FetchLike,
+} from '../src/index.ts'
 import { bearerRest, captureLog, fakeHermes, timers } from './harness.ts'
 
 const errorOf = (promise: Promise<unknown>) =>
@@ -288,5 +294,121 @@ describe('RestClient: cookie sign-out (POST /auth/logout)', () => {
     expect(await codeFor(404)).toBe('not-found')
     expect(await codeFor(500)).toBe('internal')
     expect(await codeFor(503)).toBe('unavailable')
+  })
+})
+
+describe('RestClient: which of its failures say Hermes did not answer', () => {
+  const statusError = (fetchLike: FetchLike, timeoutMs?: number) =>
+    errorOf(
+      new RestClient({
+        origin: 'https://hermes.example.test',
+        fetch: fetchLike,
+        timers,
+        auth: { kind: 'none' },
+        ...(timeoutMs ? { timeoutMs } : {}),
+      }).status(),
+    )
+
+  it('marks a timeout, a fetch that fails, a 503 and a 429', async () => {
+    const hanging: FetchLike = (_url, init) =>
+      new Promise((_resolve, reject) =>
+        init.signal?.addEventListener('abort', () =>
+          reject(new DOMException('aborted', 'AbortError')),
+        ),
+      )
+    const timedOut = await statusError(hanging, 30)
+    expect([timedOut.code, hermesDidNotAnswer(timedOut)]).toEqual(['timeout', true])
+    const failed = await statusError(() => Promise.reject(new TypeError('fetch failed')))
+    expect([failed.code, hermesDidNotAnswer(failed)]).toEqual(['offline', true])
+    const fake = await fakeHermes()
+    const rest = new RestClient({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      auth: { kind: 'none' },
+    })
+    for (const status of [503, 429]) {
+      fake.failNextRest('GET /api/status', status)
+      expect(hermesDidNotAnswer(await errorOf(rest.status())), `${status}`).toBe(true)
+    }
+  })
+
+  it('marks a body that stalls or breaks after the headers, and a 408', async () => {
+    // Headers and half a body, then nothing: the timeout covers the body too.
+    const stalled = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.write('{"version": "0.22.5"')
+    })
+    // Headers and half a body, then the link drops.
+    const broken = createServer((req, res) => {
+      res.writeHead(200, { 'Content-Type': 'application/json' })
+      res.write('{"version": "0.22.5"', () => req.socket.destroy())
+    })
+    const stalledOrigin = await listen(stalled)
+    const brokenOrigin = await listen(broken)
+    try {
+      const client = (origin: string) =>
+        new RestClient({
+          origin,
+          fetch: (url, init) => fetch(url, init),
+          timers,
+          auth: { kind: 'none' },
+          timeoutMs: 100,
+        })
+      const timedOut = await errorOf(client(stalledOrigin).status())
+      expect([timedOut.code, hermesDidNotAnswer(timedOut)]).toEqual(['timeout', true])
+      const dropped = await errorOf(client(brokenOrigin).status())
+      expect([dropped.code, hermesDidNotAnswer(dropped)]).toEqual(['offline', true])
+    } finally {
+      await closeServer(stalled)
+      await closeServer(broken)
+    }
+    const fake = await fakeHermes()
+    fake.failNextRest('GET /api/status', 408)
+    const gaveUp = await errorOf(
+      new RestClient({
+        origin: fake.origin,
+        fetch: (url, init) => fetch(url, init),
+        timers,
+        auth: { kind: 'none' },
+      }).status(),
+    )
+    expect([gaveUp.code, hermesDidNotAnswer(gaveUp)]).toEqual(['timeout', true])
+  })
+
+  it('does not mark a 404, a 200 that is not JSON, or the platform refusing to send', async () => {
+    const fake = await fakeHermes()
+    const rest = new RestClient({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      auth: { kind: 'none' },
+    })
+    fake.failNextRest('GET /api/status', 404)
+    const missing = await errorOf(rest.status())
+    expect([missing.code, hermesDidNotAnswer(missing)]).toEqual(['not-found', false])
+    const page = createServer((_req, res) => {
+      res.writeHead(200, { 'Content-Type': 'text/html' })
+      res.end('<p>Not Hermes (fixture)</p>')
+    })
+    const origin = await listen(page)
+    try {
+      const notJson = await errorOf(
+        new RestClient({
+          origin,
+          fetch: (url, init) => fetch(url, init),
+          timers,
+          auth: { kind: 'none' },
+        }).status(),
+      )
+      expect([notJson.code, hermesDidNotAnswer(notJson)]).toEqual(['protocol', false])
+    } finally {
+      await closeServer(page)
+    }
+    // A platform fetch that will not send (an origin it does not trust) answers itself.
+    const refusal = new CindlError('invalid', 'Not sent (fixture).')
+    const refused = await statusError(() => Promise.reject(refusal))
+    expect(refused).toBe(refusal)
+    expect(hermesDidNotAnswer(refused)).toBe(false)
   })
 })

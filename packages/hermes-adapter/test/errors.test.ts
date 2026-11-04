@@ -13,7 +13,7 @@ describe('hermesDidNotAnswer', () => {
   it('holds for no network, a timeout, a 5xx and rate limiting', () => {
     expect(hermesDidNotAnswer(offlineError('GET /api/status: network error'))).toBe(true)
     expect(hermesDidNotAnswer(timeoutError('GET /api/status: no response'))).toBe(true)
-    for (const status of [500, 502, 503, 504, 429])
+    for (const status of [500, 502, 503, 504, 429, 408])
       expect(
         hermesDidNotAnswer(httpError(status, {}, 'GET /api/auth/me')),
         `${status}`,

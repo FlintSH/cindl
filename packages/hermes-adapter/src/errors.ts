@@ -44,6 +44,7 @@ const httpCodes: ReadonlyArray<[number, ErrorCode, string]> = [
   [401, 'unauthenticated', 'Sign in to Hermes again.'],
   [403, 'forbidden', 'Hermes refused this request.'],
   [404, 'not-found', 'Hermes could not find that.'],
+  [408, 'timeout', 'Hermes did not answer in time.'],
   [409, 'conflict', 'Hermes reported a conflicting change.'],
   [413, 'invalid', 'That is larger than Hermes accepts.'],
   [422, 'protocol', 'Hermes did not understand the request (version mismatch?).'],
@@ -77,7 +78,8 @@ export function httpError(status: number, body: unknown, context: string): Cindl
   const shown = SAFE_TOKEN.test(reason) ? ` (${reason})` : ''
   const detail = safeText(`${context}: HTTP ${status}${shown}`)
   const error = withReason(httpErrorFor(status, detail), reason)
-  return status >= 500 || status === 429 ? noAnswer(error) : error
+  // A 408 is a proxy (or Hermes) giving up on the request: no answer either.
+  return status >= 500 || status === 429 || status === 408 ? noAnswer(error) : error
 }
 
 function httpErrorFor(status: number, detail: string): CindlError {
