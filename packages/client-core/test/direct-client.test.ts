@@ -94,9 +94,9 @@ const approve = (h: Harness, requestId: string, choice: 'once' | 'deny') =>
   })
 
 /** A prompt this device was sending to `origin` when the app last stopped; returns its outbox key. */
-async function seedSendingPrompt(h: Harness, origin: string): Promise<string> {
+async function seedSendingPrompt(kv: KeyValueStore, origin: string): Promise<string> {
   const key = `cindl.direct.v1|${origin}|outbox`
-  await h.kv.set(
+  await kv.set(
     key,
     JSON.stringify([
       {
@@ -109,6 +109,18 @@ async function seedSendingPrompt(h: Harness, origin: string): Promise<string> {
     ]),
   )
   return key
+}
+
+/** The store holds what a renderer subscribing now is told. */
+function expectStoreMatchesSeed(h: Harness): void {
+  const late = createStore({
+    phase: 'connecting',
+    since: '2026-01-01T00:00:00.000Z',
+    connectionEpoch: 0,
+  })
+  h.client.subscribe((event) => late.dispatch(event))()
+  for (const key of ['link', 'capabilities', 'conversations', 'prompts'] as const)
+    expect(h.store.getState()[key]).toEqual(late.getState()[key])
 }
 
 /** The links the client reports from now on, as `phase@origin`. */
@@ -147,6 +159,37 @@ describe('direct client: start', () => {
     expect(events[0]).toMatchObject({ link: { phase: 'unconfigured' } })
     for (const event of events) CindlEvent.parse(event)
     client.stop()
+  })
+})
+
+describe('direct client: a fresh client wired into a store that saw another origin', () => {
+  it('names its origin before the prompts start() recovers, so the store keeps them', async () => {
+    const a = await fakeHermes()
+    const kv = memoryKv()
+    await seedSendingPrompt(kv, a.origin)
+    // Desktop's restart after a failed switch: the renderer's store last saw B.
+    const store = createStore({
+      phase: 'unconfigured',
+      since: '2026-01-01T00:00:00.000Z',
+      connectionEpoch: 0,
+    })
+    store.dispatch({
+      type: 'link.changed',
+      link: {
+        phase: 'signed-out',
+        since: '2026-01-01T00:00:00.000Z',
+        connectionEpoch: 0,
+        auth: 'native-pkce',
+        server: { origin: 'https://hermes-b.example.invalid' },
+      },
+    })
+    const h = await harness({ fake: a, kv, store, signIn: false })
+    expect(h.events[0]).toMatchObject({
+      type: 'link.changed',
+      link: { server: { origin: a.origin } },
+    })
+    expect(entry(h.store.getState().prompts, 'p-was-sending')?.state).toBe('uncertain')
+    expectStoreMatchesSeed(h)
   })
 })
 
@@ -193,7 +236,7 @@ describe('direct client: signing in to another origin', () => {
   it("keeps B's recovered prompts when a sign-in without a session switches to B", async () => {
     const h = await harness({ signIn: false })
     const b = await fakeHermes()
-    const outboxKey = await seedSendingPrompt(h, b.origin)
+    const outboxKey = await seedSendingPrompt(h.kv, b.origin)
     const links = linkLog(h)
     await h.client.call('auth.signIn', { origin: b.origin })
     await h.waitFor(
@@ -2403,7 +2446,7 @@ describe('direct client: the switch after a sign-in with a working session', () 
   it("saves B's outbox as the switch recovered it, and the store keeps it", async () => {
     const h = await harness()
     const b = await fakeHermes()
-    const outboxKey = await seedSendingPrompt(h, b.origin)
+    const outboxKey = await seedSendingPrompt(h.kv, b.origin)
     const links = linkLog(h)
     await h.client.call('auth.signIn', { origin: b.origin })
     await h.waitFor(
@@ -2444,14 +2487,7 @@ describe('direct client: the switch after a sign-in with a working session', () 
     })
     expect(entry(h.store.getState().conversations, a.id)).toBeUndefined()
     // The store holds what a renderer subscribing now is told: nothing of A.
-    const late = createStore({
-      phase: 'connecting',
-      since: '2026-01-01T00:00:00.000Z',
-      connectionEpoch: 0,
-    })
-    h.client.subscribe((event) => late.dispatch(event))
-    for (const key of ['link', 'capabilities', 'conversations', 'prompts'] as const)
-      expect(h.store.getState()[key]).toEqual(late.getState()[key])
+    expectStoreMatchesSeed(h)
     expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
     await h.client.start()
     await h.waitFor(

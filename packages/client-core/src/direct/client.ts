@@ -466,7 +466,13 @@ class DirectHermesClient implements DirectClient {
       this.#refreshCapabilities()
       return
     }
-    if (!this.#deviceLoaded) await this.#loadDevice()
+    if (!this.#deviceLoaded) {
+      // Name the origin on the link before any of its device state, as a
+      // switch does: a store that last saw another origin (desktop wires a
+      // fresh client into the renderer's store) would forget what came first.
+      this.#setLink('connecting')
+      await this.#loadDevice()
+    }
     await this.#discoverAndConnect(run)
   }
 
