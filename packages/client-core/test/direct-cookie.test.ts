@@ -145,11 +145,13 @@ async function waitUntil(check: () => boolean, ms = 5_000): Promise<void> {
 
 /**
  * Two tabs of one browser: two cookie clients on one jar, both signed in.
- * `deps` go to both, `onlyB` to the second.
+ * `deps` go to both, `onlyB` to the second; `beforeB` runs once the first is
+ * online, before the second starts.
  */
 async function twoTabs(
   deps: Partial<DirectClientDeps> = {},
   onlyB: Partial<DirectClientDeps> = {},
+  beforeB?: (fake: FakeHermes) => Promise<void>,
 ) {
   const fake = await fakeHermes()
   const jar = cookieJar(fake.origin)
@@ -164,6 +166,7 @@ async function twoTabs(
     return h
   }
   const a = await tab({})
+  await beforeB?.(fake)
   const b = await tab(onlyB)
   return { fake, jar, a, b }
 }
@@ -569,6 +572,50 @@ describe('direct client in cookie mode: a sign-out in another tab', () => {
     await b.waitFor(() => requests(fake, 'GET /api/auth/me') === checks + 1)
     // The old check's 401 comes back only now: it says nothing about this session.
     held.release()
+    await pause(40)
+    expect(b.store.getState().link.phase).toBe('online')
+  })
+
+  it('lets no 401 to an operation sent under an ended session end the next one', async () => {
+    const { fake, jar, a, b } = await twoTabs({ connection: { requestSyncMs: 0 } })
+    await a.client.call('auth.signOut', {})
+    // b asks for memory without cookies, and Hermes holds the request.
+    const held = fake.holdNextRest('GET /api/memory')
+    const call = failure(b.client.call('memory.overview', {}))
+    await held.arrived
+    // b's session ends another way (its reconnect is refused), and b signs in again.
+    fake.gateway.dropConnections()
+    await b.waitFor(() => b.store.getState().link.phase === 'signed-out')
+    await passwordLogin(fake, jar)
+    await b.client.call('auth.signIn', { origin: fake.origin })
+    await b.waitFor(() => b.store.getState().link.phase === 'online')
+    // The old request's 401 comes back only now: it fails its call, nothing more.
+    held.release()
+    expect((await call)?.code).toBe('unauthenticated')
+    await pause(40)
+    expect(b.store.getState().link.phase).toBe('online')
+  })
+
+  it('lets no 401 to a memory probe sent under an ended session end the next one', async () => {
+    let probe: ReturnType<FakeHermes['holdNextRest']> | undefined
+    const { fake, jar, a, b } = await twoTabs(
+      { connection: { requestSyncMs: 0 } },
+      {},
+      async (f) => {
+        // a's own probe has gone out; hold the one b sends when it connects.
+        await waitUntil(() => requests(f, 'GET /api/learning/graph') === 1)
+        probe = f.holdNextRest('GET /api/learning/graph')
+      },
+    )
+    await probe?.arrived
+    await a.client.call('auth.signOut', {})
+    fake.gateway.dropConnections()
+    await b.waitFor(() => b.store.getState().link.phase === 'signed-out')
+    await passwordLogin(fake, jar)
+    await b.client.call('auth.signIn', { origin: fake.origin })
+    await b.waitFor(() => b.store.getState().link.phase === 'online')
+    // The probe from b's first session gets the gate's 401 only now.
+    probe?.release({ status: 401, body: SESSION_EXPIRED })
     await pause(40)
     expect(b.store.getState().link.phase).toBe('online')
   })

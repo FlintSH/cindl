@@ -176,7 +176,8 @@ same-origin requests, and it keeps nothing in browser storage.
   each tab posts once its `auth.signOut` settles. A tick shares the check in
   flight; a cue that comes while one is out gets one more check after it, since
   that check may predate another tab's sign-out. An answer counts only for the
-  session it was asked for, not one signed in since. Any other failure waits
+  session it was asked for, not one signed in since, and the same holds for a
+  401 to an operation or to the memory probe. Any other failure waits
   for the next check, and native mode never asks. The check is a request like any other, so it also lets the gate renew
   an expired access cookie: while a tab is open the session cannot lapse, and
   closing the tabs leaves the cookies valid until they expire.

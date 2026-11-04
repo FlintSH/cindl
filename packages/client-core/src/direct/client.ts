@@ -343,11 +343,12 @@ class DirectHermesClient implements DirectClient {
     const local = name === 'display.unwatch'
     if (capability && !queueable && !probe && !local) this.#require(capability)
     const handler = this.#handlers[name] as unknown as (a: typeof parsed) => unknown
+    const run = this.#run
     try {
       return (await handler(parsed)) as OpResult<K>
     } catch (error) {
       const cause = asCindlError(error, name)
-      if (this.#sessionEndedByHermes(cause)) this.#sessionEnded(cause)
+      if (this.#sessionEndedByHermes(cause, run)) this.#sessionEnded(cause)
       throw cause
     }
   }
@@ -357,10 +358,13 @@ class DirectHermesClient implements DirectClient {
    * no cookies came or the refresh cookie failed too (middleware.py:150-157,
    * 186-211). Hermes's own web app goes to the login page on exactly these two
    * (web/src/lib/api.ts:209-240); any other 401 is an error of its own. Native
-   * mode refreshes its tokens itself.
+   * mode refreshes its tokens itself. The answer speaks only for the run its
+   * request was sent in: once a stop() or a new sign-in has moved the run on,
+   * a late 401 says nothing about the session signed in since.
    */
-  #sessionEndedByHermes(cause: CindlError): boolean {
+  #sessionEndedByHermes(cause: CindlError, run: number): boolean {
     return (
+      run === this.#run &&
       !this.#native &&
       this.#signedIn &&
       cause.code === 'unauthenticated' &&
@@ -748,7 +752,7 @@ class DirectHermesClient implements DirectClient {
       const cause = asCindlError(error, 'auth.me')
       // Only the session it asked about: a stop() or another sign-in since
       // then started a new run, which this answer says nothing about.
-      if (run === this.#run && rest === this.#rest && this.#sessionEndedByHermes(cause))
+      if (rest === this.#rest && this.#sessionEndedByHermes(cause, run))
         this.#sessionEnded(cause)
     }
   }
@@ -1744,12 +1748,13 @@ class DirectHermesClient implements DirectClient {
    */
   async #probeMemory(): Promise<void> {
     if (this.#memoryProbe || !this.#signedIn) return
+    const run = this.#run
     try {
       await this.#restOrThrow().learningGraph(this.#configuredProfile)
       this.#memoryProbe = 'responds'
     } catch (error) {
       const cause = asCindlError(error, 'learning graph')
-      if (this.#sessionEndedByHermes(cause)) this.#sessionEnded(cause)
+      if (this.#sessionEndedByHermes(cause, run)) this.#sessionEnded(cause)
       if (cause.code !== 'not-found') return
       this.#memoryProbe = 'missing'
     }
