@@ -122,19 +122,35 @@ bearer to public endpoints.
   again under the same key. A failed or cancelled switch retires nothing:
   its refresh may still store. Signing in to the same origin again is no
   switch, and sign-out is unchanged.
-- A sign-out at any point of a native sign-in (Hermes's status read, the
-  stored sign-in read, a switch's device state, the browser leg or the token
-  exchange) stores nothing, and no browser opens after it: the sign-in fails
-  with "Signed out while signing in.". With a working session the client
-  stays on the origin it had, signed out. Without one it took up the new
-  origin as the sign-in began, so for the rest of the session it is on that
-  origin, signed out; Android's wrapper saves no new origin, so the next
-  start is on the old one. The desktop app already runs a sign-out only after
-  the sign-in it overtakes. A sign-out that lands while the sign-in writes
-  its tokens deletes them after that write, since both platforms' stores
-  apply writes in call order (the desktop store's serial queue,
-  `apps/desktop/src/main/platform/secret-store.ts`; expo-secure-store on one
-  thread); only a store that reordered writes could keep the record.
+- A sign-out during a native sign-in (Hermes's status read, the stored
+  sign-in read, a switch's device state when there is no working session,
+  the browser leg or the token exchange) stores nothing, and no browser opens
+  after it: the sign-in fails with "Signed out while signing in.". With a
+  working session the client stays on the origin it had, signed out. Without
+  one it took up the new origin as the sign-in began, so for the rest of the
+  session it is on that origin, signed out; Android's wrapper saves no new
+  origin, so the next start is on the old one. The desktop app already runs a
+  sign-out only after the sign-in it overtakes. A sign-out that lands while
+  the sign-in writes its tokens deletes them after that write, since both
+  platforms' stores apply writes in call order (the desktop store's serial
+  queue, `apps/desktop/src/main/platform/secret-store.ts`; expo-secure-store
+  on one thread); only a store that reordered writes could keep the record.
+  Android's store reorders in one case: when the Keystore refuses a write,
+  it keeps that value in memory, even past a delete that came while the
+  write was out, and from then on reports itself unavailable. A sign-in
+  never reads a store in that state
+  (`packages/hermes-adapter/src/native-auth.ts`), and the memory goes
+  with the process.
+- One window is not covered yet. With a working session, a sign-in to
+  another origin reads that origin's device state only after it has
+  succeeded and stored its tokens. A sign-out during that read lets the
+  sign-in resolve: the client connects once on the new origin and ends there
+  signed out, the sign-out deletes the tokens the sign-in stored, and
+  Android's wrapper keeps the new origin for the next start. A `stop()` in
+  the same window is ignored, and the client goes online on the new origin.
+  No shipped screen reaches this window: Android hides sign-out while
+  signing in, the desktop app runs a sign-out only after the sign-in in
+  flight, and the web never switches origin. The fix is with the transport.
 
 ### Web sign-in (cookie)
 

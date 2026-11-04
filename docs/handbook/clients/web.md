@@ -66,7 +66,7 @@ in through Hermes's own `/login` page.
   - Hermes confirms a sign-out when, after it, it no longer accepts this
     browser's session. If it does not, Cindl signs out here and says so, and
     the sign-in screen offers "Sign out on Hermes" until Hermes confirms it;
-    the warning goes once it does, or once this browser is signed in again.
+    the warning goes once it does, or once this page is online again.
   - An open Cindl tab keeps its session in use: its 15-second check is a
     request like any other, so once the access cookie expires the gate
     renews the cookies through the refresh cookie, for as long as Hermes's
@@ -105,9 +105,9 @@ process instead of Hermes directly:
   for the Hermes address (https, or plain http on 127.0.0.1 or [::1]). Hermes's
   own sign-in page opens in the system browser, so Cindl never handles a
   password or a verification code. If the browser never comes back, "Stop
-  waiting" frees the screen; it does not cancel the sign-in in the browser.
-  From then on the abandoned sign-in can no longer report an error or unlock
-  the screen.
+  waiting" frees the form for another try, and the screen stays while that
+  sign-in is out; it does not cancel the sign-in in the browser. From then on
+  the abandoned sign-in can no longer report an error or unlock the form.
 - Notices from the desktop app (for example, that tokens are kept in memory
   only on this machine) appear above the current view until dismissed. They sit
   in the page flow, so they never cover a control.

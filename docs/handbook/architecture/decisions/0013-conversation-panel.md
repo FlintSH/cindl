@@ -2,8 +2,9 @@
 
 **Status:** Accepted (owner direction, 2026-11-03). Web: built and tested in
 a browser on the synthetic demo. Desktop: the same renderer, smoke-tested in
-the packaged demo app, as a column at 1280px and a sheet below. Android: to
-follow, in its working-margin sheet.
+the packaged demo app at 907abeb (before the web follow-ups of #14), as a
+column at 1280px and a sheet below. Android: to follow, in its working-margin
+sheet.
 
 **Context.** The owner asked Cindl to take the paradigm of the right-hand
 panel inside a conversation in T3 Code: a panel beside the conversation that
