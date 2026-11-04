@@ -2641,6 +2641,50 @@ describe('direct client: no browser after a stop()', () => {
   })
 })
 
+describe('direct client: a newer sign-in or start() withdraws one in flight', () => {
+  it('with a session: a newer sign-in withdraws an older one as it starts, before its own reads', async () => {
+    const browser = recordingLeg()
+    const h = await harness({ deps: { authorizer: browser.authorizer } })
+    const b = await fakeHermes()
+    const c = await fakeHermes()
+    browser.state.mode = 'wait'
+    const first = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await browser.reached
+    browser.state.mode = 'answer'
+    // With a session nothing switches before C has answered, so only the
+    // newer sign-in's own run can have withdrawn B's.
+    const statusC = c.holdNextRest('GET /api/status')
+    const second = h.client.call('auth.signIn', { origin: c.origin })
+    await statusC.arrived
+    expect(await Promise.race([first, pause(500).then(() => 'still waiting')])).toBe(
+      'unavailable',
+    )
+    expect(browser.state.cancelled).toBe(1)
+    statusC.release()
+    await second
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === c.origin,
+    )
+  })
+
+  it('start() after a stop() withdraws a sign-in begun after that stop()', async () => {
+    const browser = recordingLeg()
+    const h = await harness({ deps: { authorizer: browser.authorizer } })
+    const b = await fakeHermes()
+    h.client.stop()
+    browser.state.mode = 'wait'
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await browser.reached
+    void h.client.start()
+    expect(await Promise.race([signingIn, pause(500).then(() => 'still waiting')])).toBe(
+      'unavailable',
+    )
+    expect(browser.state.cancelled).toBe(1)
+  })
+})
+
 describe('direct client: a sign-out while a sign-in to another origin stores its tokens', () => {
   it('still keeps the client where it was', async () => {
     const base = memorySecrets()
