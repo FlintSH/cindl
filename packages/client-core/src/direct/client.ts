@@ -2001,7 +2001,11 @@ class DirectHermesClient implements DirectClient {
             // sign-in, a switch's device state) means no browser opens.
             overtaken()
             await parts.native.signIn(this.#deps.authorizer, undefined, withdrawal)
-          }
+          } else if (withdrawal.stopped)
+            // Tokens for this origin were stored already, so no browser leg ran
+            // to see a Cancel or a stop() during the reads above: the sign-in
+            // fails here as that leg would have made it.
+            throw withdrawal.stopped
         } else if (!(await this.#cookieSignedIn(parts.rest)))
           throw new CindlError(
             'unauthenticated',

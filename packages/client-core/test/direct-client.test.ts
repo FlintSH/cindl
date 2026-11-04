@@ -2641,6 +2641,107 @@ describe('direct client: no browser after a stop()', () => {
   })
 })
 
+describe('direct client: a sign-in that needs no browser, withdrawn', () => {
+  /** Secrets that already hold B's tokens, from an earlier sign-in on this device. */
+  async function storedForB() {
+    const secrets = memorySecrets()
+    const b = await fakeHermes()
+    const earlier = await harness({ fake: b, secrets })
+    earlier.client.stop()
+    expect(secrets.map.has(nativeTokensKey(b.origin))).toBe(true)
+    // Sockets to B from here on: the earlier sign-in connected once.
+    const known = b.calls.filter((c) => c.kind === 'ws').length
+    const newSockets = () => b.calls.filter((c) => c.kind === 'ws').length - known
+    return { secrets, b, newSockets }
+  }
+
+  it("without a session: a Cancel during B's status read fails it as cancelled", async () => {
+    const { secrets, b, newSockets } = await storedForB()
+    const browser = recordingLeg()
+    const h = await harness({
+      signIn: false,
+      secrets,
+      deps: { authorizer: browser.authorizer },
+    })
+    const status = b.holdNextRest('GET /api/status')
+    const signingIn = h.client.call('auth.signIn', { origin: b.origin })
+    await status.arrived
+    h.client.cancelSignIn()
+    status.release()
+    await expect(signingIn).rejects.toMatchObject({
+      code: 'unauthenticated',
+      message: 'Sign-in was cancelled. Nothing was saved.',
+    })
+    await pause(100)
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      server: { origin: b.origin },
+      lastError: { code: 'unauthenticated' },
+    })
+    expect(browser.state.authorized).toBe(0)
+    expect(newSockets()).toBe(0)
+    // The tokens an earlier sign-in stored stay where they were.
+    expect(secrets.map.has(nativeTokensKey(b.origin))).toBe(true)
+  })
+
+  it("without a session: a stop() during B's status read fails it as stopped", async () => {
+    const { secrets, b, newSockets } = await storedForB()
+    const h = await harness({ signIn: false, secrets })
+    const status = b.holdNextRest('GET /api/status')
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await status.arrived
+    h.client.stop()
+    status.release()
+    expect(await signingIn).toBe('unavailable')
+    await pause(100)
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'offline',
+      server: { origin: b.origin },
+    })
+    expect(newSockets()).toBe(0)
+  })
+
+  it("a Cancel while B's stored sign-in is read fails it as cancelled", async () => {
+    const { secrets: stored, b, newSockets } = await storedForB()
+    const hold: { key: string | undefined; arrived?: () => void; release?: () => void } =
+      { key: undefined }
+    const arrived = new Promise<void>((resolve) => (hold.arrived = resolve))
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...stored,
+      get: async (key) => {
+        if (key === hold.key) {
+          hold.key = undefined
+          hold.arrived?.()
+          await new Promise<void>((resolve) => (hold.release = resolve))
+        }
+        return stored.get(key)
+      },
+    }
+    const h = await harness({ signIn: false, secrets })
+    hold.key = nativeTokensKey(b.origin)
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await arrived
+    h.client.cancelSignIn()
+    hold.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    expect(newSockets()).toBe(0)
+  })
+
+  it("with a session: a Cancel during B's status read leaves the session as it was", async () => {
+    const { secrets, b, newSockets } = await storedForB()
+    const h = await harness({ secrets })
+    const before = h.store.getState().link
+    const status = b.holdNextRest('GET /api/status')
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await status.arrived
+    h.client.cancelSignIn()
+    status.release()
+    expect(await signingIn).toBe('unauthenticated')
+    expect(h.store.getState().link).toEqual(before)
+    expect(newSockets()).toBe(0)
+  })
+})
+
 describe('direct client: a newer sign-in or start() withdraws one in flight', () => {
   it('with a session: a newer sign-in withdraws an older one as it starts, before its own reads', async () => {
     const browser = recordingLeg()
