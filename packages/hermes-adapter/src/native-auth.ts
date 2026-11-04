@@ -231,24 +231,30 @@ export class NativeAuth {
   }
 
   async #current(): Promise<NativeTokenResponse | undefined> {
-    // One shared load: concurrent first callers all see the stored tokens. A
-    // load that failed is not kept, so the next caller reads the store again,
-    // unless a sign-out, a retirement or a store replaced it meanwhile: what
-    // they set stands.
+    // One shared load: concurrent first callers all see the stored tokens.
+    // Its result counts only while it is still the load in place: a sign-out,
+    // a retirement or a store that replaced it meanwhile set the tokens
+    // themselves, and what they set stands. A load that failed is not kept,
+    // so the next caller reads the store again.
     if (!this.#loading) {
-      const loading: Promise<void> = this.#load().catch((error: unknown) => {
-        if (this.#loading === loading) this.#loading = undefined
-        throw error
-      })
+      const loading: Promise<void> = this.#load().then(
+        (tokens) => {
+          if (this.#loading === loading && tokens) this.#tokens = tokens
+        },
+        (error: unknown) => {
+          if (this.#loading === loading) this.#loading = undefined
+          throw error
+        },
+      )
       this.#loading = loading
     }
     await this.#loading
     return this.#tokens
   }
 
-  async #load(): Promise<void> {
-    if (!this.#options.secrets.available) return
-    const generation = this.#generation
+  /** The tokens in the store, if it holds a readable record. */
+  async #load(): Promise<NativeTokenResponse | undefined> {
+    if (!this.#options.secrets.available) return undefined
     let raw: string | undefined
     try {
       raw = await this.#options.secrets.get(this.#key)
@@ -263,13 +269,14 @@ export class NativeAuth {
         'secret store read failed',
       )
     }
-    if (!raw || generation !== this.#generation) return
+    if (!raw) return undefined
     try {
       const parsed = NativeTokenResponse.safeParse(JSON.parse(raw))
-      if (parsed.success) this.#tokens = parsed.data
+      if (parsed.success) return parsed.data
     } catch {
       this.#log.log('warn', 'auth.stored-tokens-unreadable')
     }
+    return undefined
   }
 
   async #store(tokens: NativeTokenResponse): Promise<void> {
