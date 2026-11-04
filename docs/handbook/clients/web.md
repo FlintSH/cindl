@@ -66,11 +66,12 @@ in through Hermes's own `/login` page.
   - Hermes confirms a sign-out when, after it, it no longer accepts this
     browser's session. If it does not, Cindl signs out here and says so, and
     the sign-in screen offers "Sign out on Hermes" until Hermes confirms it.
-  - An open Cindl tab keeps its session from lapsing: its 15-second check is
-    a request like any other, so once the access cookie expires the gate
-    renews the cookies through the refresh cookie. Closing the tabs only
-    stops that; the cookies keep signing this browser in until they expire.
-    Only signing out clears them here.
+  - An open Cindl tab keeps its session in use: its 15-second check is a
+    request like any other, so once the access cookie expires the gate
+    renews the cookies through the refresh cookie, for as long as Hermes's
+    sign-in renews them (basic does each time; an identity provider can
+    refuse). Closing the tabs only stops that; the cookies keep signing this
+    browser in until they expire. Only signing out clears them here.
 - **Browsers.** Tested in Chrome only; Safari and Firefox are untested. The
   page's own policy allows same-origin WebSockets (`connect-src 'self'`);
   WebKit fixed that case in 2022 (bug 235873), and older Safari blocks them.
