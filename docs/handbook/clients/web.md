@@ -143,6 +143,14 @@ which has no data to label.
 
 ![Deleting a memory entry on a phone: Cindl warns that Hermes keeps no backup](/screenshots/web/memory-delete-phone-dark.png)
 
+![Talk on a tablet in the dark theme: day-aware message times, a reply waiting on the owner, and Latest noting that something below needs you](/screenshots/web/talk-tablet-dark.png)
+
+![The conversation list on a phone: a sheet with its own title and close button](/screenshots/web/history-phone-light.png)
+
+![The command palette in the dark theme: the theme in use marked Current, and its keys along the foot](/screenshots/web/palette-desktop-dark.png)
+
+![Agent, Runtime on a phone in the dark theme: the section strip fades where more sections are, and each capability's state sits above its reason](/screenshots/web/agent-runtime-phone-dark.png)
+
 ![The desktop app's sign-in screen, which asks only for the Hermes address](/screenshots/web/desktop-sign-in-light.png)
 
 ## Build
@@ -351,6 +359,9 @@ in use is marked "Current". The shortcuts list has a close button as well as
   the clock and older ones by the day. A document says when it was read in
   words ("Read today at 9:55 PM"); a step's status reads as its row does
   ("Done", "Failed").
+- **Scrollbars** are thin and in the theme's colours, so Windows, Linux and
+  the desktop app no longer draw wide grey bars with arrow buttons beside the
+  conversation.
 - **Lists and tabs.** Rows that open something end in a chevron and are
   divided like every other list; "All skills" leads back with one. On a
   phone a section strip that does not fit (Agent's five) fades at its edge
