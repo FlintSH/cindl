@@ -182,8 +182,9 @@ same-origin requests, and it keeps nothing in browser storage.
   session it was asked for, not one signed in since, and the same holds for a
   401 to an operation or to the memory probe. Any other failure waits
   for the next check, and native mode never asks. The check is a request like any other, so it also lets the gate renew
-  an expired access cookie: while a tab is open the session cannot lapse, and
-  closing the tabs leaves the cookies valid until they expire.
+  an expired access cookie: an open tab keeps the session in use for as long
+  as the sign-in renews it (basic does each time; an identity provider can
+  refuse), and closing the tabs leaves the cookies valid until they expire.
 - `auth.signOut` posts `POST /auth/logout` (`routes.py:496-512`). Hermes clears
   the cookies, which only it can do since they are HttpOnly, and answers a 302
   to `/login`, an opaque redirect to a browser under `redirect: 'manual'`.
