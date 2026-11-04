@@ -2236,3 +2236,61 @@ describe('direct client: a sign-out before a native sign-in opens the browser', 
     expect(deleted).not.toContain(nativeTokensKey(b.origin))
   })
 })
+
+describe('direct client: a sign-out whose own delete is slow', () => {
+  it('signs out a sign-in in flight before waiting on that delete, so it never stores', async () => {
+    const base = memorySecrets()
+    const state: {
+      holdKey?: string
+      deleteArrived?: () => void
+      releaseDelete?: () => void
+      setsFor: string[]
+    } = { setsFor: [] }
+    const deleteArrived = new Promise<void>((resolve) => (state.deleteArrived = resolve))
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...base,
+      set: (key, value) => {
+        state.setsFor.push(key)
+        return base.set(key, value)
+      },
+      delete: async (key) => {
+        if (key === state.holdKey) {
+          state.deleteArrived?.()
+          await new Promise<void>((resolve) => (state.releaseDelete = resolve))
+        }
+        return base.delete(key)
+      },
+    }
+    // B's browser leg waits until the test lets it go.
+    const leg: { hold: boolean; arrived?: () => void; release?: () => void } = {
+      hold: false,
+    }
+    const legArrived = new Promise<void>((resolve) => (leg.arrived = resolve))
+    const authorizer = {
+      async authorize(buildUrl: (redirectUri: string) => string) {
+        if (leg.hold) {
+          leg.arrived?.()
+          await new Promise<void>((resolve) => (leg.release = resolve))
+        }
+        const response = await fetch(buildUrl('http://127.0.0.1:53682/callback'), {
+          redirect: 'manual',
+        })
+        return response.headers.get('location') ?? ''
+      },
+    }
+    const h = await harness({ secrets, deps: { authorizer } })
+    const b = await fakeHermes()
+    leg.hold = true
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await legArrived
+    // A's own delete is slow; B's sign-in finishes its browser leg meanwhile.
+    state.holdKey = nativeTokensKey(h.fake.origin)
+    const signingOut = h.client.call('auth.signOut', {})
+    await deleteArrived
+    leg.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    state.releaseDelete?.()
+    await signingOut
+    expect(state.setsFor).not.toContain(nativeTokensKey(b.origin))
+  })
+})
