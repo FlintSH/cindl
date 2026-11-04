@@ -1117,9 +1117,9 @@ test.describe('Cindl Demo (demo flavour)', () => {
   test('shows the conversation panel with its three tools at the default window size', async () => {
     const { page } = launched as Launched
     await expect(page.getByRole('note')).toHaveText(SYNTHETIC_DEMO_NOTICE)
-    // The default window (1280x820, the menu bar inside it) is just wide
-    // enough for the column.
-    expect((await viewport(page)).width).toBe(1280)
+    // The default window (1360x820, the menu bar inside it) leaves the page at
+    // least 1280px wide, the column's breakpoint, even after a window frame.
+    expect((await viewport(page)).width).toBeGreaterThanOrEqual(1280)
     const margin = marginOf(page, true)
     await expect(margin).toBeVisible()
     await expect(
