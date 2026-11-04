@@ -86,7 +86,7 @@ describe('pinned fetch', () => {
       'https://hermes.example.test:8443/api/status',
       'not a url',
     ])
-      await expect(fetch(url, {})).rejects.toThrow(TypeError)
+      await expect(fetch(url, {})).rejects.toMatchObject({ code: 'invalid' })
     expect(inner).toHaveBeenCalledTimes(1)
   })
 })

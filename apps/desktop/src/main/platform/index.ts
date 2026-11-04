@@ -5,7 +5,7 @@ import {
   type KeyValueStore,
   type WebSocketFactory,
 } from '@cindl/client-core'
-import type { CindlEvent } from '@cindl/contracts'
+import { CindlError, type CindlEvent } from '@cindl/contracts'
 import {
   restEndpoints,
   webCryptoProvider,
@@ -66,6 +66,8 @@ export function keyringRefusedNotice(reason: string | undefined): CindlEvent {
 /**
  * A fetch that only reaches the pinned Hermes origin: main never sends a
  * token, code or cookie anywhere else, whatever an URL from elsewhere says.
+ * A refusal is a CindlError, so the client shows it as this device's answer
+ * rather than as Hermes not answering.
  */
 export function pinnedFetch(
   fetch: FetchLike,
@@ -76,12 +78,17 @@ export function pinnedFetch(
     try {
       target = new URL(url)
     } catch {
-      return Promise.reject(new TypeError('Refused a request with an invalid URL'))
+      return Promise.reject(
+        new CindlError('invalid', 'Refused a request with an invalid URL'),
+      )
     }
     const allowed = origin()
     if (allowed === undefined || target.origin !== allowed)
       return Promise.reject(
-        new TypeError('Refused a request outside the Hermes origin you confirmed'),
+        new CindlError(
+          'invalid',
+          'Refused a request outside the Hermes origin you confirmed',
+        ),
       )
     return fetch(url, init)
   }
