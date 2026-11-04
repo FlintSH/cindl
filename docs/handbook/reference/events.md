@@ -69,6 +69,12 @@ this device's notices; a link that names no server, or the same one, changes
 nothing else. Clients show it in the presence line, and a `demo: true` link
 always shows the synthetic-data banner.
 
+When the direct client switches to another origin, it names that origin on
+the link before it sends anything from it, such as the prompts this device
+recovers from its outbox there, so the reducer keeps them. That link says
+`connecting`, or `offline` when a `stop()` during the sign-in keeps it from
+connecting. The origin it leaves does not show `offline` first.
+
 Before it connects, the direct client asks Hermes what it is
 (`GET /api/status`) and whether this device is signed in. When Hermes does not
 answer either (no network, a timeout, a 5xx while it restarts, rate limiting,

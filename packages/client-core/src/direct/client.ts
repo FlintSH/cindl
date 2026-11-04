@@ -471,6 +471,15 @@ class DirectHermesClient implements DirectClient {
   }
 
   stop(): void {
+    this.#halt()
+    const phase = this.#link.phase
+    if (phase === 'online' || phase === 'connecting' || phase === 'reconnecting')
+      this.#setLink('offline')
+    this.#refreshCapabilities()
+  }
+
+  /** What stop() does, without reporting it on the link or in capabilities. */
+  #halt(): void {
     this.#started = false
     this.#run++
     this.#deps.clock.clearTimeout(this.#discoveryRetry)
@@ -482,10 +491,6 @@ class DirectHermesClient implements DirectClient {
     this.#handshake = undefined
     this.#deps.clock.clearTimeout(this.#listRefresh)
     this.#deps.clock.clearTimeout(this.#requestSync)
-    const phase = this.#link.phase
-    if (phase === 'online' || phase === 'connecting' || phase === 'reconnecting')
-      this.#setLink('offline')
-    this.#refreshCapabilities()
   }
 
   // --- setup -------------------------------------------------------------------
@@ -551,30 +556,44 @@ class DirectHermesClient implements DirectClient {
     this.#install(this.#parts(origin))
   }
 
-  /** Leave the current origin and take up `parts`: nothing of the old session survives. */
+  /**
+   * Leave the current origin and take up `parts`, as a sign-in to it begins:
+   * nothing of the old session survives.
+   */
   async #switchTo(parts: OriginParts): Promise<void> {
-    this.#leaveFor(parts)
+    this.#leaveFor(parts, 'connecting')
     await this.#loadDevice()
   }
 
   /**
    * The same switch, with the new origin's device state already read: it
    * awaits nothing, so no sign-out or stop() can land halfway through it.
+   * `phase` is the new origin's first link: connecting when a connect
+   * follows, offline when a stop() keeps it from connecting.
    */
-  #switchToRead(parts: OriginParts, device: DeviceState): void {
-    this.#leaveFor(parts)
+  #switchToRead(
+    parts: OriginParts,
+    device: DeviceState,
+    phase: 'connecting' | 'offline',
+  ): void {
+    this.#leaveFor(parts, phase)
     this.#deviceLoaded = true
     if (this.#takeDevice(device)) void parts.storage.saveOutbox(this.#prompts.values())
   }
 
-  #leaveFor(parts: OriginParts): void {
+  #leaveFor(parts: OriginParts, phase: 'connecting' | 'offline'): void {
     // Retire the sign-in left behind first: a refresh it still has in flight
     // must never write the old origin's tokens back once the platform deleted
     // them, nor touch a record for the same origin signed in again.
     if (this.#native !== parts.native) this.#native?.retire()
-    this.stop()
+    this.#halt()
     this.#reset()
     this.#install(parts)
+    // Name the new origin on the link before any of its device state: the
+    // store forgets everything from another origin when a link first names a
+    // new one, so events sent before it (recovered prompts) would be lost.
+    this.#setLink(phase)
+    this.#refreshCapabilities()
   }
 
   async #loadDevice(): Promise<void> {
@@ -1928,7 +1947,7 @@ class DirectHermesClient implements DirectClient {
       // stop() came in meanwhile: the sign-in stands, but nothing connects
       // until start(), which finds it again.
       const stopped = run !== this.#run
-      if (device) this.#switchToRead(parts, device)
+      if (device) this.#switchToRead(parts, device, stopped ? 'offline' : 'connecting')
       this.#status = status
       if (stopped) return this.#link
       this.#started = true

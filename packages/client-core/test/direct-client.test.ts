@@ -93,6 +93,36 @@ const approve = (h: Harness, requestId: string, choice: 'once' | 'deny') =>
     answer: { kind: 'approval', choice },
   })
 
+/** A prompt this device was sending to `origin` when the app last stopped; returns its outbox key. */
+async function seedSendingPrompt(h: Harness, origin: string): Promise<string> {
+  const key = `cindl.direct.v1|${origin}|outbox`
+  await h.kv.set(
+    key,
+    JSON.stringify([
+      {
+        clientId: 'p-was-sending',
+        conversationId: 'c-fixture',
+        text: 'Send the report (fixture)',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        state: 'sending',
+      },
+    ]),
+  )
+  return key
+}
+
+/** The links the client reports from now on, as `phase@origin`. */
+function linkLog(h: Harness): string[] {
+  const links: string[] = []
+  h.client.subscribe((event) => {
+    if (event.type === 'link.changed')
+      links.push(`${event.link.phase}@${event.link.server?.origin ?? 'none'}`)
+  })
+  // Not the link a new subscriber is told at once.
+  links.length = 0
+  return links
+}
+
 describe('direct client: start', () => {
   it('tells its subscriber the link and capabilities when no Hermes is configured', async () => {
     const unreachable = () => Promise.reject(new Error('not used (fixture)'))
@@ -158,6 +188,28 @@ describe('direct client: signing in to another origin', () => {
         h.store.getState().link.server?.origin === other.origin,
     )
     await h.waitFor(() => h.fake.gateway.connections.size === 0)
+  })
+
+  it("keeps B's recovered prompts when a sign-in without a session switches to B", async () => {
+    const h = await harness({ signIn: false })
+    const b = await fakeHermes()
+    const outboxKey = await seedSendingPrompt(h, b.origin)
+    const links = linkLog(h)
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === b.origin,
+    )
+    // The link named B before B's prompts came, so the store kept them.
+    expect(entry(h.store.getState().prompts, 'p-was-sending')?.state).toBe('uncertain')
+    expect(JSON.parse(h.kv.map.get(outboxKey) ?? '[]')).toMatchObject([
+      { clientId: 'p-was-sending', state: 'uncertain' },
+    ])
+    expect(links[0]).toBe(`connecting@${b.origin}`)
+    expect(new Set(links)).toEqual(
+      new Set([`connecting@${b.origin}`, `online@${b.origin}`]),
+    )
   })
 
   it('ends a failed first sign-in signed out with the error, not connecting', async () => {
@@ -2348,42 +2400,58 @@ describe('direct client: the switch after a sign-in with a working session', () 
     expect(reads.sort()).toEqual(['accepted', 'epoch', 'main', 'outbox'])
   })
 
-  it("saves B's outbox as the switch recovered it", async () => {
+  it("saves B's outbox as the switch recovered it, and the store keeps it", async () => {
     const h = await harness()
     const b = await fakeHermes()
-    const outboxKey = `cindl.direct.v1|${b.origin}|outbox`
-    // A prompt this device was sending to B when the app last stopped.
-    await h.kv.set(
-      outboxKey,
-      JSON.stringify([
-        {
-          clientId: 'p-was-sending',
-          conversationId: 'c-fixture',
-          text: 'Send the report (fixture)',
-          createdAt: '2026-01-01T00:00:00.000Z',
-          state: 'sending',
-        },
-      ]),
-    )
+    const outboxKey = await seedSendingPrompt(h, b.origin)
+    const links = linkLog(h)
     await h.client.call('auth.signIn', { origin: b.origin })
     await h.waitFor(
       () =>
         (JSON.parse(h.kv.map.get(outboxKey) ?? '[]') as Array<{ state?: string }>)[0]
           ?.state === 'uncertain',
     )
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === b.origin,
+    )
+    // The link named B before B's prompts came, so the store kept them.
+    expect(entry(h.store.getState().prompts, 'p-was-sending')?.state).toBe('uncertain')
+    // The sign-in succeeded, so B is connecting: never signed out or offline,
+    // and A does not show offline on the way.
+    expect(links[0]).toBe(`connecting@${b.origin}`)
+    expect(new Set(links)).toEqual(
+      new Set([`connecting@${b.origin}`, `online@${b.origin}`]),
+    )
   })
 
   it('does not connect after a stop() there; the next start finds the sign-in', async () => {
     const h = await harness()
     const b = await fakeHermes()
+    const a = await conversation(h)
     const read = holdDeviceRead(h, b.origin)
     const signingIn = h.client.call('auth.signIn', { origin: b.origin })
     await read.arrived
     h.client.stop()
     read.release()
-    await signingIn
+    expect((await signingIn).server?.origin).toBe(b.origin)
     await pause(100)
-    expect(h.store.getState().link.phase).not.toBe('online')
+    // Nothing connects, and the link says so for B, the origin it now has.
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'offline',
+      server: { origin: b.origin },
+    })
+    expect(entry(h.store.getState().conversations, a.id)).toBeUndefined()
+    // The store holds what a renderer subscribing now is told: nothing of A.
+    const late = createStore({
+      phase: 'connecting',
+      since: '2026-01-01T00:00:00.000Z',
+      connectionEpoch: 0,
+    })
+    h.client.subscribe((event) => late.dispatch(event))
+    for (const key of ['link', 'capabilities', 'conversations', 'prompts'] as const)
+      expect(h.store.getState()[key]).toEqual(late.getState()[key])
     expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
     await h.client.start()
     await h.waitFor(

@@ -148,7 +148,8 @@ bearer to public endpoints.
   the sign-in as above: the client stays on the origin it had, signed out,
   the sign-out deletes the tokens the sign-in stored, and Android's wrapper
   saves no new origin. A `stop()` during it lets the sign-in stand but keeps
-  it from connecting; the next `start()` finds it, on the new origin.
+  it from connecting: the link names the new origin, `offline`, and the next
+  `start()` finds the sign-in there.
 
 ### Web sign-in (cookie)
 
