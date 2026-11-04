@@ -65,11 +65,11 @@ pnpm test:e2e                      # web flow tests on the demo build (Playwrigh
 ```
 
 CI (`.github/workflows/ci.yml`, `docs.yml`) runs these gates and the web
-end-to-end suite on GitHub-hosted runners, and `desktop.yml` packages and
-smoke-tests the desktop app (its build runs the output gates); see
+end-to-end suite on GitHub-hosted runners, `desktop.yml` packages and
+smoke-tests the desktop app (its build runs the output gates), and
+`android.yml` builds both test APKs, checks each one
+(`apps/android/scripts/check-apk.ts`) and runs the emulator steps; see
 [`docs/handbook/development/quality-gates.md`](docs/handbook/development/quality-gates.md).
-Not built yet (do not claim them): Android CI on `main`, which lands with its
-stream (PR #4), and the output gate for Android builds.
 
 pnpm refuses dependency install scripts unless listed in `allowBuilds`
 (`pnpm-workspace.yaml`) and refuses releases younger than its minimum release

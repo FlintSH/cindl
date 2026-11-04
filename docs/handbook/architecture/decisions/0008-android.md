@@ -1,6 +1,6 @@
 # 0008 Native Android with Expo / React Native
 
-**Status:** Accepted (Google's Android SDK licence approved for Cindl APK builds and emulator tests on existing GitHub build runners only; test APKs built in CI on PR #4, none on `main` yet). Real builds run the direct client with one PKCE implementation, the adapter's `NativeAuth`, and keep tokens in the Keystore; the agent's screen paints through a local Expo module (`apps/android/modules/cindl-screen`). The SDK package list is unchanged. Tested in Node against the fake Hermes. The Kotlin modules can only be compiled and run on the GitHub runners, and `cindl-screen` has not been compiled yet: no CI run has built this code. No device run has happened.
+**Status:** Accepted (Google's Android SDK licence approved for Cindl APK builds and emulator tests on existing GitHub build runners only; `main` builds both test APKs, checks them and runs the emulator steps whenever Android or shared code changes, for example run 41791125629). Real builds run the direct client with one PKCE implementation, the adapter's `NativeAuth`, and keep tokens in the Keystore; the agent's screen paints through a local Expo module (`apps/android/modules/cindl-screen`). The SDK package list is unchanged. Tested in Node against the fake Hermes, and on the GitHub runners, where both Kotlin modules are compiled into each test APK (`apps/android/scripts/check-apk.ts` checks they are) and the emulator runs the demo and the sign-in flows against the fake Hermes. No physical device run has happened.
 
 **Decision.** The Android app is React Native on Expo SDK 58 (React Native
 0.88, React 19.3) using native components, not a WebView. It shares
@@ -23,6 +23,6 @@ licence for Cindl APK builds and emulator tests on GitHub-hosted build runners
   key.
 
 Approval is not a build result: an APK or emulator run counts only with its CI
-run and artifact as evidence. Test APKs have been built in CI on PR #4; none
-is on `main` yet.
+run and artifact as evidence. Both test APKs are built on `main` whenever
+Android or shared code changes (run 41791125629 is one), as run artifacts.
 JavaScript bundling and unit tests run anywhere.
