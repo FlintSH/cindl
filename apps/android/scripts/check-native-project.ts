@@ -19,7 +19,11 @@ import {
 import { DATA_EXTRACTION_RULES } from '../plugins/withNoBackups.ts'
 import { SDK_DOWNLOAD_PROPERTY } from '../plugins/withNoSdkDownloads.ts'
 import { TOOLCHAIN_MARKER } from '../plugins/withAndroidToolchain.ts'
-import { TEST_SIGNING_MARKER } from '../plugins/withTestSigning.ts'
+import {
+  RELEASE_SIGNING_CONFIG,
+  RELEASE_SIGNING_MARKER,
+  TEST_SIGNING_MARKER,
+} from '../plugins/withTestSigning.ts'
 import { CMAKE_VERSION, NDK_VERSION } from '../sdk/android-sdk.ts'
 
 const [root, flavour] = process.argv.slice(2)
@@ -54,13 +58,10 @@ expect(
 const appGradle = read('app/build.gradle')
 expect(
   appGradle.includes(TEST_SIGNING_MARKER) &&
-    appGradle
-      .slice(appGradle.indexOf('release {'))
-      .includes(
-        "signingConfig(System.getenv('CINDL_TEST_KEYSTORE') ? signingConfigs.cindlTest : null)",
-      ) &&
+    appGradle.includes(RELEASE_SIGNING_MARKER) &&
+    appGradle.slice(appGradle.indexOf('release {')).includes(RELEASE_SIGNING_CONFIG) &&
     !/release \{[^}]*signingConfig signingConfigs\.debug/.test(appGradle),
-  'release builds could be signed with the public debug key',
+  'release builds could be signed with the public debug key, or not with the CI test or release key',
 )
 
 const manifest = read('app/src/main/AndroidManifest.xml')
@@ -117,5 +118,5 @@ if (problems.length) {
   process.exit(1)
 }
 console.log(
-  `OK: ${flavour} native project (no SDK downloads, pinned NDK and CMake, CI-key signing, INTERNET only, backups off)`,
+  `OK: ${flavour} native project (no SDK downloads, pinned NDK and CMake, CI-key or release-key signing, INTERNET only, backups off)`,
 )

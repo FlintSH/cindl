@@ -1,8 +1,12 @@
 /// <reference types="node" />
+import { randomBytes } from 'node:crypto'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { DEMO_PRODUCT_NAME } from '@cindl/contracts'
 import type { ExpoConfig } from 'expo/config'
-import { afterEach, describe, expect, it } from 'vitest'
-import appConfig from '../app.config.ts'
+import { afterAll, afterEach, describe, expect, it } from 'vitest'
+import appConfig, { versionCodeOf } from '../app.config.ts'
 import {
   DEBUG_NETWORK_SECURITY_CONFIG,
   RELEASE_NETWORK_SECURITY_CONFIG,
@@ -12,7 +16,14 @@ import {
   SDK_DOWNLOAD_PROPERTY,
 } from '../plugins/withNoSdkDownloads.ts'
 import { pinToolchain, TOOLCHAIN_MARKER } from '../plugins/withAndroidToolchain.ts'
-import { TEST_KEY_ALIAS, useTestSigning } from '../plugins/withTestSigning.ts'
+import {
+  RELEASE_SECRETS,
+  RELEASE_SIGNING_CONFIG,
+  RELEASE_SIGNING_MARKER,
+  signingProblem,
+  TEST_KEY_ALIAS,
+  useTestSigning,
+} from '../plugins/withTestSigning.ts'
 import { CMAKE_VERSION, NDK_VERSION } from '../sdk/android-sdk.ts'
 
 const build = (demo: boolean): ExpoConfig => {
@@ -149,9 +160,7 @@ describe('test signing', () => {
   it('signs release builds only with the per-run CI key, never the public debug key', () => {
     const signed = useTestSigning(APP_BUILD_GRADLE)
     const release = signed.slice(signed.indexOf('release {'))
-    expect(release).toContain(
-      "signingConfig(System.getenv('CINDL_TEST_KEYSTORE') ? signingConfigs.cindlTest : null)",
-    )
+    expect(release).toContain(RELEASE_SIGNING_CONFIG)
     expect(release).not.toContain('signingConfig signingConfigs.debug')
     expect(signed).toContain(`keyAlias '${TEST_KEY_ALIAS}'`)
     expect(signed).toContain("storeType 'PKCS12'")
@@ -163,5 +172,96 @@ describe('test signing', () => {
     expect(() =>
       useTestSigning(APP_BUILD_GRADLE.replace('release {', 'staging {')),
     ).toThrow(/expected one/)
+  })
+})
+
+describe('the release version', () => {
+  it('is 1.0.0, with a versionCode that grows with every release (major, minor, patch)', () => {
+    expect(build(false).version).toBe('1.0.0')
+    expect(build(false).android?.versionCode).toBe(10_000)
+    expect(build(true).android?.versionCode).toBe(10_000)
+    expect(versionCodeOf('1.0.1')).toBe(10_001)
+    expect(versionCodeOf('1.1.0')).toBe(10_100)
+    expect(versionCodeOf('2.0.0')).toBe(20_000)
+    expect(() => versionCodeOf('1.0')).toThrow(/major\.minor\.patch/)
+    expect(() => versionCodeOf('1.100.0')).toThrow(/over 99/)
+  })
+})
+
+describe('release signing', () => {
+  it('signs a release with the release key from the environment only, PKCS12, and fails closed in Gradle', () => {
+    const signed = useTestSigning(APP_BUILD_GRADLE)
+    const start = signed.indexOf('cindlRelease {')
+    const block = signed.slice(start, signed.indexOf('debug {', start))
+    expect(signed).toContain(RELEASE_SIGNING_MARKER)
+    expect(block).toContain("def keystore = System.getenv('CINDL_RELEASE_KEYSTORE')")
+    expect(block).toContain("storeType 'PKCS12'")
+    expect(block).toContain(
+      "storePassword System.getenv('CINDL_ANDROID_KEYSTORE_PASSWORD')",
+    )
+    expect(block).toContain("keyAlias System.getenv('CINDL_ANDROID_KEY_ALIAS')")
+    expect(block).toContain("keyPassword System.getenv('CINDL_ANDROID_KEY_PASSWORD')")
+    for (const name of RELEASE_SECRETS) expect(block).toContain(`'${name}'`)
+    // Never a Gradle property (-P on a command line) for a signing value.
+    expect(block).not.toMatch(/findProperty|hasProperty|gradleProperty|project\./)
+    // The same three refusals as at prebuild, naming variables only.
+    expect(block).toContain("if (System.getenv('CINDL_TEST_KEYSTORE'))")
+    expect(block).toContain("if (System.getenv('EXPO_PUBLIC_CINDL_DEMO') == '1')")
+    expect(block).toContain(
+      'throw new GradleException("Cindl signing: CINDL_RELEASE_KEYSTORE is set but not ${missing.join(\', \')}.")',
+    )
+    expect(block.match(/throw new GradleException/g)).toHaveLength(3)
+    // The release key first, else the test key, else unsigned.
+    expect(signed.slice(signed.indexOf('release {'))).toContain(RELEASE_SIGNING_CONFIG)
+  })
+
+  describe('the environment a build may sign with, checked at prebuild', () => {
+    // A throwaway keystore file made here, as CI makes one for each run (CI
+    // with keytool; nothing reads this one before Gradle signs with it).
+    const dir = mkdtempSync(join(tmpdir(), 'cindl-signing-'))
+    afterAll(() => rmSync(dir, { recursive: true, force: true }))
+    const keystore = join(dir, 'cindl-release.p12')
+    writeFileSync(keystore, randomBytes(256), { mode: 0o600 })
+    const secrets = {
+      CINDL_ANDROID_KEYSTORE_PASSWORD: 'store-password-fixture',
+      CINDL_ANDROID_KEY_ALIAS: 'alias-fixture',
+      CINDL_ANDROID_KEY_PASSWORD: 'key-password-fixture',
+    }
+    const release = { CINDL_RELEASE_KEYSTORE: keystore, ...secrets }
+
+    it('lets through a release, a test build and an unsigned one', () => {
+      expect(signingProblem({})).toBeUndefined()
+      expect(
+        signingProblem({
+          CINDL_TEST_KEYSTORE: keystore,
+          CINDL_TEST_KEYSTORE_PASSWORD: 'x',
+        }),
+      ).toBeUndefined()
+      expect(signingProblem(release)).toBeUndefined()
+      expect(signingProblem({ ...release, EXPO_PUBLIC_CINDL_DEMO: '' })).toBeUndefined()
+    })
+
+    it('refuses the release key without any of its secrets, naming it and no value', () => {
+      for (const name of RELEASE_SECRETS)
+        for (const gone of [undefined, '']) {
+          const problem = signingProblem({ ...release, [name]: gone })
+          expect(problem).toBe(
+            `Cindl signing: CINDL_RELEASE_KEYSTORE is set but not ${name}.`,
+          )
+          for (const value of Object.values(secrets)) expect(problem).not.toContain(value)
+        }
+      expect(signingProblem({ CINDL_RELEASE_KEYSTORE: keystore })).toBe(
+        `Cindl signing: CINDL_RELEASE_KEYSTORE is set but not ${RELEASE_SECRETS.join(', ')}.`,
+      )
+    })
+
+    it('refuses both keys at once, and a demo build with the release key', () => {
+      expect(signingProblem({ ...release, CINDL_TEST_KEYSTORE: keystore })).toMatch(
+        /both set; a build takes one key/,
+      )
+      expect(signingProblem({ ...release, EXPO_PUBLIC_CINDL_DEMO: '1' })).toMatch(
+        /demo build .* never takes the release key/,
+      )
+    })
   })
 })

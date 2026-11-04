@@ -1,13 +1,16 @@
 /**
- * Gate and report for a CI test APK, run on the GitHub-hosted runner with the
- * pinned build-tools (aapt2, apksigner):
+ * Gate and report for a CI test APK or the release APK, run on the
+ * GitHub-hosted runner with the pinned build-tools (aapt2, apksigner):
  *
- *   node scripts/check-apk.ts <demo|production> <apk> <out-dir>
+ *   node scripts/check-apk.ts <demo|production|release> <apk> <out-dir>
  *
- * Fails unless the APK is Cindl's (right label per flavour, not debuggable,
- * both test ABIs), asks for INTERNET only, keeps backups off, allows cleartext
- * only to the device itself, carries the licence notices, is signed with a
- * throwaway CI key (never the public React Native debug key), its
+ * `release` checks a production APK signed with the owner's release key: its
+ * certificate SHA-256 must be the committed RELEASE_CERT_SHA256 (apk-signing.ts),
+ * never a value from the environment. Fails unless the APK is Cindl's (right label
+ * per flavour, not debuggable, both test ABIs), asks for INTERNET only, keeps
+ * backups off, allows cleartext only to the device itself, carries the
+ * licence notices, is signed with the throwaway CI key or, in release mode,
+ * the release key (never the public React Native debug key), its
  * JavaScript bundle passes the fixture gate for its flavour (ADR 0011) and
  * both local Kotlin modules are compiled into it.
  * Writes apk-report.json and the extracted bundle to <out-dir>.
@@ -18,13 +21,10 @@ import { mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
 import { basename, join } from 'node:path'
 import { DEMO_PRODUCT_NAME } from '@cindl/contracts'
 import { BUILD_PACKAGES, TEST_APK_ABIS } from '../sdk/android-sdk.ts'
+import { readSigning, signingProblems } from './apk-signing.ts'
 import { KOTLIN_MODULES } from './kotlin-modules.ts'
 
 const PACKAGE = 'dev.fl1nt.cindl'
-/** Certificate of the debug.keystore that React Native's template ships to everyone. */
-export const PUBLIC_DEBUG_CERT_SHA256 =
-  'fac61745dc0903786fb9ede62a962b399f7348f0bb6f899b8332667591033b9c'
-export const TEST_CERT_NAME = 'Cindl CI test build'
 const ALLOWED_PERMISSIONS = [
   'android.permission.INTERNET',
   // AndroidX core declares this app-private, signature-level permission for its own receivers.
@@ -41,11 +41,13 @@ const NOTICES = [
   'assets/licenses/NATIVE-NOTICES.txt',
 ]
 
-const [flavour, apk, outDir] = process.argv.slice(2)
-if ((flavour !== 'demo' && flavour !== 'production') || !apk || !outDir) {
-  console.error('Usage: check-apk.ts <demo|production> <apk> <out-dir>')
+const [mode, apk, outDir] = process.argv.slice(2)
+if ((mode !== 'demo' && mode !== 'production' && mode !== 'release') || !apk || !outDir) {
+  console.error('Usage: check-apk.ts <demo|production|release> <apk> <out-dir>')
   process.exit(2)
 }
+// A release is the production flavour, never the demo (ADR 0011).
+const flavour = mode === 'release' ? 'production' : mode
 
 const problems: string[] = []
 const check = (ok: boolean, message: string) => {
@@ -123,38 +125,15 @@ check(
   'cleartext to a development host is allowed',
 )
 
-// apksigner's wording varies by version ("Signer #1 …", "Signer (minSdkVersion=…) …") and
-// some lines go to stderr, so read both streams and keep its lines in the report.
+// Both of apksigner's streams: its wording varies by version, and some lines go to stderr.
 const verify = spawnSync(
   join(toolsDir, 'apksigner'),
   ['verify', '--verbose', '--print-certs', apk],
   { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 },
 )
-const signing = `${verify.stdout}\n${verify.stderr}`
-const signingLines = signing
-  .split('\n')
-  .map((line) => line.trim())
-  .filter((line) =>
-    /^(Verifies|Verified|Number of signers|Signer|DOES NOT VERIFY|ERROR)/.test(line),
-  )
+const signing = readSigning(`${verify.stdout}\n${verify.stderr}`)
 check(verify.status === 0, `apksigner verify failed (exit ${verify.status ?? 'none'})`)
-const signer = /Signer\b[^\n]*?certificate DN: (.+)/.exec(signing)?.[1]?.trim()
-const certSha256 = /Signer\b[^\n]*?certificate SHA-256 digest: ([0-9a-f]+)/.exec(
-  signing,
-)?.[1]
-check(
-  /Verified using v2 scheme \(APK Signature Scheme v2\): true/.test(signing),
-  'no v2 signature',
-)
-check(certSha256 !== undefined, 'no signing certificate')
-check(
-  certSha256 !== PUBLIC_DEBUG_CERT_SHA256,
-  "signed with React Native's public debug key",
-)
-check(
-  signer?.includes(TEST_CERT_NAME) === true,
-  `signer is "${signer ?? ''}", expected the CI test key`,
-)
+problems.push(...signingProblems(signing, mode === 'release' ? 'release' : 'test'))
 
 const entries = execFileSync('unzip', ['-Z1', apk], {
   encoding: 'utf8',
@@ -199,6 +178,7 @@ try {
 }
 
 const report = {
+  mode,
   flavour,
   file: basename(apk),
   bytes: statSync(apk).size,
@@ -212,9 +192,9 @@ const report = {
   abis,
   permissions,
   networkSecurityConfig: configFile,
-  signer,
-  signerSha256: certSha256,
-  signing: signingLines,
+  signer: signing.signer,
+  signerSha256: signing.certSha256,
+  signing: signing.lines,
   bundleGate,
   kotlinModules,
   refersToWebView,

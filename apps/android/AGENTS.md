@@ -23,7 +23,9 @@ Native Android app on Expo SDK 58 / React Native 0.88 (ADR 0008). Read
   `sdk/android-sdk.ts` and checked by `scripts/android-sdk.ts`; the generated
   project keeps `android.builder.sdkDownload=false` (fail closed). Test APKs
   are signed with a throwaway per-run key, never the public debug key or a
-  store key.
+  store key; only the release workflow, on a `v*` tag, signs a production APK
+  with the owner's release key (`plugins/withTestSigning.ts` cindlRelease,
+  `scripts/release-apk.sh`). Signing values come from the environment only.
 - APKs carry Cindl's licence and every third-party notice in
   `assets/licenses/`: npm packages (`scripts/third-party-notices.ts`) and the
   native libraries Gradle adds (`scripts/native-notices.ts`, which keeps the
