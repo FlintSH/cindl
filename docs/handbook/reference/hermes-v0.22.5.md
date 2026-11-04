@@ -128,16 +128,21 @@ bearer to public endpoints.
   cancelled through the authorizer's `cancel()`, so the sign-in's wait ends
   at once: Android's loopback listener closes, and the desktop's session
   `stop()` cancels its own listener. A leg that is still binding its
-  listener fails when it builds the page's address, and closes it. The PKCE
-  verifier and state live only in that sign-in's memory and go with it;
-  Hermes's pending authorization expires on its own. The sign-in fails with
-  `unavailable` ("Sign-in was stopped before it finished. Nothing was
-  saved."), or with "Signed out while signing in." for a sign-out, and
-  leaves the link as the `stop()` set it. Once the browser has answered,
-  nothing is withdrawn. One window is still the platform's: Android's
-  authorizer writes its attempt marker between building the page's address
-  and opening it, and a `cancel()` during that write still opens the Custom
-  Tab, its listener already closed (`apps/android/src/auth/loopback.ts`).
+  listener opens no page and closes the listener: on the desktop it fails
+  when it builds the page's address, and on Android as soon as the listener
+  has started, before any address is built. Android's authorizer checks
+  again after writing its attempt marker, so a `cancel()` during that write
+  opens no page either (`apps/android/src/auth/loopback.ts`). The PKCE
+  verifier lives only in that sign-in's memory and goes with it; the state
+  also stays in the finished Kotlin listener until the next attempt
+  replaces it, and nothing reads it from there. Hermes's pending
+  authorization expires on its own. The sign-in fails with `unavailable`
+  ("Sign-in was stopped before it finished. Nothing was saved."), or with
+  "Signed out while signing in." for a sign-out, and leaves the link as the
+  `stop()` set it. Once the browser has answered and the leg has settled,
+  nothing is withdrawn; on Android, a `stop()` after the callback reached
+  the listener but before the authorizer finished cleaning up still
+  withdraws it, and nothing is saved.
 - A switch that succeeds retires the previous origin's sign-in before the
   new one is installed (`NativeAuth.retire`). Work it still has in flight, a
   token refresh above all, can no longer store, return or delete tokens, and
