@@ -54,7 +54,7 @@ async function renderShell(hash = '#/talk/demo-main', { holdAcquire = false } = 
   const calls: string[] = []
   let land: (() => void) | undefined
   const api: CindlClientApi = {
-    call: ((name: never, args: never) => {
+    call: (name: never, args: never) => {
       calls.push(name)
       if (holdAcquire && name === 'display.acquireControl')
         return new Promise((resolve, reject) => {
@@ -63,7 +63,7 @@ async function renderShell(hash = '#/talk/demo-main', { holdAcquire = false } = 
           }
         })
       return scenario.call(name, args)
-    }) as CindlClientApi['call'],
+    },
     subscribe: (listener) => {
       listeners.add(listener)
       const stop = scenario.subscribe(listener)
@@ -309,7 +309,9 @@ describe('the working margin, as the conversation’s panel', () => {
   it('choosing the conversation already shown opens nothing; choosing another focuses its switcher', async () => {
     // jsdom has no <dialog>: open and close it as a browser would.
     const proto = HTMLDialogElement.prototype
-    const { showModal, close } = proto
+    // Saved as values: jsdom may not have them at all.
+    const saved = proto as unknown as Record<'showModal' | 'close', unknown>
+    const before = { showModal: saved.showModal, close: saved.close }
     proto.showModal = function (this: HTMLDialogElement) {
       this.setAttribute('open', '')
     }
@@ -343,8 +345,8 @@ describe('the working margin, as the conversation’s panel', () => {
       expect(window.location.hash).toBe('#/talk/demo-inventory')
       expect(document.activeElement).toBe(switcher())
     } finally {
-      proto.showModal = showModal
-      proto.close = close
+      saved.showModal = before.showModal
+      saved.close = before.close
     }
   })
 
