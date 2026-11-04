@@ -204,7 +204,8 @@ function NativeSignIn() {
           </Button>
           {busy ? (
             // The browser leg may never come back (a closed tab); this frees the
-            // screen. It cannot abort the sign-in in the system browser.
+            // form for another try, and the screen stays while that sign-in is
+            // out. It cannot abort the sign-in in the system browser.
             <Button variant="quiet" onClick={stopWaiting}>
               Stop waiting
             </Button>

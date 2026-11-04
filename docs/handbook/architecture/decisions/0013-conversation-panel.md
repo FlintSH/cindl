@@ -44,10 +44,10 @@ left navigation, which stays as it is.
     `computer.view` usable; otherwise it says why. Leaving the tool, the
     margin or the conversation closes its view, and gives control back if
     this device took it there (as leaving Work does), a take-control still on
-    its way included, so Hermes's input is not left paused behind a screen
-    nobody is watching. With the link down the hand-back cannot reach Hermes:
-    the client then keeps the owner's control, as a dropped link does, rather
-    than give the screen to the agent unseen. A conversation left on
+    its way included. A hidden browser tab has not left it: the view, and any
+    control taken there, stay. With the link down the hand-back cannot reach
+    Hermes: the client then keeps the owner's control, as a dropped link does,
+    rather than give the screen to the agent unseen. A conversation left on
     Computer opens the view again whenever it is shown, so while it is on
     screen the agent's screen is watched and does not idle (ADR 0012).
 - Switching is deliberate. Nothing changes the tool by itself: counts change,

@@ -173,10 +173,10 @@ export function Computer() {
   const canControl = useCan('computer.control')
   const display = useCindlState((state) => state.display)
   // Control belongs to the view that shows the screen. Leaving it (another
-  // tool, another view, the margin closed) gives control back, so Hermes's
-  // input is not left paused behind a screen no one here is watching. That
-  // includes a take-control still on its way: it gives control back once it
-  // lands.
+  // tool, another view, the margin closed) gives control back, so control
+  // taken here does not outlive the view. That includes a take-control still
+  // on its way: it gives control back once it lands. A hidden tab has not
+  // left: its view and any control taken there stay.
   const holding = useRef(false)
   const acquiring = useRef<Promise<DisplayState> | undefined>(undefined)
   useEffect(() => {
@@ -231,10 +231,7 @@ export function Computer() {
       <div className={styles.actions}>
         {display.leaseHeldByThisDevice ? (
           <Button
-            onClick={() => {
-              acquiring.current = undefined
-              void controlCall(() => api.call('display.releaseControl', {}))
-            }}
+            onClick={() => void controlCall(() => api.call('display.releaseControl', {}))}
           >
             Give control back
           </Button>

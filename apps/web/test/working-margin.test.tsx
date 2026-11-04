@@ -301,6 +301,42 @@ describe('the working margin, as the conversation’s panel', () => {
     expect(display.leaseHeldByThisDevice).toBe(false)
   })
 
+  it('gives nothing back for control another viewer took before the Computer tool was left', async () => {
+    const hermes = await renderShell('#/talk/demo-main')
+    const capabilities = await hermes.scenario.call('capabilities.get', {})
+    await hermes.emit({
+      type: 'capabilities.changed',
+      capabilities: {
+        ...capabilities,
+        'computer.view': {
+          id: 'computer.view',
+          state: 'limited',
+          reason: 'Screen state and lease only (fixture).',
+          source: { transport: 'derived' },
+        },
+      },
+    })
+    fireEvent.click(tab(/^Computer$/))
+    await settle()
+    fireEvent.click(margin().getByRole('button', { name: 'Take control…' }))
+    fireEvent.click(margin().getByRole('button', { name: 'Take control now' }))
+    await settle()
+    expect(margin().getByText('You are in control on this device')).toBeTruthy()
+    // Another viewer takes control: this device holds nothing to give back.
+    await hermes.emit({
+      type: 'display.changed',
+      display: {
+        status: 'running',
+        controller: 'another-viewer',
+        leaseHeldByThisDevice: false,
+      },
+    })
+    await settle()
+    fireEvent.click(tab(/^Waiting/))
+    await settle()
+    expect(hermes.calls).not.toContain('display.releaseControl')
+  })
+
   it('lets the tool panel itself be reached from the tabs', async () => {
     await renderShell()
     expect(margin().getByRole('tabpanel').getAttribute('tabindex')).toBe('0')
