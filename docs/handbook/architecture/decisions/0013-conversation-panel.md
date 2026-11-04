@@ -1,9 +1,10 @@
 # 0013 The working margin as the conversation's panel
 
 **Status:** Accepted (owner direction, 2026-11-03). Web: built and tested in
-a browser on the synthetic demo; the desktop app shares that renderer but has
-not been run with it. Android: built in its working-margin sheet; where it
-differs from the web is listed in the Android client page
+a browser on the synthetic demo. Desktop: the same renderer, smoke-tested in
+the packaged demo app at 907abeb (before the web follow-ups of #14), as a
+column at 1280px and a sheet below. Android: built in its working-margin
+sheet; where it differs from the web is listed in the Android client page
 ([clients/android.md](../../clients/android.md), The working margin).
 
 **Context.** The owner asked Cindl to take the paradigm of the right-hand
@@ -43,8 +44,11 @@ left navigation, which stays as it is.
     same watch and take-control rules as Work (ADR 0012). Only with
     `computer.view` usable; otherwise it says why. Leaving the tool, the
     margin or the conversation closes its view, and gives control back if
-    this device took it there (as leaving Work does): Hermes's input is never
-    paused behind a screen nobody is watching. A conversation left on
+    this device took it there (as leaving Work does), a take-control still on
+    its way included, so Hermes's input is not left paused behind a screen
+    nobody is watching. With the link down the hand-back cannot reach Hermes:
+    the client then keeps the owner's control, as a dropped link does, rather
+    than give the screen to the agent unseen. A conversation left on
     Computer opens the view again whenever it is shown, so while it is on
     screen the agent's screen is watched and does not idle (ADR 0012).
 - Switching is deliberate. Nothing changes the tool by itself: counts change,
@@ -54,7 +58,8 @@ left navigation, which stays as it is.
 - Presentation is unchanged: a 400px column on wide windows, remembered open
   or closed; a modal sheet below 1280px, which opens with focus on the chosen
   tool's tab and returns focus to what opened it. The header toggle and
-  `Mod+.` show or hide it; closing the column puts focus on that toggle.
+  `Mod+.` show or hide it; closing the column with focus inside it puts
+  focus on that toggle.
 - **Not taken:** owner-added or reordered tabs, an add menu (the set is
   small), dragging, resizing (later), coding tools, side chats, and any
   widget or plugin framework. The navigation (spine, bottom bar, destinations

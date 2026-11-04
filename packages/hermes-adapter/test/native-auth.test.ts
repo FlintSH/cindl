@@ -393,3 +393,162 @@ describe('NativeAuth: a secret store that cannot be read', () => {
     expect(await auth.identity()).toMatchObject({ userId: 'fixture-owner' })
   })
 })
+
+describe('NativeAuth: a failing read that a sign-out or retirement overtakes', () => {
+  /** A device signed in once, whose store now holds every read until it fails it. */
+  async function heldRead(options: { deleteFails?: boolean } = {}) {
+    const fake = await fakeHermes()
+    const secrets = vault()
+    await new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      secrets,
+      crypto,
+    }).signIn(browserLeg())
+    const state: { locked: boolean; fail?: () => void } = { locked: true }
+    const store: SecretVault = {
+      available: true,
+      get: (key) =>
+        state.locked
+          ? new Promise((_resolve, reject) => {
+              state.fail = () => reject(new Error('keystore locked (fixture)'))
+            })
+          : secrets.get(key),
+      set: (key, value) => secrets.set(key, value),
+      delete: (key) =>
+        options.deleteFails
+          ? Promise.reject(new Error('keystore locked (fixture)'))
+          : secrets.delete(key),
+    }
+    const auth = new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      secrets: store,
+      crypto,
+    })
+    const first = auth.identity().then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof CindlError ? error.code : 'other'),
+    )
+    await until(() => state.fail !== undefined)
+    return { auth, state, first }
+  }
+
+  it('stays retired when the read that was out fails afterwards', async () => {
+    const { auth, state, first } = await heldRead()
+    auth.retire()
+    state.fail?.()
+    expect(await first).toBe('internal')
+    state.locked = false
+    // The retirement stands: the stored record is no longer this sign-in's.
+    expect(await auth.identity()).toBeUndefined()
+  })
+
+  it('stays signed out, its delete failed, when the read that was out fails afterwards', async () => {
+    const { auth, state, first } = await heldRead({ deleteFails: true })
+    await auth.signOut()
+    state.fail?.()
+    expect(await first).toBe('internal')
+    state.locked = false
+    // The record is still in the store, but the sign-out stands.
+    expect(await auth.identity()).toBeUndefined()
+  })
+})
+
+describe('NativeAuth: what a failed code exchange says', () => {
+  it('says the code expired when Hermes refuses it (its 400)', async () => {
+    const fake = await fakeHermes()
+    const auth = new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      secrets: vault(),
+      crypto,
+    })
+    const refused = await auth
+      .signIn(
+        browserLeg((callback) => callback.replace(/code=[^&]+/, 'code=forged-fixture')),
+      )
+      .then(
+        () => undefined,
+        (error: unknown) => error as CindlError,
+      )
+    expect(refused?.code).toBe('unauthenticated')
+    expect(refused?.message).toBe(
+      'The Hermes sign-in code expired or was already used. Sign in again.',
+    )
+  })
+
+  it('lets a platform that will not send the exchange say so itself', async () => {
+    const fake = await fakeHermes()
+    const refusal = new CindlError(
+      'invalid',
+      'Refused a request outside the Hermes origin you confirmed.',
+    )
+    const auth = new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) =>
+        new URL(url).pathname === '/auth/native/token'
+          ? Promise.reject(refusal)
+          : fetch(url, init),
+      timers,
+      secrets: vault(),
+      crypto,
+    })
+    const refused = await auth.signIn(browserLeg()).then(
+      () => undefined,
+      (error: unknown) => error,
+    )
+    expect(refused).toBe(refusal)
+  })
+})
+
+describe('NativeAuth: a load that a new sign-in overtakes', () => {
+  it('keeps the tokens the sign-in stored, not the older ones the load read', async () => {
+    const fake = await fakeHermes()
+    const secrets = vault()
+    await new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      secrets,
+      crypto,
+    }).signIn(browserLeg())
+    const key = nativeTokensKey(fake.origin)
+    const older = secrets.map.get(key)
+    // The store answers this read only later, with the record as it was.
+    const read: { holding: boolean; release?: () => void } = { holding: true }
+    const store: SecretVault = {
+      available: true,
+      get: (k) =>
+        read.holding
+          ? new Promise((resolve) => {
+              read.release = () => resolve(older)
+            })
+          : secrets.get(k),
+      set: (k, value) => secrets.set(k, value),
+      delete: (k) => secrets.delete(k),
+    }
+    const auth = new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      secrets: store,
+      crypto,
+    })
+    const early = auth.accessToken()
+    await until(() => read.release !== undefined)
+    read.holding = false
+    await auth.signIn(browserLeg())
+    const newer = (JSON.parse(secrets.map.get(key) ?? '{}') as { access_token?: string })
+      .access_token
+    expect(newer).toBeDefined()
+    expect(JSON.parse(older ?? '{}')).not.toMatchObject({ access_token: newer })
+    // The old read answers only now: what the sign-in stored stands.
+    read.release?.()
+    expect(await early).toBe(newer)
+    expect(await auth.accessToken()).toBe(newer)
+  })
+})

@@ -82,7 +82,10 @@ bearer to public endpoints.
   pending per client IP and 256 overall (`native_flow.py:28-33`).
 - `POST /auth/native/token {code, code_verifier}`: the code is removed before
   the PKCE check, so a wrong verifier burns it; every failure is a generic 400
-  (`native_flow.py:145-158`, `routes.py:574-591`).
+  (`native_flow.py:145-158`, `routes.py:574-591`). Cindl reads that 400, and
+  only an HTTP 400, as a code that expired or was already used; a platform's
+  own refusal to send the exchange (the desktop's pinned origin, Android's
+  https rule) reads as itself.
 - `POST /auth/native/refresh {refresh_token, provider?}`: 401
   `{error: "session_expired"}` when every provider rejects the token, 503 when
   one is unreachable (`routes.py:594-617`). Cindl rotates once per expiry,
@@ -95,7 +98,10 @@ bearer to public endpoints.
   them in memory and says so. A store that fails to read is a failure on the
   device ("This device could not read its saved Hermes sign-in."), never
   Hermes not answering: discovery shows it as `error` without asking Hermes
-  again, and the next attempt reads the store afresh. Sign-out is
+  again, and the next attempt reads the store afresh. A read counts only
+  while nothing has replaced it: a sign-out, a switch away or a new sign-in
+  that comes while a read is out stands, whatever that read returns and
+  however it fails. Sign-out is
   local: there is no native revoke route, so logout does not revoke native
   tokens (with the basic provider they are stateless, 12 h access and 30 d
   refresh; with OIDC they are the identity provider's tokens). Sign-out always deletes the
@@ -116,6 +122,35 @@ bearer to public endpoints.
   again under the same key. A failed or cancelled switch retires nothing:
   its refresh may still store. Signing in to the same origin again is no
   switch, and sign-out is unchanged.
+- A sign-out during a native sign-in (Hermes's status read, the stored
+  sign-in read, a switch's device state when there is no working session,
+  the browser leg or the token exchange) stores nothing, and no browser opens
+  after it: the sign-in fails with "Signed out while signing in.". With a
+  working session the client stays on the origin it had, signed out. Without
+  one it took up the new origin as the sign-in began, so for the rest of the
+  session it is on that origin, signed out; Android's wrapper saves no new
+  origin, so the next start is on the old one. The desktop app already runs a
+  sign-out only after the sign-in it overtakes. A sign-out that lands while
+  the sign-in writes its tokens deletes them after that write, since both
+  platforms' stores apply writes in call order (the desktop store's serial
+  queue, `apps/desktop/src/main/platform/secret-store.ts`; expo-secure-store
+  on one thread); only a store that reordered writes could keep the record.
+  Android's store reorders in one case: when the Keystore refuses a write,
+  it keeps that value in memory, even past a delete that came while the
+  write was out, and from then on reports itself unavailable. A sign-in
+  never reads a store in that state
+  (`packages/hermes-adapter/src/native-auth.ts`), and the memory goes
+  with the process.
+- One window is not covered yet. With a working session, a sign-in to
+  another origin reads that origin's device state only after it has
+  succeeded and stored its tokens. A sign-out during that read lets the
+  sign-in resolve: the client connects once on the new origin and ends there
+  signed out, the sign-out deletes the tokens the sign-in stored, and
+  Android's wrapper keeps the new origin for the next start. A `stop()` in
+  the same window is ignored, and the client goes online on the new origin.
+  No shipped screen reaches this window: Android hides sign-out while
+  signing in, the desktop app runs a sign-out only after the sign-in in
+  flight, and the web never switches origin. The fix is with the transport.
 
 ### Web sign-in (cookie)
 
@@ -573,7 +608,9 @@ over the store's limit `invalid`, and Hermes's own messages, which can hold
 host paths, are never shown. The capability `memory.text` is `available` only
 once a read-only `GET /api/learning/graph` answered (probed once per sign-in,
 for the served profile unless the platform pinned one); a 404 makes it
-`unsupported`. Cindl never reads memory through `/api/fs/*` or
+`unsupported`. An answer that comes back after the client moved on (another
+origin, a new sign-in) is dropped: a late answer from the Hermes it left never
+sets this capability for the one it is on. Cindl never reads memory through `/api/fs/*` or
 any other filesystem route, and never uses `POST /api/memory/reset`.
 
 ## Routines

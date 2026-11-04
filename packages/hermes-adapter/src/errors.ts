@@ -44,6 +44,7 @@ const httpCodes: ReadonlyArray<[number, ErrorCode, string]> = [
   [401, 'unauthenticated', 'Sign in to Hermes again.'],
   [403, 'forbidden', 'Hermes refused this request.'],
   [404, 'not-found', 'Hermes could not find that.'],
+  [408, 'timeout', 'Hermes did not answer in time.'],
   [409, 'conflict', 'Hermes reported a conflicting change.'],
   [413, 'invalid', 'That is larger than Hermes accepts.'],
   [422, 'protocol', 'Hermes did not understand the request (version mismatch?).'],
@@ -72,12 +73,26 @@ export function hermesDidNotAnswer(error: unknown): boolean {
   return error instanceof CindlError && unanswered.has(error)
 }
 
+/** The HTTP status each error made from an HTTP answer came with. */
+const statuses = new WeakMap<CindlError, number>()
+
+/**
+ * The HTTP status `error` came with, when Hermes (or something in front of
+ * it) answered with one; undefined for the device's own refusals and for
+ * failures with no answer.
+ */
+export function httpStatusOf(error: unknown): number | undefined {
+  return error instanceof CindlError ? statuses.get(error) : undefined
+}
+
 export function httpError(status: number, body: unknown, context: string): CindlError {
   const reason = bodyReason(body)
   const shown = SAFE_TOKEN.test(reason) ? ` (${reason})` : ''
   const detail = safeText(`${context}: HTTP ${status}${shown}`)
   const error = withReason(httpErrorFor(status, detail), reason)
-  return status >= 500 || status === 429 ? noAnswer(error) : error
+  statuses.set(error, status)
+  // A 408 is a proxy (or Hermes) giving up on the request: no answer either.
+  return status >= 500 || status === 429 || status === 408 ? noAnswer(error) : error
 }
 
 function httpErrorFor(status: number, detail: string): CindlError {

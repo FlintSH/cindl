@@ -1977,3 +1977,320 @@ describe('direct client: a failure on this device during discovery', () => {
     await online(h)
   })
 })
+
+describe('direct client: a late memory probe from the Hermes it left', () => {
+  const memoryText = (h: Harness) => h.store.getState().capabilities['memory.text']?.state
+
+  it("keeps memory.text as B answered it, whatever A's late probe says", async () => {
+    const a = await fakeHermes()
+    const probeA = a.holdNextRest('GET /api/learning/graph')
+    const h = await harness({ fake: a })
+    await probeA.arrived
+    const b = await fakeHermes()
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.waitFor(
+      () =>
+        h.store.getState().link.server?.origin === b.origin &&
+        memoryText(h) === 'available',
+    )
+    // A answers only now, that it has no learning routes: nothing about B.
+    probeA.release({ status: 404, body: { detail: 'Not Found' } })
+    await pause(50)
+    expect(memoryText(h)).toBe('available')
+  })
+
+  it('never shows memory.text as available on a Hermes that has not answered', async () => {
+    const a = await fakeHermes()
+    const probeA = a.holdNextRest('GET /api/learning/graph')
+    const h = await harness({ fake: a })
+    await probeA.arrived
+    const b = await fakeHermes()
+    const probeB = b.holdNextRest('GET /api/learning/graph')
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await probeB.arrived
+    // A's late answer says nothing about B, which has not answered yet.
+    probeA.release()
+    await pause(50)
+    expect(memoryText(h)).not.toBe('available')
+    probeB.release()
+    await h.waitFor(() => memoryText(h) === 'available')
+  })
+})
+
+describe('direct client: a sign-out during a native sign-in to another origin', () => {
+  it('signs that sign-in out too: it stores nothing and the client stays where it was', async () => {
+    // A browser leg the test holds open, as an owner still on the sign-in page.
+    const leg: { hold: boolean; arrived: Promise<void>; release?: () => void } = {
+      hold: false,
+      arrived: Promise.resolve(),
+    }
+    let arrive: () => void = () => undefined
+    leg.arrived = new Promise<void>((resolve) => (arrive = resolve))
+    const authorizer = {
+      async authorize(buildUrl: (redirectUri: string) => string) {
+        if (leg.hold) {
+          arrive()
+          await new Promise<void>((resolve) => (leg.release = resolve))
+        }
+        const response = await fetch(buildUrl('http://127.0.0.1:53682/callback'), {
+          redirect: 'manual',
+        })
+        return response.headers.get('location') ?? ''
+      },
+    }
+    const h = await harness({ deps: { authorizer } })
+    const a = h.fake
+    const b = await fakeHermes()
+    leg.hold = true
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await leg.arrived
+    await h.client.call('auth.signOut', {})
+    leg.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(false)
+    // The next start finds the origin it had, signed out, and nothing of B.
+    h.client.stop()
+    await h.client.start()
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      server: { origin: a.origin },
+    })
+    expect(b.calls.filter((c) => c.name === '/api/ws')).toHaveLength(0)
+  })
+})
+
+describe('direct client: a sign-out while a sign-in to another origin stores its tokens', () => {
+  it('still keeps the client where it was', async () => {
+    const base = memorySecrets()
+    const writing: { key?: string; arrived?: () => void; release?: () => void } = {}
+    const arrived = new Promise<void>((resolve) => (writing.arrived = resolve))
+    // The device's store holds the write of B's tokens until the test lets it go.
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...base,
+      set: async (key, value) => {
+        if (key === writing.key) {
+          writing.arrived?.()
+          await new Promise<void>((resolve) => (writing.release = resolve))
+        }
+        return base.set(key, value)
+      },
+    }
+    const h = await harness({ secrets })
+    const a = h.fake
+    const b = await fakeHermes()
+    writing.key = nativeTokensKey(b.origin)
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await arrived
+    await h.client.call('auth.signOut', {})
+    writing.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    h.client.stop()
+    await h.client.start()
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      server: { origin: a.origin },
+    })
+  })
+})
+
+describe('direct client: a sign-out before a native sign-in opens the browser', () => {
+  /** A browser leg that counts how often the browser was opened. */
+  function countingAuthorizer() {
+    const opened = { count: 0 }
+    return {
+      opened,
+      authorizer: {
+        async authorize(buildUrl: (redirectUri: string) => string) {
+          opened.count++
+          const response = await fetch(buildUrl('http://127.0.0.1:53682/callback'), {
+            redirect: 'manual',
+          })
+          return response.headers.get('location') ?? ''
+        },
+      },
+    }
+  }
+
+  const tokenExchanges = (fake: { calls: Array<{ name: string }> }) =>
+    fake.calls.filter((c) => c.name === 'POST /auth/native/token').length
+
+  it("signed in to A: a sign-out during B's status read opens no browser and stores nothing", async () => {
+    const leg = countingAuthorizer()
+    const h = await harness({ deps: { authorizer: leg.authorizer } })
+    const b = await fakeHermes()
+    const statusB = b.holdNextRest('GET /api/status')
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await statusB.arrived
+    const opened = leg.opened.count
+    await h.client.call('auth.signOut', {})
+    statusB.release()
+    expect(await signingIn).toBe('unauthenticated')
+    expect(leg.opened.count).toBe(opened)
+    expect(tokenExchanges(b)).toBe(0)
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(false)
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      server: { origin: h.fake.origin },
+    })
+  })
+
+  it("signed in to A: a sign-out while B's stored sign-in is read does the same", async () => {
+    const leg = countingAuthorizer()
+    const base = memorySecrets()
+    const hold: { key: string | undefined; arrived?: () => void; release?: () => void } =
+      {
+        key: undefined,
+      }
+    const arrived = new Promise<void>((resolve) => (hold.arrived = resolve))
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...base,
+      get: async (key) => {
+        if (key === hold.key) {
+          hold.key = undefined
+          hold.arrived?.()
+          await new Promise<void>((resolve) => (hold.release = resolve))
+        }
+        return base.get(key)
+      },
+    }
+    const h = await harness({ secrets, deps: { authorizer: leg.authorizer } })
+    const b = await fakeHermes()
+    hold.key = nativeTokensKey(b.origin)
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await arrived
+    const opened = leg.opened.count
+    await h.client.call('auth.signOut', {})
+    hold.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    expect(leg.opened.count).toBe(opened)
+    expect(tokenExchanges(b)).toBe(0)
+    expect(base.map.has(nativeTokensKey(b.origin))).toBe(false)
+  })
+
+  it("not signed in: a sign-out during B's status read leaves the client on B, signed out, nothing stored", async () => {
+    const leg = countingAuthorizer()
+    const h = await harness({ signIn: false, deps: { authorizer: leg.authorizer } })
+    await h.waitFor(() => h.store.getState().link.phase === 'signed-out')
+    const b = await fakeHermes()
+    const statusB = b.holdNextRest('GET /api/status')
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await statusB.arrived
+    await h.client.call('auth.signOut', {})
+    statusB.release()
+    expect(await signingIn).toBe('unauthenticated')
+    expect(leg.opened.count).toBe(0)
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(false)
+    // Without a working session the client took up B as the sign-in began.
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      server: { origin: b.origin },
+    })
+  })
+
+  it("not signed in: a sign-out while the switch loads B's device state never goes online", async () => {
+    const leg = countingAuthorizer()
+    const h = await harness({ signIn: false, deps: { authorizer: leg.authorizer } })
+    await h.waitFor(() => h.store.getState().link.phase === 'signed-out')
+    const b = await fakeHermes()
+    const realGet = h.kv.get.bind(h.kv)
+    const hold: { armed: boolean; arrived?: () => void; release?: () => void } = {
+      armed: true,
+    }
+    const arrived = new Promise<void>((resolve) => (hold.arrived = resolve))
+    h.kv.get = async (key: string) => {
+      if (hold.armed && key.includes(`|${b.origin}|`)) {
+        hold.armed = false
+        hold.arrived?.()
+        await new Promise<void>((resolve) => (hold.release = resolve))
+      }
+      return realGet(key)
+    }
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await arrived
+    await h.client.call('auth.signOut', {})
+    hold.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    await pause(200)
+    expect(h.store.getState().link.phase).toBe('signed-out')
+    expect(leg.opened.count).toBe(0)
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(false)
+  })
+
+  it('does not sign out a sign-in to another origin that already failed', async () => {
+    const base = memorySecrets()
+    const deleted: string[] = []
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...base,
+      delete: (key) => {
+        deleted.push(key)
+        return base.delete(key)
+      },
+    }
+    const h = await harness({ secrets })
+    const b = await fakeHermes({ nativeSignIn: 'deny' })
+    expect(await codeOf(h.client.call('auth.signIn', { origin: b.origin }))).toBe(
+      'unauthenticated',
+    )
+    await h.client.call('auth.signOut', {})
+    expect(deleted).toContain(nativeTokensKey(h.fake.origin))
+    expect(deleted).not.toContain(nativeTokensKey(b.origin))
+  })
+})
+
+describe('direct client: a sign-out whose own delete is slow', () => {
+  it('signs out a sign-in in flight before waiting on that delete, so it never stores', async () => {
+    const base = memorySecrets()
+    const state: {
+      holdKey?: string
+      deleteArrived?: () => void
+      releaseDelete?: () => void
+      setsFor: string[]
+    } = { setsFor: [] }
+    const deleteArrived = new Promise<void>((resolve) => (state.deleteArrived = resolve))
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...base,
+      set: (key, value) => {
+        state.setsFor.push(key)
+        return base.set(key, value)
+      },
+      delete: async (key) => {
+        if (key === state.holdKey) {
+          state.deleteArrived?.()
+          await new Promise<void>((resolve) => (state.releaseDelete = resolve))
+        }
+        return base.delete(key)
+      },
+    }
+    // B's browser leg waits until the test lets it go.
+    const leg: { hold: boolean; arrived?: () => void; release?: () => void } = {
+      hold: false,
+    }
+    const legArrived = new Promise<void>((resolve) => (leg.arrived = resolve))
+    const authorizer = {
+      async authorize(buildUrl: (redirectUri: string) => string) {
+        if (leg.hold) {
+          leg.arrived?.()
+          await new Promise<void>((resolve) => (leg.release = resolve))
+        }
+        const response = await fetch(buildUrl('http://127.0.0.1:53682/callback'), {
+          redirect: 'manual',
+        })
+        return response.headers.get('location') ?? ''
+      },
+    }
+    const h = await harness({ secrets, deps: { authorizer } })
+    const b = await fakeHermes()
+    leg.hold = true
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await legArrived
+    // A's own delete is slow; B's sign-in finishes its browser leg meanwhile.
+    state.holdKey = nativeTokensKey(h.fake.origin)
+    const signingOut = h.client.call('auth.signOut', {})
+    await deleteArrived
+    leg.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    state.releaseDelete?.()
+    await signingOut
+    expect(state.setsFor).not.toContain(nativeTokensKey(b.origin))
+  })
+})

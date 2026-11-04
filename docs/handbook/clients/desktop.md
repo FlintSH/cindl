@@ -352,7 +352,11 @@ Playwright. Without an X server, add `CINDL_SMOKE_HEADLESS=1`; to test packaged
 AppImages, set `CINDL_SMOKE_REAL` and `CINDL_SMOKE_DEMO` to their paths. On a
 host where Chromium's sandbox cannot start, the tests run the app with
 `CINDL_UNSAFE_NO_SANDBOX=1`; CI runs them with the sandbox on
-(`CINDL_SMOKE_SANDBOX=1`).
+(`CINDL_SMOKE_SANDBOX=1`). Besides the hardening, they check the conversation
+panel (ADR 0013) in Cindl Demo: a column in the default window (its page is
+1280px wide, the panel's breakpoint) and a sheet at 960px, with its tools,
+`Ctrl+.` and Escape. In the real app they check that the sign-in screen stays,
+with "Stop waiting", while main waits for the system browser.
 
 ```sh
 CINDL_SMOKE_HEADLESS=1 pnpm --filter @cindl/desktop run smoke

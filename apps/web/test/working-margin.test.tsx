@@ -7,7 +7,13 @@ import { createScenarioClient, scenarioData } from '@cindl/fixtures/scenario'
 import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from '../src/shell/AppShell.tsx'
-import { forgetPlaces, keepPlace, noteSwitch, placeOf } from '../src/talk/places.ts'
+import {
+  forgetPlaces,
+  keepPlace,
+  noteSwitch,
+  placeOf,
+  takeSwitch,
+} from '../src/talk/places.ts'
 
 beforeEach(() => {
   // jsdom has no matchMedia: a wide window, where the margin is a column.
@@ -37,15 +43,25 @@ const goTo = async (hash: string) => {
   await settle()
 }
 
-/** The synthetic scenario, with a way to emit an event as Hermes would. */
-async function renderShell(hash = '#/talk/demo-main') {
+/**
+ * The synthetic scenario, with a way to emit an event as Hermes would, and
+ * optionally a take-control that waits until `landAcquire` lets it through.
+ */
+async function renderShell(hash = '#/talk/demo-main', { holdAcquire = false } = {}) {
   window.history.replaceState(null, '', hash)
   const scenario = createScenarioClient({ speed: 0 })
   const listeners = new Set<(event: CindlEvent) => void>()
   const calls: string[] = []
+  let land: (() => void) | undefined
   const api: CindlClientApi = {
-    call: (name, args) => {
+    call: (name: never, args: never) => {
       calls.push(name)
+      if (holdAcquire && name === 'display.acquireControl')
+        return new Promise((resolve, reject) => {
+          land = () => {
+            scenario.call(name, args).then(resolve, reject)
+          }
+        })
       return scenario.call(name, args)
     },
     subscribe: (listener) => {
@@ -66,6 +82,12 @@ async function renderShell(hash = '#/talk/demo-main') {
   await settle()
   return {
     calls,
+    scenario,
+    landAcquire: () =>
+      act(async () => {
+        land?.()
+        for (let i = 0; i < 6; i++) await Promise.resolve()
+      }),
     emit: (event: CindlEvent) =>
       act(async () => {
         for (const listener of listeners) listener(event)
@@ -198,6 +220,8 @@ describe('the working margin, as the conversation’s panel', () => {
     expect(selected()).toEqual(['Step'])
     fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight', altKey: true })
     fireEvent.keyDown(document.activeElement!, { key: 'End', ctrlKey: true })
+    fireEvent.keyDown(document.activeElement!, { key: 'ArrowRight', shiftKey: true })
+    fireEvent.keyDown(document.activeElement!, { key: 'Home', metaKey: true })
     await settle()
     expect(selected()).toEqual(['Step'])
   })
@@ -241,6 +265,112 @@ describe('the working margin, as the conversation’s panel', () => {
       toolId: undefined,
       tool: undefined,
     })
+  })
+
+  it('gives control back for a take-control that lands after the Computer tool was left', async () => {
+    const hermes = await renderShell('#/talk/demo-main', { holdAcquire: true })
+    // State and lease only (no live picture in jsdom), with control allowed.
+    const capabilities = await hermes.scenario.call('capabilities.get', {})
+    await hermes.emit({
+      type: 'capabilities.changed',
+      capabilities: {
+        ...capabilities,
+        'computer.view': {
+          id: 'computer.view',
+          state: 'limited',
+          reason: 'Screen state and lease only (fixture).',
+          source: { transport: 'derived' },
+        },
+      },
+    })
+    fireEvent.click(tab(/^Computer$/))
+    await settle()
+    fireEvent.click(margin().getByRole('button', { name: 'Take control…' }))
+    fireEvent.click(margin().getByRole('button', { name: 'Take control now' }))
+    await settle()
+    // Left while the take-control is still on its way: nothing to give back yet.
+    fireEvent.click(tab(/^Waiting/))
+    await settle()
+    expect(hermes.calls).not.toContain('display.releaseControl')
+    await hermes.landAcquire()
+    await settle()
+    expect(hermes.calls.filter((name) => name === 'display.releaseControl')).toHaveLength(
+      1,
+    )
+    const display = await hermes.scenario.call('display.status', {})
+    expect(display.leaseHeldByThisDevice).toBe(false)
+  })
+
+  it('lets the tool panel itself be reached from the tabs', async () => {
+    await renderShell()
+    expect(margin().getByRole('tabpanel').getAttribute('tabindex')).toBe('0')
+  })
+
+  it('choosing the conversation already shown opens nothing; choosing another focuses its switcher', async () => {
+    // jsdom has no <dialog>: open and close it as a browser would.
+    const proto = HTMLDialogElement.prototype
+    // Saved as values: jsdom may not have them at all.
+    const saved = proto as unknown as Record<'showModal' | 'close', unknown>
+    const before = { showModal: saved.showModal, close: saved.close }
+    proto.showModal = function (this: HTMLDialogElement) {
+      this.setAttribute('open', '')
+    }
+    proto.close = function (this: HTMLDialogElement) {
+      this.removeAttribute('open')
+      this.dispatchEvent(new Event('close'))
+    }
+    try {
+      await renderShell('#/talk')
+      const switcher = () => screen.getByRole('button', { name: /Switch conversation/ })
+      fireEvent.click(switcher())
+      await settle()
+      const list = within(screen.getByRole('dialog', { name: 'Conversations' }))
+      fireEvent.click(list.getByRole('button', { name: /Today/ }))
+      await settle()
+      // At #/talk the main conversation is the one shown: the address stays.
+      expect(window.location.hash).toBe('#/talk')
+      expect(takeSwitch()).toBe(false)
+      fireEvent.click(switcher())
+      await settle()
+      fireEvent.click(
+        within(screen.getByRole('dialog', { name: 'Conversations' })).getByRole(
+          'button',
+          {
+            name: /Kiln inventory sheet/,
+          },
+        ),
+      )
+      await settle()
+      await settle()
+      expect(window.location.hash).toBe('#/talk/demo-inventory')
+      expect(document.activeElement).toBe(switcher())
+    } finally {
+      saved.showModal = before.showModal
+      saved.close = before.close
+    }
+  })
+
+  it('closing the column from the keyboard puts focus on its toggle only when focus was in it', async () => {
+    await renderShell()
+    tab(/^Step$/).focus()
+    fireEvent.keyDown(document.activeElement!, { key: '.', ctrlKey: true })
+    await settle()
+    const toggle = screen.getByRole('button', { name: 'Show the working margin' })
+    expect(document.activeElement).toBe(toggle)
+    // Reopened with focus in the message box, and closed again: focus stays there.
+    fireEvent.keyDown(document.activeElement!, { key: '.', ctrlKey: true })
+    await settle()
+    const box = screen.getByRole('textbox', { name: 'Message Hermes' })
+    box.focus()
+    fireEvent.keyDown(box, { key: '.', ctrlKey: true })
+    await settle()
+    expect(document.activeElement).toBe(box)
+  })
+
+  it('forgets a pending switch note when the session ends', () => {
+    noteSwitch()
+    forgetPlaces()
+    expect(takeSwitch()).toBe(false)
   })
 
   it('puts focus on the switcher of a conversation chosen from the switcher, and only then', async () => {

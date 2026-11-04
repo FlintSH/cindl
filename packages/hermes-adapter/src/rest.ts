@@ -97,13 +97,12 @@ export class RestClient {
    */
   async logout(): Promise<void> {
     const label = 'POST /auth/logout'
-    const { response } = await this.#send(
+    const { response, body } = await this.#send(
       'logout',
       { schema: wire.LogoutResponse },
       false,
       label,
     )
-    const body = await readBody(response)
     if (response.type === 'opaqueredirect' || response.status === 302) return
     throw httpError(response.status, body.json, label)
   }
@@ -231,7 +230,12 @@ export class RestClient {
       throw new CindlError('unauthenticated', 'Sign in to Hermes first.', label)
     let retried = false
     for (;;) {
-      const { response, token } = await this.#send(name, options, needsSession, label)
+      const { response, body, token } = await this.#send(
+        name,
+        options,
+        needsSession,
+        label,
+      )
       if (
         response.status === 401 &&
         needsSession &&
@@ -239,7 +243,6 @@ export class RestClient {
         token !== undefined &&
         !retried
       ) {
-        await readBody(response)
         retried = true
         this.#log.log('info', 'rest.refresh-after-401', { endpoint: label })
         if (await this.#auth.refresh(token)) continue
@@ -249,7 +252,7 @@ export class RestClient {
           `${label}: HTTP 401 after refresh`,
         )
       }
-      return this.#parse(response, options.schema, label)
+      return this.#parse(response, body, options.schema, label)
     }
   }
 
@@ -258,7 +261,7 @@ export class RestClient {
     options: CallOptions<T>,
     needsSession: boolean,
     label: string,
-  ): Promise<{ response: Response; token: string | undefined }> {
+  ): Promise<{ response: Response; body: { json: unknown }; token: string | undefined }> {
     const endpoint = restEndpoints[name]
     const url = new URL(endpointPath(name, options.pathParams), this.origin)
     for (const [key, value] of Object.entries(options.query ?? {}))
@@ -295,9 +298,16 @@ export class RestClient {
         endpoint: label,
         status: response.status,
       })
-      return { response, token }
+      // The body is part of the answer: the timeout covers it, and a link
+      // that drops halfway through it is no answer either.
+      const body = await readBody(response)
+      return { response, body, token }
     } catch (error) {
       if (timedOut) throw timeoutError(`${label}: no response`)
+      // The platform's own refusal (an origin it will not reach, a URL it
+      // will not send) is its answer, not a network Hermes did not answer
+      // over: it passes through as it is, never marked as no answer.
+      if (error instanceof CindlError) throw error
       this.#log.log('warn', 'rest.network-error', {
         endpoint: label,
         error: error instanceof Error ? error.name : 'unknown',
@@ -308,8 +318,12 @@ export class RestClient {
     }
   }
 
-  async #parse<T>(response: Response, schema: z.ZodType<T>, label: string): Promise<T> {
-    const body = await readBody(response)
+  #parse<T>(
+    response: Response,
+    body: { json: unknown },
+    schema: z.ZodType<T>,
+    label: string,
+  ): T {
     if (!response.ok) throw httpError(response.status, body.json, label)
     if (body.json === undefined) throw protocolError(`${label}: response was not JSON`)
     const parsed = schema.safeParse(body.json)
@@ -318,13 +332,9 @@ export class RestClient {
   }
 }
 
+/** Read a response's body; a link that fails while reading it throws, unlike text that is not JSON. */
 async function readBody(response: Response): Promise<{ json: unknown }> {
-  let text: string
-  try {
-    text = await response.text()
-  } catch {
-    return { json: undefined }
-  }
+  const text = await response.text()
   if (!text) return { json: undefined }
   try {
     return { json: JSON.parse(text) as unknown }

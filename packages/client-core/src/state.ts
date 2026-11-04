@@ -5,6 +5,7 @@ import type {
   DisplayState,
   LinkState,
   Message,
+  NoticeCode,
   PendingPrompt,
   ServerRequest,
   ToolActivity,
@@ -23,6 +24,7 @@ export interface Notice {
   id: number
   level: 'info' | 'warning' | 'error'
   message: string
+  code?: NoticeCode
 }
 
 export interface ClientState {
@@ -387,7 +389,12 @@ export function reduce(state: ClientState, event: CindlEvent): ClientState {
         ...state,
         notices: [
           ...state.notices,
-          { id, level: event.level, message: event.message },
+          {
+            id,
+            level: event.level,
+            message: event.message,
+            ...(event.code ? { code: event.code } : {}),
+          },
         ].slice(-MAX_NOTICES),
       }
     }

@@ -243,6 +243,22 @@ describe('sign-out result', () => {
   })
 })
 
+describe('notice codes', () => {
+  const notice = { type: 'notice', level: 'warning', message: 'Synthetic (fixture).' }
+
+  it('carry a known code, or none', () => {
+    expect(CindlEvent.parse(notice)).toEqual(notice)
+    expect(CindlEvent.parse({ ...notice, code: 'sign-out-unconfirmed' })).toEqual({
+      ...notice,
+      code: 'sign-out-unconfirmed',
+    })
+  })
+
+  it('take no code the contract does not name', () => {
+    expect(() => CindlEvent.parse({ ...notice, code: 'anything-else' })).toThrow()
+  })
+})
+
 describe('identifiers', () => {
   it('accepts Hermes-shaped ids and names', () => {
     expect(

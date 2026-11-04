@@ -5,7 +5,7 @@ import {
   useConversations,
   useOpenRequests,
 } from '@cindl/client-react'
-import { isCindlError, type Routine } from '@cindl/contracts'
+import { isCindlError, type DisplayState, type Routine } from '@cindl/contracts'
 import { useEffect, useRef, useState } from 'react'
 import { RequestCard } from '../talk/RequestCard.tsx'
 import { ScreenView } from './ScreenView.tsx'
@@ -174,15 +174,27 @@ export function Computer() {
   const display = useCindlState((state) => state.display)
   // Control belongs to the view that shows the screen. Leaving it (another
   // tool, another view, the margin closed) gives control back, so Hermes's
-  // input is never paused behind a screen no one here is watching.
+  // input is not left paused behind a screen no one here is watching. That
+  // includes a take-control still on its way: it gives control back once it
+  // lands.
   const holding = useRef(false)
+  const acquiring = useRef<Promise<DisplayState> | undefined>(undefined)
   useEffect(() => {
     holding.current = display?.leaseHeldByThisDevice === true
+    if (holding.current) acquiring.current = undefined
   })
   useEffect(
     () => () => {
-      if (holding.current)
+      const giveBack = () =>
         void api.call('display.releaseControl', {}).catch(() => undefined)
+      if (holding.current) giveBack()
+      else
+        void acquiring.current?.then(
+          (state) => {
+            if (state.leaseHeldByThisDevice) giveBack()
+          },
+          () => undefined,
+        )
     },
     [api],
   )
@@ -219,7 +231,10 @@ export function Computer() {
       <div className={styles.actions}>
         {display.leaseHeldByThisDevice ? (
           <Button
-            onClick={() => void controlCall(() => api.call('display.releaseControl', {}))}
+            onClick={() => {
+              acquiring.current = undefined
+              void controlCall(() => api.call('display.releaseControl', {}))
+            }}
           >
             Give control back
           </Button>
@@ -233,9 +248,9 @@ export function Computer() {
                 variant="primary"
                 onClick={() => {
                   setConfirming(false)
-                  void controlCall(() =>
-                    api.call('display.acquireControl', { confirm: true }),
-                  )
+                  const acquire = api.call('display.acquireControl', { confirm: true })
+                  acquiring.current = acquire
+                  void controlCall(() => acquire)
                 }}
               >
                 Take control now

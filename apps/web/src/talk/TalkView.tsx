@@ -100,7 +100,16 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
           setProblem(failureText(err, 'The side conversation could not be started.'))
         }
       },
-      toggleMargin: () => setMarginOpen(!marginOpen),
+      toggleMargin: () => {
+        // Closing the column with focus inside it: focus goes to what reopens
+        // it, as the close button does. Focus elsewhere stays where it is.
+        const inside =
+          wide &&
+          marginOpen &&
+          document.activeElement?.closest('[aria-label="Working margin"]') != null
+        setMarginOpen(!marginOpen)
+        if (inside) marginToggle.current?.focus()
+      },
     }))
 
     const historyFailed = historyError?.id === conversationId

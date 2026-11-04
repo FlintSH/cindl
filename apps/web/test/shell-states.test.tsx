@@ -12,6 +12,7 @@ import { ClientKindContext } from '../src/platform/clientKind.ts'
 import { AppShell } from '../src/shell/AppShell.tsx'
 import { Notices } from '../src/shell/Notices.tsx'
 import { SignIn } from '../src/shell/SignIn.tsx'
+import { forgetAttempts, signOutHere } from '../src/shell/session.ts'
 
 afterEach(cleanup)
 
@@ -256,6 +257,58 @@ describe('notices', () => {
     expect(screen.queryByText(/Secure storage is unavailable/)).toBeNull()
   })
 
+  it('shows "did not confirm the sign-out" only while the last sign-out stays unconfirmed', async () => {
+    const said = 'Hermes did not confirm the sign-out (fixture).'
+    const listeners = new Set<(event: CindlEvent) => void>()
+    const outcomes = [false, true]
+    const api: CindlClientApi = {
+      call: (() =>
+        Promise.resolve({
+          localOnly: true,
+          hermesConfirmed: outcomes.shift(),
+        })) as unknown as CindlClientApi['call'],
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+    }
+    const emit = (event: CindlEvent) =>
+      act(async () => {
+        for (const listener of listeners) listener(event)
+        await Promise.resolve()
+      })
+    render(
+      <CindlProvider api={api}>
+        <Notices />
+      </CindlProvider>,
+    )
+    try {
+      await settle()
+      // The client says it as the unconfirmed sign-out ends; the page records it.
+      await emit({
+        type: 'notice',
+        level: 'warning',
+        message: said,
+        code: 'sign-out-unconfirmed',
+      })
+      await emit({ type: 'notice', level: 'info', message: 'Unrelated (fixture).' })
+      await act(async () => {
+        await signOutHere(api)
+      })
+      expect(screen.getByText(said)).toBeTruthy()
+      // Tried again and confirmed: that notice no longer applies; others stay.
+      await act(async () => {
+        await signOutHere(api)
+      })
+      expect(screen.queryByText(said)).toBeNull()
+      expect(screen.getByText('Unrelated (fixture).')).toBeTruthy()
+    } finally {
+      forgetAttempts()
+    }
+  })
+
   it('shows a notice that comes again once, and dismisses every copy', async () => {
     const again = 'Hermes did not confirm the sign-out (fixture).'
     const notice = (message: string): CindlEvent => ({
@@ -357,7 +410,11 @@ describe('the sign-in screen through its own sign-in', () => {
     }
     return { link, attempts, signIn }
   }
-  afterEach(() => vi.unstubAllGlobals())
+  afterEach(() => {
+    // A sign-in a test leaves out would hold the next test's screen.
+    forgetAttempts()
+    vi.unstubAllGlobals()
+  })
 
   it('stays while the client connects, keeps Stop waiting in reach, and shows a refusal', async () => {
     const shell = desktopShell()
@@ -380,6 +437,41 @@ describe('the sign-in screen through its own sign-in', () => {
     expect(screen.getByRole('alert').textContent).toBe(
       'Hermes refused the sign-in (fixture).',
     )
+  })
+
+  it('stays while an older wait is out, even when a newer sign-in is refused first', async () => {
+    const shell = desktopShell()
+    await shell.link('signed-out')
+    await shell.signIn()
+    fireEvent.click(screen.getByRole('button', { name: 'Stop waiting' }))
+    await shell.signIn()
+    // Main refuses the new one at its confirmation, before it ends the old
+    // wait (review 6a842338 SF1): the link still says connecting.
+    await act(async () => {
+      shell.attempts[1]!.reject(
+        new CindlError(
+          'forbidden',
+          'Sign-in was not confirmed on this device (fixture).',
+        ),
+      )
+      await Promise.resolve()
+    })
+    expect(screen.getByLabelText('Hermes address')).toBeTruthy()
+    expect(screen.getByRole('alert').textContent).toBe(
+      'Sign-in was not confirmed on this device (fixture).',
+    )
+    // The old wait ends too; signed out, the screen stays as itself.
+    await act(async () => {
+      shell.attempts[0]!.reject(
+        new CindlError(
+          'unavailable',
+          'A newer sign-in or a sign-out replaced this sign-in.',
+        ),
+      )
+      await Promise.resolve()
+    })
+    await shell.link('signed-out')
+    expect(screen.getByLabelText('Hermes address')).toBeTruthy()
   })
 
   it('lets go once its attempt settles, and not for an attempt a newer one replaced', async () => {

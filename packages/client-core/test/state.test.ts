@@ -668,6 +668,27 @@ describe('store', () => {
   })
 })
 
+describe('notices', () => {
+  it('keep their code, and none when the event names none', () => {
+    const store = createStore(link)
+    store.dispatch({ type: 'notice', level: 'info', message: 'Plain (fixture).' })
+    store.dispatch({
+      type: 'notice',
+      level: 'warning',
+      message: 'Coded (fixture).',
+      code: 'sign-out-unconfirmed',
+    })
+    const [plain, coded] = store.getState().notices
+    expect(plain).toEqual({ id: 1, level: 'info', message: 'Plain (fixture).' })
+    expect(coded).toEqual({
+      id: 2,
+      level: 'warning',
+      message: 'Coded (fixture).',
+      code: 'sign-out-unconfirmed',
+    })
+  })
+})
+
 describe('switching Hermes', () => {
   const at = (
     origin: string | undefined,

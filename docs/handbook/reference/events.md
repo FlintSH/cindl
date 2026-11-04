@@ -50,7 +50,7 @@ on the wire.
 | [`session.status`](#session-status)               | `conversationId`: string; `status`: `idle` / `working` / `waiting-on-you` / `unknown`; `detail`: optional string                                                 |
 | [`usage.updated`](#usage-updated)                 | `conversationId`: string; `usage`: Usage                                                                                                                         |
 | [`display.changed`](#display-changed)             | `display`: DisplayState                                                                                                                                          |
-| [`notice`](#notice)                               | `level`: `info` / `warning` / `error`; `message`: string                                                                                                         |
+| [`notice`](#notice)                               | `level`: `info` / `warning` / `error`; `message`: string; `code`: optional NoticeCode                                                                            |
 
 <!-- END GENERATED: events -->
 
@@ -71,16 +71,20 @@ always shows the synthetic-data banner.
 
 Before it connects, the direct client asks Hermes what it is
 (`GET /api/status`) and whether this device is signed in. When Hermes does not
-answer either (no network, a timeout, a 5xx while it restarts, rate limiting),
-the link is `offline` with that error, and the client asks again with the
-reconnect backoff, keeping that link until an attempt succeeds. Only the
-adapter's own reports of that (`hermesDidNotAnswer`) count, never a code
-alone. An answer that is not Hermes is `error` and is not repeated, and so is
-a failure on this device, such as a secret store that cannot be read: asking
-Hermes again cannot fix it, so the next `start()` or sign-in tries again. A
-discovery or sign-in that
-`stop()`, a newer `start()` or another sign-in overtakes neither connects nor
-changes the link.
+answer either (no network, a timeout, a 5xx while it restarts, rate limiting,
+a 408, or a body that stalls or breaks off after its headers), the link is
+`offline` with that error, and the client asks again with the reconnect
+backoff, keeping that link until an attempt succeeds. Only the adapter's own
+reports of that (`hermesDidNotAnswer`) count, never a code alone. An answer
+that is not Hermes is `error` and is not repeated, and so are a platform fetch
+that refuses to send (an origin it does not trust) and a failure on this
+device, such as a secret store that cannot be read: asking Hermes again cannot
+fix them. A plain `start()` does not bring such a link back, since the client
+is still started; `stop()` then `start()` does, as do an app restart and a new
+sign-in (Agent, Sign out, then sign in again). No shell shows that `lastError`
+today (Android's sign-in screen shows one only after a sign-in it started), so
+its message is not visible yet. A discovery or sign-in that `stop()`, a newer
+`start()` or another sign-in overtakes neither connects nor changes the link.
 
 ### `capabilities.changed`
 
@@ -210,7 +214,11 @@ stored display state. Viewing never starts a screen.
 ### `notice`
 
 A message for the owner that belongs to no conversation, at level `info`,
-`warning` or `error`. The reducer keeps the 20 most recent notices.
+`warning` or `error`. The reducer keeps the 20 most recent notices. A notice
+that can stop applying carries a `code`, so a renderer can retire it:
+`sign-out-unconfirmed`, sent when Hermes did not confirm a cookie sign-out,
+no longer applies once a later sign-out is confirmed or this page is online
+again. The web hides it then.
 
 ## Error codes
 

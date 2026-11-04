@@ -2,17 +2,24 @@ import { useCindlState } from '@cindl/client-react'
 import { X } from 'lucide-react'
 import { useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
+import { useSignOutUnconfirmed } from './session.ts'
 import styles from './shell.module.css'
 
 /** Client notices (e.g. "tokens kept in memory only"), in the flow above the view until dismissed. */
 export function Notices() {
   const notices = useCindlState((state) => state.notices)
   const [dismissed, setDismissed] = useState<ReadonlySet<number>>(new Set())
+  // "Hermes did not confirm the sign-out" stops applying once a later sign-out
+  // is confirmed, or this page is signed in again (session.ts).
+  const unconfirmed = useSignOutUnconfirmed()
   // A notice that comes again (a sign-out tried again, say) shows once, as
   // its latest, and is dismissed with every copy.
   const latest = new Map<string, (typeof notices)[number]>()
   for (const notice of notices)
-    if (!dismissed.has(notice.id)) {
+    if (
+      !dismissed.has(notice.id) &&
+      !(notice.code === 'sign-out-unconfirmed' && !unconfirmed)
+    ) {
       latest.delete(notice.message)
       latest.set(notice.message, notice)
     }

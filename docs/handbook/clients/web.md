@@ -65,7 +65,8 @@ in through Hermes's own `/login` page.
     sign-in.
   - Hermes confirms a sign-out when, after it, it no longer accepts this
     browser's session. If it does not, Cindl signs out here and says so, and
-    the sign-in screen offers "Sign out on Hermes" until Hermes confirms it.
+    the sign-in screen offers "Sign out on Hermes" until Hermes confirms it;
+    the warning goes once it does, or once this page is online again.
   - An open Cindl tab keeps its session in use: its 15-second check is a
     request like any other, so once the access cookie expires the gate
     renews the cookies through the refresh cookie, for as long as Hermes's
@@ -104,9 +105,9 @@ process instead of Hermes directly:
   for the Hermes address (https, or plain http on 127.0.0.1 or [::1]). Hermes's
   own sign-in page opens in the system browser, so Cindl never handles a
   password or a verification code. If the browser never comes back, "Stop
-  waiting" frees the screen; it does not cancel the sign-in in the browser.
-  From then on the abandoned sign-in can no longer report an error or unlock
-  the screen.
+  waiting" frees the form for another try, and the screen stays while that
+  sign-in is out; it does not cancel the sign-in in the browser. From then on
+  the abandoned sign-in can no longer report an error or unlock the form.
 - Notices from the desktop app (for example, that tokens are kept in memory
   only on this machine) appear above the current view until dismissed. They sit
   in the page flow, so they never cover a control.
@@ -267,17 +268,20 @@ few tools for that conversation ([ADR 0013](../architecture/decisions/0013-conve
   again, or "Clear the step", empties Step and leaves it chosen.
 - **Computer**: the agent's screen, live, with the same rules as Work:
   watching sends nothing, taking control asks first, and leaving the tool,
-  the margin or the conversation closes the view and gives control back. A
+  the margin or the conversation closes the view and gives control back,
+  once it lands if taking it was still on its way. With the connection down
+  the hand-back cannot reach Hermes, and control stays with you. A
   conversation left on Computer shows the screen again whenever you return
   to it, and the screen does not idle while it is shown.
 
 It switches only when you choose a tool or select a step: a new request
 changes Waiting's count, not the tool. Each conversation keeps its own tool
 while you move between them. The arrow keys, Home and End move between the
-tools; with Alt, Ctrl or ⌘ held they are left to the browser. The sheet opens
-with focus on the chosen tool, closing the column puts focus on the button
-that shows it, and a conversation chosen from the switcher opens with focus
-on its switcher.
+tools; with Alt, Ctrl, ⌘ or Shift held they are left to the browser. The
+sheet opens with focus on the chosen tool. Closing the column, with its close
+button or `Ctrl/⌘ .`, puts focus on the button that shows it when focus was
+in the column. A conversation chosen from the switcher opens with focus on
+its switcher; choosing the one already shown just closes the list.
 
 ## Keyboard
 
