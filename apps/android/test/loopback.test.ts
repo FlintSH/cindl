@@ -151,6 +151,129 @@ describe('the browser leg of sign-in (NativeAuth runs PKCE)', () => {
   })
 })
 
+describe('a sign-in cancelled before its browser opens', () => {
+  /** A gate a test opens: `arrived` once something waits on it. */
+  function gate() {
+    let arrive: () => void = () => undefined
+    let open: () => void = () => undefined
+    const arrived = new Promise<void>((resolve) => (arrive = resolve))
+    const opened = new Promise<void>((resolve) => (open = resolve))
+    return { arrived, open, wait: () => (arrive(), opened) }
+  }
+  /** The authorizer on the fakes, with the first marker write or listener start held. */
+  function held(hold: 'marker' | 'start') {
+    const listener = fakeListener()
+    const stores = deviceStores()
+    const at = gate()
+    const markers: string[] = []
+    let holding = true
+    const opened: string[] = []
+    let browserOpened: () => void = () => undefined
+    const browser = new Promise<void>((resolve) => (browserOpened = resolve))
+    let ids = 0
+    const authorizer = createLoopbackAuthorizer({
+      loopback: {
+        ...listener.native,
+        // Kotlin starts the listener on a background queue: a cancel() that
+        // comes first finds no attempt of that id and is dropped
+        // (CindlLoopbackModule.kt, LoopbackRegistry.cancel).
+        start: async (id, timeout) => {
+          if (hold === 'start' && holding) {
+            holding = false
+            await at.wait()
+          }
+          return listener.native.start(id, timeout)
+        },
+      },
+      keyValue: {
+        get: (key) => stores.keyValue.get(key),
+        delete: (key) => stores.keyValue.delete(key),
+        set: async (key, value) => {
+          if (key === ATTEMPT_MARKER_KEY) {
+            markers.push(value)
+            if (hold === 'marker' && holding) {
+              holding = false
+              await at.wait()
+            }
+          }
+          return stores.keyValue.set(key, value)
+        },
+      },
+      openBrowser: (url) => {
+        opened.push(url)
+        browserOpened()
+        return Promise.resolve()
+      },
+      now: () => 0,
+      newAttemptId: () => `attempt-${++ids}`,
+    })
+    /** The attempt's outcome, or "browser opened" if the browser opens first. */
+    const settle = (attempt: Promise<string>) =>
+      Promise.race([
+        attempt.then(
+          () => 'resolved',
+          (error: unknown) => (error instanceof Error ? error.message : String(error)),
+        ),
+        browser.then(() => 'browser opened'),
+      ])
+    return { listener, stores, at, markers, opened, authorizer, settle }
+  }
+
+  it('opens no browser when cancelled while its marker is written, and leaves nothing', async () => {
+    const { listener, stores, at, markers, opened, authorizer, settle } = held('marker')
+    const attempt = authorizer.authorize((redirectUri) => authorizeUrl(redirectUri))
+    const outcome = settle(attempt)
+    await at.arrived
+    authorizer.cancel()
+    at.open()
+    expect(await outcome).toBe('Sign-in was cancelled. Nothing was saved.')
+    await expect(attempt).rejects.toMatchObject({ code: 'unauthenticated' })
+    expect(opened).toEqual([])
+    expect(markers).toHaveLength(1)
+    expect(await stores.keyValue.get(ATTEMPT_MARKER_KEY)).toBeUndefined()
+    expect(listener.cancelled).toContain('attempt-1')
+    expect(listener.native.status('attempt-1')).toBe('ended')
+  })
+
+  it('opens no browser, and writes no marker, when cancelled while its listener starts', async () => {
+    const { listener, stores, at, markers, opened, authorizer, settle } = held('start')
+    const attempt = authorizer.authorize((redirectUri) => authorizeUrl(redirectUri))
+    const outcome = settle(attempt)
+    await at.arrived
+    // The listener misses it: nothing of this attempt has started yet.
+    authorizer.cancel()
+    at.open()
+    expect(await outcome).toBe('Sign-in was cancelled. Nothing was saved.')
+    expect(opened).toEqual([])
+    expect(markers).toEqual([])
+    expect(await stores.keyValue.get(ATTEMPT_MARKER_KEY)).toBeUndefined()
+    // It started after the cancel: stopped on the way out.
+    expect(listener.native.status('attempt-1')).toBe('ended')
+  })
+
+  it('opens no browser for an attempt a newer one overtook while its marker was written', async () => {
+    const { listener, at, opened, authorizer } = held('marker')
+    const first = authorizer.authorize((redirectUri) => authorizeUrl(redirectUri))
+    await at.arrived
+    const second = authorizer.authorize((redirectUri) =>
+      authorizeUrl(redirectUri, 'state-2'),
+    )
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(opened).toHaveLength(1)
+    at.open()
+    await expect(first).rejects.toMatchObject({
+      code: 'unauthenticated',
+      message: 'Sign-in was cancelled. Nothing was saved.',
+    })
+    // Only the newer attempt's page opened, and its sign-in goes on.
+    expect(opened.map((url) => new URL(url).searchParams.get('state'))).toEqual([
+      'state-2',
+    ])
+    listener.deliver('http://127.0.0.1:41001/callback?code=c&state=state-2')
+    await expect(second).resolves.toMatch(/state=state-2$/)
+  })
+})
+
 describe('a sign-in interrupted by the app closing', () => {
   it('is found on the next start, its listener stopped and its marker removed', async () => {
     const listener = fakeListener()

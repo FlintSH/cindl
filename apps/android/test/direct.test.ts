@@ -6,6 +6,7 @@ import {
   selectOpenRequests,
   systemClock,
   type ClientStore,
+  type KeyValueStore,
 } from '@cindl/client-core'
 import type { DisplayInputEvent, LinkState } from '@cindl/contracts'
 import {
@@ -706,6 +707,83 @@ describe('a stop() during a sign-in, through the real Android client', () => {
     await until(async () => (await stores.keyValue.get(ATTEMPT_MARKER_KEY)) === undefined)
     expect(calls(b, 'POST /auth/native/token')).toBe(0)
     expect(await stores.keyValue.get(ORIGIN_KEY)).toBeUndefined()
+  })
+})
+
+describe('a sign-in withdrawn while its attempt marker is written, through the real Android client', () => {
+  /** The device's stores, with the first write of a sign-in's attempt marker held until opened. */
+  function holdingMarker() {
+    const stores = deviceStores()
+    let arrive: () => void = () => undefined
+    let open: () => void = () => undefined
+    const arrived = new Promise<void>((resolve) => (arrive = resolve))
+    const opened = new Promise<void>((resolve) => (open = resolve))
+    let holding = true
+    let removed = false
+    const keyValue: KeyValueStore = {
+      get: (key) => stores.keyValue.get(key),
+      delete: async (key) => {
+        await stores.keyValue.delete(key)
+        if (key === ATTEMPT_MARKER_KEY) removed = true
+      },
+      set: async (key, value) => {
+        if (key === ATTEMPT_MARKER_KEY && holding) {
+          holding = false
+          arrive()
+          await opened
+        }
+        return stores.keyValue.set(key, value)
+      },
+    }
+    // The attempt removes its marker last, on its way out: after that it opens nothing.
+    return { stores: { ...stores, keyValue }, arrived, open, ended: () => removed }
+  }
+  const codeOf = (promise: Promise<unknown>) =>
+    promise.then(
+      () => 'resolved',
+      (error: unknown) => (error as { code?: string }).code ?? String(error),
+    )
+
+  it('a stop() then opens no browser, and leaves no listener or marker', async () => {
+    const b = await fakeHermes()
+    const hold = holdingMarker()
+    const { listener, browser, platform } = device(hold.stores)
+    browser.mode = 'hold'
+    const { client } = await launch(platform)
+    const signingIn = codeOf(client.api.call('auth.signIn', { origin: b.origin }))
+    await hold.arrived
+    // What the App's unmount does.
+    client.stop()
+    hold.open()
+    expect(await signingIn).toBe('unavailable')
+    await until(hold.ended)
+    expect(browser.opened).toEqual([])
+    const [id = ''] = [...listener.attempts.keys()]
+    expect(listener.native.status(id)).toBe('ended')
+    expect(await hold.stores.keyValue.get(ATTEMPT_MARKER_KEY)).toBeUndefined()
+    expect(calls(b, 'POST /auth/native/token')).toBe(0)
+  })
+
+  it('Cancel sign-in then opens no browser, and the sign-in fails as cancelled', async () => {
+    const b = await fakeHermes()
+    const hold = holdingMarker()
+    const { listener, browser, platform } = device(hold.stores)
+    browser.mode = 'hold'
+    const { client } = await launch(platform)
+    const signingIn = client.api.call('auth.signIn', { origin: b.origin })
+    await hold.arrived
+    // What the sign-in screen's Cancel sign-in does.
+    client.cancelSignIn()
+    hold.open()
+    await expect(signingIn).rejects.toMatchObject({
+      code: 'unauthenticated',
+      message: 'Sign-in was cancelled. Nothing was saved.',
+    })
+    await until(hold.ended)
+    expect(browser.opened).toEqual([])
+    const [id = ''] = [...listener.attempts.keys()]
+    expect(listener.native.status(id)).toBe('ended')
+    expect(calls(b, 'POST /auth/native/token')).toBe(0)
   })
 })
 

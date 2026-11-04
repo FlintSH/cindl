@@ -40,7 +40,10 @@ export interface LoopbackDeps {
 }
 
 export interface AndroidLoopbackAuthorizer extends LoopbackAuthorizer {
-  /** Stops the attempt waiting for the browser; its sign-in fails with "Sign-in was cancelled". */
+  /**
+   * Stops the attempt under way: its browser does not open if it has not yet,
+   * and its sign-in fails with "Sign-in was cancelled".
+   */
   cancel(): void
 }
 
@@ -74,6 +77,9 @@ async function forgetMarker(deps: Pick<LoopbackDeps, 'keyValue'>, id: string) {
   }
 }
 
+const cancelled = () =>
+  new CindlError('unauthenticated', 'Sign-in was cancelled. Nothing was saved.')
+
 /** client-core's LoopbackAuthorizer on the Kotlin listener, one attempt at a time. */
 export function createLoopbackAuthorizer(deps: LoopbackDeps): AndroidLoopbackAuthorizer {
   let current: string | undefined
@@ -83,8 +89,16 @@ export function createLoopbackAuthorizer(deps: LoopbackDeps): AndroidLoopbackAut
       // A new attempt ends the wait of an earlier one.
       if (current !== undefined) deps.loopback.cancel(current)
       current = id
+      // After each wait before the browser opens: a cancel() or a newer attempt
+      // may have come meanwhile, which the listener can have missed (Kotlin
+      // drops a cancel for an attempt it has not started yet), so no browser
+      // opens. The finally stops the listener and removes the marker.
+      const stillWanted = () => {
+        if (current !== id) throw cancelled()
+      }
       try {
         const { port } = await deps.loopback.start(id, SIGN_IN_TIMEOUT_MS)
+        stillWanted()
         const url = buildUrl(redirectUriFor(port))
         const state = new URL(url).searchParams.get('state')
         if (!state)
@@ -101,6 +115,7 @@ export function createLoopbackAuthorizer(deps: LoopbackDeps): AndroidLoopbackAut
           ATTEMPT_MARKER_KEY,
           JSON.stringify({ v: 2, id, startedAt: deps.now() } satisfies Marker),
         )
+        stillWanted()
         await deps.openBrowser(url)
         try {
           return `http://127.0.0.1:${port}${await deps.loopback.awaitCallback(id)}`
@@ -115,6 +130,8 @@ export function createLoopbackAuthorizer(deps: LoopbackDeps): AndroidLoopbackAut
     },
     cancel() {
       if (current !== undefined) deps.loopback.cancel(current)
+      // The attempt sees it at its next step, even with its listener not started yet.
+      current = undefined
     },
   }
 }
@@ -142,8 +159,7 @@ function listenerError(error: unknown): CindlError {
       'timeout',
       'The browser did not return to Cindl in time. Nothing was saved.',
     )
-  if (code === 'ERR_LOOPBACK_CANCELLED')
-    return new CindlError('unauthenticated', 'Sign-in was cancelled. Nothing was saved.')
+  if (code === 'ERR_LOOPBACK_CANCELLED') return cancelled()
   return new CindlError(
     'internal',
     'Cindl stopped waiting for the browser (the app may have been closed). Start again.',
