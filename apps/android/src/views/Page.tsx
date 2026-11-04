@@ -98,7 +98,7 @@ export function Tabs<T extends string>({
     <View
       accessibilityLabel={label}
       accessibilityRole="tablist"
-      style={{ flexDirection: 'row', flexWrap: 'wrap', flexShrink: 1 }}
+      style={{ flexDirection: 'row', flexWrap: 'wrap' }}
     >
       {tabs}
     </View>

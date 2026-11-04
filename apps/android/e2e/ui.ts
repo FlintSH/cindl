@@ -453,6 +453,35 @@ function nearestScrollable(node: UiNode): UiNode | undefined {
   return undefined
 }
 
+/**
+ * What keeps a row of tabs from being whole, if anything: a tab in a scrolling
+ * parent (it can be scrolled out of view), or one measuring under `minDp`
+ * either way (cut by its row, its sheet or the screen). uiautomator clips
+ * every node's bounds to its parents and the display, so a tab partly off
+ * screen, or under a header that shrank, shows here as too small, never as
+ * out of bounds (review 4bdfe6c1, B-1). A whole tab is at least 48dp.
+ */
+export function tabsWhole(
+  tabs: readonly UiNode[],
+  density: number,
+  minDp = 48,
+): string[] {
+  const scale = density / 160
+  const problems: string[] = []
+  for (const tab of tabs) {
+    if (nearestScrollable(tab))
+      problems.push(`"${label(tab)}" is in a row that scrolls, so it can be out of view`)
+    const widthDp = width(tab.bounds) / scale
+    const heightDp = height(tab.bounds) / scale
+    // Half a dp of slack for layout rounding to whole pixels, as the audit allows.
+    if (widthDp < minDp - 0.5 || heightDp < minDp - 0.5)
+      problems.push(
+        `"${label(tab)}" measures ${widthDp.toFixed(1)}x${heightDp.toFixed(1)}dp, under ${minDp}dp`,
+      )
+  }
+  return problems
+}
+
 /** True when the node touches its scroll container's edge, so its bounds may be clipped. */
 function maybeClipped(node: UiNode): boolean {
   const container = nearestScrollable(node)

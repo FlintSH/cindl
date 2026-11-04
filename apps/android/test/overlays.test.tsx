@@ -316,6 +316,57 @@ describe('the memory screen behind its dialogs', () => {
   })
 })
 
+describe('overlays open over one another (review 4bdfe6c1, N-5)', () => {
+  /** Three sheets, each opened over the last by a button in it. */
+  function Stack() {
+    const [open, setOpen] = useState(0)
+    const sheet = (n: number) => (
+      <Sheet key={n} open={open >= n} title={`Sheet ${n}`} onClose={() => setOpen(n - 1)}>
+        <Button label={`Open sheet ${n + 1}`} onPress={() => setOpen(n + 1)} />
+      </Sheet>
+    )
+    return (
+      <>
+        <Button label="Open sheet 1" onPress={() => setOpen(1)} />
+        {[1, 2, 3].map(sheet)}
+      </>
+    )
+  }
+
+  it('leaves only the one on top open to TalkBack and to a keyboard', async () => {
+    const view = render(
+      <Providers api={client}>
+        <BehindOverlays>
+          <Stack />
+        </BehindOverlays>
+      </Providers>,
+    )
+    const press = async (label: string) => {
+      const target = [
+        ...view.container.querySelectorAll<HTMLElement>('[role="button"]'),
+      ].find((element) => element.getAttribute('aria-label') === label)
+      if (!target) throw new Error(`no button ${label}`)
+      fireEvent.click(target)
+      await settle()
+    }
+    /** For each sheet's title: whether something holding it is hidden. */
+    const hidden = () =>
+      [1, 2, 3].map((n) => {
+        const title = [...view.container.querySelectorAll('[role="heading"]')].find(
+          (node) => node.textContent === `Sheet ${n}`,
+        )
+        return title ? Boolean(title.closest('[aria-hidden="true"]')) : undefined
+      })
+    await press('Open sheet 1')
+    await press('Open sheet 2')
+    await press('Open sheet 3')
+    expect(hidden()).toEqual([true, true, false])
+    act(() => void hardwareBack())
+    await settle()
+    expect(hidden()).toEqual([true, false, undefined])
+  })
+})
+
 describe("a page's heading is the fallback of what opens on it", () => {
   /** An overlay opened on a page, outside any section, by a control that goes as it closes. */
   function OnPage() {

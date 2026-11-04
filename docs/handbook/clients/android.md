@@ -472,12 +472,28 @@ Hermes server, Chrome's Custom Tab, and a phone.
 
   Only you switch tools: a new request changes Waiting's count, not the tool.
   Each conversation keeps its tool and selected step, with its unsent message
-  and where you were reading, in memory until the session ends. The tabs are
-  tabs to TalkBack (their role, which one is selected), 48dp, named by their
-  visible text, and go onto another line rather than out of view at a large
-  font; the header never shrinks under a tall tool, which scrolls instead. The
-  margin opens with focus on the chosen tool's tab, and system back closes it,
-  giving focus back to what opened it.
+  and where you were reading, in memory until the session ends. A message
+  whose send fails after you left its conversation goes back into that
+  conversation's composer, with the failure, said when you return. The tabs
+  are tabs to TalkBack (their role, which one is selected), 48dp, named by
+  their visible text, and go onto another line rather than out of view at a
+  large font; the header never shrinks under a tall tool, which scrolls
+  instead. The margin opens with TalkBack's focus and a keyboard's on the
+  chosen tool's tab, and system back closes it, giving focus back to what
+  opened it. The emulator checks at 200% font, with Computer and then
+  Waiting shown, that every tab is whole: in no row that scrolls and at
+  least 48dp each way.
+
+  Where Android differs from the web's margin, on purpose:
+  - every tab is its own stop for a keyboard's focus, and the arrow keys only
+    move that focus (on the web the arrows switch the tool, and only the
+    chosen tab is a stop);
+  - no tab names the panel it shows (the web's `aria-controls`); the tool is
+    the content just below the tabs;
+  - its spoken name, "Working margin", is on its tab list (the web's sheet is
+    a dialog with that name), since first focus goes to the chosen tab;
+  - it is a sheet at every width, tablets included: there is no column beside
+    the conversation.
 
 - **Memory** (Library, Memory) lists Hermes's memory entries: agent notes
   and notes about you, each named by its place in its list. Editing one goes
@@ -585,9 +601,13 @@ Hermes server, Chrome's Custom Tab, and a phone.
   screen, with arrow buttons beside it. The picture's label says whether you
   are watching or in control, and TalkBack moves past it like any other
   element. Leaving it closes its view and gives control back if this device
-  took it there: on Work, as soon as Work is not the destination shown.
-  Cindl never starts, stops or installs the screen. See
-  [Live screen](#live-screen).
+  took it there: on Work, as soon as Work is not the destination shown, whose
+  place is kept for your return. As on the web, putting Cindl in the
+  background keeps the view and its control. If Android then ends Cindl's
+  process, Hermes keeps the lease as it does for any link that dropped (which
+  protects a half-typed login), and the screen shows "Another viewer is in
+  control" until you take control and give it back. Cindl never starts,
+  stops or installs the screen. See [Live screen](#live-screen).
 - **System back** closes an open sheet or dialog first, then steps out of an
   editor review, then a skill detail, then returns to Talk, then from a side
   conversation to the main one, and only then leaves the app.

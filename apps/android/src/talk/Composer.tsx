@@ -40,8 +40,20 @@ export function Composer({
     setTextNow(value)
     keepPlace(conversationId, { draft: value })
   }
-  const [error, setError] = useState<string>()
-  const [unconfirmed, setUnconfirmed] = useState<string>()
+  // So does a send's outcome: one that fails after the owner left is said
+  // when they come back (review 4bdfe6c1, S-5).
+  const [error, setErrorNow] = useState(() => placeOf(conversationId).failure)
+  const setError = (message: string | undefined) => {
+    setErrorNow(message)
+    keepPlace(conversationId, { failure: message })
+  }
+  const [unconfirmed, setUnconfirmedNow] = useState(
+    () => placeOf(conversationId).unconfirmed,
+  )
+  const setUnconfirmed = (value: string | undefined) => {
+    setUnconfirmedNow(value)
+    keepPlace(conversationId, { unconfirmed: value })
+  }
   const [sending, setSending] = useState(false)
   const [focused, setFocused] = useState(false)
   const connected = link.phase === 'online'

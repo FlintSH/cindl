@@ -24,6 +24,7 @@ import {
   onDestination,
   overlayOpen,
   scrimOf,
+  tabsWhole,
   rawPixel,
   reachable,
   resetMove,
@@ -303,24 +304,32 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
   })
 
   it('reaches only the overlay on top when one is open over another (a dialog over the margin)', () => {
-    // The working margin's sheet (drawing orders 2 and 3), then the
-    // take-control dialog over it (4 and 5): each with its own scrim.
-    const branch = (order: number) =>
-      `<node index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs(`bounds="[0,0][1080,2400]" drawing-order="${order}"`)}>`
-    const SHEET = `<node index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,1200][1080,2400]" drawing-order="3"')}><node index="0" text="" class="android.widget.Button" content-desc="Close the working margin" clickable="true" focusable="true" ${attrs('bounds="[930,1210][1070,1340]" drawing-order="1"')} /></node>`
-    const OVER = CARD.replace('drawing-order="4"', 'drawing-order="5"')
-    const root = parseUi(
-      dump(
-        `${WINDOW}${CONTAINER}${EMPTY}${branch(2)}${SCRIM}</node>${SHEET}${branch(4)}${SCRIM}</node>${OVER}${TITLE}${CANCEL}${OPEN}</node></node></node>`,
-      ),
+    // As the app draws them (overlay/Portal.tsx): each overlay inside its own
+    // portal wrapper, the take-control dialog's drawn after the margin's sheet.
+    const view = (order: number, bounds = '[0,0][1080,2400]') =>
+      `<node index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs(`bounds="${bounds}" drawing-order="${order}"`)}>`
+    const CLOSE = `<node index="0" text="" class="android.widget.Button" content-desc="Close the working margin" clickable="true" focusable="true" ${attrs('bounds="[930,1210][1070,1340]" drawing-order="1"')} />`
+    const MARGIN = `${view(2)}${view(1)}${view(1)}${SCRIM}</node>${view(2, '[0,1200][1080,2400]')}${CLOSE}</node></node></node>`
+    const DIALOG = `${view(3)}${view(1)}${view(1)}${SCRIM}</node>${CARD.replace('drawing-order="4"', 'drawing-order="2"')}${TITLE}${CANCEL}${OPEN}</node></node></node>`
+    const full = parseUi(
+      dump(`${WINDOW}${CONTAINER}${EMPTY}${MARGIN}${DIALOG}</node></node>`),
     )
-    expect(reachable(root).map(label)).toEqual([
+    expect(reachable(full).map(label)).toEqual([
       '',
       'Open this link?',
       'Cancel',
       'Open in browser',
     ])
-    expect(reachable(root).map(label)).not.toContain('Close the working margin')
+    // TalkBack is given the dialog alone; the margin beneath it is hidden too.
+    expect(
+      hiddenBeneath(full, parseUi(dump(`${WINDOW}${TITLE}${CANCEL}${OPEN}</node>`))),
+    ).toMatchObject({ ok: true, leaked: [] })
+    expect(
+      hiddenBeneath(
+        full,
+        parseUi(dump(`${WINDOW}${CLOSE}${TITLE}${CANCEL}${OPEN}</node>`)),
+      ),
+    ).toMatchObject({ ok: false, leaked: ['Close the working margin'] })
   })
 
   it('measures every target when nothing is drawn above the scrim, as in a dump without drawing orders', () => {
@@ -487,6 +496,73 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
     expect(alone('the venue page (harbor-loft.example.test) has the directions')).toEqual(
       [],
     )
+  })
+})
+
+describe("the working margin's tabs at 200% font (review 4bdfe6c1, B-1)", () => {
+  // At density 420 (2.625px per dp): 48dp is 126px. uiautomator clips each
+  // node's bounds to its parents, so a cut tab shows as a small one.
+  const node = (more: string, children = '') =>
+    `<node index="0" text="" resource-id="" class="android.view.ViewGroup" package="${PKG}" checkable="false" checked="false" enabled="true" focusable="false" focused="false" long-clickable="false" password="false" hint="" ${more}>${children}</node>`
+  const tab = (name: string, bounds: string, selected = false) =>
+    node(
+      `content-desc="${name}" clickable="true" scrollable="false" selected="${selected}" bounds="${bounds}" drawing-order="1"`,
+    )
+  const header = (row: string, bounds: string, scrollable = false) =>
+    node(
+      `content-desc="" clickable="false" scrollable="false" selected="false" bounds="[0,1100][1080,1500]" drawing-order="1"`,
+      node(
+        `content-desc="Working margin" clickable="false" scrollable="${scrollable}" selected="false" bounds="${bounds}" drawing-order="1"`,
+        row,
+      ),
+    )
+  const tabsOf = (xml: string) => {
+    const root = parseUi(dump(xml))
+    return ['Waiting 2', 'Step', 'Computer'].map((name) => {
+      const found = find(root, name)
+      if (!found) throw new Error(`no tab ${name}`)
+      return found
+    })
+  }
+
+  it('passes tabs that wrapped onto a second row, each whole', () => {
+    const wrapped = header(
+      tab('Waiting 2', '[0,1100][420,1240]', true) +
+        tab('Step', '[420,1100][700,1240]') +
+        tab('Computer', '[0,1240][409,1380]'),
+      '[0,1100][930,1380]',
+    )
+    expect(tabsWhole(tabsOf(wrapped), 420)).toEqual([])
+  })
+
+  it('fails tabs in a row that scrolls, as without wrap, though their bounds stay on screen', () => {
+    // Computer scrolled partly off: clipped to the row's right edge.
+    const scrolling = header(
+      tab('Waiting 2', '[0,1100][420,1240]', true) +
+        tab('Step', '[420,1100][700,1240]') +
+        tab('Computer', '[700,1100][760,1240]'),
+      '[0,1100][760,1240]',
+      true,
+    )
+    expect(tabsWhole(tabsOf(scrolling), 420)).toEqual([
+      '"Waiting 2" is in a row that scrolls, so it can be out of view',
+      '"Step" is in a row that scrolls, so it can be out of view',
+      '"Computer" is in a row that scrolls, so it can be out of view',
+      '"Computer" measures 22.9x53.3dp, under 48dp',
+    ])
+  })
+
+  it('fails a tab cut by a header held short, its second row clipped', () => {
+    // A header held at 80dp (210px): the second row shows 16dp of Computer.
+    const held = header(
+      tab('Waiting 2', '[0,1100][420,1240]', true) +
+        tab('Step', '[420,1100][700,1240]') +
+        tab('Computer', '[0,1268][409,1310]'),
+      '[0,1100][930,1310]',
+    )
+    expect(tabsWhole(tabsOf(held), 420)).toEqual([
+      '"Computer" measures 155.8x16.0dp, under 48dp',
+    ])
   })
 })
 

@@ -2,8 +2,9 @@
 
 **Status:** Accepted (owner direction, 2026-11-03). Web: built and tested in
 a browser on the synthetic demo; the desktop app shares that renderer but has
-not been run with it. Android: built in its working-margin sheet and tested
-on the rendered components; its emulator step has not run yet.
+not been run with it. Android: built in its working-margin sheet; where it
+differs from the web is listed in the Android client page
+([clients/android.md](../../clients/android.md), The working margin).
 
 **Context.** The owner asked Cindl to take the paradigm of the right-hand
 panel inside a conversation in T3 Code: a panel beside the conversation that

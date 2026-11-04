@@ -61,11 +61,13 @@ describe('the app shell when the session ends', () => {
     expect(placeOf('demo-main').tool).toBe('computer')
     await c.link('signed-out')
     expect(keptDrafts.size).toBe(0)
-    expect(placeOf('demo-main')).toEqual({
+    expect(placeOf('demo-main')).toStrictEqual({
       draft: '',
       scrollY: undefined,
       toolId: undefined,
       tool: undefined,
+      failure: undefined,
+      unconfirmed: undefined,
     })
   })
 })

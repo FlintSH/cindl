@@ -19,6 +19,10 @@ export interface Place {
   readonly toolId: string | undefined
   /** The margin's tool the owner chose here; undefined until they choose one. */
   readonly tool: MarginTool | undefined
+  /** Why the last send here failed, said again when the owner comes back to it. */
+  readonly failure: string | undefined
+  /** Text a send left unconfirmed here, for "Put the text back". */
+  readonly unconfirmed: string | undefined
 }
 
 const nowhere: Place = {
@@ -26,6 +30,8 @@ const nowhere: Place = {
   scrollY: undefined,
   toolId: undefined,
   tool: undefined,
+  failure: undefined,
+  unconfirmed: undefined,
 }
 const places = new Map<string, Place>()
 const listeners = new Set<() => void>()
@@ -39,7 +45,9 @@ export function keepPlace(conversationId: string, change: Partial<Place>): void 
     place.draft ||
     place.scrollY !== undefined ||
     place.toolId !== undefined ||
-    place.tool !== undefined
+    place.tool !== undefined ||
+    place.failure !== undefined ||
+    place.unconfirmed !== undefined
   )
     places.set(conversationId, place)
   else places.delete(conversationId)

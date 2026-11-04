@@ -48,6 +48,7 @@ import {
   reachable,
   screenToDevice,
   scrimOf,
+  tabsWhole,
   TERMS_PROMPT,
   touchTargetsRow,
   type Match,
@@ -438,6 +439,23 @@ async function agentScreen(
     },
     whileInControl,
   )
+
+  // Back to Work, it is where it was left: hidden, its Computer is closed but
+  // keeps its room, so Work's scroll position is not cut short (review
+  // 4bdfe6c1, S-4).
+  const isLive = (text: string) => text.startsWith('The agent’s screen, live.')
+  const left = find(await device.dump(), isLive)
+  if (!left) throw new Error('The live screen is not on Work before going to Talk')
+  await openDestination('Talk', selected('Talk'))
+  const back = await openDestination('Work', isLive)
+  const again = find(back.root, isLive)
+  if (!again || Math.abs(again.bounds.top - left.bounds.top) > 2)
+    throw new Error(
+      `Work did not come back where it was left: the screen was at y ${left.bounds.top}, now ${again ? `at y ${again.bounds.top}` : 'gone'}`,
+    )
+  note(
+    `back from Talk, Work was where it was left: the screen still at y ${again.bounds.top}`,
+  )
 }
 
 async function demoSuite() {
@@ -563,7 +581,7 @@ async function demoSuite() {
 
   await step(
     "The working margin: the conversation's tools, Computer gated, back, 200% font",
-    async ({ note, shot, audit }) => {
+    async ({ note, shot, keep, audit }) => {
       await startOnTalk()
       // Opened from the conversation, on Waiting with its count on the tab.
       let sheet = await openMargin('Waiting')
@@ -578,6 +596,16 @@ async function demoSuite() {
       shot('margin-waiting')
       await audit('Working margin: Waiting', sheet.root)
       note(`the margin opened from the conversation on "${label(waiting)}"`)
+      // Its spoken name: the sheet shows no title, so its tab list carries it.
+      if (!find(sheet.root, 'Working margin'))
+        throw new Error(
+          'The working margin has no name: its tab list is not "Working margin"',
+        )
+      const named = await device.accessibilityDump()
+      keep('margin-talkback', named)
+      if (!find(named.root, 'Working margin'))
+        throw new Error('TalkBack is not given the name "Working margin"')
+      note('TalkBack is given the margin\'s name, "Working margin", on its tab list')
 
       // Step: the selected step's evidence, or what to do to see one.
       sheet = await openTab(sheet, 'Step', (text) =>
@@ -602,6 +630,45 @@ async function demoSuite() {
           ? `Computer says why there is no screen: "${label(gate)}"`
           : 'Computer shows the screen, computer.view being usable here',
       )
+      if (!gate) {
+        // The picture is there before back, so back can be seen to close it.
+        await device.waitFor(
+          (text) => text.startsWith('The agent’s screen, live.'),
+          'the picture of the screen in the margin',
+        )
+        // Take control asks first, over the margin: TalkBack is given the
+        // dialog alone, the margin beneath hidden too, and a keyboard's
+        // focus stays in the dialog.
+        await tapRevealed('Take control…', 'Take control in the margin')
+        const over = await device.waitFor(
+          "Take control of the agent's screen?",
+          'the take-control dialog over the margin',
+        )
+        const given = await device.accessibilityDump()
+        keep('margin-take-control-talkback', given)
+        const hiding = hiddenBeneath(over.root, given.root)
+        if (!hiding.ok || find(given.root, 'Close the working margin'))
+          throw new Error(
+            `TalkBack is not given the take-control dialog alone over the margin: ${hiding.leaked.length} labels from beneath it (${hiding.leaked
+              .slice(0, 5)
+              .map((text) => `"${text}"`)
+              .join(', ')}), ${hiding.missing.length} of its own missing`,
+          )
+        await device.key('KEYCODE_TAB')
+        const where = keyboardFocusIn(await device.dump())
+        if (where !== 'overlay')
+          throw new Error(
+            `After Tab with the take-control dialog over the margin, keyboard focus is ${where === 'none' ? 'on nothing' : 'beneath it'}`,
+          )
+        await device.tap('Cancel', 'Cancel')
+        await device.waitUntilGone(
+          "Take control of the agent's screen?",
+          'The take-control dialog',
+        )
+        note(
+          `over the margin, TalkBack is given the take-control dialog alone (${hiding.shown.length} labels, none of the ${hiding.beneath} beneath it, the margin's included) and Tab keeps a keyboard's focus in it`,
+        )
+      }
 
       // System back closes the margin first, and the screen's view with it.
       await device.key('KEYCODE_BACK')
@@ -622,6 +689,28 @@ async function demoSuite() {
           throw new Error(
             'The conversation did not keep its tool: Computer is not chosen',
           )
+        // The tabs stay whole with the tall tool shown (Computer, where the
+        // margin reopened) and with Waiting: in no scrolling row, and at least
+        // 48dp each way, since uiautomator clips a cut tab to what shows
+        // (ui.ts tabsWhole; review 4bdfe6c1, B-1).
+        const whole = (root: UiNode, tool: string) => {
+          const tabs = MARGIN_TOOLS.map((each) => marginTab(root, each))
+          if (tabs.some((tab) => !tab))
+            throw new Error(`At 200% font, with ${tool} shown, the margin lost a tab`)
+          const problems = tabsWhole(tabs as UiNode[], device.density())
+          if (problems.length)
+            throw new Error(
+              `At 200% font, with ${tool} shown, a tab is not whole: ${problems.join('; ')}`,
+            )
+        }
+        sheet = await device.waitFor(
+          (text) =>
+            text.startsWith('The agent-owned Linux screen of this Hermes profile only') ||
+            text.startsWith('Agent computer: '),
+          'the Computer tool at 200% font',
+        )
+        whole(sheet.root, 'Computer')
+        shot('margin-font-200-computer')
         sheet = await openTab(
           sheet,
           'Waiting',
@@ -629,24 +718,7 @@ async function demoSuite() {
             text.startsWith('Show approval:') ||
             text === 'Nothing is waiting on you here.',
         )
-        const window = sheet.root.children[0]?.bounds
-        const tabs = MARGIN_TOOLS.map((tool) => marginTab(sheet.root, tool))
-        const body = find(
-          sheet.root,
-          (text) =>
-            text.startsWith('Show approval:') ||
-            text === 'Nothing is waiting on you here.',
-        )
-        if (!window || !body || tabs.some((tab) => !tab))
-          throw new Error('At 200% font the margin lost a tab or its tool')
-        for (const tab of tabs as UiNode[]) {
-          if (tab.bounds.left < window.left || tab.bounds.right > window.right)
-            throw new Error(`At 200% font the "${label(tab)}" tab runs off the screen`)
-          if (tab.bounds.bottom > body.bounds.top)
-            throw new Error(
-              `At 200% font the "${label(tab)}" tab overlaps the tool below it`,
-            )
-        }
+        whole(sheet.root, 'Waiting')
         shot('margin-font-200')
         await audit('Working margin at 200% font', sheet.root)
         await device.key('KEYCODE_BACK')
@@ -659,7 +731,7 @@ async function demoSuite() {
         await sleep(2000)
       }
       note(
-        'at 200% font every tab is whole and on screen, above the tool; back closed it',
+        'at 200% font, with Computer and then Waiting shown, every tab is whole: in no row that scrolls and at least 48dp each way (ui.ts tabsWhole); back closed the margin',
       )
     },
   )

@@ -1,6 +1,6 @@
 import { useOpenRequests, useTool } from '@cindl/client-react'
 import type { ServerRequest } from '@cindl/contracts'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
 import {
   AccessibilityInfo,
   ScrollView,
@@ -117,6 +117,9 @@ export function WorkingMargin({
   const tool = useMarginTool(conversationId)
   // The chosen tool's tab: focus goes there as the sheet opens.
   const chosen = useRef<HostInstance | null>(null)
+  // The focus Clear the step sends to the Step tab, once the step has gone.
+  const refocus = useRef<ReturnType<typeof setTimeout>>(undefined)
+  useEffect(() => () => clearTimeout(refocus.current), [])
   const tools: Array<{ id: MarginTool; label: string }> = [
     // Named by the visible text ("Waiting 2"), so voice control finds it.
     { id: 'waiting', label: requests.length ? `Waiting ${requests.length}` : 'Waiting' },
@@ -130,8 +133,10 @@ export function WorkingMargin({
       title="Working margin"
       closeLabel="Close the working margin"
       heading={
+        // The tab list carries the margin's spoken name: the sheet shows no
+        // title of its own (review 4bdfe6c1, S-2).
         <Tabs
-          label="Margin tools"
+          label="Working margin"
           items={tools}
           current={tool}
           onSelect={(next) => keepPlace(conversationId, { tool: next })}
@@ -161,7 +166,8 @@ export function WorkingMargin({
                 onPress={() => {
                   keepPlace(conversationId, { toolId: undefined })
                   // The button goes with the step: focus stays on the tool's tab.
-                  setTimeout(() => {
+                  clearTimeout(refocus.current)
+                  refocus.current = setTimeout(() => {
                     const tab = chosen.current
                     if (!tab) return
                     AccessibilityInfo.sendAccessibilityEvent(tab, 'focus')
@@ -179,7 +185,9 @@ export function WorkingMargin({
           // Its view lives while the tool is shown: another tool, the sheet
           // closed or another conversation closes it (Computer).
           <RequireCapability id="computer.view" label="Agent computer">
-            <Computer />
+            {/* Keyed: another conversation is a new view, and control
+                taken here is given back (review 4bdfe6c1, N-1). */}
+            <Computer key={conversationId} />
           </RequireCapability>
         )}
       </ScrollView>

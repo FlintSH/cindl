@@ -1,5 +1,6 @@
 /** @vitest-environment jsdom */
 import { createScenarioClient } from '@cindl/fixtures/scenario'
+import { CindlError } from '@cindl/contracts'
 import type {
   CapabilityMap,
   CindlClientApi,
@@ -7,12 +8,12 @@ import type {
   ServerRequest,
 } from '@cindl/contracts'
 import { act, fireEvent, render } from '@testing-library/react'
-import type { ReactNode } from 'react'
+import { StrictMode, type ReactNode } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DestinationActiveProvider } from '../src/nav/NavProvider.tsx'
 import { forgetPresses } from '../src/overlay/opener.ts'
 import { BehindOverlays } from '../src/overlay/Portal.tsx'
-import { placeOf } from '../src/talk/places.ts'
+import { keepPlace, placeOf } from '../src/talk/places.ts'
 import { TalkView } from '../src/talk/TalkView.tsx'
 import { WorkView } from '../src/work/WorkView.tsx'
 import { Providers } from './memoryScreen.tsx'
@@ -38,11 +39,14 @@ function scenario() {
   let capabilities: CapabilityMap = {}
   const calls: string[] = []
   const holding = new Set<string>()
-  const held = new Map<string, () => void>()
+  const held = new Map<string, (failure?: Error) => void>()
   const api = {
     call: async (name: string, args: unknown) => {
       calls.push(name)
-      if (holding.delete(name)) await new Promise<void>((go) => held.set(name, go))
+      if (holding.delete(name)) {
+        const failure = await new Promise<Error | undefined>((go) => held.set(name, go))
+        if (failure !== undefined) throw failure
+      }
       return real.call(name as never, args as never)
     },
     subscribe: (listener: (event: CindlEvent) => void) => {
@@ -60,9 +64,10 @@ function scenario() {
   return {
     api,
     calls,
-    /** The next call by this name waits until `go`. */
+    /** The next call by this name waits until `go`, or `fail`. */
     hold: (name: string) => void holding.add(name),
     go: (name: string) => held.get(name)?.(),
+    fail: (name: string, error: Error) => held.get(name)?.(error),
     emit: (event: CindlEvent) => {
       for (const listener of [...listeners]) listener(event)
     },
@@ -120,6 +125,10 @@ function screen(ui: (shown: boolean) => ReactNode) {
         (tab) =>
           `${nameOf(tab)}${tab.getAttribute('aria-selected') === 'true' ? ' *' : ''}`,
       ),
+    alerts: () =>
+      [...view.container.querySelectorAll('[role="alert"]')].map(
+        (node) => node.textContent ?? '',
+      ),
     has: (text: string) =>
       [...view.container.querySelectorAll('[data-rn="Text"]')].some(
         (node) => node.textContent === text,
@@ -139,14 +148,15 @@ function screen(ui: (shown: boolean) => ReactNode) {
   }
 }
 
-async function talk(s = scenario()) {
-  const t = screen(() => (
+async function talk(s = scenario(), strict = false) {
+  const tree = (
     <Providers api={s.api}>
       <BehindOverlays>
         <TalkView />
       </BehindOverlays>
     </Providers>
-  ))
+  )
+  const t = screen(() => (strict ? <StrictMode>{tree}</StrictMode> : tree))
   for (let round = 0; round < 5; round++) await t.settle()
   t.sent()
   return Object.assign(t, { s })
@@ -218,6 +228,23 @@ describe('the working margin, as the conversation’s panel', () => {
       await vi.advanceTimersByTimeAsync(100)
     })
     expect(t.tabs()).toEqual(['Waiting 3', 'Step *', 'Computer'])
+  })
+
+  it('is named "Working margin" to TalkBack: its tab list carries the name (review 4bdfe6c1, S-2)', async () => {
+    const t = await talk()
+    await t.press('Show the working margin')
+    const list = t.container.querySelector(
+      '[role="tablist"][aria-label="Working margin"]',
+    )
+    expect(list?.querySelectorAll('[role="tab"]').length).toBe(3)
+  })
+
+  it('keeps its tabs in a row that never scrolls, so none is out of view (review 4bdfe6c1, B-1)', async () => {
+    const t = await talk()
+    await t.press('Show the working margin')
+    const tabs = [...t.container.querySelectorAll('[role="tab"]')]
+    expect(tabs).toHaveLength(3)
+    for (const tab of tabs) expect(tab.closest('[data-rn="ScrollView"]')).toBeNull()
   })
 
   it('closes with system back, focus going back to what opened it', async () => {
@@ -311,6 +338,35 @@ describe('the margin’s Computer tool', () => {
     ])
   })
 
+  it('keeps a take that lands while the tool is still shown, though React mounted it twice (review 4bdfe6c1, N-3)', async () => {
+    // StrictMode mounts each effect twice: the first unmount must not leave
+    // Computer believing the owner left.
+    const t = await talk(scenario(), true)
+    await t.press('Show the working margin')
+    await t.press('Computer', 'tab')
+    await t.press('Take control…')
+    await t.press('Take control now')
+    expect(t.s.calls).toContain('display.acquireControl')
+    expect(t.s.calls).not.toContain('display.releaseControl')
+  })
+
+  it('gives control back when another conversation comes under the open margin (review 4bdfe6c1, N-1)', async () => {
+    const t = await talk()
+    await t.press('Show the working margin')
+    await t.press('Computer', 'tab')
+    await t.press('Take control…')
+    await t.press('Take control now')
+    expect(t.s.calls).not.toContain('display.releaseControl')
+    // The other conversation was left on Computer too, and becomes main.
+    keepPlace('demo-inventory', { tool: 'computer' })
+    await act(async () => {
+      await t.s.api.call('conversations.setMain', { conversationId: 'demo-inventory' })
+      await vi.advanceTimersByTimeAsync(100)
+    })
+    expect(t.tabs()).toEqual(['Waiting 1', 'Step', 'Computer *'])
+    expect(t.s.calls).toContain('display.releaseControl')
+  })
+
   it('hides the margin from TalkBack while its "Take control" dialog is open over it', async () => {
     const t = await talk()
     await t.press('Show the working margin')
@@ -336,6 +392,63 @@ describe('the margin’s Computer tool', () => {
     await t.press('Cancel')
     expect(covered()).toBe(false)
     expect(blocks()).toEqual([true, false])
+  })
+})
+
+describe('a send that fails after the owner left (review 4bdfe6c1, S-5)', () => {
+  const OFFLINE = new CindlError('offline', 'Hermes is offline (fixture).')
+
+  it('gives its conversation the text and the failure back, said when the owner returns', async () => {
+    const t = await talk()
+    await t.type('Count the cones first (fixture)')
+    t.s.hold('prompt.submit')
+    await t.press('Send')
+    expect(t.composer()).toBe('')
+    await t.press('Today, Main. Switch conversation')
+    await t.press(/^Kiln inventory sheet/)
+    await act(async () => {
+      t.s.fail('prompt.submit', OFFLINE)
+      await vi.advanceTimersByTimeAsync(100)
+    })
+    expect(t.composer()).toBe('')
+    expect(t.alerts()).not.toContain('Hermes is offline (fixture).')
+    await t.press(/^Kiln inventory sheet.*Switch conversation$/)
+    await t.press(/^Today, Main/)
+    expect(t.composer()).toBe('Count the cones first (fixture)')
+    expect(t.alerts()).toContain('Hermes is offline (fixture).')
+  })
+
+  it('gives back an uncertain send as one to put back, not as a draft', async () => {
+    const t = await talk()
+    await t.type('Count the cones first (fixture)')
+    t.s.hold('prompt.submit')
+    await t.press('Send')
+    await t.press('Today, Main. Switch conversation')
+    await t.press(/^Kiln inventory sheet/)
+    await act(async () => {
+      // No code: Hermes may or may not have received it.
+      t.s.fail('prompt.submit', new Error('socket closed (fixture)'))
+      await vi.advanceTimersByTimeAsync(100)
+    })
+    await t.press(/^Kiln inventory sheet.*Switch conversation$/)
+    await t.press(/^Today, Main/)
+    expect(t.composer()).toBe('')
+    await t.press('Put the text back')
+    expect(t.composer()).toBe('Count the cones first (fixture)')
+  })
+
+  it('keeps what the owner typed after it, over the text it gives back', async () => {
+    const t = await talk()
+    await t.type('Count the cones first (fixture)')
+    t.s.hold('prompt.submit')
+    await t.press('Send')
+    await t.type('Then the glaze order (fixture)')
+    await act(async () => {
+      t.s.fail('prompt.submit', OFFLINE)
+      await vi.advanceTimersByTimeAsync(100)
+    })
+    expect(t.composer()).toBe('Then the glaze order (fixture)')
+    expect(t.alerts()).toContain('Hermes is offline (fixture).')
   })
 })
 

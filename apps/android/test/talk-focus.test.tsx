@@ -96,8 +96,9 @@ describe('Talk: what opens an overlay gets focus back when it closes', () => {
   it('a tool row, for the working margin it opens (P2)', async () => {
     const s = await talk()
     await s.press(STEP)
-    // The panel opens on Step, with focus on its tab (ADR 0013).
-    expect(s.sent().talkBack).toEqual(['tab: Step'])
+    // The panel opens on Step, with TalkBack's focus and a keyboard's on its
+    // tab (ADR 0013; review 4bdfe6c1, S-1).
+    expect(s.sent()).toEqual({ talkBack: ['tab: Step'], keyboard: ['tab: Step'] })
     await s.back()
     const { talkBack } = s.sent()
     expect(talkBack).toHaveLength(1)
@@ -107,7 +108,10 @@ describe('Talk: what opens an overlay gets focus back when it closes', () => {
   it("the margin's Show moves focus to the card, TalkBack's and a keyboard's, and the margin gives none back (S2, P3)", async () => {
     const s = await talk()
     await s.press('Show the working margin')
-    expect(s.sent().talkBack).toEqual(['tab: Waiting 2'])
+    expect(s.sent()).toEqual({
+      talkBack: ['tab: Waiting 2'],
+      keyboard: ['tab: Waiting 2'],
+    })
     await s.press('Show approval: Run the inventory export script')
     await s.wait(300)
     // The card's title only: no focus back to "Show the working margin". A

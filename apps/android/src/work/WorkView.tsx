@@ -8,6 +8,7 @@ import {
 } from '@cindl/client-react'
 import type { Routine } from '@cindl/contracts'
 import { useState } from 'react'
+import { View } from 'react-native'
 import { useDestinationActive, useNavigate } from '../nav/NavProvider.tsx'
 import { Dialog } from '../overlay/Sheet.tsx'
 import { describeFailure, ROUTINE_UNCERTAIN } from '../talk/failures.ts'
@@ -178,9 +179,27 @@ function Routines() {
   )
 }
 
+/**
+ * Work stays mounted while hidden. Not shown, its Computer is closed: the
+ * screen's view ends and control this device took is given back (Computer).
+ * The section keeps the height it last had, so Work's scroll position is not
+ * cut short while it is hidden, and Work comes back where it was left
+ * (review 4bdfe6c1, S-4).
+ */
+function ComputerSection() {
+  const shown = useDestinationActive()
+  const [room, setRoom] = useState(0)
+  return shown ? (
+    <View onLayout={(event) => setRoom(event.nativeEvent.layout.height)}>
+      <Computer />
+    </View>
+  ) : (
+    <View style={{ minHeight: room }} />
+  )
+}
+
 export function WorkView() {
   const requests = useOpenRequests()
-  const shown = useDestinationActive()
   return (
     <Page
       title="Work"
@@ -209,9 +228,7 @@ export function WorkView() {
       </Section>
       <Section title="Computer">
         <RequireCapability id="computer.view" label="Agent computer">
-          {/* Work stays mounted while hidden: not shown, its view is closed and
-              any control this device took is given back (Computer). */}
-          {shown ? <Computer /> : null}
+          <ComputerSection />
         </RequireCapability>
       </Section>
     </Page>

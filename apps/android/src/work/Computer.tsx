@@ -22,9 +22,13 @@ const controllerCopy: Record<DisplayState['controller'], string> = {
  * The agent's screen and its control: on Work, and in a conversation's working
  * margin (ADR 0013; web parity: apps/web/src/work/WorkView.tsx Computer). Its
  * view lives as long as this does. Leaving it (another tool, the margin
- * closed, Work no longer shown) closes the view and gives control back if this
- * device took it here, even while "Take control now" was still on its way:
- * Hermes's input is never paused behind a screen nobody here watches.
+ * closed, another conversation, Work no longer shown) closes the view and
+ * gives control back if this device took it here, even while "Take control
+ * now" was still on its way. As on the web, putting the app in the background
+ * keeps the view's control; if the app's process then ends, Hermes keeps the
+ * lease as it does for any dropped link (protecting a half-typed login), and
+ * the owner sees "Another viewer is in control" until they take control and
+ * give it back.
  */
 export function Computer() {
   const api = useCindlApi()
@@ -42,14 +46,14 @@ export function Computer() {
   useEffect(() => {
     holding.current = display?.leaseHeldByThisDevice === true
   })
-  useEffect(
-    () => () => {
+  useEffect(() => {
+    left.current = false
+    return () => {
       left.current = true
       if (holding.current)
         void api.call('display.releaseControl', {}).catch(() => undefined)
-    },
-    [api],
-  )
+    }
+  }, [api])
   if (!display) return <Note>Screen status not checked yet.</Note>
   const run = (operation: () => Promise<unknown>) => {
     setBusy(true)
