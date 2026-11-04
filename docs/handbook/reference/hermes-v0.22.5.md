@@ -118,6 +118,11 @@ bearer to public endpoints.
   again under the same key. A failed or cancelled switch retires nothing:
   its refresh may still store. Signing in to the same origin again is no
   switch, and sign-out is unchanged.
+- A sign-out while a native sign-in to another origin is still in flight
+  (its browser leg open, say) signs that sign-in out too. It stores no tokens
+  and fails with "Signed out while signing in.", and the client stays on the
+  origin it had, signed out. Android's wrapper then saves no new origin; the
+  desktop app already runs a sign-out only after the sign-in it overtakes.
 
 ### Web sign-in (cookie)
 
@@ -575,7 +580,9 @@ over the store's limit `invalid`, and Hermes's own messages, which can hold
 host paths, are never shown. The capability `memory.text` is `available` only
 once a read-only `GET /api/learning/graph` answered (probed once per sign-in,
 for the served profile unless the platform pinned one); a 404 makes it
-`unsupported`. Cindl never reads memory through `/api/fs/*` or
+`unsupported`. An answer that comes back after the client moved on (another
+origin, a new sign-in) is dropped: a late answer from the Hermes it left never
+sets this capability for the one it is on. Cindl never reads memory through `/api/fs/*` or
 any other filesystem route, and never uses `POST /api/memory/reset`.
 
 ## Routines

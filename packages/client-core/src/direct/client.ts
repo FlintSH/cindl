@@ -259,6 +259,12 @@ class DirectHermesClient implements DirectClient {
   /** A cue came while a check was in flight, so one more check follows it. */
   #sessionRecheck = false
   #unwatchSession: (() => void) | undefined
+  /**
+   * Native sign-ins to another origin still in flight. They are installed
+   * only once they succeed, so a sign-out in the meantime finds them here and
+   * signs each out too: none can store tokens or switch the client after it.
+   */
+  readonly #signingIn = new Set<NativeAuth>()
   #deviceLoaded = false
 
   constructor(deps: DirectClientDeps) {
@@ -749,9 +755,9 @@ class DirectHermesClient implements DirectClient {
     } catch (error) {
       const cause = asCindlError(error, 'auth.me')
       // Only the session it asked about: a stop() or another sign-in since
-      // then started a new run, which this answer says nothing about.
-      if (rest === this.#rest && this.#sessionEndedByHermes(cause, run))
-        this.#sessionEnded(cause)
+      // then started a new run (an origin switch included), which this answer
+      // says nothing about.
+      if (this.#sessionEndedByHermes(cause, run)) this.#sessionEnded(cause)
     }
   }
 
@@ -1749,11 +1755,14 @@ class DirectHermesClient implements DirectClient {
     const run = this.#run
     try {
       await this.#restOrThrow().learningGraph(this.#configuredProfile)
+      // An answer from a run since moved on (another origin, a new sign-in)
+      // says nothing about this one's Hermes.
+      if (run !== this.#run) return
       this.#memoryProbe = 'responds'
     } catch (error) {
       const cause = asCindlError(error, 'learning graph')
       if (this.#sessionEndedByHermes(cause, run)) this.#sessionEnded(cause)
-      if (cause.code !== 'not-found') return
+      if (run !== this.#run || cause.code !== 'not-found') return
       this.#memoryProbe = 'missing'
     }
     this.#refreshCapabilities()
@@ -1809,6 +1818,8 @@ class DirectHermesClient implements DirectClient {
         this.#started = true
         this.#setLink('connecting')
       }
+      const pending = parts.native !== this.#native ? parts.native : undefined
+      if (pending) this.#signingIn.add(pending)
       // From here this sign-in owns the client: a discovery still running
       // stops, and a stop() before it finishes keeps it from connecting.
       const run = ++this.#run
@@ -1841,6 +1852,7 @@ class DirectHermesClient implements DirectClient {
             'Sign in on the Hermes login page, then try again.',
           )
       } catch (error) {
+        if (pending) this.#signingIn.delete(pending)
         const cause = asCindlError(error, 'auth.signIn')
         if (!keep) {
           if (status) this.#status = status
@@ -1849,6 +1861,10 @@ class DirectHermesClient implements DirectClient {
         }
         throw cause
       }
+      // A sign-out came while it was in flight and signed it out as well: it
+      // stores nothing and does not switch the client.
+      if (pending && !this.#signingIn.delete(pending))
+        throw new CindlError('unauthenticated', 'Signed out while signing in.')
       // stop() came in meanwhile: the sign-in stands, but nothing connects
       // until start(), which finds it again.
       const stopped = run !== this.#run
@@ -1862,9 +1878,12 @@ class DirectHermesClient implements DirectClient {
     },
     'auth.signOut': async () => {
       this.stop()
+      const pending = [...this.#signingIn]
+      this.#signingIn.clear()
       let hermesConfirmed: boolean | undefined
       if (this.#native) await this.#native.signOut()
       else hermesConfirmed = await this.#endCookieSession()
+      for (const native of pending) await native.signOut()
       this.#forgetSession()
       this.#setLink('signed-out')
       this.#refreshCapabilities()

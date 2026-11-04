@@ -1977,3 +1977,84 @@ describe('direct client: a failure on this device during discovery', () => {
     await online(h)
   })
 })
+
+describe('direct client: a late memory probe from the Hermes it left', () => {
+  const memoryText = (h: Harness) => h.store.getState().capabilities['memory.text']?.state
+
+  it("keeps memory.text as B answered it, whatever A's late probe says", async () => {
+    const a = await fakeHermes()
+    const probeA = a.holdNextRest('GET /api/learning/graph')
+    const h = await harness({ fake: a })
+    await probeA.arrived
+    const b = await fakeHermes()
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.waitFor(
+      () =>
+        h.store.getState().link.server?.origin === b.origin &&
+        memoryText(h) === 'available',
+    )
+    // A answers only now, that it has no learning routes: nothing about B.
+    probeA.release({ status: 404, body: { detail: 'Not Found' } })
+    await pause(50)
+    expect(memoryText(h)).toBe('available')
+  })
+
+  it('never shows memory.text as available on a Hermes that has not answered', async () => {
+    const a = await fakeHermes()
+    const probeA = a.holdNextRest('GET /api/learning/graph')
+    const h = await harness({ fake: a })
+    await probeA.arrived
+    const b = await fakeHermes()
+    const probeB = b.holdNextRest('GET /api/learning/graph')
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await probeB.arrived
+    // A's late answer says nothing about B, which has not answered yet.
+    probeA.release()
+    await pause(50)
+    expect(memoryText(h)).not.toBe('available')
+    probeB.release()
+    await h.waitFor(() => memoryText(h) === 'available')
+  })
+})
+
+describe('direct client: a sign-out during a native sign-in to another origin', () => {
+  it('signs that sign-in out too: it stores nothing and the client stays where it was', async () => {
+    // A browser leg the test holds open, as an owner still on the sign-in page.
+    const leg: { hold: boolean; arrived: Promise<void>; release?: () => void } = {
+      hold: false,
+      arrived: Promise.resolve(),
+    }
+    let arrive: () => void = () => undefined
+    leg.arrived = new Promise<void>((resolve) => (arrive = resolve))
+    const authorizer = {
+      async authorize(buildUrl: (redirectUri: string) => string) {
+        if (leg.hold) {
+          arrive()
+          await new Promise<void>((resolve) => (leg.release = resolve))
+        }
+        const response = await fetch(buildUrl('http://127.0.0.1:53682/callback'), {
+          redirect: 'manual',
+        })
+        return response.headers.get('location') ?? ''
+      },
+    }
+    const h = await harness({ deps: { authorizer } })
+    const a = h.fake
+    const b = await fakeHermes()
+    leg.hold = true
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await leg.arrived
+    await h.client.call('auth.signOut', {})
+    leg.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(false)
+    // The next start finds the origin it had, signed out, and nothing of B.
+    h.client.stop()
+    await h.client.start()
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      server: { origin: a.origin },
+    })
+    expect(b.calls.filter((c) => c.name === '/api/ws')).toHaveLength(0)
+  })
+})
