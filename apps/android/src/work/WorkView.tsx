@@ -6,28 +6,19 @@ import {
   useConversations,
   useOpenRequests,
 } from '@cindl/client-react'
-import type { DisplayState, Routine } from '@cindl/contracts'
+import type { Routine } from '@cindl/contracts'
 import { useState } from 'react'
-import { View } from 'react-native'
-import { useNavigate } from '../nav/NavProvider.tsx'
+import { useDestinationActive, useNavigate } from '../nav/NavProvider.tsx'
 import { Dialog } from '../overlay/Sheet.tsx'
-import {
-  CONTROL_UNCERTAIN,
-  describeFailure,
-  ROUTINE_UNCERTAIN,
-} from '../talk/failures.ts'
+import { describeFailure, ROUTINE_UNCERTAIN } from '../talk/failures.ts'
 import { relativeDay } from '../talk/format.ts'
 import { RequestCard } from '../talk/RequestCard.tsx'
-import { TAKE_CONTROL_WARNING } from './screen.ts'
-import { ScreenView } from './ScreenView.tsx'
 import { requestKeyOf } from '../talk/requests.ts'
-import { useTheme } from '../theme/theme.tsx'
 import {
   Badge,
   Button,
   Empty,
   ErrorText,
-  Facts,
   Note,
   Row,
   Rows,
@@ -36,6 +27,7 @@ import {
 import { Page, Section } from '../views/Page.tsx'
 import { RequireCapability, unavailableCopy } from '../views/RequireCapability.tsx'
 import { useResource } from '../views/useResource.ts'
+import { Computer } from './Computer.tsx'
 
 function Running() {
   const navigate = useNavigate()
@@ -186,116 +178,9 @@ function Routines() {
   )
 }
 
-const controllerCopy: Record<DisplayState['controller'], string> = {
-  agent: 'Hermes is in control',
-  you: 'You are in control on this device',
-  'another-viewer': 'Another viewer is in control',
-  none: 'No one is in control',
-  unknown: 'Control state unknown',
-}
-
-function Computer() {
-  const api = useCindlApi()
-  const theme = useTheme()
-  const display = useCindlState((state) => state.display)
-  const canControl = useCan('computer.control')
-  const controlCapability = useCapability('computer.control')
-  // `limited` means state and lease only: the live picture needs `available`.
-  const view = useCapability('computer.view')
-  const [confirming, setConfirming] = useState(false)
-  const [busy, setBusy] = useState(false)
-  const [error, setError] = useState<string>()
-  if (!display) return <Note>Screen status not checked yet.</Note>
-  const run = (operation: () => Promise<unknown>) => {
-    setBusy(true)
-    setError(undefined)
-    operation()
-      .catch((failure: unknown) =>
-        setError(describeFailure(failure, CONTROL_UNCERTAIN).message),
-      )
-      .finally(() => setBusy(false))
-  }
-  return (
-    <View style={{ gap: theme.space[3] }}>
-      <Facts
-        items={[
-          {
-            label: 'Screen',
-            value:
-              display.status === 'running'
-                ? 'Running'
-                : display.status === 'stopped'
-                  ? 'Stopped (Cindl never starts it)'
-                  : display.status === 'unavailable'
-                    ? 'Unavailable'
-                    : 'Unknown',
-          },
-          { label: 'Control', value: controllerCopy[display.controller] },
-          {
-            label: 'Scope',
-            value:
-              'The agent-owned Linux screen of this Hermes profile only. Not your other devices.',
-          },
-        ]}
-      />
-      {display.status === 'running' && view?.state === 'available' ? (
-        <ScreenView controlling={display.leaseHeldByThisDevice} />
-      ) : view?.state === 'limited' && view.reason ? (
-        <Note>{view.reason}</Note>
-      ) : null}
-      {canControl ? (
-        <View
-          style={{
-            flexDirection: 'row',
-            flexWrap: 'wrap',
-            justifyContent: 'flex-end',
-            gap: theme.space[2],
-          }}
-        >
-          {display.leaseHeldByThisDevice ? (
-            <Button
-              label="Give control back"
-              disabled={busy}
-              onPress={() => run(() => api.call('display.releaseControl', {}))}
-            />
-          ) : display.status === 'running' ? (
-            <Button
-              label="Take control…"
-              disabled={busy}
-              onPress={() => setConfirming(true)}
-            />
-          ) : null}
-        </View>
-      ) : (
-        <Note>{`Taking control is not available: ${unavailableCopy(controlCapability).reason}`}</Note>
-      )}
-      {error ? <ErrorText>{error}</ErrorText> : null}
-      <Dialog
-        open={confirming}
-        title="Take control of the agent's screen?"
-        onCancel={() => setConfirming(false)}
-        actions={
-          <>
-            <Button label="Cancel" variant="quiet" onPress={() => setConfirming(false)} />
-            <Button
-              label="Take control now"
-              variant="primary"
-              onPress={() => {
-                setConfirming(false)
-                run(() => api.call('display.acquireControl', { confirm: true }))
-              }}
-            />
-          </>
-        }
-      >
-        <Txt tone="secondary">{TAKE_CONTROL_WARNING}</Txt>
-      </Dialog>
-    </View>
-  )
-}
-
 export function WorkView() {
   const requests = useOpenRequests()
+  const shown = useDestinationActive()
   return (
     <Page
       title="Work"
@@ -324,7 +209,9 @@ export function WorkView() {
       </Section>
       <Section title="Computer">
         <RequireCapability id="computer.view" label="Agent computer">
-          <Computer />
+          {/* Work stays mounted while hidden: not shown, its view is closed and
+              any control this device took is given back (Computer). */}
+          {shown ? <Computer /> : null}
         </RequireCapability>
       </Section>
     </Page>

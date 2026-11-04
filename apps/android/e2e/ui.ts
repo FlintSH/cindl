@@ -176,7 +176,9 @@ export function overlayOpen(root: UiNode): boolean {
  * screen's content instead.
  */
 export function scrimOf(root: UiNode): UiNode | undefined {
-  return flatten(root).find((node) => node.resourceId === SCRIM_ID)
+  // With one overlay over another (the take-control dialog over the working
+  // margin), the last drawn is the one on top: what is reachable is above it.
+  return flatten(root).findLast((node) => node.resourceId === SCRIM_ID)
 }
 
 /**

@@ -1,11 +1,24 @@
 import { useOpenRequests, useTool } from '@cindl/client-react'
-import { ScrollView, Text, View } from 'react-native'
+import type { ServerRequest } from '@cindl/contracts'
+import { useRef } from 'react'
+import {
+  AccessibilityInfo,
+  ScrollView,
+  Text,
+  View,
+  type HostInstance,
+} from 'react-native'
+import { giveKeyboardFocus } from '../overlay/keyboardFocus.ts'
 import { Sheet } from '../overlay/Sheet.tsx'
 import { useTheme } from '../theme/theme.tsx'
 import { HelpCircle, KeyRound, ShieldAlert } from '../ui/icons.ts'
 import { Button, Facts, SectionTitle, Txt } from '../ui/primitives.tsx'
+import { Tabs } from '../views/Page.tsx'
+import { RequireCapability } from '../views/RequireCapability.tsx'
+import { Computer } from '../work/Computer.tsx'
 import { duration } from './format.ts'
 import { Notice } from './MessageView.tsx'
+import { keepPlace, useMarginTool, useSelectedStep, type MarginTool } from './places.ts'
 import { requestKeyOf, requestNoun } from './requests.ts'
 import { toolStatusLabel, ToolStatusIcon } from './ToolRow.tsx'
 
@@ -77,85 +90,137 @@ function Evidence({ toolId, blocked }: { toolId: string; blocked: boolean }) {
 }
 
 /**
- * The contextual working margin as a bottom sheet: the step the owner
- * selected, or what this conversation is waiting on. Decision cards live in
- * the conversation only; the margin points to them, so a request never shows
- * two sets of decision buttons.
+ * The working margin, as a sheet over the conversation: the conversation's
+ * panel (ADR 0013; web parity: apps/web/src/talk/WorkingMargin.tsx). A few
+ * tools for this conversation, switched by a tab row in the sheet's header,
+ * by the owner and never by the agent: what it waits on, the selected step's
+ * evidence and the agent's computer. Each conversation keeps its tool
+ * (places.ts). The actionable cards live in the conversation; the margin only
+ * points to them, so a request never shows two sets of decision buttons.
  */
 export function WorkingMargin({
   open,
   onClose,
   conversationId,
-  selectedToolId,
   blockedToolIds,
-  onClearSelection,
   onShowRequest,
 }: {
   open: boolean
   onClose: () => void
   conversationId: string
-  selectedToolId: string | undefined
   blockedToolIds: ReadonlySet<string>
-  onClearSelection: () => void
   onShowRequest: (requestId: string) => void
 }) {
   const theme = useTheme()
   const requests = useOpenRequests(conversationId)
+  const selectedToolId = useSelectedStep(conversationId)
+  const tool = useMarginTool(conversationId)
+  // The chosen tool's tab: focus goes there as the sheet opens.
+  const chosen = useRef<HostInstance | null>(null)
+  const tools: Array<{ id: MarginTool; label: string }> = [
+    // Named by the visible text ("Waiting 2"), so voice control finds it.
+    { id: 'waiting', label: requests.length ? `Waiting ${requests.length}` : 'Waiting' },
+    { id: 'step', label: 'Step' },
+    { id: 'computer', label: 'Computer' },
+  ]
   return (
     <Sheet
       open={open}
       onClose={onClose}
-      title={selectedToolId ? 'Step details' : 'Waiting on you'}
+      title="Working margin"
       closeLabel="Close the working margin"
-      headerAside={
-        selectedToolId ? (
-          <Button label="Back" variant="quiet" onPress={onClearSelection} />
-        ) : null
+      heading={
+        <Tabs
+          label="Margin tools"
+          items={tools}
+          current={tool}
+          onSelect={(next) => keepPlace(conversationId, { tool: next })}
+          wrap
+          selectedRef={chosen}
+        />
       }
+      initialFocus={() => chosen.current}
     >
       <ScrollView
         style={{ flexShrink: 1 }}
         contentContainerStyle={{ padding: theme.space[4], gap: theme.space[3] }}
       >
-        {selectedToolId ? (
-          <Evidence
-            toolId={selectedToolId}
-            blocked={blockedToolIds.has(selectedToolId)}
-          />
-        ) : requests.length ? (
-          requests.map((request) => {
-            const Icon =
-              request.kind === 'approval'
-                ? ShieldAlert
-                : request.kind === 'clarify'
-                  ? HelpCircle
-                  : KeyRound
-            return (
-              <View
-                key={requestKeyOf(request)}
-                style={{
-                  flexDirection: 'row',
-                  alignItems: 'center',
-                  gap: theme.space[2],
+        {tool === 'waiting' ? (
+          <Waiting requests={requests} onShowRequest={onShowRequest} />
+        ) : tool === 'step' ? (
+          selectedToolId ? (
+            <>
+              <Evidence
+                toolId={selectedToolId}
+                blocked={blockedToolIds.has(selectedToolId)}
+              />
+              <Button
+                label="Clear the step"
+                variant="quiet"
+                style={{ alignSelf: 'flex-start' }}
+                onPress={() => {
+                  keepPlace(conversationId, { toolId: undefined })
+                  // The button goes with the step: focus stays on the tool's tab.
+                  setTimeout(() => {
+                    const tab = chosen.current
+                    if (!tab) return
+                    AccessibilityInfo.sendAccessibilityEvent(tab, 'focus')
+                    giveKeyboardFocus(tab)
+                  }, 60)
                 }}
-              >
-                <Icon size={15} color={theme.colors.accentText} strokeWidth={1.75} />
-                <Txt style={{ flex: 1 }}>{request.title}</Txt>
-                <Button
-                  label="Show"
-                  accessibilityLabel={`Show ${requestNoun(request)}: ${request.title}`}
-                  variant="quiet"
-                  onPress={() => onShowRequest(request.requestId)}
-                />
-              </View>
-            )
-          })
+              />
+            </>
+          ) : (
+            <Txt tone="tertiary">
+              Select a step in the conversation to see what Hermes did.
+            </Txt>
+          )
         ) : (
-          <Txt tone="tertiary">
-            Nothing is waiting on you here. Select a step to see what Hermes did.
-          </Txt>
+          // Its view lives while the tool is shown: another tool, the sheet
+          // closed or another conversation closes it (Computer).
+          <RequireCapability id="computer.view" label="Agent computer">
+            <Computer />
+          </RequireCapability>
         )}
       </ScrollView>
     </Sheet>
+  )
+}
+
+function Waiting({
+  requests,
+  onShowRequest,
+}: {
+  requests: ServerRequest[]
+  onShowRequest: (requestId: string) => void
+}) {
+  const theme = useTheme()
+  if (!requests.length) return <Txt tone="tertiary">Nothing is waiting on you here.</Txt>
+  return (
+    <>
+      {requests.map((request) => {
+        const Icon =
+          request.kind === 'approval'
+            ? ShieldAlert
+            : request.kind === 'clarify'
+              ? HelpCircle
+              : KeyRound
+        return (
+          <View
+            key={requestKeyOf(request)}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[2] }}
+          >
+            <Icon size={15} color={theme.colors.accentText} strokeWidth={1.75} />
+            <Txt style={{ flex: 1 }}>{request.title}</Txt>
+            <Button
+              label="Show"
+              accessibilityLabel={`Show ${requestNoun(request)}: ${request.title}`}
+              variant="quiet"
+              onPress={() => onShowRequest(request.requestId)}
+            />
+          </View>
+        )
+      })}
+    </>
   )
 }

@@ -18,6 +18,7 @@ import { forgetPresses } from '../src/overlay/opener.ts'
 import { BehindOverlays, PortalHost } from '../src/overlay/Portal.tsx'
 import { SCRIM_ID } from '../src/overlay/scrim.ts'
 import { useSessionDrafts } from '../src/shell/sessionDrafts.ts'
+import { forgetPlaces } from '../src/talk/places.ts'
 import { KeyboardProvider } from '../src/shell/keyboard.tsx'
 import { MotionProvider } from '../src/theme/motion.tsx'
 import { ThemeProvider } from '../src/theme/theme.tsx'
@@ -106,8 +107,10 @@ function watchReact() {
 afterEach(() => {
   cleanup()
   resetNative()
-  // A press noted in one test is never the next one's opener.
+  // A press noted in one test is never the next one's opener, and no
+  // conversation's place (its tool, step or draft) carries over either.
   forgetPresses()
+  forgetPlaces()
   vi.useRealTimers()
   const seen = watch
   watch = undefined

@@ -1,6 +1,5 @@
 import {
   createContext,
-  Fragment,
   useContext,
   useEffect,
   useId,
@@ -10,7 +9,13 @@ import {
   useState,
   type ReactNode,
 } from 'react'
-import { View, type HostInstance, type StyleProp, type ViewStyle } from 'react-native'
+import {
+  StyleSheet,
+  View,
+  type HostInstance,
+  type StyleProp,
+  type ViewStyle,
+} from 'react-native'
 import { blockKeyboardFocus } from './keyboardFocus.ts'
 
 interface PortalApi {
@@ -46,11 +51,40 @@ export function PortalHost({ children }: { children: ReactNode }) {
     <PortalContext.Provider value={api}>
       <OverlayCountContext.Provider value={nodes.length}>
         {children}
-        {nodes.map(([key, node]) => (
-          <Fragment key={key}>{node}</Fragment>
+        {nodes.map(([key, node], index) => (
+          <Covered key={key} covered={index < nodes.length - 1}>
+            {node}
+          </Covered>
         ))}
       </OverlayCountContext.Provider>
     </PortalContext.Provider>
+  )
+}
+
+/**
+ * An overlay with another open over it (the working margin under the Computer
+ * tool's "Take control" dialog): hidden from TalkBack with everything in it and
+ * closed to a hardware keyboard's focus, as the screen behind both is
+ * (BehindOverlays). Touches reach it as before: the one over it has a scrim.
+ */
+function Covered({ covered, children }: { covered: boolean; children: ReactNode }) {
+  const self = useRef<HostInstance | null>(null)
+  const blocked = useRef(false)
+  useEffect(() => {
+    if (blocked.current === covered) return
+    blocked.current = covered
+    blockKeyboardFocus(self.current, covered)
+  }, [covered])
+  return (
+    <View
+      ref={self}
+      collapsable={false}
+      pointerEvents="box-none"
+      style={StyleSheet.absoluteFill}
+      importantForAccessibility={covered ? 'no-hide-descendants' : 'auto'}
+    >
+      {children}
+    </View>
   )
 }
 

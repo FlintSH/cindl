@@ -30,13 +30,21 @@ type HostRef = { current: HostInstance | null }
 
 /**
  * Once an overlay is on screen, moves TalkBack focus to its title and a
- * hardware keyboard's focus to its first control (the frame's).
+ * hardware keyboard's focus to its first control (the frame's); or both to
+ * `first`, when the overlay names what takes focus (the working margin's
+ * chosen tab).
  */
-function useInitialFocus(title: HostRef, frame: HostRef) {
+function useInitialFocus(title: HostRef, frame: HostRef, first?: FocusTarget) {
+  const latest = useRef(first)
+  useLayoutEffect(() => {
+    latest.current = first
+  })
   useEffect(() => {
     const timer = setTimeout(() => {
-      if (title.current) AccessibilityInfo.sendAccessibilityEvent(title.current, 'focus')
-      giveKeyboardFocus(frame.current)
+      const named = latest.current?.() ?? null
+      const talkBack = named ?? title.current
+      if (talkBack) AccessibilityInfo.sendAccessibilityEvent(talkBack, 'focus')
+      giveKeyboardFocus(named ?? frame.current)
     }, 60)
     return () => clearTimeout(timer)
   }, [title, frame])
@@ -106,6 +114,8 @@ export function Sheet({
   title,
   closeLabel = 'Close',
   headerAside,
+  heading,
+  initialFocus,
   returnFocus,
   children,
 }: {
@@ -114,6 +124,10 @@ export function Sheet({
   title: string
   closeLabel?: string
   headerAside?: ReactNode
+  /** Shown in the header in place of the title (the working margin's tabs). */
+  heading?: ReactNode
+  /** What takes focus as the sheet opens, in place of its title. */
+  initialFocus?: FocusTarget
   /** Where focus goes on close when the control that opened the sheet is gone. */
   returnFocus?: FocusTarget
   children: ReactNode
@@ -131,6 +145,8 @@ export function Sheet({
         closeLabel={closeLabel}
         onClose={onClose}
         headerAside={headerAside}
+        heading={heading}
+        initialFocus={initialFocus}
         returnTo={[returnFocus, fallback]}
       >
         {children}
@@ -144,6 +160,8 @@ function SheetFrame({
   closeLabel,
   onClose,
   headerAside,
+  heading,
+  initialFocus,
   returnTo,
   children,
 }: {
@@ -151,6 +169,8 @@ function SheetFrame({
   closeLabel: string
   onClose: () => void
   headerAside: ReactNode
+  heading: ReactNode
+  initialFocus: FocusTarget | undefined
   returnTo: Array<FocusTarget | undefined>
   children: ReactNode
 }) {
@@ -161,7 +181,7 @@ function SheetFrame({
   const progress = useEntrance()
   const titleRef = useRef<HostInstance>(null)
   const frameRef = useRef<HostInstance>(null)
-  useInitialFocus(titleRef, frameRef)
+  useInitialFocus(titleRef, frameRef, initialFocus)
   useFocusReturn(returnTo)
   const bottom = keyboard > 0 ? Math.max(keyboard, insets.bottom) : insets.bottom
   return (
@@ -196,28 +216,35 @@ function SheetFrame({
           ],
         }}
       >
+        {/* Never shrinks under a tall body (the web's margin had that, review B1):
+            the body scrolls instead. */}
         <View
           style={{
+            flexShrink: 0,
             flexDirection: 'row',
             alignItems: 'center',
             gap: theme.space[1],
             minHeight: 56,
-            paddingLeft: theme.space[4],
+            paddingLeft: heading ? theme.space[1] : theme.space[4],
             paddingRight: theme.space[2],
             borderBottomWidth: 1,
             borderColor: theme.colors.border,
           }}
         >
-          <Text
-            ref={titleRef}
-            accessibilityRole="header"
-            style={[
-              theme.text.ui,
-              { flex: 1, fontFamily: theme.fonts.semibold, color: theme.colors.text },
-            ]}
-          >
-            {title}
-          </Text>
+          {heading ? (
+            <View style={{ flex: 1 }}>{heading}</View>
+          ) : (
+            <Text
+              ref={titleRef}
+              accessibilityRole="header"
+              style={[
+                theme.text.ui,
+                { flex: 1, fontFamily: theme.fonts.semibold, color: theme.colors.text },
+              ]}
+            >
+              {title}
+            </Text>
+          )}
           {headerAside}
           <Button
             label={closeLabel}

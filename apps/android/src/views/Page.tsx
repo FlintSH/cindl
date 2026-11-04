@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useRef, useState, type ReactNode, type Ref } from 'react'
 import { ScrollView, Text, View, type HostInstance } from 'react-native'
 import { FocusFallback } from '../overlay/opener.ts'
 import { useTheme } from '../theme/theme.tsx'
@@ -62,20 +62,47 @@ export function Section({ title, children }: { title: string; children: ReactNod
   )
 }
 
-/** In-page section tabs (Library, Agent). Each is a touch target (48dp on Android). */
+/**
+ * Tabs (Library's and Agent's sections, the working margin's tools). Each is a
+ * touch target (48dp on Android) named by its visible text. They scroll
+ * sideways, or with `wrap` go onto another line, so none is out of view at a
+ * large font (the working margin). `selectedRef` is the selected tab's view,
+ * for focus.
+ */
 export function Tabs<T extends string>({
   label,
   items,
   current,
   onSelect,
+  wrap = false,
+  selectedRef,
 }: {
   label: string
   items: ReadonlyArray<{ id: T; label: string }>
   current: T
   onSelect: (id: T) => void
+  wrap?: boolean
+  selectedRef?: Ref<HostInstance>
 }) {
   const theme = useTheme()
-  return (
+  const tabs = items.map((item) => (
+    <Tab
+      key={item.id}
+      label={item.label}
+      selected={item.id === current}
+      onPress={() => onSelect(item.id)}
+      {...(item.id === current && selectedRef ? { ref: selectedRef } : {})}
+    />
+  ))
+  return wrap ? (
+    <View
+      accessibilityLabel={label}
+      accessibilityRole="tablist"
+      style={{ flexDirection: 'row', flexWrap: 'wrap', flexShrink: 1 }}
+    >
+      {tabs}
+    </View>
+  ) : (
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
@@ -83,23 +110,18 @@ export function Tabs<T extends string>({
       accessibilityRole="tablist"
       style={{ flexGrow: 0, borderBottomWidth: 1, borderColor: theme.colors.border }}
     >
-      {items.map((item) => (
-        <Tab
-          key={item.id}
-          label={item.label}
-          selected={item.id === current}
-          onPress={() => onSelect(item.id)}
-        />
-      ))}
+      {tabs}
     </ScrollView>
   )
 }
 
 function Tab({
+  ref,
   label,
   selected,
   onPress,
 }: {
+  ref?: Ref<HostInstance>
   label: string
   selected: boolean
   onPress: () => void
@@ -108,6 +130,7 @@ function Tab({
   const [focused, setFocused] = useState(false)
   return (
     <Press
+      {...(ref ? { ref } : {})}
       accessibilityRole="tab"
       accessibilityState={{ selected }}
       accessibilityLabel={label}

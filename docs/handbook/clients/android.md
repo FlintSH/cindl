@@ -451,6 +451,34 @@ Hermes server, Chrome's Custom Tab, and a phone.
   another Hermes surface, such as the Hermes terminal; the card stays until
   Hermes closes the prompt. Prompts that belong to no conversation are listed
   under Work, Needs you.
+- **The working margin** is the conversation's panel
+  ([ADR 0013](../architecture/decisions/0013-conversation-panel.md)): a sheet
+  over the conversation, opened from its header (**Show the working margin**),
+  with a few tools for that conversation and a tab for each in the sheet's
+  header:
+  - **Waiting**: what this conversation waits on, with the count on its tab
+    ("Waiting 2"; Work's count covers every conversation). **Show** closes
+    the sheet and reveals the request's card in the conversation, with focus
+    on it; the card itself is never repeated in the margin.
+  - **Step**: the selected step's tool, status and redacted input and
+    result. Selecting a step in the conversation opens the margin on Step;
+    selecting it again, or **Clear the step**, empties Step and leaves it
+    chosen.
+  - **Computer**: the agent's screen, as on Work (below), only while Hermes
+    offers `computer.view`; otherwise it says why. Leaving the tool, the
+    margin or the conversation closes its view and gives control back if this
+    device took it there, even if **Take control now** was still on its way.
+    Reopened on Computer, the margin shows the screen again.
+
+  Only you switch tools: a new request changes Waiting's count, not the tool.
+  Each conversation keeps its tool and selected step, with its unsent message
+  and where you were reading, in memory until the session ends. The tabs are
+  tabs to TalkBack (their role, which one is selected), 48dp, named by their
+  visible text, and go onto another line rather than out of view at a large
+  font; the header never shrinks under a tall tool, which scrolls instead. The
+  margin opens with focus on the chosen tool's tab, and system back closes it,
+  giving focus back to what opened it.
+
 - **Memory** (Library, Memory) lists Hermes's memory entries: agent notes
   and notes about you, each named by its place in its list. Editing one goes
   through a review of the exact changes and a confirmation, and the save names
@@ -545,7 +573,8 @@ Hermes server, Chrome's Custom Tab, and a phone.
     the version that save produced, otherwise shown to copy.
   - Known limit: entries with identical text in one store look the same to
     Cindl, so they share one kept draft, and an editor may follow either.
-- **The agent's screen** (Work, Computer) shows the agent-owned screen live
+- **The agent's screen** (Work, Computer, and the working margin's Computer
+  tool) shows the agent-owned screen live
   when Hermes's screen is running and the client has negotiated the picture
   (the labelled demo streams a synthetic screen), with its state, who
   controls it, and Take control and Give control back. Watching sends no
@@ -555,7 +584,9 @@ Hermes server, Chrome's Custom Tab, and a phone.
   on-screen keyboard, whose keys (Enter and Backspace included) go to the
   screen, with arrow buttons beside it. The picture's label says whether you
   are watching or in control, and TalkBack moves past it like any other
-  element. Cindl never starts, stops or installs the screen. See
+  element. Leaving it closes its view and gives control back if this device
+  took it there: on Work, as soon as Work is not the destination shown.
+  Cindl never starts, stops or installs the screen. See
   [Live screen](#live-screen).
 - **System back** closes an open sheet or dialog first, then steps out of an
   editor review, then a skill detail, then returns to Talk, then from a side
@@ -590,9 +621,9 @@ Hermes server, Chrome's Custom Tab, and a phone.
   none, unless a control was pressed in that second: that control is then
   taken for its opener. A keyboard's focus never moves in touch mode. Whether
   TalkBack follows a hardware keyboard's focus is not verified. With one
-  overlay over another (none opens another today), the one beneath would stay
-  open to TalkBack and to a keyboard's focus: only the app's content is hidden
-  and blocked.
+  overlay over another (the Computer tool's take-control dialog over the
+  working margin), the one beneath is hidden from TalkBack and closed to a
+  keyboard's focus as well, as the app's content is.
 
   Not proven on a device yet: these focus rules and the focus module below
   have not compiled or run on one. The next Android run is the first to build

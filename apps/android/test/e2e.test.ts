@@ -302,6 +302,27 @@ describe('the touch targets the owner can reach (CI run 41668168848)', () => {
     ])
   })
 
+  it('reaches only the overlay on top when one is open over another (a dialog over the margin)', () => {
+    // The working margin's sheet (drawing orders 2 and 3), then the
+    // take-control dialog over it (4 and 5): each with its own scrim.
+    const branch = (order: number) =>
+      `<node index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs(`bounds="[0,0][1080,2400]" drawing-order="${order}"`)}>`
+    const SHEET = `<node index="0" text="" class="android.view.ViewGroup" content-desc="" clickable="false" focusable="false" ${attrs('bounds="[0,1200][1080,2400]" drawing-order="3"')}><node index="0" text="" class="android.widget.Button" content-desc="Close the working margin" clickable="true" focusable="true" ${attrs('bounds="[930,1210][1070,1340]" drawing-order="1"')} /></node>`
+    const OVER = CARD.replace('drawing-order="4"', 'drawing-order="5"')
+    const root = parseUi(
+      dump(
+        `${WINDOW}${CONTAINER}${EMPTY}${branch(2)}${SCRIM}</node>${SHEET}${branch(4)}${SCRIM}</node>${OVER}${TITLE}${CANCEL}${OPEN}</node></node></node>`,
+      ),
+    )
+    expect(reachable(root).map(label)).toEqual([
+      '',
+      'Open this link?',
+      'Cancel',
+      'Open in browser',
+    ])
+    expect(reachable(root).map(label)).not.toContain('Close the working margin')
+  })
+
   it('measures every target when nothing is drawn above the scrim, as in a dump without drawing orders', () => {
     // 16-link-confirmation as a uiautomator without drawing orders would dump it.
     const xml = `${WINDOW}${CONTAINER}${EMPTY}${SCRIM_BRANCH}${SCRIM}</node>${CONTENT}${PARAGRAPH}${SPAN}</node></node>${CARD}${TITLE}${CANCEL}${OPEN}</node></node></node>`

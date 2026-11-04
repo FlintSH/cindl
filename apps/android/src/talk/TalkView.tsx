@@ -28,6 +28,7 @@ import { Button, Dot, ErrorText, focusRing, Press, Txt } from '../ui/primitives.
 import { Composer } from './Composer.tsx'
 import { HistorySheet } from './HistorySheet.tsx'
 import { MessageView } from './MessageView.tsx'
+import { keepPlace, placeOf, useSelectedStep } from './places.ts'
 import { composerHint, presenceCopy } from './presence.ts'
 import { RequestCard } from './RequestCard.tsx'
 import { requestKeyOf } from './requests.ts'
@@ -68,7 +69,8 @@ export function TalkView() {
   )
   const [historyOpen, setHistoryOpen] = useState(false)
   const [marginOpen, setMarginOpen] = useState(false)
-  const [selection, setSelection] = useState<{ conversationId: string; toolId: string }>()
+  // The selected step belongs to its conversation and comes back with it (places.ts).
+  const selectedToolId = useSelectedStep(conversationId)
   const [problem, setProblem] = useState<string>()
   const [historyError, setHistoryError] = useState<{ id: string; message: string }>()
   const [switcherFocused, setSwitcherFocused] = useState(false)
@@ -76,7 +78,6 @@ export function TalkView() {
   const [focusRequestId, setFocusRequestId] = useState<string>()
   const scroller = useRef<ScrollViewInstance>(null)
   const stick = useRef(true)
-  const offsets = useRef(new Map<string, { y: number; stick: boolean }>())
   const cardOffsets = useRef(new Map<string, number>())
   const restoredFor = useRef<string | undefined>(undefined)
   const switcher = useRef<HostInstance | null>(null)
@@ -185,8 +186,17 @@ export function TalkView() {
   }
 
   const presence = presenceCopy(link, activity)
-  const selectedToolId =
-    selection?.conversationId === conversationId ? selection.toolId : undefined
+  // Selecting a step opens the working margin on Step; selecting it again
+  // clears it and leaves the margin's tool as it is, as "Clear the step" does
+  // (web parity, ADR 0013).
+  const selectTool = (toolId: string) => {
+    const next = selectedToolId === toolId ? undefined : toolId
+    keepPlace(
+      conversationId,
+      next ? { toolId: next, tool: 'step' } : { toolId: undefined },
+    )
+    if (next) setMarginOpen(true)
+  }
   const showRequest = (requestId: string) => {
     // The request card takes focus itself (RequestCard's focusRequested).
     claimFocus()
@@ -341,7 +351,7 @@ export function TalkView() {
                 STICK_THRESHOLD
               stick.current = end
               if (end !== atEnd) setAtEnd(end)
-              offsets.current.set(conversationId, { y: contentOffset.y, stick: end })
+              keepPlace(conversationId, { scrollY: end ? undefined : contentOffset.y })
             }}
             onContentSizeChange={() => {
               const view = scroller.current
@@ -349,11 +359,11 @@ export function TalkView() {
               // A different conversation remounts the timeline; restore where the owner left it.
               if (restoredFor.current !== conversationId) {
                 restoredFor.current = conversationId
-                const saved = offsets.current.get(conversationId)
-                if (saved && !saved.stick) {
+                const saved = placeOf(conversationId).scrollY
+                if (saved !== undefined) {
                   stick.current = false
                   setAtEnd(false)
-                  view.scrollTo({ y: saved.y, animated: false })
+                  view.scrollTo({ y: saved, animated: false })
                   return
                 }
                 stick.current = true
@@ -384,10 +394,7 @@ export function TalkView() {
                 agentName={AGENT_NAME}
                 selectedToolId={selectedToolId}
                 blockedToolIds={activity.blockedToolIds}
-                onSelectTool={(toolId) => {
-                  setSelection({ conversationId, toolId })
-                  setMarginOpen(true)
-                }}
+                onSelectTool={selectTool}
               />
             ))}
             {activity.openRequests.map((request) => (
@@ -462,6 +469,7 @@ export function TalkView() {
             </View>
           ))}
           <Composer
+            key={conversationId}
             conversationId={conversationId}
             canStop={activity.turnOpen || activity.phase === 'executing'}
             hint={composerHint(activity)}
@@ -472,9 +480,7 @@ export function TalkView() {
           open={marginOpen}
           onClose={() => setMarginOpen(false)}
           conversationId={conversationId}
-          selectedToolId={selectedToolId}
           blockedToolIds={activity.blockedToolIds}
-          onClearSelection={() => setSelection(undefined)}
           onShowRequest={showRequest}
         />
         <HistorySheet

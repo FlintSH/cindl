@@ -3,6 +3,7 @@ import type { CindlClientApi, CindlEvent, LinkState } from '@cindl/contracts'
 import { act, render } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from '../src/shell/AppShell.tsx'
+import { keepPlace, placeOf } from '../src/talk/places.ts'
 import { keptDrafts } from '../src/views/drafts.ts'
 import { Providers } from './memoryScreen.tsx'
 
@@ -41,7 +42,7 @@ function client() {
 }
 
 describe('the app shell when the session ends', () => {
-  it('forgets every kept draft once Hermes refuses the session, and none before', async () => {
+  it("forgets every kept draft and every conversation's place once Hermes refuses the session, and none before", async () => {
     const c = client()
     render(
       <Providers api={c.api}>
@@ -50,9 +51,21 @@ describe('the app shell when the session ends', () => {
     )
     await c.link('online')
     keptDrafts.set('SOUL.md', 'A draft of the voice, not saved.')
+    keepPlace('demo-main', {
+      draft: 'Unsent (fixture)',
+      toolId: 'tool-calendar',
+      tool: 'computer',
+    })
     await c.link('reconnecting')
     expect(keptDrafts.has('SOUL.md')).toBe(true)
+    expect(placeOf('demo-main').tool).toBe('computer')
     await c.link('signed-out')
     expect(keptDrafts.size).toBe(0)
+    expect(placeOf('demo-main')).toEqual({
+      draft: '',
+      scrollY: undefined,
+      toolId: undefined,
+      tool: undefined,
+    })
   })
 })

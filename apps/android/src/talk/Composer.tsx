@@ -6,6 +6,7 @@ import { useTheme } from '../theme/theme.tsx'
 import { ArrowUp, Square } from '../ui/icons.ts'
 import { Button, Txt } from '../ui/primitives.tsx'
 import { describeFailure, NOT_APPLIED, SEND_UNCERTAIN } from './failures.ts'
+import { keepPlace, placeOf } from './places.ts'
 
 /**
  * Non-blocking: the owner can send while Hermes works or waits (Hermes
@@ -31,7 +32,14 @@ export function Composer({
   const canSend = useCan('chat.stream')
   const canInterrupt = useCan('chat.interrupt')
   const { height } = useWindowDimensions()
-  const [text, setText] = useState('')
+  // The unsent message belongs to its conversation (TalkView keys the composer
+  // by conversation) and waits there while the owner is elsewhere, so it never
+  // follows them into another conversation (web parity, places.ts).
+  const [text, setTextNow] = useState(() => placeOf(conversationId).draft)
+  const setText = (value: string) => {
+    setTextNow(value)
+    keepPlace(conversationId, { draft: value })
+  }
   const [error, setError] = useState<string>()
   const [unconfirmed, setUnconfirmed] = useState<string>()
   const [sending, setSending] = useState(false)
@@ -54,7 +62,8 @@ export function Composer({
       })
     } catch (failure) {
       const copy = describeFailure(failure, SEND_UNCERTAIN, NOT_APPLIED)
-      if (copy.certain) setText((current) => current || value)
+      // Back into this conversation's draft, even if the owner left it meanwhile.
+      if (copy.certain) setText(placeOf(conversationId).draft || value)
       else setUnconfirmed(value)
       setError(copy.message)
     } finally {

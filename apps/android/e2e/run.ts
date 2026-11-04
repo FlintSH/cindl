@@ -45,6 +45,7 @@ import {
   navItem,
   near,
   onDestination,
+  reachable,
   screenToDevice,
   scrimOf,
   TERMS_PROMPT,
@@ -197,6 +198,52 @@ const KILN_TEXT =
 
 const isComposer: Match = (text, node) =>
   /EditText$/.test(node.className) && text.startsWith('Message ')
+
+/** The working margin's tools, as their tabs read (Waiting carries its count). */
+const MARGIN_TOOLS = ['Waiting', 'Step', 'Computer'] as const
+type MarginTool = (typeof MARGIN_TOOLS)[number]
+const tabOf = (text: string, tool: MarginTool) =>
+  text === tool || (tool === 'Waiting' && /^Waiting \d+$/.test(text))
+
+/** A tab of the open working margin, by its tool. */
+const marginTab = (root: UiNode, tool: MarginTool) =>
+  reachable(root).find((node) => node.clickable && tabOf(label(node), tool))
+
+/**
+ * Opens the working margin from the conversation's header, and chooses
+ * `tool` unless it is the one shown: each conversation keeps its own tool, so
+ * a step that needs one asks for it.
+ */
+async function openMargin(tool?: MarginTool) {
+  await device.tap('Show the working margin', 'the working margin button')
+  let sheet = await device.waitFor('Close the working margin', 'the working margin sheet')
+  if (!tool) return sheet
+  const tab = marginTab(sheet.root, tool)
+  if (!tab) throw new Error(`The working margin has no ${tool} tab`)
+  if (!tab.selected) {
+    await device.tapNode(tab)
+    sheet = await device.waitFor(
+      (text, node) => node.selected && node.clickable && tabOf(text, tool),
+      `the margin's ${tool} tool`,
+    )
+  }
+  return sheet
+}
+
+/** Chooses a tool in the open margin, and waits for what it shows. */
+async function openTab(
+  sheet: { root: UiNode },
+  tool: MarginTool,
+  shows: (text: string) => boolean,
+) {
+  const tab = marginTab(sheet.root, tool)
+  if (!tab) throw new Error(`The working margin has no ${tool} tab`)
+  await device.tapNode(tab)
+  const shown = await device.waitFor((text) => shows(text), `the margin's ${tool} tool`)
+  if (!marginTab(shown.root, tool)?.selected)
+    throw new Error(`${tool} is not the chosen tab after it was pressed`)
+  return shown
+}
 
 async function openDestination(name: string, heading: Match) {
   const root = await device.dump()
@@ -515,10 +562,113 @@ async function demoSuite() {
   )
 
   await step(
+    "The working margin: the conversation's tools, Computer gated, back, 200% font",
+    async ({ note, shot, audit }) => {
+      await startOnTalk()
+      // Opened from the conversation, on Waiting with its count on the tab.
+      let sheet = await openMargin('Waiting')
+      const missing = MARGIN_TOOLS.filter((tool) => !marginTab(sheet.root, tool))
+      if (missing.length)
+        throw new Error(`The working margin has no tab for ${missing.join(', ')}`)
+      const waiting = marginTab(sheet.root, 'Waiting')
+      if (!waiting?.selected || !/^Waiting \d+$/.test(label(waiting)))
+        throw new Error(
+          `Waiting is not the chosen tab with its count (it reads "${waiting ? label(waiting) : ''}")`,
+        )
+      shot('margin-waiting')
+      await audit('Working margin: Waiting', sheet.root)
+      note(`the margin opened from the conversation on "${label(waiting)}"`)
+
+      // Step: the selected step's evidence, or what to do to see one.
+      sheet = await openTab(sheet, 'Step', (text) =>
+        [
+          'Select a step in the conversation to see what Hermes did.',
+          'Clear the step',
+        ].includes(text),
+      )
+      // Computer: the agent's screen behind computer.view, or why it is not shown.
+      sheet = await openTab(
+        sheet,
+        'Computer',
+        (text) =>
+          text.startsWith('The agent-owned Linux screen of this Hermes profile only') ||
+          text.startsWith('Agent computer: '),
+      )
+      const gate = find(sheet.root, (text) => text.startsWith('Agent computer: '))
+      shot('margin-computer')
+      await audit('Working margin: Computer', sheet.root)
+      note(
+        gate
+          ? `Computer says why there is no screen: "${label(gate)}"`
+          : 'Computer shows the screen, computer.view being usable here',
+      )
+
+      // System back closes the margin first, and the screen's view with it.
+      await device.key('KEYCODE_BACK')
+      await device.waitUntilGone('Close the working margin', 'The working margin')
+      const after = await device.dump()
+      if (find(after, (text) => text.startsWith('The agent’s screen, live.')))
+        throw new Error("The agent's screen is still shown after the margin closed")
+      if (!find(after, isComposer))
+        throw new Error('Back did not leave the conversation shown')
+      note('back closed the margin and its view of the screen; the conversation stayed')
+
+      // At 200% font the tabs stay whole, inside the sheet and above the tool.
+      device.shell('settings put system font_scale 2.0')
+      await sleep(3000)
+      try {
+        sheet = await openMargin()
+        if (!marginTab(sheet.root, 'Computer')?.selected)
+          throw new Error(
+            'The conversation did not keep its tool: Computer is not chosen',
+          )
+        sheet = await openTab(
+          sheet,
+          'Waiting',
+          (text) =>
+            text.startsWith('Show approval:') ||
+            text === 'Nothing is waiting on you here.',
+        )
+        const window = sheet.root.children[0]?.bounds
+        const tabs = MARGIN_TOOLS.map((tool) => marginTab(sheet.root, tool))
+        const body = find(
+          sheet.root,
+          (text) =>
+            text.startsWith('Show approval:') ||
+            text === 'Nothing is waiting on you here.',
+        )
+        if (!window || !body || tabs.some((tab) => !tab))
+          throw new Error('At 200% font the margin lost a tab or its tool')
+        for (const tab of tabs as UiNode[]) {
+          if (tab.bounds.left < window.left || tab.bounds.right > window.right)
+            throw new Error(`At 200% font the "${label(tab)}" tab runs off the screen`)
+          if (tab.bounds.bottom > body.bounds.top)
+            throw new Error(
+              `At 200% font the "${label(tab)}" tab overlaps the tool below it`,
+            )
+        }
+        shot('margin-font-200')
+        await audit('Working margin at 200% font', sheet.root)
+        await device.key('KEYCODE_BACK')
+        await device.waitUntilGone(
+          'Close the working margin',
+          'The working margin at 200% font',
+        )
+      } finally {
+        device.shell('settings put system font_scale 1.0')
+        await sleep(2000)
+      }
+      note(
+        'at 200% font every tab is whole and on screen, above the tool; back closed it',
+      )
+    },
+  )
+
+  await step(
     'Answer the decisions (approval and question set)',
     async ({ note, shot, audit }) => {
       await startOnTalk()
-      await device.tap('Show the working margin', 'the working margin button')
+      await openMargin('Waiting')
       await device.tap(
         'Show approval: Run the inventory export script',
         'the approval in the margin',
@@ -539,7 +689,7 @@ async function demoSuite() {
       shot('approval-answered')
       note('approval offered Allow once and Deny only; Deny answered it')
 
-      await device.tap('Show the working margin', 'the working margin button')
+      await openMargin('Waiting')
       await device.tap(
         'Show question: Offsite venue and prep',
         'the question set in the margin',
