@@ -3,6 +3,7 @@ import type { AddressInfo } from 'node:net'
 import { CindlError } from '@cindl/contracts'
 import { describe, expect, it } from 'vitest'
 import {
+  endpointPath,
   hermesDidNotAnswer,
   hermesReasonOf,
   RestClient,
@@ -294,6 +295,32 @@ describe('RestClient: cookie sign-out (POST /auth/logout)', () => {
     expect(await codeFor(404)).toBe('not-found')
     expect(await codeFor(500)).toBe('internal')
     expect(await codeFor(503)).toBe('unavailable')
+  })
+})
+
+describe('RestClient: path parameters', () => {
+  it('sends no "." or ".." as a session id: nothing reaches Hermes', async () => {
+    const fake = await fakeHermes()
+    const rest = bearerRest(fake, () => 'token-fixture')
+    for (const id of ['.', '..']) {
+      await expect(rest.mutationSnapshot(id)).rejects.toMatchObject({ code: 'invalid' })
+      await expect(
+        rest.patchSession(id, {
+          request_id: 'r-fixture',
+          expected_revision: 1,
+          title: 'Renamed (fixture)',
+        }),
+      ).rejects.toMatchObject({ code: 'invalid' })
+    }
+    expect(fake.calls.filter((c) => c.kind === 'rest')).toEqual([])
+  })
+
+  it('still encodes and sends an id with dots among other characters', () => {
+    expect(endpointPath('sessionPatch', { id: 'a..b' })).toBe('/api/sessions/a..b')
+    expect(endpointPath('sessionMutationSnapshot', { id: '.hidden' })).toBe(
+      '/api/sessions/.hidden/mutation-snapshot',
+    )
+    expect(endpointPath('soul', { name: 'a/../b' })).toBe('/api/profiles/a%2F..%2Fb/soul')
   })
 })
 

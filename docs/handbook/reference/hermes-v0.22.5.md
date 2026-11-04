@@ -60,6 +60,13 @@ the browser.
 | `PUT /api/profiles/{name}/soul`            | session | `{content}`, atomic full rewrite                                           | `profiles.py:1015-1034`                    |
 | `GET /api/memory`                          | session | `{active, providers[], builtin_files{memory, user}}`, sizes only           | `web_routers/ops.py:494-509`               |
 
+Path parameters (`{id}`, `{name}`) are percent-encoded, and an empty value,
+`.` or `..` is never sent: a dot segment would survive the encoding and
+route elsewhere once the URL is normalized (`/api/sessions/..` is `/api/`).
+Profile names are checked where they come from; session ids come from
+Hermes's data, so this refusal (`invalid`, with nothing sent) is what keeps
+them on their route (`packages/hermes-adapter/src/compat.ts`).
+
 Session endpoints accept the cookie session, or
 `Authorization: Bearer <access token>` from the native flow, verified by the same provider stack
 (`dashboard_auth/middleware.py:160-184`). That includes the ws-ticket route,

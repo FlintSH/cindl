@@ -1,4 +1,4 @@
-import { HERMES_BASELINE } from '@cindl/contracts'
+import { CindlError, HERMES_BASELINE } from '@cindl/contracts'
 
 /**
  * Hermes WebSocket subprotocols (hermes_cli/web_server_boundary.py:151-152,
@@ -158,6 +158,15 @@ export function endpointPath(
     const value = params[key]
     if (value === undefined || value === '')
       throw new Error(`Missing path parameter ${key} for ${name}`)
+    // A dot segment passes through the encoding, and URL normalization then
+    // routes elsewhere (`/api/sessions/..` is `/api/`). Session ids come from
+    // Hermes's data with no other check, so neither is ever sent.
+    if (value === '.' || value === '..')
+      throw new CindlError(
+        'invalid',
+        'Not sent: a Hermes id cannot be "." or "..".',
+        `${name}.${key}`,
+      )
     return encodeURIComponent(value)
   })
 }
