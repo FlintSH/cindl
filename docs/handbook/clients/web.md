@@ -276,10 +276,11 @@ few tools for that conversation ([ADR 0013](../architecture/decisions/0013-conve
 It switches only when you choose a tool or select a step: a new request
 changes Waiting's count, not the tool. Each conversation keeps its own tool
 while you move between them. The arrow keys, Home and End move between the
-tools; with Alt, Ctrl or ⌘ held they are left to the browser. The sheet opens
-with focus on the chosen tool, closing the column puts focus on the button
-that shows it, and a conversation chosen from the switcher opens with focus
-on its switcher.
+tools; with Alt, Ctrl, ⌘ or Shift held they are left to the browser. The
+sheet opens with focus on the chosen tool. Closing the column, with its close
+button or `Ctrl/⌘ .`, puts focus on the button that shows it when focus was
+in the column. A conversation chosen from the switcher opens with focus on
+its switcher; choosing the one already shown just closes the list.
 
 ## Keyboard
 

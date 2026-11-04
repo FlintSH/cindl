@@ -37,7 +37,11 @@ export function HistoryPopover({
   }
   const open_ = (id: string) => {
     close()
-    if (id !== currentId) noteSwitch()
+    // The conversation already shown: nothing to open (at #/talk, navigating
+    // to it would only change the address and remount the view), and focus
+    // goes back to the switcher as the dialog closes.
+    if (id === currentId) return
+    noteSwitch()
     navigate({ view: 'talk', conversationId: id })
   }
   return (

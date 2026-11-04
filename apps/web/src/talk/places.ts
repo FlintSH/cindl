@@ -64,6 +64,7 @@ export function takeSwitch(): boolean {
 /** The session ended: nothing typed or read on this device outlives it. */
 export function forgetPlaces() {
   places.clear()
+  switched = false
   for (const listener of listeners) listener()
 }
 

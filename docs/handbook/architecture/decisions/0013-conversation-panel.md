@@ -55,7 +55,8 @@ left navigation, which stays as it is.
 - Presentation is unchanged: a 400px column on wide windows, remembered open
   or closed; a modal sheet below 1280px, which opens with focus on the chosen
   tool's tab and returns focus to what opened it. The header toggle and
-  `Mod+.` show or hide it; closing the column puts focus on that toggle.
+  `Mod+.` show or hide it; closing the column with focus inside it puts
+  focus on that toggle.
 - **Not taken:** owner-added or reordered tabs, an add menu (the set is
   small), dragging, resizing (later), coding tools, side chats, and any
   widget or plugin framework. The navigation (spine, bottom bar, destinations
