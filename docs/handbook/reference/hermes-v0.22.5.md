@@ -118,15 +118,19 @@ bearer to public endpoints.
   again under the same key. A failed or cancelled switch retires nothing:
   its refresh may still store. Signing in to the same origin again is no
   switch, and sign-out is unchanged.
-- A sign-out while a native sign-in to another origin is still in flight
-  (its browser leg open, say) signs that sign-in out too. It stores no tokens
-  and fails with "Signed out while signing in.", and the client stays on the
-  origin it had, signed out. Android's wrapper then saves no new origin; the
-  desktop app already runs a sign-out only after the sign-in it overtakes.
-  Known gap: a sign-out that lands while that sign-in writes its tokens to
-  the device's store still keeps the client where it was, but the write can
-  finish after the sign-out's delete and leave that origin's record behind,
-  so a later sign-in there finds it.
+- A sign-out at any point of a native sign-in (Hermes's status read, the
+  stored sign-in read, a switch's device state, the browser leg or the token
+  exchange) stores nothing, and no browser opens after it: the sign-in fails
+  with "Signed out while signing in.". With a working session the client
+  stays on the origin it had, signed out. Without one it took up the new
+  origin as the sign-in began, so for the rest of the session it is on that
+  origin, signed out; Android's wrapper saves no new origin, so the next
+  start is on the old one. The desktop app already runs a sign-out only after
+  the sign-in it overtakes. A sign-out that lands while the sign-in writes
+  its tokens deletes them after that write, since both platforms' stores
+  apply writes in call order (the desktop store's serial queue,
+  `apps/desktop/src/main/platform/secret-store.ts`; expo-secure-store on one
+  thread); only a store that reordered writes could keep the record.
 
 ### Web sign-in (cookie)
 
