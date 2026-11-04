@@ -14,7 +14,6 @@ import {
 import { isCindlError } from '@cindl/contracts'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
-  Pressable,
   ScrollView,
   Text,
   View,
@@ -22,10 +21,10 @@ import {
   type ScrollViewInstance,
 } from 'react-native'
 import { useNav, useNavigate } from '../nav/NavProvider.tsx'
-import { claimFocus, FocusFallback, notePress } from '../overlay/opener.ts'
+import { claimFocus, FocusFallback } from '../overlay/opener.ts'
 import { useTheme } from '../theme/theme.tsx'
 import { ArrowDown, ChevronDown, PanelBottom, Plus } from '../ui/icons.ts'
-import { Button, Dot, ErrorText, focusRing, Txt } from '../ui/primitives.tsx'
+import { Button, Dot, ErrorText, focusRing, Press, Txt } from '../ui/primitives.tsx'
 import { Composer } from './Composer.tsx'
 import { HistorySheet } from './HistorySheet.tsx'
 import { MessageView } from './MessageView.tsx'
@@ -221,16 +220,13 @@ export function TalkView() {
           <View
             style={{ flexDirection: 'row', alignItems: 'center', gap: theme.space[1] }}
           >
-            <Pressable
+            <Press
               ref={switcher}
               accessibilityRole="button"
               accessibilityLabel={`${conversation.title}${
                 conversation.kind === 'main' ? ', Main' : ''
               }. Switch conversation`}
-              onPress={() => {
-                notePress(switcher)
-                setHistoryOpen(true)
-              }}
+              onPress={() => setHistoryOpen(true)}
               onFocus={() => setSwitcherFocused(true)}
               onBlur={() => setSwitcherFocused(false)}
               android_ripple={{ color: theme.colors.selection }}
@@ -279,7 +275,7 @@ export function TalkView() {
                 color={theme.colors.textSecondary}
                 strokeWidth={1.75}
               />
-            </Pressable>
+            </Press>
             <View style={{ flex: 1 }} />
             {canCreate ? (
               <Button

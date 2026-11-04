@@ -6,14 +6,7 @@ import {
   type ServerRequest,
 } from '@cindl/contracts'
 import { useEffect, useRef, useState, type ReactNode, type RefObject } from 'react'
-import {
-  AccessibilityInfo,
-  Pressable,
-  Text,
-  TextInput,
-  View,
-  type HostInstance,
-} from 'react-native'
+import { AccessibilityInfo, Text, TextInput, View, type HostInstance } from 'react-native'
 import { giveKeyboardFocus } from '../overlay/keyboardFocus.ts'
 import { useTheme } from '../theme/theme.tsx'
 import {
@@ -25,7 +18,7 @@ import {
   ShieldAlert,
   type LucideIcon,
 } from '../ui/icons.ts'
-import { Button, focusRing, Note, Txt } from '../ui/primitives.tsx'
+import { Button, focusRing, Note, Press, Txt } from '../ui/primitives.tsx'
 import { unavailableCopy } from '../views/RequireCapability.tsx'
 import { ANSWER_REFUSED, ANSWER_UNCERTAIN, describeFailure } from './failures.ts'
 import {
@@ -367,7 +360,7 @@ function Approval({
       )}
       {request.withheldChoices?.length ? (
         <View style={{ gap: theme.space[1] }}>
-          <Pressable
+          <Press
             accessibilityRole="button"
             accessibilityState={{ expanded: whyOpen }}
             accessibilityLabel="Why only once?"
@@ -384,7 +377,7 @@ function Approval({
             <Txt variant="label" tone="secondary">
               Why only once?
             </Txt>
-          </Pressable>
+          </Press>
           {whyOpen ? (
             <Txt variant="label" tone="secondary">
               Hermes also offers approval for the rest of the session or permanently.
@@ -620,7 +613,7 @@ function Option({
   const theme = useTheme()
   const [focused, setFocused] = useState(false)
   return (
-    <Pressable
+    <Press
       accessibilityRole={kind}
       accessibilityLabel={label}
       accessibilityState={{ checked, disabled }}
@@ -662,6 +655,6 @@ function Option({
         ) : null}
       </View>
       <Text style={[theme.text.ui, { flex: 1, color: theme.colors.text }]}>{label}</Text>
-    </Pressable>
+    </Press>
   )
 }

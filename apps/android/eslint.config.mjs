@@ -38,6 +38,12 @@ export default [
       'cindl-android/no-dom-globals': 'error',
       'cindl-android/no-raw-colour': 'error',
       'cindl-android/storage-in-platform': 'error',
+      // Press is built on Pressable; an overlay's scrim is no control: its taps
+      // close the overlay that a noted press opened. These two files only.
+      'cindl-android/no-bare-pressable': [
+        'error',
+        { builtOn: ['src/ui/Press.tsx', 'src/overlay/Scrim.tsx'] },
+      ],
     },
   },
   {

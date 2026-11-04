@@ -56,8 +56,8 @@ Working here:
   answers (`assertAnswerable`) before anything is sent.
 - Keep pure logic out of components; test a component rendered (react-dom in
   jsdom), never a copy of its wiring. `test/render` stands in for the host
-  layer, safe-area, the icons, `expo` and `expo-crypto` (vitest.config.ts),
-  and only as far as a rendered screen needs.
+  layer, safe-area, the icons, `react-native-svg`, `expo` and `expo-crypto`
+  (vitest.config.ts), and only as far as a rendered screen needs.
 - The agent screen: never log frames, input or the screen socket's URL (it
   holds the single-use display ticket), and never start, stop or install the
   screen.
@@ -85,8 +85,11 @@ Working here:
 - Overlays are `src/overlay` Dialog or Sheet only (never React Native's Modal):
   they take TalkBack and keyboard focus in and give it back
   (`src/overlay/opener.ts`), and AppShell's `BehindOverlays` hides and blocks
-  what they cover. A control that opens one records the press (`notePress`;
-  Button does). Keyboard focus is moved only by `modules/cindl-focus`
+  what they cover. Every control notes its press (`notePress`): it is built on
+  `src/ui/Press.tsx` (Button and Row are), or notes it itself, as a link in
+  agent Markdown does (a span of its text). React Native's own pressables
+  (Pressable, Button, the Touchables) are lint-rejected outside Press and the
+  scrim (`cindl-android/no-bare-pressable`). Keyboard focus is moved only by `modules/cindl-focus`
   (`src/overlay/keyboardFocus.ts`), which React Native cannot do alone
   (docs/handbook/clients/android.md, Accessibility).
 - Parse device output from a real run's lines, and judge what is on screen by

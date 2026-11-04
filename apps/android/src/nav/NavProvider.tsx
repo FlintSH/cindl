@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from 'react'
 import { BackHandler } from 'react-native'
+import { noteMove } from '../overlay/opener.ts'
 import { createBackDispatcher, type BackDispatcher } from './back.ts'
 import {
   createNavStore,
@@ -33,9 +34,12 @@ export function NavProvider({ children }: { children: ReactNode }) {
     return { store, back }
   })
   useEffect(() => {
-    const subscription = BackHandler.addEventListener('hardwareBackPress', () =>
-      value.back.dispatch(),
-    )
+    // System back is the owner moving: a step that lands later gives no focus
+    // after it (opener.ts ownerMoves), counted before any handler runs.
+    const subscription = BackHandler.addEventListener('hardwareBackPress', () => {
+      noteMove()
+      return value.back.dispatch()
+    })
     return () => subscription.remove()
   }, [value])
   return <NavContext.Provider value={value}>{children}</NavContext.Provider>

@@ -95,15 +95,32 @@ export const memoryDraftKey = (id: string) => `${MEMORY_DRAFT_PREFIX}${identityO
  * How the delete confirmation names an entry, and a discard control its
  * draft: the first line with words in it once heading marks are stripped, cut
  * as Hermes cuts its card titles (`agent/learning_graph.py`), else "this
- * entry". The lock notice uses the list's own title.
+ * entry". The lock's "now here" names an entry as labels do (`entryName`).
  */
 export function titleOf(content: string): string {
-  const first =
-    content
-      .split('\n')
-      .map((line) => line.replace(/^[#\s]+/, '').trim())
-      .find((line) => line.length > 0) ?? 'this entry'
-  return first.length > 80 ? `${first.slice(0, 80)}…` : first
+  return cut(firstWords(content) ?? 'this entry')
+}
+
+/** The first line with words in it once heading marks are stripped, if any. */
+const firstWords = (content: string) =>
+  content
+    .split('\n')
+    .map((line) => line.replace(/^[#\s]+/, '').trim())
+    .find((line) => line.length > 0)
+
+const cut = (text: string) => (text.length > 80 ? `${text.slice(0, 80)}…` : text)
+
+/**
+ * An entry's name in labels (web parity, cb9caeb): Hermes's title; when that
+ * is empty (a first line of only heading marks), its first line with words;
+ * when it has none, its place ("agent note 3"), so an entry without words
+ * still has a name of its own.
+ */
+export function entryName(entry: MemoryEntrySummary, place: number): string {
+  return (
+    entry.title.trim() ||
+    cut(firstWords(entry.preview) ?? memoryEntryName(entry.store, place))
+  )
 }
 
 /**
@@ -362,8 +379,46 @@ export function adoptedDraftNote(ownDraftKept: boolean): string {
   }`
 }
 
-/** Each discard control names its draft, so TalkBack users can tell them apart. */
-export const discardDraftLabel = (draft: string) => `Discard draft: ${titleOf(draft)}`
+/**
+ * Each discard control names its draft, so TalkBack users can tell them apart:
+ * drafts that share a first line are numbered among themselves, "Discard draft
+ * 2 of 3: …" (web parity, e395d03). Keyed by the draft's key.
+ */
+export function discardDraftLabels(
+  drafts: ReadonlyArray<{ key: string; draft: string }>,
+): Map<string, string> {
+  const labels = new Map<string, string>()
+  for (const { key, draft } of drafts) {
+    const title = titleOf(draft)
+    const same = drafts.filter((other) => titleOf(other.draft) === title)
+    labels.set(
+      key,
+      same.length === 1
+        ? `Discard draft: ${title}`
+        : `Discard draft ${same.findIndex((other) => other.key === key) + 1} of ${same.length}: ${title}`,
+    )
+  }
+  return labels
+}
+
+/**
+ * A draft kept beside a listed entry's own draft (`…#2`) says which entry it
+ * was written for, while that entry is listed: "Written for agent note 2."
+ */
+export function writtenFor(
+  key: string,
+  placeNow: (identity: string) => number | undefined,
+): string | undefined {
+  if (!key.startsWith(MEMORY_DRAFT_PREFIX) || !key.includes('#')) return undefined
+  const identity = key.slice(MEMORY_DRAFT_PREFIX.length).split('#')[0] ?? ''
+  const at = placeNow(identity)
+  if (at === undefined) return undefined
+  return `Written for ${identity.startsWith('profile:') ? 'note about you' : 'agent note'} ${at}.`
+}
+
+/** What the Unsaved drafts list holds. */
+export const UNSAVED_DRAFTS_NOTE =
+  "Text you wrote for entries Hermes no longer lists (removed, or changed elsewhere), and drafts kept beside an entry's own draft. Copy what you need; nothing here is saved."
 
 /** The row of an open entry that is no longer listed at its place. */
 export const NO_LONGER_HERE = 'No longer at this place'
@@ -384,7 +439,7 @@ export interface EntryEditorView {
    * it says where that draft goes when the editor closes.
    */
   lockNotice: ((keptAs: string | undefined) => string) | undefined
-  /** The title of the entry listed at the place, when locked. */
+  /** The name of the entry listed at the place, when locked (`entryName`). */
   nowHere: string | undefined
   /** The entry "Use this draft for the entry now here" would use the draft for. */
   adoptTarget: MemoryEntrySummary | undefined
@@ -435,7 +490,7 @@ export function entryEditorView(input: {
             placeNow: input.placeNow,
           })
       : undefined,
-    nowHere: locked ? row?.title : undefined,
+    nowHere: locked && row ? entryName(row, input.place) : undefined,
     adoptTarget: locked ? row : undefined,
     draftNote:
       adoptedFrom === undefined

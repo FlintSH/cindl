@@ -1,11 +1,11 @@
 import { useCan, useCapability, useCindlApi, useConversations } from '@cindl/client-react'
 import { isCindlError, type Conversation } from '@cindl/contracts'
 import { useMemo, useState } from 'react'
-import { Pressable, ScrollView, Text, TextInput, View } from 'react-native'
+import { ScrollView, Text, TextInput, View } from 'react-native'
 import { Sheet } from '../overlay/Sheet.tsx'
 import { useTheme } from '../theme/theme.tsx'
 import { Pin, Plus } from '../ui/icons.ts'
-import { Badge, Note, Txt } from '../ui/primitives.tsx'
+import { Badge, Note, Press, Txt } from '../ui/primitives.tsx'
 import { fuzzyScore, relativeDay } from './format.ts'
 
 /** Searchable conversation switcher (the web history popover, as a sheet). */
@@ -100,7 +100,7 @@ export function HistorySheet({
         }}
       >
         {canCreate ? (
-          <Pressable
+          <Press
             accessibilityRole="button"
             accessibilityLabel="New side conversation"
             android_ripple={{ color: theme.colors.selection }}
@@ -128,7 +128,7 @@ export function HistorySheet({
             <Txt tone="accent" weight="medium">
               New side conversation
             </Txt>
-          </Pressable>
+          </Press>
         ) : (
           <View style={{ padding: theme.space[3] }}>
             <Note>
@@ -179,7 +179,7 @@ function ConversationItem({
     .filter(Boolean)
     .join(', ')
   return (
-    <Pressable
+    <Press
       accessibilityRole="button"
       accessibilityLabel={label}
       accessibilityState={{ selected: current }}
@@ -224,6 +224,6 @@ function ConversationItem({
           {conversation.preview}
         </Text>
       ) : null}
-    </Pressable>
+    </Press>
   )
 }

@@ -3,16 +3,13 @@ import {
   Children,
   Fragment,
   isValidElement,
-  useCallback,
   useEffect,
-  useRef,
   useState,
   type ReactNode,
   type Ref,
 } from 'react'
 import {
   Animated,
-  Pressable,
   Text,
   View,
   type HostInstance,
@@ -22,9 +19,11 @@ import {
   type ViewStyle,
 } from 'react-native'
 import { useReducedMotion } from '../theme/motion.tsx'
-import { notePress } from '../overlay/opener.ts'
 import { useStyles, useTheme, type CindlTheme } from '../theme/theme.tsx'
 import { ChevronRight, LoaderCircle, type LucideIcon } from './icons.ts'
+import { Press } from './Press.tsx'
+
+export { Press } from './Press.tsx'
 
 export type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info'
 export type TextTone =
@@ -75,17 +74,25 @@ export function focusRing(theme: CindlTheme): ViewStyle {
 
 /** Text in a DESIGN.md style. The system font scale applies; never disable it. */
 export function Txt({
+  ref,
   variant = 'ui',
   tone = 'primary',
   weight,
   style,
   ...rest
-}: TextProps & { variant?: TextStyleName; tone?: TextTone; weight?: Weight }) {
+}: TextProps & {
+  /** The text's view, for sending TalkBack focus to it. */
+  ref?: Ref<HostInstance>
+  variant?: TextStyleName
+  tone?: TextTone
+  weight?: Weight
+}) {
   const theme = useTheme()
   const base = theme.text[variant]
   const fontFamily = weight && variant !== 'code' ? theme.fonts[weight] : base.fontFamily
   return (
     <Text
+      ref={ref}
       {...rest}
       style={[base, { fontFamily, color: textColor(theme, tone) }, style]}
     />
@@ -127,16 +134,6 @@ export function Button({
   const theme = useTheme()
   const styles = useStyles(buttonStyles)
   const [focused, setFocused] = useState(false)
-  // Its own handle on the view, so a dialog or sheet it opens can give focus back to it.
-  const self = useRef<HostInstance | null>(null)
-  const attach = useCallback(
-    (node: HostInstance | null) => {
-      self.current = node
-      if (typeof ref === 'function') ref(node)
-      else if (ref) ref.current = node
-    },
-    [ref],
-  )
   const foreground =
     variant === 'primary'
       ? theme.colors.onAccent
@@ -146,21 +143,14 @@ export function Button({
           ? theme.colors.danger
           : theme.colors.text
   return (
-    <Pressable
-      ref={attach}
+    <Press
+      {...(ref ? { ref } : {})}
       accessibilityRole="button"
       accessibilityLabel={accessibilityLabel ?? label}
       {...(accessibilityHint ? { accessibilityHint } : {})}
       accessibilityState={{ disabled, busy }}
       disabled={disabled}
-      {...(onPress
-        ? {
-            onPress: () => {
-              notePress(self)
-              onPress()
-            },
-          }
-        : {})}
+      {...(onPress ? { onPress: () => onPress() } : {})}
       onFocus={() => setFocused(true)}
       onBlur={() => setFocused(false)}
       android_ripple={{ color: theme.colors.selection }}
@@ -188,7 +178,7 @@ export function Button({
           {label}
         </Text>
       )}
-    </Pressable>
+    </Press>
   )
 }
 
@@ -461,7 +451,7 @@ export function Row({
   }
   if (!onPress) return <View style={layout}>{body}</View>
   return (
-    <Pressable
+    <Press
       accessibilityRole="button"
       {...(accessibilityLabel ? { accessibilityLabel } : {})}
       onPress={onPress}
@@ -471,7 +461,7 @@ export function Row({
       style={[layout, focused ? focusRing(theme) : null]}
     >
       {body}
-    </Pressable>
+    </Press>
   )
 }
 

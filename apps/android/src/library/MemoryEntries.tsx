@@ -21,7 +21,8 @@ import {
   DELETE_REFUSED,
   DELETE_UNCERTAIN,
   deleteWarning,
-  discardDraftLabel,
+  discardDraftLabels,
+  entryName,
   entryAt,
   entryEditorView,
   followList,
@@ -36,6 +37,8 @@ import {
   memoryWrite,
   NO_LONGER_HERE,
   orphanDrafts,
+  UNSAVED_DRAFTS_NOTE,
+  writtenFor,
   placeNow,
   placeOf,
   readForAdoption,
@@ -71,6 +74,7 @@ export function MemoryEntries() {
     open || !list.data
       ? []
       : orphanDrafts(entries, keptDocumentDrafts(MEMORY_DRAFT_PREFIX))
+  const discardLabels = discardDraftLabels(orphans)
   const editor = (
     store: MemoryStore,
     summary: MemoryEntrySummary | undefined,
@@ -98,18 +102,18 @@ export function MemoryEntries() {
       {orphans.length ? (
         <View style={{ gap: theme.space[2] }}>
           <StoreTitle>Unsaved drafts</StoreTitle>
-          <Note>
-            Text you wrote for entries Hermes no longer lists (removed, or changed
-            elsewhere). Copy what you need; nothing here is saved.
-          </Note>
+          <Note>{UNSAVED_DRAFTS_NOTE}</Note>
           {orphans.map(({ key, draft }) => (
             <View key={key} style={rowStyle(theme)}>
               <Text selectable style={[theme.text.code, { color: theme.colors.text }]}>
                 {draft}
               </Text>
+              {writtenFor(key, (identity) => placeNow(entries, identity)) ? (
+                <Note>{writtenFor(key, (identity) => placeNow(entries, identity))}</Note>
+              ) : null}
               <Button
                 label="Discard draft"
-                accessibilityLabel={discardDraftLabel(draft)}
+                accessibilityLabel={discardLabels.get(key) ?? 'Discard draft'}
                 variant="quiet"
                 style={{ alignSelf: 'flex-end' }}
                 onPress={() => {
@@ -154,7 +158,7 @@ export function MemoryEntries() {
                       </Txt>
                       <Button
                         label={isOpen ? 'Close' : 'Open'}
-                        accessibilityLabel={`${isOpen ? 'Close' : 'Open'} memory entry: ${entry.title}`}
+                        accessibilityLabel={`${isOpen ? 'Close' : 'Open'} memory entry: ${entryName(entry, index + 1)}`}
                         variant="quiet"
                         onPress={() =>
                           setOpen(isOpen ? undefined : placeOf(entries, entry.id))

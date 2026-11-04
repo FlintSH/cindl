@@ -10,6 +10,8 @@ import {
   type TextInputInstance,
 } from 'react-native'
 import { useBackHandler, useDestinationActive } from '../nav/NavProvider.tsx'
+import { giveKeyboardFocus } from '../overlay/keyboardFocus.ts'
+import { ownerMoves } from '../overlay/opener.ts'
 import { Dialog } from '../overlay/Sheet.tsx'
 import { describeFailure, NOT_APPLIED, SAVE_UNCERTAIN } from '../talk/failures.ts'
 import { useTheme } from '../theme/theme.tsx'
@@ -121,6 +123,29 @@ export function DocumentEditor({
   // completed), onto the notice when it starts (it takes Edit and Delete away).
   const box = useRef<TextInputInstance>(null)
   const edit = useRef<HostInstance | null>(null)
+  // A step replaces the control the owner pressed (or the step system back
+  // left): TalkBack focus and a keyboard's go to what took its place, the lock
+  // notice while locked, else the draft, the review, or Edit (Reload when
+  // there is no Edit). A step that lands later (a save) gives none once the
+  // owner has moved meanwhile (opener.ts ownerMoves), or when this editor's
+  // destination is no longer the one shown (web parity, cb9caeb).
+  const reload = useRef<HostInstance | null>(null)
+  const reviewText = useRef<HostInstance | null>(null)
+  const stepMoves = useRef<number>(undefined)
+  /** A step whose focus moves once the stage it leads to is on screen. */
+  const step = () => {
+    stepMoves.current = ownerMoves()
+  }
+  // A step that keeps the stage (Discard the draft) moves focus once it renders.
+  const [stepped, setStepped] = useState(0)
+  const stepInPlace = () => {
+    step()
+    setStepped((count) => count + 1)
+  }
+  const shown = useRef(active)
+  useLayoutEffect(() => {
+    shown.current = active
+  })
   const lockText = useRef<HostInstance>(null)
   const isLocked = Boolean(locked)
   const wasLocked = useRef(isLocked)
@@ -129,11 +154,34 @@ export function DocumentEditor({
     wasLocked.current = isLocked
     if (!target) return
     const timer = setTimeout(() => {
+      // Hidden, its screen is not the one TalkBack is on (review 3f7a8a69, R4).
+      if (!shown.current) return
       const node = target === 'draft' ? box.current : lockText.current
       if (node) AccessibilityInfo.sendAccessibilityEvent(node, 'focus')
     }, 60)
     return () => clearTimeout(timer)
   }, [isLocked])
+  useEffect(() => {
+    const moves = stepMoves.current
+    if (moves === undefined) return
+    stepMoves.current = undefined
+    const timer = setTimeout(() => {
+      // Hidden, its controls are closed to a keyboard's focus, and the focus
+      // module would climb out to the destination on screen.
+      if (!shown.current || ownerMoves() !== moves) return
+      // The lock notice is there only while the editor is locked (lockPanel).
+      const node =
+        lockText.current ??
+        box.current ??
+        reviewText.current ??
+        edit.current ??
+        reload.current
+      if (!node) return
+      AccessibilityInfo.sendAccessibilityEvent(node, 'focus')
+      giveKeyboardFocus(node)
+    }, 60)
+    return () => clearTimeout(timer)
+  }, [stage.kind, stepped])
   const [failure, setFailure] = useState<{ message: string; conflict: boolean }>()
   const [saving, setSaving] = useState(false)
   // The text a save replaced, with the version that save produced.
@@ -190,14 +238,18 @@ export function DocumentEditor({
 
   const leaveEditing = () => {
     if (dirty) setDiscarding(true)
-    else setStage({ kind: 'view' })
+    else {
+      step()
+      setStage({ kind: 'view' })
+    }
   }
 
   useBackHandler(
     () => {
-      if (stage.kind === 'review')
+      if (stage.kind === 'review') {
+        step()
         setStage({ kind: 'edit', draft: stage.draft, keptAs: stage.keptAs })
-      else leaveEditing()
+      } else leaveEditing()
       return true
     },
     active && stage.kind !== 'view' && !saving,
@@ -284,6 +336,8 @@ export function DocumentEditor({
                   label="Discard the draft"
                   variant="quiet"
                   onPress={() => {
+                    // Its offer goes with it: focus to Edit (web parity, e395d03).
+                    stepInPlace()
                     keptDrafts.delete(draftKey)
                     setKeptSeen((value) => value + 1)
                   }}
@@ -292,6 +346,7 @@ export function DocumentEditor({
                   <Button
                     label="Continue the draft"
                     onPress={() => {
+                      step()
                       setFailure(undefined)
                       setStage({ kind: 'edit', draft: offered, keptAs: draftKey })
                     }}
@@ -308,7 +363,12 @@ export function DocumentEditor({
               label="Restore previous version"
               variant="quiet"
               style={{ alignSelf: 'flex-start' }}
-              onPress={() => setStage({ kind: 'edit', draft: backup.content })}
+              onPress={() => {
+                step()
+                // A refusal is about another draft (review 3f7a8a69, R2).
+                setFailure(undefined)
+                setStage({ kind: 'edit', draft: backup.content })
+              }}
             />
           </View>
         ) : previous === 'copy' && backup ? (
@@ -322,12 +382,13 @@ export function DocumentEditor({
         ) : null}
         {actions(
           <>
-            <Button label="Reload" variant="quiet" onPress={onReload} />
+            <Button ref={reload} label="Reload" variant="quiet" onPress={onReload} />
             {canWrite && !locked ? (
               <Button
                 ref={edit}
                 label="Edit"
                 onPress={() => {
+                  step()
                   setFailure(undefined)
                   setStage({ kind: 'edit', draft: document.content })
                 }}
@@ -381,6 +442,7 @@ export function DocumentEditor({
               label="Discard changes"
               variant="quiet"
               onPress={() => {
+                step()
                 if (stage.keptAs !== undefined) keptDrafts.delete(stage.keptAs)
                 setFailure(undefined)
                 setStage({ kind: 'view' })
@@ -391,7 +453,10 @@ export function DocumentEditor({
               label="Review changes"
               variant="primary"
               disabled={Boolean(locked) || stage.draft === document.content}
-              onPress={() => setStage(reviewStage(stage.draft, document, stage.keptAs))}
+              onPress={() => {
+                step()
+                setStage(reviewStage(stage.draft, document, stage.keptAs))
+              }}
             />
           </>,
         )}
@@ -436,7 +501,7 @@ export function DocumentEditor({
   return (
     <View style={{ gap: theme.space[3] }}>
       {lockNotice}
-      <Txt>
+      <Txt ref={reviewText}>
         {`Review before saving: ${stats.added} line${stats.added === 1 ? '' : 's'} added, ${stats.removed} removed.${
           exact ? '' : ' (Large document: shown as a full replacement.)'
         }`}
@@ -503,6 +568,7 @@ export function DocumentEditor({
               label="Reload and keep my draft"
               onPress={() => {
                 // Fetch the current version, keep the draft, and review it again against the new text.
+                step()
                 onReload()
                 setFailure(undefined)
                 setStage({ kind: 'edit', draft, keptAs })
@@ -513,14 +579,20 @@ export function DocumentEditor({
             label="Back to editing"
             variant="quiet"
             disabled={saving}
-            onPress={() => setStage({ kind: 'edit', draft, keptAs })}
+            onPress={() => {
+              step()
+              setStage({ kind: 'edit', draft, keptAs })
+            }}
           />
           <Button
             label={saving ? 'Saving…' : 'Confirm and save'}
             variant="primary"
             disabled={saving || moved || Boolean(locked) || Boolean(failure?.conflict)}
             busy={saving}
-            onPress={() => void save()}
+            onPress={() => {
+              step()
+              void save()
+            }}
           />
         </>,
       )}

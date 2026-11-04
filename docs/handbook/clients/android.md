@@ -252,12 +252,12 @@ Pressable does), a Pressable is a stop for a keyboard's focus unless both
 `accessible` and `focusable` are false (as React Native 0.88 makes the view),
 a ScrollView scrolls nothing, Linking records the links it is asked to open,
 Animated values jump to their end, and Easing, StyleSheet and Platform are
-minimal. Four modules are replaced as well
+minimal. Five modules are replaced as well
 (`apps/android/vitest.config.ts`): `react-native-safe-area-context` (zero
-insets), the lucide icons (an empty element), `expo`
-(`apps/android/test/render/expo.ts`: the keyboard focus module records its
-calls; no other native module is linked) and `expo-crypto` (Node's random
-ids for the composer). The tests read the screen by role,
+insets), the lucide icons and `react-native-svg` (Cindl's mark; both draw
+nothing), `expo` (`apps/android/test/render/expo.ts`: the keyboard focus
+module records its calls; no other native module is linked) and
+`expo-crypto` (Node's random ids for the composer). The tests read the screen by role,
 name and text and see where focus is sent. They do not cover native drawing
 or layout, or what TalkBack itself announces; no emulator test covers those
 flows yet.
@@ -492,8 +492,20 @@ Hermes server, Chrome's Custom Tab, and a phone.
     **Discard the draft**). Editing afresh, saving or discarding that fresh
     text leaves it; if the fresh text must be kept too, it is kept beside it
     and waits under **Unsaved drafts**. Drafts for entries Hermes no longer
-    lists stay there too, to copy or discard; TalkBack names each discard
-    button by its draft.
+    lists stay there too, to copy or discard. TalkBack names each discard
+    button by its draft's first line, numbered among drafts that share one
+    ("Discard draft 2 of 3: …"). A draft kept beside a listed entry's own
+    draft says "Written for agent note 2." while that entry is listed.
+  - An entry's name in labels (Open, Close, the lock's "now here") is
+    Hermes's title; when that is empty (a first line of only heading marks),
+    its first line with words; when it has none, its place ("agent note 3"),
+    so an entry without words still has a name of its own (web parity,
+    e395d03 and cb9caeb). Entries with the same title or first words share
+    their name.
+  - Discarding a draft Hermes refused as stale clears the refusal, so a
+    review reached afterwards without Edit (through **Restore previous
+    version**) neither shows it nor keeps **Confirm and save** disabled;
+    saving the same stale text again is refused again.
   - When a locked editor's entry has moved, the lock says where the text you
     were editing goes when you close it: back with the entry, back to the
     entry it was written for, or under **Unsaved drafts**.
@@ -501,6 +513,30 @@ Hermes server, Chrome's Custom Tab, and a phone.
     the text Cindl read under the id the delete sends ("this entry" if there
     is none). The confirmation closes if the entry read there changes.
     Deleting warns first, because Hermes keeps no backup.
+  - Each step in the editor (Edit, Continue the draft, Discard the draft,
+    Review changes, Back to editing, Discard changes, Reload and keep my
+    draft, Restore previous version, a save, or system back) gives TalkBack
+    focus and a hardware keyboard's to what took the place of the control you
+    pressed: the lock notice while the editor is locked, else the draft, the
+    review's summary (the web focuses the changes themselves), or **Edit**
+    (**Reload** when there is no Edit). The lock notice and the summary are
+    plain text, which takes no keyboard focus, so a keyboard's goes to the
+    first control around them. A save gives focus to Edit when it lands, and
+    none if you moved meanwhile: pressed any control (the bottom navigation,
+    a page's tabs and a list's rows included; every control notes its press)
+    or system back, or if the editor's screen is no longer the one shown.
+    Focus you moved stays where you moved it (web parity, cb9caeb). While the
+    save is on its way the button reads **Saving…**, and after Hermes refuses
+    it as stale it reads **Confirm and save**; either way it is disabled but
+    keeps TalkBack's and a keyboard's focus (React Native 0.88 keeps a
+    disabled control focusable), where the web moves focus to the changes.
+    **Restore previous version** clears a refusal, as Edit does, since system
+    back from a draft that changes nothing leaves editing without a discard.
+    A lock that starts while the editor's screen is not the one shown moves
+    no focus either. Known gap: some moves are not seen,
+    so a save that lands after them still gives focus to Edit, where the web
+    keeps it wherever you moved it: a TalkBack swipe (React Native does not
+    report it), a keyboard's Tab or arrow keys, and a tap in a text field.
   - TalkBack focus moves into your draft when an adoption completes, and onto
     the lock notice whenever the editor locks: React Native does not tell the
     app where TalkBack focus is, so Cindl cannot tell whether the control it

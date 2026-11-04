@@ -506,7 +506,12 @@ export function memoryBackend(
       ordered().map((e) => ({
         id: idOf(e),
         store: e.store,
-        title: (e.content.split('\n')[0] ?? '').slice(0, 60),
+        // Hermes's card title (agent/learning_graph.py, as the fake Hermes ports
+        // it): the first line without its heading marks, cut at 80 characters.
+        title: (() => {
+          const first = (e.content.split('\n')[0] ?? '').trim().replace(/^#+\s*/, '')
+          return first.length > 80 ? `${first.slice(0, 80)}…` : first
+        })(),
         preview: e.content.slice(0, 1200),
         truncated: e.content.length > 1200,
       })),

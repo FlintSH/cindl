@@ -1,8 +1,8 @@
 import { useCallback, useRef, useState, type ReactNode } from 'react'
-import { Pressable, ScrollView, Text, View, type HostInstance } from 'react-native'
+import { ScrollView, Text, View, type HostInstance } from 'react-native'
 import { FocusFallback } from '../overlay/opener.ts'
 import { useTheme } from '../theme/theme.tsx'
-import { focusRing, SectionTitle, Txt } from '../ui/primitives.tsx'
+import { focusRing, Press, SectionTitle, Txt } from '../ui/primitives.tsx'
 
 /** Scrolling page for Work, Library and Agent: title, lead, then sections. */
 export function Page({
@@ -107,7 +107,7 @@ function Tab({
   const theme = useTheme()
   const [focused, setFocused] = useState(false)
   return (
-    <Pressable
+    <Press
       accessibilityRole="tab"
       accessibilityState={{ selected }}
       accessibilityLabel={label}
@@ -137,6 +137,6 @@ function Tab({
       >
         {label}
       </Text>
-    </Pressable>
+    </Press>
   )
 }
