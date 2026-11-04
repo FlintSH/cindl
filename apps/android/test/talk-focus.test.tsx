@@ -131,6 +131,22 @@ describe('Talk: what opens an overlay gets focus back when it closes', () => {
   })
 })
 
+describe('what Press passes on to the Pressable (review 3f7a8a69)', () => {
+  it("its state: a question's choice reads as checked once chosen, the others not", async () => {
+    const s = await talk()
+    const checked = (label: string) =>
+      s.container
+        .querySelector(`[role="radio"][aria-label="${label}"]`)
+        ?.getAttribute('aria-checked')
+    expect(checked('Harbor Loft (fictional)')).toBe('false')
+    await s.press('Harbor Loft (fictional)', 'radio')
+    expect([
+      checked('Harbor Loft (fictional)'),
+      checked('Orchard Barn (fictional)'),
+    ]).toEqual(['true', 'false'])
+  })
+})
+
 describe('a link in agent Markdown gets focus back when its confirmation closes', () => {
   const client = {
     call: () => Promise.reject(new Error('no calls here')),

@@ -3,30 +3,27 @@ import {
   Children,
   Fragment,
   isValidElement,
-  useCallback,
   useEffect,
-  useRef,
   useState,
   type ReactNode,
   type Ref,
 } from 'react'
 import {
   Animated,
-  Pressable,
   Text,
   View,
-  type GestureResponderEvent,
   type HostInstance,
-  type PressableProps,
   type StyleProp,
   type TextProps,
   type TextStyle,
   type ViewStyle,
 } from 'react-native'
 import { useReducedMotion } from '../theme/motion.tsx'
-import { notePress } from '../overlay/opener.ts'
 import { useStyles, useTheme, type CindlTheme } from '../theme/theme.tsx'
 import { ChevronRight, LoaderCircle, type LucideIcon } from './icons.ts'
+import { Press } from './Press.tsx'
+
+export { Press } from './Press.tsx'
 
 export type Tone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger' | 'info'
 export type TextTone =
@@ -103,43 +100,6 @@ export function Txt({
 }
 
 export type ButtonVariant = 'default' | 'primary' | 'quiet' | 'danger'
-
-/**
- * The app's Pressable. It notes each press (overlay/opener.ts), so a dialog or
- * sheet it opens gives focus back to it, and a step that lands later (a save)
- * gives none once the owner pressed something else. Every control is this or
- * a Button, never a bare Pressable (lint: cindl-android/no-bare-pressable).
- */
-export function Press({
-  ref,
-  onPress,
-  ...props
-}: PressableProps & { ref?: Ref<HostInstance> }) {
-  // Its own handle on the view, besides the caller's: the press notes this one.
-  const self = useRef<HostInstance | null>(null)
-  const attach = useCallback(
-    (node: HostInstance | null) => {
-      self.current = node
-      if (typeof ref === 'function') ref(node)
-      else if (ref) ref.current = node
-    },
-    [ref],
-  )
-  return (
-    <Pressable
-      ref={attach}
-      {...props}
-      {...(onPress
-        ? {
-            onPress: (event: GestureResponderEvent) => {
-              notePress(self)
-              onPress(event)
-            },
-          }
-        : {})}
-    />
-  )
-}
 
 export function Button({
   ref,
@@ -491,7 +451,7 @@ export function Row({
   }
   if (!onPress) return <View style={layout}>{body}</View>
   return (
-    <Pressable
+    <Press
       accessibilityRole="button"
       {...(accessibilityLabel ? { accessibilityLabel } : {})}
       onPress={onPress}
@@ -501,7 +461,7 @@ export function Row({
       style={[layout, focused ? focusRing(theme) : null]}
     >
       {body}
-    </Pressable>
+    </Press>
   )
 }
 

@@ -85,9 +85,11 @@ Working here:
 - Overlays are `src/overlay` Dialog or Sheet only (never React Native's Modal):
   they take TalkBack and keyboard focus in and give it back
   (`src/overlay/opener.ts`), and AppShell's `BehindOverlays` hides and blocks
-  what they cover. Every control notes its press (`notePress`): it is a
-  Button or a Press from `src/ui/primitives.tsx`, never a bare Pressable
-  (lint: `cindl-android/no-bare-pressable`). Keyboard focus is moved only by `modules/cindl-focus`
+  what they cover. Every control notes its press (`notePress`): it is built on
+  `src/ui/Press.tsx` (Button and Row are), or notes it itself, as a link in
+  agent Markdown does (a span of its text). React Native's own pressables
+  (Pressable, Button, the Touchables) are lint-rejected outside Press and the
+  scrim (`cindl-android/no-bare-pressable`). Keyboard focus is moved only by `modules/cindl-focus`
   (`src/overlay/keyboardFocus.ts`), which React Native cannot do alone
   (docs/handbook/clients/android.md, Accessibility).
 - Parse device output from a real run's lines, and judge what is on screen by

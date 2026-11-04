@@ -6,7 +6,7 @@ import type { ComponentProps } from 'react'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DestinationActiveProvider } from '../src/nav/NavProvider.tsx'
 import { BottomNav } from '../src/shell/BottomNav.tsx'
-import { Button } from '../src/ui/primitives.tsx'
+import { Button, Row } from '../src/ui/primitives.tsx'
 import { DocumentEditor } from '../src/views/DocumentEditor.tsx'
 import { keptDrafts } from '../src/views/drafts.ts'
 import { Tabs } from '../src/views/Page.tsx'
@@ -16,7 +16,8 @@ import { hardwareBack, nativeLog } from './render/react-native.tsx'
 // Focus after each step of the editor (web parity, cb9caeb): what took the
 // place of the control the owner pressed, or of the step system back left.
 // The shipped DocumentEditor, on a destination that may be hidden, beside
-// controls elsewhere on screen: a button, the bottom navigation, a page's tabs.
+// controls elsewhere on screen: a button, a list's row, the bottom navigation
+// and a page's tabs.
 // memoryScreen.tsx's hooks clean up after each test.
 
 const client = {
@@ -50,6 +51,7 @@ type Props = Partial<ComponentProps<typeof DocumentEditor>> & {
 function editor() {
   let land: (saved: VersionedDocument) => void = () => undefined
   let refuse: (error: unknown) => void = () => undefined
+  let saves = 0
   let now: Props = {}
   const tree = () => {
     const { shown = true, ...props } = now
@@ -60,17 +62,23 @@ function editor() {
             document={READ}
             label="SOUL.md"
             canWrite
-            onSave={() =>
-              new Promise<VersionedDocument>((resolve, reject) => {
+            onSave={() => {
+              saves += 1
+              return new Promise<VersionedDocument>((resolve, reject) => {
                 land = resolve
                 refuse = reject
               })
-            }
+            }}
             onReload={() => undefined}
             {...props}
           />
         </DestinationActiveProvider>
         <Button label="Elsewhere" onPress={() => undefined} />
+        <Row
+          title="calendar-triage"
+          accessibilityLabel="calendar-triage"
+          onPress={() => undefined}
+        />
         <BottomNav current="agent" workCount={0} onSelect={() => undefined} />
         <Tabs
           label="Agent sections"
@@ -111,6 +119,13 @@ function editor() {
       fireEvent.click(target)
       await settle()
     },
+    /** How many saves the editor asked Hermes for. */
+    saves: () => saves,
+    /** A tab's selected state as TalkBack is given it. */
+    selected: (label: string) =>
+      [...view.container.querySelectorAll<HTMLElement>('[role="tab"]')]
+        .find((element) => element.getAttribute('aria-label') === label)
+        ?.getAttribute('aria-selected'),
     /** Alerts on screen (a refusal, a lock), by their text. */
     alerts: () =>
       [...view.container.querySelectorAll('[role="alert"]')].map(
@@ -183,6 +198,8 @@ describe('a save gives focus to Edit once it lands', () => {
   // Review 1b8252ea, S1 (its P1): a move that is no Button's press counts too.
   it.each([
     ['a tab of the bottom navigation', (e: Editor) => e.press('Work', 'tab')],
+    // Review 3f7a8a69 (its R1): a list's row is a control too.
+    ['a row of a list', (e: Editor) => e.press('calendar-triage')],
     ["a tab of the page's sections", (e: Editor) => e.press('This device', 'tab')],
     ['system back', (e: Editor) => e.back()],
   ])('nor once the owner moved with %s', async (_, move) => {
@@ -199,6 +216,41 @@ describe('a save gives focus to Edit once it lands', () => {
     await e.rerender({ shown: false })
     await e.land(SAVED)
     expect(e.sent()).toEqual({ talkBack: [], keyboard: [] })
+  })
+})
+
+describe('a lock while the destination is hidden (review 3f7a8a69, R4)', () => {
+  it('sends TalkBack focus nowhere: its screen is not the one TalkBack is on', async () => {
+    const e = editor()
+    await e.press('Edit')
+    await e.change(SAVED.content)
+    await e.rerender({ shown: false })
+    e.sent()
+    await e.rerender({ locked: 'SOUL.md was replaced elsewhere. Your draft is kept.' })
+    expect(e.sent().talkBack).toEqual([])
+  })
+})
+
+describe('what Press passes on to the Pressable (review 3f7a8a69)', () => {
+  it('disabled: a second press while the save is out asks for no second save', async () => {
+    const e = editor()
+    await e.press('Edit')
+    await e.change(SAVED.content)
+    await e.press('Review changes')
+    await e.press('Confirm and save')
+    // While it is out, the same button reads "Saving…" and is disabled.
+    expect(e.disabled('Saving…')).toBe(true)
+    await e.press('Saving…')
+    expect(e.saves()).toBe(1)
+  })
+
+  it('its state: the tab shown is selected, the others not', () => {
+    const e = editor()
+    expect([e.selected('Agent'), e.selected('Work'), e.selected('Identity')]).toEqual([
+      'true',
+      'false',
+      'true',
+    ])
   })
 })
 
@@ -234,6 +286,18 @@ describe('a stale refusal ends with a discard (review 1b8252ea, S4)', () => {
     await e.press('Back to editing')
     return e
   }
+
+  // Review 3f7a8a69 (its R2): system back from a draft that changes nothing
+  // leaves editing without a discard, so Restore clears the refusal itself.
+  it('Restore previous version clears it after back from an unchanged draft', async () => {
+    const e = await refusedAfterASave()
+    await e.change(SAVED.content)
+    await e.back()
+    await e.press('Restore previous version')
+    await e.press('Review changes')
+    expect(e.alerts()).toEqual([])
+    expect(e.disabled('Confirm and save')).toBe(false)
+  })
 
   // Restore previous version leads to a review without passing Edit, which
   // would clear the refusal itself; the review reached that way shows none.

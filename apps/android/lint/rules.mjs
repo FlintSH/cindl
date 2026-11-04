@@ -105,51 +105,101 @@ const noDomGlobals = {
 }
 
 /**
- * React Native's Pressable notes no press. The app's controls are
- * ui/primitives.tsx Press or Button, which note each one (overlay/opener.ts):
+ * React Native's own pressables note no press. The app's controls are built on
+ * ui/Press.tsx (Button and Row are), which notes each one (overlay/opener.ts):
  * an overlay a control opens gives focus back to it, and a step that lands
- * later (a save) gives none once the owner pressed something else.
+ * later (a save) gives none once the owner pressed something else. Only the
+ * files the `builtOn` option names (Press itself, an overlay's scrim) may use
+ * Pressable, and none may pass it on.
  */
+const PRESSABLES = new Set([
+  'Pressable',
+  'Button',
+  'TouchableHighlight',
+  'TouchableNativeFeedback',
+  'TouchableOpacity',
+  'TouchableWithoutFeedback',
+])
+
 const noBarePressable = {
   meta: {
     type: 'problem',
     docs: {
-      description: "Controls are Press or Button, never React Native's Pressable.",
+      description: "Controls are built on Press, never on React Native's own pressables.",
     },
-    schema: [],
+    schema: [
+      {
+        type: 'object',
+        properties: { builtOn: { type: 'array', items: { type: 'string' } } },
+        additionalProperties: false,
+      },
+    ],
     messages: {
-      bare: 'Use Press or Button (ui/primitives.tsx): they note each press, so focus comes back to the control and a save gives none after another press.',
+      bare: "Use Press, Button or Row (ui/), not React Native's {{name}}: they note each press, so focus comes back to the control and a save gives none after another press.",
+      passed: '{{name}} is not passed on: controls are built on Press (ui/Press.tsx).',
     },
   },
   create(context) {
-    /** Names `react-native` is imported under as a namespace (`import * as RN`). */
-    const namespaces = new Set()
-    const isPressable = (name) =>
-      (name.type === 'Identifier' || name.type === 'JSXIdentifier'
-        ? name.name
-        : name.value) === 'Pressable'
+    const builtOn = (context.options[0]?.builtOn ?? []).some((file) =>
+      context.filename.replaceAll('\\', '/').endsWith(`/${file}`),
+    )
+    /** Names `react-native` is imported under as a whole (`import * as RN`, `import RN`). */
+    const wholes = new Set()
+    /** Local names of a Pressable this file may use (builtOn files only). */
+    const used = new Set()
+    const nameOf = (node) =>
+      node.type === 'Identifier' || node.type === 'JSXIdentifier' ? node.name : node.value
+    const bare = (node, name) =>
+      context.report({ node, messageId: 'bare', data: { name } })
     return {
       ImportDeclaration(node) {
-        if (node.source.value !== 'react-native') return
+        if (node.source.value !== 'react-native' || node.importKind === 'type') return
         for (const spec of node.specifiers) {
-          if (spec.type === 'ImportSpecifier' && isPressable(spec.imported))
-            context.report({ node: spec, messageId: 'bare' })
-          if (spec.type === 'ImportNamespaceSpecifier') namespaces.add(spec.local.name)
+          if (spec.type !== 'ImportSpecifier') {
+            wholes.add(spec.local.name)
+            continue
+          }
+          const name = nameOf(spec.imported)
+          if (spec.importKind === 'type' || !PRESSABLES.has(name)) continue
+          if (builtOn && name === 'Pressable') used.add(spec.local.name)
+          else bare(spec, name)
         }
       },
       ExportNamedDeclaration(node) {
-        if (node.source?.value !== 'react-native') return
-        for (const spec of node.specifiers)
-          if (isPressable(spec.local)) context.report({ node: spec, messageId: 'bare' })
+        if (node.exportKind === 'type') return
+        for (const spec of node.specifiers) {
+          if (spec.exportKind === 'type') continue
+          const name = nameOf(spec.local)
+          if (node.source?.value === 'react-native' && PRESSABLES.has(name))
+            context.report({ node: spec, messageId: 'passed', data: { name } })
+          else if (!node.source && used.has(name))
+            context.report({ node: spec, messageId: 'passed', data: { name } })
+        }
+      },
+      ExportAllDeclaration(node) {
+        if (node.source.value === 'react-native' && node.exportKind !== 'type')
+          context.report({ node, messageId: 'passed', data: { name: 'react-native' } })
       },
       'MemberExpression, JSXMemberExpression'(node) {
         const object = node.object
+        const name = nameOf(node.property)
         if (
           (object.type === 'Identifier' || object.type === 'JSXIdentifier') &&
-          namespaces.has(object.name) &&
-          isPressable(node.property)
+          wholes.has(object.name) &&
+          PRESSABLES.has(name)
         )
-          context.report({ node, messageId: 'bare' })
+          bare(node, name)
+      },
+      VariableDeclarator(node) {
+        if (
+          node.id.type !== 'ObjectPattern' ||
+          node.init?.type !== 'Identifier' ||
+          !wholes.has(node.init.name)
+        )
+          return
+        for (const property of node.id.properties)
+          if (property.type === 'Property' && PRESSABLES.has(nameOf(property.key)))
+            bare(property, nameOf(property.key))
       },
     }
   },

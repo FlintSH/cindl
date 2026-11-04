@@ -154,6 +154,8 @@ export function DocumentEditor({
     wasLocked.current = isLocked
     if (!target) return
     const timer = setTimeout(() => {
+      // Hidden, its screen is not the one TalkBack is on (review 3f7a8a69, R4).
+      if (!shown.current) return
       const node = target === 'draft' ? box.current : lockText.current
       if (node) AccessibilityInfo.sendAccessibilityEvent(node, 'focus')
     }, 60)
@@ -363,6 +365,8 @@ export function DocumentEditor({
               style={{ alignSelf: 'flex-start' }}
               onPress={() => {
                 step()
+                // A refusal is about another draft (review 3f7a8a69, R2).
+                setFailure(undefined)
                 setStage({ kind: 'edit', draft: backup.content })
               }}
             />

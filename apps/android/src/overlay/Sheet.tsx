@@ -3,7 +3,6 @@ import {
   AccessibilityInfo,
   Animated,
   Easing,
-  Pressable,
   StyleSheet,
   Text,
   View,
@@ -25,7 +24,7 @@ import {
   type FocusTarget,
 } from './opener.ts'
 import { Portal } from './Portal.tsx'
-import { SCRIM_ID } from './scrim.ts'
+import { Scrim } from './Scrim.tsx'
 
 type HostRef = { current: HostInstance | null }
 
@@ -94,31 +93,6 @@ function useEntrance(): Animated.Value {
     return () => animation.stop()
   }, [progress, reduced, theme])
   return progress
-}
-
-function Scrim({ progress, onPress }: { progress: Animated.Value; onPress: () => void }) {
-  const theme = useTheme()
-  return (
-    <Animated.View
-      style={[
-        StyleSheet.absoluteFill,
-        { backgroundColor: theme.colors.scrim, opacity: progress },
-      ]}
-    >
-      {/* A touch target only. Pressable passes `focusable` (true unless false)
-          after `accessible`, and React Native 0.88 applies both to the view's
-          focusability, so without focusable={false} the scrim would be a stop
-          for a keyboard's focus (CI run 41712256173: Tab went to it first). */}
-      <Pressable
-        testID={SCRIM_ID}
-        style={StyleSheet.absoluteFill}
-        onPress={onPress}
-        accessible={false}
-        focusable={false}
-        importantForAccessibility="no"
-      />
-    </Animated.View>
-  )
 }
 
 /**

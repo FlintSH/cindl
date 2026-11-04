@@ -522,13 +522,18 @@ Hermes server, Chrome's Custom Tab, and a phone.
     (**Reload** when there is no Edit). The lock notice and the summary are
     plain text, which takes no keyboard focus, so a keyboard's goes to the
     first control around them. A save gives focus to Edit when it lands, and
-    none if you moved meanwhile: pressed any control (the bottom navigation
-    and a page's tabs included; every control notes its press) or system
-    back, or if the editor's screen is no longer the one shown. Focus you moved stays where you moved it (web
-    parity, cb9caeb). While the save is on its way, and after Hermes refuses
-    it as stale, **Confirm and save** is disabled but keeps TalkBack's and a
-    keyboard's focus (React Native 0.88 keeps a disabled control focusable);
-    the web moves focus to the changes. Known gap: some moves are not seen,
+    none if you moved meanwhile: pressed any control (the bottom navigation,
+    a page's tabs and a list's rows included; every control notes its press)
+    or system back, or if the editor's screen is no longer the one shown.
+    Focus you moved stays where you moved it (web parity, cb9caeb). While the
+    save is on its way the button reads **Saving…**, and after Hermes refuses
+    it as stale it reads **Confirm and save**; either way it is disabled but
+    keeps TalkBack's and a keyboard's focus (React Native 0.88 keeps a
+    disabled control focusable), where the web moves focus to the changes.
+    **Restore previous version** clears a refusal, as Edit does, since system
+    back from a draft that changes nothing leaves editing without a discard.
+    A lock that starts while the editor's screen is not the one shown moves
+    no focus either. Known gap: some moves are not seen,
     so a save that lands after them still gives focus to Edit, where the web
     keeps it wherever you moved it: a TalkBack swipe (React Native does not
     report it), a keyboard's Tab or arrow keys, and a tap in a text field.

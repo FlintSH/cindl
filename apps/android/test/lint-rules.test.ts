@@ -120,27 +120,62 @@ describe('Android lint rules', () => {
     expect(await rulesFor(code, 'apps/android/src/platform/client.ts')).toContain(rule)
   })
 
+  const RULE = 'cindl-android/no-bare-pressable'
+
   it.each([
     "import { Pressable } from 'react-native'\nexport const P = Pressable",
     "import { Pressable as Tap } from 'react-native'\nexport const P = Tap",
     "export { Pressable } from 'react-native'",
     "import * as RN from 'react-native'\nexport const P = RN.Pressable",
-  ])('refuses a bare Pressable, which notes no press: %s', async (code) => {
-    expect(await rulesFor(code, 'apps/android/src/talk/probe.tsx')).toContain(
-      'cindl-android/no-bare-pressable',
-    )
+    // Review 3f7a8a69: what the rule missed.
+    "import { Button } from 'react-native'\nexport const B = Button",
+    "import { TouchableOpacity } from 'react-native'\nexport const T = TouchableOpacity",
+    "import { TouchableWithoutFeedback } from 'react-native'\nexport const T = TouchableWithoutFeedback",
+    "import { TouchableHighlight } from 'react-native'\nexport const T = TouchableHighlight",
+    "import { TouchableNativeFeedback } from 'react-native'\nexport const T = TouchableNativeFeedback",
+    "import * as RN from 'react-native'\nconst { Pressable } = RN\nexport const P = Pressable",
+    "import RN from 'react-native'\nexport const P = RN.Pressable",
+    "import RN from 'react-native'\nconst { TouchableOpacity: T } = RN\nexport const P = T",
+    "export * from 'react-native'",
+    "export * as RN from 'react-native'",
+  ])("refuses React Native's own pressables, which note no press: %s", async (code) => {
+    expect(await rulesFor(code, 'apps/android/src/talk/probe.tsx')).toContain(RULE)
   })
 
-  it('lets Press be built on Pressable, and the scrim, which is no control', async () => {
+  it('lets only Press and the scrim be built on Pressable, and neither pass it on', async () => {
     const code = "import { Pressable } from 'react-native'\nexport const P = Pressable"
-    expect(await rulesFor(code, 'apps/android/src/ui/primitives.tsx')).toEqual([])
-    expect(await rulesFor(code, 'apps/android/src/overlay/Sheet.tsx')).toEqual([])
+    expect(await rulesFor(code, 'apps/android/src/ui/Press.tsx')).toEqual([])
+    expect(await rulesFor(code, 'apps/android/src/overlay/Scrim.tsx')).toEqual([])
+    // No longer spared: the files they were part of.
+    expect(await rulesFor(code, 'apps/android/src/ui/primitives.tsx')).toContain(RULE)
+    expect(await rulesFor(code, 'apps/android/src/overlay/Sheet.tsx')).toContain(RULE)
+    for (const passOn of [
+      "import { Pressable } from 'react-native'\nexport { Pressable }",
+      "export { Pressable } from 'react-native'",
+      "import { TouchableOpacity } from 'react-native'\nexport const T = TouchableOpacity",
+    ])
+      expect(await rulesFor(passOn, 'apps/android/src/ui/Press.tsx')).toContain(RULE)
     expect(
       await rulesFor(
         "import { Pressable, Text } from 'react-native'\nexport const T = [Pressable, Text]",
         'apps/android/src/talk/probe.tsx',
       ),
-    ).toEqual(['cindl-android/no-bare-pressable'])
+    ).toEqual([RULE])
+  })
+
+  it('lets a type be imported, which presses nothing', async () => {
+    expect(
+      await rulesFor(
+        "import type { Pressable } from 'react-native'\nexport type P = typeof Pressable",
+        'apps/android/src/talk/probe.tsx',
+      ),
+    ).toEqual([])
+    expect(
+      await rulesFor(
+        "import { type Pressable, Text } from 'react-native'\nexport const T = Text\nexport type P = typeof Pressable",
+        'apps/android/src/talk/probe.tsx',
+      ),
+    ).toEqual([])
   })
 
   it('lets the emulator harness print', async () => {
