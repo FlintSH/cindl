@@ -2294,3 +2294,64 @@ describe('direct client: a sign-out whose own delete is slow', () => {
     expect(state.setsFor).not.toContain(nativeTokensKey(b.origin))
   })
 })
+
+describe('direct client: the switch after a sign-in with a working session', () => {
+  /** Hold the first device-state read for `origin`, which the switch makes. */
+  function holdDeviceRead(h: Harness, origin: string) {
+    const realGet = h.kv.get.bind(h.kv)
+    const hold: { armed: boolean; arrived?: () => void; release?: () => void } = {
+      armed: true,
+    }
+    const arrived = new Promise<void>((resolve) => (hold.arrived = resolve))
+    h.kv.get = async (key: string) => {
+      if (hold.armed && key.includes(`|${origin}|`)) {
+        hold.armed = false
+        hold.arrived?.()
+        await new Promise<void>((resolve) => (hold.release = resolve))
+      }
+      return realGet(key)
+    }
+    return { arrived, release: () => hold.release?.() }
+  }
+
+  it('fails the sign-in on a sign-out there: the client stays on A, signed out, with no tokens', async () => {
+    const h = await harness()
+    const b = await fakeHermes()
+    const read = holdDeviceRead(h, b.origin)
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await read.arrived
+    // B's sign-in has stored its tokens by now; the switch is still to come.
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(true)
+    await h.client.call('auth.signOut', {})
+    read.release()
+    expect(await signingIn).toBe('unauthenticated')
+    await pause(100)
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      server: { origin: h.fake.origin },
+    })
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(false)
+    expect(h.secrets.map.has(nativeTokensKey(h.fake.origin))).toBe(false)
+    expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
+  })
+
+  it('does not connect after a stop() there; the next start finds the sign-in', async () => {
+    const h = await harness()
+    const b = await fakeHermes()
+    const read = holdDeviceRead(h, b.origin)
+    const signingIn = h.client.call('auth.signIn', { origin: b.origin })
+    await read.arrived
+    h.client.stop()
+    read.release()
+    await signingIn
+    await pause(100)
+    expect(h.store.getState().link.phase).not.toBe('online')
+    expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
+    await h.client.start()
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === b.origin,
+    )
+  })
+})

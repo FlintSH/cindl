@@ -648,3 +648,48 @@ describe('a sign-out that overtakes a sign-in through the real Android client', 
     })
   })
 })
+
+describe('a sign-out at the end of a sign-in, through the real Android client', () => {
+  const outcomeOf = (promise: Promise<unknown>) =>
+    promise.then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    )
+
+  it("signed in to A: a sign-out while the switch reads B's device state keeps A, with no tokens", async () => {
+    const a = await fakeHermes()
+    const b = await fakeHermes()
+    const { stores, platform } = device()
+    const first = await launch(platform)
+    await first.client.api.call('auth.signIn', { origin: a.origin })
+    await until(() => first.store.getState().link.phase === 'online')
+    // Hold the first read of B's device state, which the switch makes.
+    const realGet = stores.keyValue.get.bind(stores.keyValue)
+    const hold: { armed: boolean; arrived?: () => void; release?: () => void } = {
+      armed: true,
+    }
+    const arrived = new Promise<void>((resolve) => (hold.arrived = resolve))
+    stores.keyValue.get = async (key: string) => {
+      if (hold.armed && key.includes(`|${b.origin}|`)) {
+        hold.armed = false
+        hold.arrived?.()
+        await new Promise<void>((resolve) => (hold.release = resolve))
+      }
+      return realGet(key)
+    }
+    const signingIn = outcomeOf(
+      first.client.api.call('auth.signIn', { origin: b.origin }),
+    )
+    await arrived
+    await first.client.api.call('auth.signOut', {})
+    hold.release?.()
+    expect(await signingIn).toBe('Signed out while signing in.')
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBe(a.origin)
+    expect(stored(stores, nativeTokensKey(a.origin))).toBeUndefined()
+    expect(stored(stores, nativeTokensKey(b.origin))).toBeUndefined()
+    first.client.stop()
+    const second = await launch(platform)
+    await until(() => second.store.getState().link.phase === 'signed-out')
+    expect(second.store.getState().link.server?.origin).toBe(a.origin)
+  })
+})
