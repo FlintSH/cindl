@@ -619,6 +619,29 @@ describe('direct client in cookie mode: a sign-out in another tab', () => {
     await pause(40)
     expect(b.store.getState().link.phase).toBe('online')
   })
+
+  it('lets a tick share the check in flight, and asks no more after it', async () => {
+    const page = pageCue()
+    // b ticks every 300 ms; a never does.
+    const { fake, b } = await twoTabs(
+      { connection: { requestSyncMs: 0 } },
+      { watchSession: page.watchSession, connection: { requestSyncMs: 300 } },
+    )
+    const before = requests(fake, 'GET /api/auth/me')
+    const held = fake.holdNextRest('GET /api/auth/me')
+    page.fire()
+    await held.arrived
+    // b's tick comes while the cue's check is out, and waits on that check.
+    await pause(450)
+    expect(requests(fake, 'GET /api/auth/me')).toBe(before + 1)
+    const syncs = b.rpcCalls('session.events.since')
+    held.release()
+    // The tick goes on with that answer (its sync runs) and queues no check of its own.
+    await b.waitFor(() => b.rpcCalls('session.events.since') > syncs)
+    await pause(60)
+    expect(requests(fake, 'GET /api/auth/me')).toBe(before + 1)
+    expect(b.store.getState().link.phase).toBe('online')
+  })
 })
 
 describe('direct client in native mode: no cookie session to check', () => {
