@@ -123,6 +123,10 @@ bearer to public endpoints.
   and fails with "Signed out while signing in.", and the client stays on the
   origin it had, signed out. Android's wrapper then saves no new origin; the
   desktop app already runs a sign-out only after the sign-in it overtakes.
+  Known gap: a sign-out that lands while that sign-in writes its tokens to
+  the device's store still keeps the client where it was, but the write can
+  finish after the sign-out's delete and leave that origin's record behind,
+  so a later sign-in there finds it.
 
 ### Web sign-in (cookie)
 

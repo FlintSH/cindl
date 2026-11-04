@@ -2058,3 +2058,37 @@ describe('direct client: a sign-out during a native sign-in to another origin', 
     expect(b.calls.filter((c) => c.name === '/api/ws')).toHaveLength(0)
   })
 })
+
+describe('direct client: a sign-out while a sign-in to another origin stores its tokens', () => {
+  it('still keeps the client where it was', async () => {
+    const base = memorySecrets()
+    const writing: { key?: string; arrived?: () => void; release?: () => void } = {}
+    const arrived = new Promise<void>((resolve) => (writing.arrived = resolve))
+    // The device's store holds the write of B's tokens until the test lets it go.
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...base,
+      set: async (key, value) => {
+        if (key === writing.key) {
+          writing.arrived?.()
+          await new Promise<void>((resolve) => (writing.release = resolve))
+        }
+        return base.set(key, value)
+      },
+    }
+    const h = await harness({ secrets })
+    const a = h.fake
+    const b = await fakeHermes()
+    writing.key = nativeTokensKey(b.origin)
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await arrived
+    await h.client.call('auth.signOut', {})
+    writing.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    h.client.stop()
+    await h.client.start()
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      server: { origin: a.origin },
+    })
+  })
+})
