@@ -17,7 +17,10 @@ export interface FlavourBuild {
   productName: string
   appId: string
   executableName: string
+  /** The Linux AppImage's file name. */
   artifactName: string
+  /** The Windows NSIS installer's file name. */
+  installerName: string
   /** electron-builder output, relative to apps/desktop. */
   releaseDir: string
 }
@@ -32,6 +35,7 @@ export const flavours: Readonly<Record<'real' | 'demo', FlavourBuild>> = {
     appId: 'io.github.flintsh.cindl',
     executableName: 'cindl',
     artifactName: 'Cindl-${version}-${arch}.${ext}',
+    installerName: 'Cindl-Setup-${version}.${ext}',
     releaseDir: 'release/real',
   },
   demo: {
@@ -43,6 +47,7 @@ export const flavours: Readonly<Record<'real' | 'demo', FlavourBuild>> = {
     appId: 'io.github.flintsh.cindl.demo',
     executableName: 'cindl-demo',
     artifactName: 'Cindl-Demo-${version}-${arch}.${ext}',
+    installerName: 'Cindl-Demo-Setup-${version}.${ext}',
     releaseDir: 'release/demo',
   },
 }
