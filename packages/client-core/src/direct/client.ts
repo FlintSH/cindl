@@ -1927,7 +1927,10 @@ class DirectHermesClient implements DirectClient {
       } catch (error) {
         if (pending) this.#signingIn.delete(pending)
         const cause = asCindlError(error, 'auth.signIn')
-        if (!keep) {
+        // Without a session the failure shows on the link, but only while
+        // this sign-in still owns the client: after a stop(), a newer start()
+        // or another sign-in, the link is theirs.
+        if (!keep && run === this.#run) {
           if (status) this.#status = status
           this.#setLink(failed, cause)
           this.#refreshCapabilities()

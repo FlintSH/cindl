@@ -311,6 +311,67 @@ describe('direct client: signing in to another origin', () => {
     )
   })
 
+  it('keeps a failure off the link when a stop() came first', async () => {
+    const h = await harness({ signIn: false })
+    const b = await fakeHermes({ nativeSignIn: 'deny' })
+    const status = b.holdNextRest('GET /api/status')
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await status.arrived
+    h.client.stop()
+    status.release()
+    // The sign-in still fails to its caller, but the link stays the stop()'s.
+    expect(await signingIn).toBe('unauthenticated')
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'offline',
+      server: { origin: b.origin },
+    })
+    expect(h.store.getState().link.lastError).toBeUndefined()
+  })
+
+  it("keeps an older sign-in's failure off a newer one's link", async () => {
+    // The first browser leg waits until it is failed by hand, as when the
+    // desktop replaces a sign-in still waiting on the browser.
+    const leg: { calls: number; arrived?: () => void; fail?: (error: Error) => void } = {
+      calls: 0,
+    }
+    const firstArrived = new Promise<void>((resolve) => (leg.arrived = resolve))
+    const authorizer = {
+      async authorize(buildUrl: (redirectUri: string) => string) {
+        if (++leg.calls === 1) {
+          leg.arrived?.()
+          await new Promise<never>((_, reject) => (leg.fail = reject))
+        }
+        const response = await fetch(buildUrl('http://127.0.0.1:53682/callback'), {
+          redirect: 'manual',
+        })
+        return response.headers.get('location') ?? ''
+      },
+    }
+    const h = await harness({ signIn: false, deps: { authorizer } })
+    const b = await fakeHermes()
+    const c = await fakeHermes()
+    const first = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await firstArrived
+    const statusC = c.holdNextRest('GET /api/status')
+    const second = h.client.call('auth.signIn', { origin: c.origin })
+    await statusC.arrived
+    leg.fail?.(new Error('browser closed (fixture)'))
+    expect(await first).not.toBe('resolved')
+    // C's sign-in is still under way, and its link shows nothing of B's failure.
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'connecting',
+      server: { origin: c.origin },
+    })
+    expect(h.store.getState().link.lastError).toBeUndefined()
+    statusC.release()
+    await second
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === c.origin,
+    )
+  })
+
   it('ends a failed first sign-in signed out with the error, not connecting', async () => {
     const fake = await fakeHermes({ nativeSignIn: 'deny' })
     const h = await harness({ fake, signIn: false })

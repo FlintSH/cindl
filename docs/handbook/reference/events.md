@@ -94,9 +94,7 @@ is still started; `stop()` then `start()` does, as do an app restart and a new
 sign-in (Agent, Sign out, then sign in again). No shell shows that `lastError`
 today (Android's sign-in screen shows one only after a sign-in it started), so
 its message is not visible yet. A discovery or sign-in that `stop()`, a newer
-`start()` or another sign-in overtakes neither connects nor changes the link,
-except that a sign-in without a working session still shows its own failure
-there.
+`start()` or another sign-in overtakes neither connects nor changes the link.
 
 ### `capabilities.changed`
 

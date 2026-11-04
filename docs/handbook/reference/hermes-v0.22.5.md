@@ -112,10 +112,11 @@ bearer to public endpoints.
   until the new sign-in succeeds; a failed or cancelled one leaves it usable
   and the error is rethrown. Without a working session the attempt shows as
   `connecting`, and a failure ends `signed-out` (or `incompatible` for a
-  loopback-token Hermes) with the error as `lastError`. A `stop()` during
-  it, the new origin's device state read included, keeps a sign-in that
-  succeeds from connecting: the link stays `offline` until the next
-  `start()` finds it.
+  loopback-token Hermes) with the error as `lastError`, unless a `stop()`, a
+  newer `start()` or another sign-in came first: the link is then theirs,
+  and the failure only rejects. A `stop()` during it, the new origin's
+  device state read included, keeps a sign-in that succeeds from
+  connecting: the link stays `offline` until the next `start()` finds it.
 - A switch that succeeds retires the previous origin's sign-in before the
   new one is installed (`NativeAuth.retire`). Work it still has in flight, a
   token refresh above all, can no longer store, return or delete tokens, and
