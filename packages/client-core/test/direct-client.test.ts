@@ -2355,3 +2355,58 @@ describe('direct client: the switch after a sign-in with a working session', () 
     )
   })
 })
+
+describe('direct client: a sign-out while an installed sign-in writes its tokens', () => {
+  /** A store that applies writes in call order, and answers one key's write only when released. */
+  function slowWriteSecrets() {
+    const base = memorySecrets()
+    const hold: { key: string | undefined; arrived?: () => void; release?: () => void } =
+      {
+        key: undefined,
+      }
+    const arrived = new Promise<void>((resolve) => (hold.arrived = resolve))
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...base,
+      set: async (key, value) => {
+        await base.set(key, value)
+        if (key === hold.key) {
+          hold.key = undefined
+          hold.arrived?.()
+          await new Promise<void>((resolve) => (hold.release = resolve))
+        }
+      },
+    }
+    return { base, secrets, hold, arrived }
+  }
+
+  it('fails a sign-in to another origin without a working session, and keeps no tokens', async () => {
+    const s = slowWriteSecrets()
+    const h = await harness({ signIn: false, secrets: s.secrets })
+    await h.waitFor(() => h.store.getState().link.phase === 'signed-out')
+    const b = await fakeHermes()
+    s.hold.key = nativeTokensKey(b.origin)
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await s.arrived
+    await h.client.call('auth.signOut', {})
+    s.hold.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    await pause(100)
+    expect(h.store.getState().link.phase).toBe('signed-out')
+    expect(s.base.map.has(nativeTokensKey(b.origin))).toBe(false)
+  })
+
+  it('fails a sign-in to the same origin, and keeps no tokens', async () => {
+    const s = slowWriteSecrets()
+    const h = await harness({ signIn: false, secrets: s.secrets })
+    await h.waitFor(() => h.store.getState().link.phase === 'signed-out')
+    s.hold.key = nativeTokensKey(h.fake.origin)
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: h.fake.origin }))
+    await s.arrived
+    await h.client.call('auth.signOut', {})
+    s.hold.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    await pause(100)
+    expect(h.store.getState().link.phase).toBe('signed-out')
+    expect(s.base.map.has(nativeTokensKey(h.fake.origin))).toBe(false)
+  })
+})
