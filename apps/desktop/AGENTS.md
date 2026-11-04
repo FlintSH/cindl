@@ -68,6 +68,7 @@ pnpm vitest run --project desktop
 CINDL_SMOKE_HEADLESS=1 pnpm --filter @cindl/desktop run smoke
 flock /tmp/cindl-heavy-build.lock pnpm --filter @cindl/desktop run package
 flock /tmp/cindl-heavy-build.lock pnpm --filter @cindl/desktop run package:demo
+pnpm --filter @cindl/desktop run package:win   # on Windows only: NSIS needs Wine elsewhere
 ```
 
 ## Lessons

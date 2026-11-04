@@ -1,7 +1,7 @@
 /**
  * Launch smoke tests of both desktop flavours, driven by Playwright.
  *
- *   CINDL_SMOKE_REAL         packaged real app (AppImage or binary) to launch;
+ *   CINDL_SMOKE_REAL         packaged real app (AppImage, binary or Windows exe);
  *                            unset = the unpacked build in apps/desktop/dist
  *   CINDL_SMOKE_DEMO         packaged Cindl Demo; unset = apps/desktop/dist-demo
  *   CINDL_SMOKE_HEADLESS=1   add --ozone-platform=headless and a 1440x900 screen
@@ -131,7 +131,8 @@ async function launch(flavour: Flavour): Promise<Launched> {
 async function close(launched: Launched | undefined) {
   if (!launched) return
   await launched.app.close()
-  rmSync(launched.userData, { recursive: true, force: true })
+  // Windows can hold the profile for a moment after the app exits.
+  rmSync(launched.userData, { recursive: true, force: true, maxRetries: 10 })
 }
 
 const filesUnder = (target: string): string[] =>
@@ -1048,11 +1049,14 @@ test.describe('Cindl refuses to run without the sandbox', () => {
     } finally {
       if (child.pid !== undefined && child.exitCode === null)
         try {
-          process.kill(-child.pid, 'SIGKILL')
+          // The app and its helpers: a process group on POSIX, a tree on Windows.
+          if (process.platform === 'win32')
+            execFileSync('taskkill', ['/pid', String(child.pid), '/t', '/f'])
+          else process.kill(-child.pid, 'SIGKILL')
         } catch {
           // Already gone.
         }
-      rmSync(userData, { recursive: true, force: true })
+      rmSync(userData, { recursive: true, force: true, maxRetries: 10 })
     }
   })
 })

@@ -15,6 +15,7 @@
     "start:demo": "electron dist-demo",
     "package": "node scripts/package.ts",
     "package:demo": "node scripts/package.ts --flavour demo",
+    "package:win": "node scripts/package.ts --platform win",
     "smoke": "playwright test -c playwright.config.ts",
     "typecheck": "tsc -p tsconfig.json"
   },

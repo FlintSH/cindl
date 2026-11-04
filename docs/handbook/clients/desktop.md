@@ -21,13 +21,14 @@ renderer lacks the demo notice copy.
 
 ## Status
 
-| Area                                              | State                                                                                                                                                                                    |
-| ------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Hardened shell, `app://` renderer, bridge, CSP    | Done; launch smoke-tested on both packaged AppImages                                                                                                                                     |
-| Linux x64 AppImages (Cindl, Cindl Demo)           | Built by CI (`.github/workflows/desktop.yml`); unsigned                                                                                                                                  |
-| Sign-in and the live Hermes connection            | Native PKCE sign-in and the direct Hermes client run in main; tested end to end against the fake `hermes serve` (also in the packaged app); not validated against a live Hermes instance |
-| The agent's screen, live                          | Main opens the screen socket and decodes it; the renderer paints `display.frame` pixels; tested against the fake's synthetic screen (also in the packaged app); not validated live       |
-| macOS, Windows, `.deb`, auto-update, code signing | Not provided                                                                                                                                                                             |
+| Area                                           | State                                                                                                                                                                                    |
+| ---------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Hardened shell, `app://` renderer, bridge, CSP | Done; launch smoke-tested on both packaged AppImages, and in CI on the packaged Windows app                                                                                              |
+| Linux x64 AppImages (Cindl, Cindl Demo)        | Built by CI (`.github/workflows/desktop.yml`); unsigned                                                                                                                                  |
+| Sign-in and the live Hermes connection         | Native PKCE sign-in and the direct Hermes client run in main; tested end to end against the fake `hermes serve` (also in the packaged app); not validated against a live Hermes instance |
+| The agent's screen, live                       | Main opens the screen socket and decodes it; the renderer paints `display.frame` pixels; tested against the fake's synthetic screen (also in the packaged app); not validated live       |
+| Windows x64 installer (Cindl)                  | Built by CI on `windows-latest` and for releases; unsigned, so SmartScreen warns; never built or run on a Windows machine outside CI                                                     |
+| macOS, `.deb`, auto-update, code signing       | Not provided                                                                                                                                                                             |
 
 With no Hermes stored, Cindl opens **Not set up** and shows its sign-in screen;
 nothing is invented. Once you sign in, the main process connects to your
@@ -46,25 +47,53 @@ Both screenshots come from the packaged AppImages' smoke test.
 
 ![Cindl Demo: the synthetic demo, labelled by its banner](/screenshots/desktop/demo.png)
 
-## Install the AppImage
+## Install
 
-1. Download `cindl-desktop-linux-x64-appimage` (or
-   `cindl-demo-desktop-linux-x64-appimage`) from a successful run of the
-   **Desktop** workflow **on `main`**. Pull-request builds are tested but never
-   published. The artifact holds the AppImage and a `.sha256` file; the
-   checksum only detects a damaged download, it does not prove who built it.
-2. Check it: `sha256sum -c Cindl-<version>-x86_64.AppImage.sha256`.
+Each release carries the Linux AppImage and the Windows installer, each with a
+`.sha256` file. Neither is code-signed: there is no signing certificate.
+Check the checksum first. It only detects a damaged download; it does not
+prove who built the file, since it comes from the same release page.
+
+### Linux (AppImage)
+
+1. Download `Cindl-<version>-x86_64.AppImage` and its `.sha256` file from the
+   release into one directory.
+2. Check it there: `sha256sum -c Cindl-<version>-x86_64.AppImage.sha256` must
+   print `OK`.
 3. Make it executable and start it:
 
    ```sh
-   chmod +x Cindl-0.1.0-x86_64.AppImage
-   ./Cindl-0.1.0-x86_64.AppImage
+   chmod +x Cindl-1.0.0-x86_64.AppImage
+   ./Cindl-1.0.0-x86_64.AppImage
    ```
 
-The AppImages are not code-signed. They need FUSE 2 to mount themselves
-(`libfuse2t64` on Ubuntu 24.04); without it, run them with
-`--appimage-extract-and-run`. On Ubuntu 23.10 and later, also read
-[Chromium sandbox](#chromium-sandbox-on-ubuntu-23-10-and-later) below.
+The AppImage needs FUSE 2 to mount itself (`libfuse2t64` on Ubuntu 24.04);
+without it, run it with `--appimage-extract-and-run`. On Ubuntu 23.10 and
+later, also read
+[Chromium sandbox](#chromium-sandbox-on-ubuntu-23-10-and-later) below. Between
+releases, a successful **Desktop** workflow run on `main` offers both
+AppImages (`cindl-desktop-linux-x64-appimage`,
+`cindl-demo-desktop-linux-x64-appimage`) with the same `.sha256` files;
+pull-request builds are tested but never published.
+
+### Windows (installer)
+
+1. Download `Cindl-Setup-<version>.exe` and its `.sha256` file from the
+   release into one folder.
+2. Check it there in PowerShell; this must print `True`:
+
+   ```powershell
+   (Get-FileHash .\Cindl-Setup-1.0.0.exe).Hash -eq (Get-Content .\Cindl-Setup-1.0.0.exe.sha256).Split(' ')[0]
+   ```
+
+3. Run the installer. Because it is unsigned, SmartScreen stops it with
+   "Windows protected your PC": choose **More info**, then **Run anyway**. It
+   installs Cindl for your Windows account, without administrator rights,
+   and adds it to the Start menu.
+
+Cindl keeps its settings and tokens in `%APPDATA%\Cindl`. Uninstalling (in
+Settings, Apps) leaves that folder; delete it to remove them, which also signs
+this device out.
 
 ## Sign-in (native PKCE)
 
@@ -161,7 +190,9 @@ installs that screen; when it is stopped, Work says so.
 
 Tokens are encrypted with Electron `safeStorage` (the asynchronous API) and kept
 as ciphertext in `~/.config/Cindl/secrets.json` (mode `0600`). On Linux this
-needs a working keyring: GNOME libsecret or KWallet.
+needs a working keyring: GNOME libsecret or KWallet. On Windows `safeStorage`
+uses DPAPI, which ties the ciphertext to your Windows account, and the file is
+`%APPDATA%\Cindl\secrets.json`; the keyring checks below are Linux's.
 
 If the operating system offers no real encryption, tokens stay **in memory
 only** and are forgotten when Cindl quits; nothing is written to disk. Cindl
@@ -281,8 +312,9 @@ uses `~/.config/Cindl Demo` and stores no tokens.
 
 ## Limits
 
-- Linux x64 AppImages only, unsigned, no auto-update, no build provenance
-  attestation.
+- Linux x64 AppImages and a Windows x64 installer, all unsigned (SmartScreen
+  warns on Windows); no macOS build, no auto-update, no build provenance
+  attestation. The Windows app has been launch-tested only by CI's smoke test.
 - Hermes must present a certificate that Node's bundled CA list trusts; private
   certificate authorities are not supported yet.
 - Single window, single instance: starting Cindl again focuses the open window.
@@ -332,7 +364,8 @@ by Cindl's CI.
 | Work says the agent screen is not running      | Start it on Hermes (the agent or the Hermes CLI). Cindl never starts, stops or installs it.    |
 | A link does nothing                            | Only `https://` links open, right after a click. The terminal shows "Refused to open a link".  |
 | Window opens off screen after a monitor change | Cindl drops saved positions that are no longer on a screen; delete `window-state.json` if not. |
-| Start from a clean state                       | Quit Cindl and delete `~/.config/Cindl`. This also forgets tokens (local sign-out).            |
+| Start from a clean state                       | Quit Cindl and delete `~/.config/Cindl` (`%APPDATA%\Cindl` on Windows); a local sign-out.      |
+| Windows: "Windows protected your PC"           | The installer is unsigned. After checking its SHA-256, choose More info, then Run anyway.      |
 
 ## Development
 
@@ -345,6 +378,7 @@ pnpm --filter @cindl/desktop run start:demo       # run the unpacked Cindl Demo
 pnpm vitest run --project desktop                 # unit tests (apps/desktop/test)
 pnpm --filter @cindl/desktop run package          # AppImage in apps/desktop/release/real
 pnpm --filter @cindl/desktop run package:demo     # AppImage in apps/desktop/release/demo
+pnpm --filter @cindl/desktop run package:win      # on Windows: installer in apps/desktop/release/real
 ```
 
 Launch smoke tests (`apps/desktop/e2e/smoke.spec.ts`) drive both flavours with
