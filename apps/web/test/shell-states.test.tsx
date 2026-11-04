@@ -12,7 +12,7 @@ import { ClientKindContext } from '../src/platform/clientKind.ts'
 import { AppShell } from '../src/shell/AppShell.tsx'
 import { Notices } from '../src/shell/Notices.tsx'
 import { SignIn } from '../src/shell/SignIn.tsx'
-import { forgetAttempts } from '../src/shell/session.ts'
+import { forgetAttempts, signOutHere } from '../src/shell/session.ts'
 
 afterEach(cleanup)
 
@@ -255,6 +255,58 @@ describe('notices', () => {
     expect(screen.getByText(/Secure storage is unavailable/)).toBeTruthy()
     fireEvent.click(screen.getByRole('button', { name: 'Dismiss notice' }))
     expect(screen.queryByText(/Secure storage is unavailable/)).toBeNull()
+  })
+
+  it('shows "did not confirm the sign-out" only while the last sign-out stays unconfirmed', async () => {
+    const said = 'Hermes did not confirm the sign-out (fixture).'
+    const listeners = new Set<(event: CindlEvent) => void>()
+    const outcomes = [false, true]
+    const api: CindlClientApi = {
+      call: (() =>
+        Promise.resolve({
+          localOnly: true,
+          hermesConfirmed: outcomes.shift(),
+        })) as unknown as CindlClientApi['call'],
+      subscribe(listener) {
+        listeners.add(listener)
+        return () => {
+          listeners.delete(listener)
+        }
+      },
+    }
+    const emit = (event: CindlEvent) =>
+      act(async () => {
+        for (const listener of listeners) listener(event)
+        await Promise.resolve()
+      })
+    render(
+      <CindlProvider api={api}>
+        <Notices />
+      </CindlProvider>,
+    )
+    try {
+      await settle()
+      // The client says it as the unconfirmed sign-out ends; the page records it.
+      await emit({
+        type: 'notice',
+        level: 'warning',
+        message: said,
+        code: 'sign-out-unconfirmed',
+      })
+      await emit({ type: 'notice', level: 'info', message: 'Unrelated (fixture).' })
+      await act(async () => {
+        await signOutHere(api)
+      })
+      expect(screen.getByText(said)).toBeTruthy()
+      // Tried again and confirmed: that notice no longer applies; others stay.
+      await act(async () => {
+        await signOutHere(api)
+      })
+      expect(screen.queryByText(said)).toBeNull()
+      expect(screen.getByText('Unrelated (fixture).')).toBeTruthy()
+    } finally {
+      forgetAttempts()
+    }
   })
 
   it('shows a notice that comes again once, and dismisses every copy', async () => {

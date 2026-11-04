@@ -343,9 +343,12 @@ describe('direct client in same-origin-cookie mode (the web)', () => {
         (e) =>
           e.type === 'notice' &&
           e.level === 'warning' &&
+          // Coded, so a renderer can retire it once a sign-out is confirmed.
+          e.code === 'sign-out-unconfirmed' &&
           /did not confirm the sign-out/.test(e.message),
       ),
     ).toBe(true)
+    expect(h.store.getState().notices.at(-1)?.code).toBe('sign-out-unconfirmed')
   })
 
   it('goes signed out, and closes the socket, when Hermes ends the session', async () => {

@@ -16,6 +16,13 @@ import { LinkState } from './link.ts'
  * Normalized events the adapter emits and client stores reduce. Hermes wire
  * events (message.delta, tool.start, ...) never reach UI code directly.
  */
+/**
+ * Notices that can stop applying, so a renderer can retire them:
+ * `sign-out-unconfirmed`, Hermes did not confirm a cookie sign-out (until a
+ * later one is confirmed, or the client is signed in again).
+ */
+export const NoticeCode = z.enum(['sign-out-unconfirmed'])
+
 export const CindlEvent = z.discriminatedUnion('type', [
   z.object({ type: z.literal('link.changed'), link: LinkState }),
   z.object({ type: z.literal('capabilities.changed'), capabilities: CapabilityMap }),
@@ -140,8 +147,11 @@ export const CindlEvent = z.discriminatedUnion('type', [
     type: z.literal('notice'),
     level: z.enum(['info', 'warning', 'error']),
     message: z.string(),
+    /** What the notice is about, for one a client may retire once it no longer applies. */
+    code: NoticeCode.optional(),
   }),
 ])
 export type CindlEvent = z.infer<typeof CindlEvent>
+export type NoticeCode = z.infer<typeof NoticeCode>
 export type CindlEventType = CindlEvent['type']
 export const cindlEventTypes = CindlEvent.options.map((o) => o.shape.type.value)

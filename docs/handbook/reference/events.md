@@ -50,7 +50,7 @@ on the wire.
 | [`session.status`](#session-status)               | `conversationId`: string; `status`: `idle` / `working` / `waiting-on-you` / `unknown`; `detail`: optional string                                                 |
 | [`usage.updated`](#usage-updated)                 | `conversationId`: string; `usage`: Usage                                                                                                                         |
 | [`display.changed`](#display-changed)             | `display`: DisplayState                                                                                                                                          |
-| [`notice`](#notice)                               | `level`: `info` / `warning` / `error`; `message`: string                                                                                                         |
+| [`notice`](#notice)                               | `level`: `info` / `warning` / `error`; `message`: string; `code`: optional NoticeCode                                                                            |
 
 <!-- END GENERATED: events -->
 
@@ -214,7 +214,11 @@ stored display state. Viewing never starts a screen.
 ### `notice`
 
 A message for the owner that belongs to no conversation, at level `info`,
-`warning` or `error`. The reducer keeps the 20 most recent notices.
+`warning` or `error`. The reducer keeps the 20 most recent notices. A notice
+that can stop applying carries a `code`, so a renderer can retire it:
+`sign-out-unconfirmed`, sent when Hermes did not confirm a cookie sign-out,
+no longer applies once a later sign-out is confirmed or the client is
+signed in again. The web hides it then.
 
 ## Error codes
 

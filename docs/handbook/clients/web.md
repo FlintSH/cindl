@@ -65,7 +65,8 @@ in through Hermes's own `/login` page.
     sign-in.
   - Hermes confirms a sign-out when, after it, it no longer accepts this
     browser's session. If it does not, Cindl signs out here and says so, and
-    the sign-in screen offers "Sign out on Hermes" until Hermes confirms it.
+    the sign-in screen offers "Sign out on Hermes" until Hermes confirms it;
+    the warning goes once it does, or once this browser is signed in again.
   - An open Cindl tab keeps its session in use: its 15-second check is a
     request like any other, so once the access cookie expires the gate
     renews the cookies through the refresh cookie, for as long as Hermes's

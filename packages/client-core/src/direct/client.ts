@@ -425,6 +425,7 @@ class DirectHermesClient implements DirectClient {
       this.#emit({
         type: 'notice',
         level: 'warning',
+        code: 'sign-out-unconfirmed',
         message:
           'Hermes did not confirm the sign-out, so its session cookie may still sign this browser in. Sign out again.',
       })
