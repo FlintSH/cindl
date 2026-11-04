@@ -57,3 +57,28 @@ re-run or inspect.
 | Browser QA with screenshots at phone/tablet/desktop           | partial | Web: `apps/web/e2e` (flows, 44px targets, contrast, axe, scroll) on the synthetic demo; desktop/Android pending                                                                                                                                                                                                                                                                                                             |
 | Electron launch smoke, Android emulator smoke                 | partial | Electron: `apps/desktop/e2e/smoke.spec.ts` on both packaged AppImages (18 passed and 1 skipped locally at 636a2dd, including the real app against a local fake Hermes; the sandbox-on case runs only in `desktop.yml`, green on `main` in run 41791125613). Android emulator: GitHub-hosted runners only; green on `main` (run 41791125629: demo 11/11, sign-in 12/12, 0 issues in 23 target audits)                        |
 | MIT licence with third-party notices                          | done    | `LICENSE`, `THIRD_PARTY_NOTICES.md`                                                                                                                                                                                                                                                                                                                                                                                         |
+
+## Follow-ups (not v1 blockers)
+
+Rare, unreachable or cosmetic issues found in review, each with what to do
+meanwhile. They are fixed when convenient, not before a release.
+
+- **Android, a storage failure after an accepted sign-in:** the screen
+  reports a failure while the client is already on the new Hermes. Restart
+  the app, or sign in again.
+- **A Cancel during a read already in flight** waits for that read (up to
+  15 seconds) and reports its error if it fails. Nothing is saved; wait, or
+  try again.
+- **Desktop, quitting between the token write and the address write of a
+  sign-in** may leave that Hermes's tokens stored without its address (not
+  reproduced). Signing in to that Hermes again replaces them.
+- **Cosmetic:** after a `stop()` during a switch, the link shows no Hermes
+  version until the next start; a native start with a stored epoch reports
+  `connecting` twice.
+- **Unreachable in the shipped shells:** an older sign-in's switch failing a
+  newer sign-in that needs no browser; an Android marker race in the
+  authorizer's clean-up.
+- **Test hygiene:** a direct-client test counts every request to its fake, so
+  a stray request on a shared machine can fail it; rerun it.
+- **Dependabot alert 2** (glob 13 in Expo's build tools only): see
+  [development/workflow.md](../development/workflow.md).

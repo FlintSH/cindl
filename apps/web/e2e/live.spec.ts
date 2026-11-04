@@ -113,9 +113,14 @@ test("served at /cindl/ on Hermes's origin, the production build signs in with H
   await box.press('Enter')
   const allow = page.getByRole('button', { name: 'Allow once' }).first()
   await expect(allow).toBeVisible()
+  // The right inspector: the conversation's working margin, a column at this
+  // width, counts what the conversation waits on, and clears once answered.
+  const margin = page.getByRole('complementary', { name: 'Working margin' })
+  await expect(margin.getByRole('tab', { name: 'Waiting 1' })).toBeVisible()
   await allow.click()
   await expect.poll(() => outcome.result).toEqual({ choice: 'once' })
   await expect(page.getByRole('button', { name: 'Allow once' })).toHaveCount(0)
+  await expect(margin.getByRole('tab', { name: 'Waiting', exact: true })).toBeVisible()
 
   // A dropped network: Cindl reconnects with a fresh ticket and carries on.
   const tickets = () =>

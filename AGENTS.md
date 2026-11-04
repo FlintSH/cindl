@@ -169,9 +169,9 @@ hand-off:
    exact SHA. Reuse unchanged evidence by showing the diff does not reach it.
    Native, security and state-authority changes still need current runtime or
    independent proof.
-2. Behaviour changes have tests that would fail without the change: a positive
-   control and the change's own meaningful mutations, with survivors
-   classified. Do not re-run inherited mutation campaigns for unrelated code.
+2. Behaviour changes have a test that fails without the change. Mutation runs
+   are a tool for security-sensitive changes, not a default, and inherited
+   campaigns are never re-run.
 3. Docs impact is mapped (user, operator, integration personas) and the
    handbook pages are updated in the same commit, or the commit explains why
    there is no doc impact.
@@ -181,6 +181,13 @@ hand-off:
 6. Privacy review: no secrets, real hostnames, personal data or real
    screenshots in the diff.
 7. Known gaps are written down, not implied away.
+8. A review finding blocks a merge only if it is a v1 blocker: a normal core
+   journey unusable or crashing; a concrete, reachable credential or
+   authorization leak; a wrong-target or destructive data action; unsafe
+   computer control; or a broken build. Its severity names a consequence for
+   the owner in the shipped single-user app. Anything else goes to the
+   follow-ups in `docs/handbook/project/acceptance-matrix.md` with a
+   workaround, not into another fix or review round.
 
 ## Improvement loop
 
