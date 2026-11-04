@@ -129,6 +129,17 @@ function holdDeviceRead(h: Harness, origin: string) {
   return { arrived, release: () => hold.release?.() }
 }
 
+/** The names of `origin`'s device state the client reads from now on. */
+function deviceReads(h: Harness, origin: string): string[] {
+  const realGet = h.kv.get.bind(h.kv)
+  const reads: string[] = []
+  h.kv.get = async (key: string) => {
+    if (key.includes(`|${origin}|`)) reads.push(key.slice(key.lastIndexOf('|') + 1))
+    return realGet(key)
+  }
+  return reads
+}
+
 /** The store holds what a renderer subscribing now is told. */
 function expectStoreMatchesSeed(h: Harness): void {
   const late = createStore({
@@ -2460,12 +2471,7 @@ describe('direct client: the switch after a sign-in with a working session', () 
   it("reads B's device state once, before its checks, with nothing read after them", async () => {
     const h = await harness()
     const b = await fakeHermes()
-    const realGet = h.kv.get.bind(h.kv)
-    const reads: string[] = []
-    h.kv.get = async (key: string) => {
-      if (key.includes(`|${b.origin}|`)) reads.push(key.slice(key.lastIndexOf('|') + 1))
-      return realGet(key)
-    }
+    const reads = deviceReads(h, b.origin)
     await h.client.call('auth.signIn', { origin: b.origin })
     expect(reads.sort()).toEqual(['accepted', 'epoch', 'main', 'outbox'])
   })
@@ -2516,12 +2522,15 @@ describe('direct client: the switch after a sign-in with a working session', () 
     // The store holds what a renderer subscribing now is told: nothing of A.
     expectStoreMatchesSeed(h)
     expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
+    // The switch took B's device state up, so the next start reads none of it.
+    const reads = deviceReads(h, b.origin)
     await h.client.start()
     await h.waitFor(
       () =>
         h.store.getState().link.phase === 'online' &&
         h.store.getState().link.server?.origin === b.origin,
     )
+    expect(reads).toEqual([])
   })
 })
 
