@@ -8,14 +8,18 @@ import { forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
 // - whether Hermes did not confirm its last sign-out (the web only: native
 //   clients have nothing to confirm). The sign-in screen then offers to sign
 //   out on Hermes again, until Hermes confirms it or the page is online again.
-// - whether a "Check again" is out. The client says it is connecting
-//   meanwhile, and the sign-in screen stays until the check settles.
-let state = { unconfirmed: false, checking: false }
+// - the sign-in the sign-in screen started, while it is out: "Check again" on
+//   the web, or the desktop's wait for the system browser. The client says it
+//   is connecting meanwhile, and the sign-in screen stays until that attempt
+//   settles. "Stop waiting" frees the form, not the screen: the attempt is
+//   still out until the client ends it or a new one replaces it.
+let state = { unconfirmed: false, signingIn: 0 }
+let attempts = 0
 const listeners = new Set<() => void>()
 
 function update(next: Partial<typeof state>) {
   const merged = { ...state, ...next }
-  if (merged.unconfirmed === state.unconfirmed && merged.checking === state.checking)
+  if (merged.unconfirmed === state.unconfirmed && merged.signingIn === state.signingIn)
     return
   state = merged
   for (const listener of listeners) listener()
@@ -40,16 +44,18 @@ export async function signOutHere(
   return result
 }
 
-/** "Check again": whether this browser's Hermes session signs Cindl in now. */
-export async function checkSignIn(
+/** Sign in from the sign-in screen, which stays while this attempt is the one out. */
+export async function signInHere(
   api: CindlClientApi,
   origin: string,
 ): Promise<OpResult<'auth.signIn'>> {
-  update({ checking: true })
+  const attempt = ++attempts
+  update({ signingIn: attempt })
   try {
     return await api.call('auth.signIn', { origin })
   } finally {
-    update({ checking: false })
+    // An attempt a newer one replaced leaves the newer one's hold alone.
+    if (state.signingIn === attempt) update({ signingIn: 0 })
   }
 }
 
@@ -62,6 +68,6 @@ export function useSignOutUnconfirmed(): boolean {
   return useSyncExternalStore(subscribe, () => state.unconfirmed)
 }
 
-export function useCheckingSignIn(): boolean {
-  return useSyncExternalStore(subscribe, () => state.checking)
+export function useSigningIn(): boolean {
+  return useSyncExternalStore(subscribe, () => state.signingIn !== 0)
 }

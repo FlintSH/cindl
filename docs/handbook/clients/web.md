@@ -34,7 +34,8 @@ in through Hermes's own `/login` page.
   address holds an escape (`%`), such as a skill named `tools/git`, brings you
   back to the mount instead. Cindl never sees the password: the session is
   Hermes's HttpOnly cookie, which the page cannot read. "Check again" asks
-  Hermes whether this browser is signed in now.
+  Hermes whether this browser is signed in now; the sign-in screen stays
+  until Hermes answers, and shows a refusal there.
 - **Talking to Hermes.** Every request goes to the page's own origin with the
   browser's cookie. Each connection (and each reconnect) gets a fresh
   single-use ticket from `POST /api/auth/ws-ticket` and opens `/api/ws` with

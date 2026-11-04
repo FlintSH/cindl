@@ -6,7 +6,7 @@ import { useClientKind } from '../platform/clientKind.ts'
 import { Mark } from '../ui/Mark.tsx'
 import { Button } from '../ui/primitives.tsx'
 import styles from './notconnected.module.css'
-import { checkSignIn, signOutHere, useSignOutUnconfirmed } from './session.ts'
+import { signInHere, signOutHere, useSignOutUnconfirmed } from './session.ts'
 
 /** Shown when this client has no Hermes session; how it signs in depends on the client. */
 export function SignIn() {
@@ -46,7 +46,7 @@ function SameOriginSignIn() {
     setError(undefined)
     setBusy('checking')
     try {
-      await checkSignIn(api, window.location.origin)
+      await signInHere(api, window.location.origin)
     } catch (err) {
       setError(isCindlError(err) ? err.message : 'Sign-in did not complete.')
     } finally {
@@ -153,7 +153,7 @@ function NativeSignIn() {
     setError(undefined)
     setBusy(true)
     try {
-      await api.call('auth.signIn', { origin: parsed.data })
+      await signInHere(api, parsed.data)
     } catch (err) {
       if (mine === attempt.current)
         setError(isCindlError(err) ? err.message : 'Sign-in did not complete.')
