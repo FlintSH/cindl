@@ -31,11 +31,11 @@ import { ClientKindContext, type ClientKind } from '../src/platform/clientKind.t
 import { AppShell } from '../src/shell/AppShell.tsx'
 import { NotConnected } from '../src/shell/NotConnected.tsx'
 import { SignIn } from '../src/shell/SignIn.tsx'
-import { forgetSignOut, signOutHere } from '../src/shell/session.ts'
+import { forgetAttempts, signOutHere } from '../src/shell/session.ts'
 
 afterEach(() => {
   cleanup()
-  forgetSignOut()
+  forgetAttempts()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
   vi.useRealTimers()

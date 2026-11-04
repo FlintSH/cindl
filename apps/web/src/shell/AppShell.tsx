@@ -17,7 +17,7 @@ import { forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
 import { forgetPlaces } from '../talk/places.ts'
 import { Notices } from './Notices.tsx'
 import { SignIn } from './SignIn.tsx'
-import { forgetSignOut, useSigningIn } from './session.ts'
+import { forgetAttempts, useSigningIn } from './session.ts'
 import { LinkStatusDot } from './LinkStatus.tsx'
 import { NavList } from './Navigation.tsx'
 import { ShortcutsDialog } from './ShortcutsDialog.tsx'
@@ -55,9 +55,9 @@ export function AppShell() {
       forgetPlaces()
     }
   }, [link.demo, link.phase])
-  // Online again, an earlier sign-out Hermes did not confirm no longer applies.
+  // Online again: what earlier sign-in and sign-out attempts left behind no longer applies.
   useEffect(() => {
-    if (link.phase === 'online') forgetSignOut()
+    if (link.phase === 'online') forgetAttempts()
   }, [link.phase])
   useEffect(() => {
     document.title = link.demo ? `Cindl (${SYNTHETIC_DEMO_LABEL.toLowerCase()})` : 'Cindl'

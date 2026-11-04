@@ -9,13 +9,15 @@ import { forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
 // - whether Hermes did not confirm its last sign-out (the web only: native
 //   clients have nothing to confirm). The sign-in screen then offers to sign
 //   out on Hermes again, until Hermes confirms it or the page is online again.
-// - the sign-in the sign-in screen started, while it is out: "Check again" on
-//   the web, or the desktop's wait for the system browser. The client says it
-//   is connecting meanwhile, and the sign-in screen stays until that attempt
-//   settles. "Stop waiting" frees the form, not the screen: the attempt is
-//   still out until the client ends it or a new one replaces it.
+// - the sign-ins the sign-in screen started that are still out: "Check again"
+//   on the web, or the desktop's wait for the system browser. The client says
+//   it is connecting meanwhile, and the sign-in screen stays while any of them
+//   is out, each one leaving as it settles. "Stop waiting" frees the form, not
+//   the screen: its attempt is still out until the client ends it. A newer
+//   attempt refused before it replaces an older one leaves that one holding.
 let state = { unconfirmed: false, signingIn: 0 }
 let attempts = 0
+const out = new Set<number>()
 const listeners = new Set<() => void>()
 
 function update(next: Partial<typeof state>) {
@@ -46,24 +48,29 @@ export async function signOutHere(
   return result
 }
 
-/** Sign in from the sign-in screen, which stays while this attempt is the one out. */
+/** Sign in from the sign-in screen, which stays while this attempt, or another it started, is out. */
 export async function signInHere(
   api: CindlClientApi,
   origin: string,
 ): Promise<OpResult<'auth.signIn'>> {
   const attempt = ++attempts
-  update({ signingIn: attempt })
+  out.add(attempt)
+  update({ signingIn: out.size })
   try {
     return await api.call('auth.signIn', { origin })
   } finally {
-    // An attempt a newer one replaced leaves the newer one's hold alone.
-    if (state.signingIn === attempt) update({ signingIn: 0 })
+    out.delete(attempt)
+    update({ signingIn: out.size })
   }
 }
 
-/** Online again: an earlier sign-out's outcome no longer applies. */
-export function forgetSignOut(): void {
-  update({ unconfirmed: false })
+/**
+ * Online again: what earlier attempts left behind no longer applies, an
+ * unconfirmed sign-out or a sign-in still out that the client never ended.
+ */
+export function forgetAttempts(): void {
+  out.clear()
+  update({ unconfirmed: false, signingIn: 0 })
 }
 
 export function useSignOutUnconfirmed(): boolean {
