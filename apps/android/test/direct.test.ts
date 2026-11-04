@@ -588,3 +588,63 @@ describe('the agent screen through the real Android client', () => {
     await client.api.call('display.unwatch', { viewId: view.viewId })
   })
 })
+
+describe('a sign-out that overtakes a sign-in through the real Android client', () => {
+  const outcomeOf = (promise: Promise<unknown>) =>
+    promise.then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof Error ? error.message : String(error)),
+    )
+
+  it("not signed in: a sign-out during B's status read saves no origin, and the next start is not on B", async () => {
+    const a = await fakeHermes()
+    const b = await fakeHermes()
+    const { stores, browser, platform } = device()
+    const first = await launch(platform)
+    await first.client.api.call('auth.signIn', { origin: a.origin })
+    await until(() => first.store.getState().link.phase === 'online')
+    await first.client.api.call('auth.signOut', {})
+    const statusB = b.holdNextRest('GET /api/status')
+    const signingIn = outcomeOf(
+      first.client.api.call('auth.signIn', { origin: b.origin }),
+    )
+    await statusB.arrived
+    await first.client.api.call('auth.signOut', {})
+    const opened = browser.opened.length
+    statusB.release()
+    expect(await signingIn).toBe('Signed out while signing in.')
+    expect(browser.opened.length).toBe(opened)
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBe(a.origin)
+    expect(stored(stores, nativeTokensKey(b.origin))).toBeUndefined()
+    first.client.stop()
+    const second = await launch(platform)
+    await until(() => second.store.getState().link.phase === 'signed-out')
+    expect(second.store.getState().link.server?.origin).toBe(a.origin)
+  })
+
+  it("signed in to A: a sign-out during B's status read keeps A, opens no browser and stores nothing", async () => {
+    const a = await fakeHermes()
+    const b = await fakeHermes()
+    const { stores, browser, platform } = device()
+    const first = await launch(platform)
+    await first.client.api.call('auth.signIn', { origin: a.origin })
+    await until(() => first.store.getState().link.phase === 'online')
+    const statusB = b.holdNextRest('GET /api/status')
+    const signingIn = outcomeOf(
+      first.client.api.call('auth.signIn', { origin: b.origin }),
+    )
+    await statusB.arrived
+    await first.client.api.call('auth.signOut', {})
+    const opened = browser.opened.length
+    statusB.release()
+    expect(await signingIn).toBe('Signed out while signing in.')
+    expect(browser.opened.length).toBe(opened)
+    expect(calls(b, 'POST /auth/native/token')).toBe(0)
+    expect(await stores.keyValue.get(ORIGIN_KEY)).toBe(a.origin)
+    expect(stored(stores, nativeTokensKey(b.origin))).toBeUndefined()
+    expect(first.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      server: { origin: a.origin },
+    })
+  })
+})
