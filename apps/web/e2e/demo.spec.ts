@@ -101,6 +101,90 @@ test('switches conversations from the searchable history', async ({ page }) => {
   await expect(page.getByText('42 glaze batches')).toBeVisible()
 })
 
+test('the conversation search opens its best match on Enter; the arrows walk the list', async ({
+  page,
+}) => {
+  await page.keyboard.press(`${mod}+J`)
+  const history = page.getByRole('dialog', { name: 'Conversations' })
+  const search = history.getByRole('textbox', { name: 'Search conversations' })
+  await expect(search).toBeFocused()
+  await search.press('ArrowDown')
+  await expect(history.getByRole('button', { name: /Today/ })).toBeFocused()
+  await page.keyboard.press('ArrowDown')
+  await expect(
+    history.getByRole('button', { name: /Kiln inventory sheet/ }),
+  ).toBeFocused()
+  // Typing from the list goes on in the search box.
+  await page.keyboard.press('k')
+  await expect(search).toBeFocused()
+  await expect(search).toHaveValue('k')
+  await page.keyboard.press('ArrowDown')
+  await page.keyboard.press('ArrowUp')
+  await expect(search).toBeFocused()
+  await search.fill('kiln')
+  await search.press('Enter')
+  await expect(history).toBeHidden()
+  await expect(
+    page.getByRole('region', { name: 'Conversation: Kiln inventory sheet' }),
+  ).toBeVisible()
+})
+
+test('the palette wraps, marks the theme in use, and the shortcuts list closes from its button', async ({
+  page,
+}) => {
+  // Short enough that the palette's list scrolls: wrapping must bring the row into view.
+  await page.setViewportSize({ width: 1280, height: 500 })
+  await page.keyboard.press(`${mod}+K`)
+  const palette = page.getByRole('dialog', { name: 'Command palette' })
+  const options = palette.getByRole('option')
+  await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.press('ArrowUp')
+  await expect(options.last()).toHaveAttribute('aria-selected', 'true')
+  await expect(options.last()).toBeInViewport()
+  await page.keyboard.press('ArrowDown')
+  await expect(options.first()).toHaveAttribute('aria-selected', 'true')
+  await page.keyboard.type('theme')
+  await expect(palette.getByRole('option', { name: /Match system theme/ })).toContainText(
+    'Current',
+  )
+  await expect(palette.getByRole('option', { name: /Use dark theme/ })).not.toContainText(
+    'Current',
+  )
+  await page.keyboard.press('Escape')
+  await page.locator('body').press('?')
+  const help = page.getByRole('dialog', { name: 'Keyboard shortcuts' })
+  await expect(help).toBeVisible()
+  await help.getByRole('button', { name: 'Close keyboard shortcuts' }).click()
+  await expect(help).toBeHidden()
+})
+
+test('on a phone the section tabs keep the current one in view, clear of the fade', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/#/agent/appearance')
+  const strip = page.getByRole('navigation', { name: 'Agent sections' })
+  const tab = strip.getByRole('link', { name: 'Appearance' })
+  await expect(tab).toHaveAttribute('aria-current', 'page')
+  const box = await strip.boundingBox()
+  const at = await tab.boundingBox()
+  if (!box || !at) throw new Error('The tab strip is not laid out.')
+  expect(at.x).toBeGreaterThanOrEqual(box.x)
+  // The last 2rem of the strip fade out on a phone.
+  expect(at.x + at.width).toBeLessThanOrEqual(box.x + box.width - 31)
+})
+
+test('the connection status says its state, not only its colour', async ({ page }) => {
+  const status = page
+    .getByRole('navigation', { name: 'Primary' })
+    .first()
+    .getByRole('link', {
+      name: /^Connection: Synthetic demo, not connected\. Show details$/,
+    })
+  await expect(status).toHaveAttribute('title', /Synthetic demo, not connected/)
+  await expect(page).toHaveTitle(/^\(3\) Cindl/)
+})
+
 test('SOUL edits require a reviewed diff and confirmation', async ({ page }) => {
   await page.goto('/#/agent/identity')
   await page.getByRole('button', { name: 'Edit' }).click()

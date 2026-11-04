@@ -4,7 +4,8 @@ import { Ban, Check, ChevronRight, CircleAlert, Hand, LoaderCircle } from 'lucid
 import { duration } from './format.ts'
 import styles from './talk.module.css'
 
-const statusLabel: Record<ToolStatus, string> = {
+/** Shared by the step row and its evidence in the margin (Android's toolStatusLabel). */
+export const toolStatusLabel: Record<ToolStatus, string> = {
   generating: 'Preparing',
   running: 'Running',
   complete: 'Done',
@@ -41,12 +42,12 @@ export function ToolRow({
   const tool = useTool(toolId)
   if (!tool) return null
   const time = duration(tool.startedAt, tool.endedAt)
-  const state = blocked ? 'Waiting for you' : statusLabel[tool.status]
+  const state = blocked ? 'Waiting for you' : toolStatusLabel[tool.status]
   const meta = blocked
     ? 'Waiting for you'
     : tool.status === 'complete'
       ? time
-      : (tool.progress ?? statusLabel[tool.status])
+      : (tool.progress ?? toolStatusLabel[tool.status])
   return (
     <button
       type="button"

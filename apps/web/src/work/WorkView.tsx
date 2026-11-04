@@ -6,6 +6,7 @@ import {
   useOpenRequests,
 } from '@cindl/client-react'
 import { isCindlError, type DisplayState, type Routine } from '@cindl/contracts'
+import { ChevronRight } from 'lucide-react'
 import { useEffect, useRef, useState } from 'react'
 import { RequestCard } from '../talk/RequestCard.tsx'
 import { ScreenView } from './ScreenView.tsx'
@@ -42,6 +43,7 @@ function Running() {
             <span className={styles.rowDetail}>{c.preview ?? 'Working'}</span>
             <span className={styles.rowAside}>
               <Badge tone="info">Working</Badge>
+              <ChevronRight size={16} aria-hidden="true" className={styles.rowChevron} />
             </span>
           </a>
         </li>

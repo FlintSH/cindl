@@ -1,9 +1,11 @@
 import { useCan, useCapability, useCindlApi } from '@cindl/client-react'
 import type { MemoryOverview, Skill } from '@cindl/contracts'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatRoute, type LibrarySection } from '../router.ts'
 import { Badge, SectionTitle } from '../ui/primitives.tsx'
 import { RequireCapability } from '../views/Capability.tsx'
 import { DocumentEditor } from '../views/DocumentEditor.tsx'
+import { SectionTabs } from '../views/SectionTabs.tsx'
 import { MemoryEntries } from './MemoryEntries.tsx'
 import { useResource } from '../views/useResource.ts'
 import styles from '../views/views.module.css'
@@ -25,9 +27,13 @@ function SkillDetail({ name }: { name: string }) {
   )
   return (
     <section className={styles.section} aria-labelledby="skill-title">
-      <p>
-        <a href={formatRoute({ view: 'library', section: 'skills' })}>All skills</a>
-      </p>
+      <a
+        className={styles.back}
+        href={formatRoute({ view: 'library', section: 'skills' })}
+      >
+        <ChevronLeft size={16} aria-hidden="true" />
+        All skills
+      </a>
       <h2 id="skill-title" className={styles.pageTitle}>
         {name}
       </h2>
@@ -85,6 +91,7 @@ function Skills() {
             <span className={styles.rowAside}>
               {skill.category ? <span>{skill.category}</span> : null}
               {skill.enabled === false ? <Badge>Disabled</Badge> : null}
+              <ChevronRight size={16} aria-hidden="true" className={styles.rowChevron} />
             </span>
           </a>
         </li>
@@ -141,18 +148,12 @@ export function LibraryView({
             What Hermes knows how to do and what it keeps.
           </p>
         </header>
-        <nav className={styles.tabs} aria-label="Library sections">
-          {sections.map((s) => (
-            <a
-              key={s.id}
-              className={styles.tab}
-              href={formatRoute({ view: 'library', section: s.id })}
-              aria-current={section === s.id ? 'page' : undefined}
-            >
-              {s.label}
-            </a>
-          ))}
-        </nav>
+        <SectionTabs
+          label="Library sections"
+          items={sections}
+          current={section}
+          route={(id) => ({ view: 'library', section: id })}
+        />
         {section === 'skills' ? (
           <RequireCapability id="skills.read" label="Skills">
             {item ? <SkillDetail name={item} /> : <Skills />}

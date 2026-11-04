@@ -297,6 +297,33 @@ its switcher; choosing the one already shown just closes the list.
 | `?`                     | Show keyboard shortcuts            |
 | `Enter` / `Shift Enter` | Send / new line in the message box |
 
+In the conversation list (`Ctrl/⌘ J`), `Enter` in the search box opens the
+top match, `↓` moves into the list and `↑` back up to the search box, and
+typing from the list goes on in the search box. In the command palette the
+arrow keys wrap at either end and keep the highlighted row in view; the theme
+in use is marked "Current". The shortcuts list has a close button as well as
+`Escape`.
+
+## Small signals
+
+- **Composer.** Send stays neutral until there is text to send; while Hermes
+  works, Stop sits beside it as a bordered button. Both say what they do in
+  a tooltip.
+- **Page title.** While something waits on you, the tab's title (and the
+  desktop window's) leads with the same count as Work's badge: "(2) Cindl".
+- **Connection status.** The dot at the foot of the navigation says its state
+  in its tooltip and to screen readers ("Connection: Connected. Show
+  details"), not only in its colour.
+- **Times.** Message times follow your locale without a padded hour
+  ("8:03 AM"); a document says when it was read in words ("Read today at
+  9:55 PM"); a step's status reads as its row does ("Done", "Failed").
+- **Lists and tabs.** Rows that open something end in a chevron and are
+  divided like every other list; "All skills" leads back with one. On a
+  phone a section strip that does not fit (Agent's five) fades at its edge
+  and scrolls to the section shown, and the capability table stacks each
+  capability's state above its reason. The conversation list on a phone is a
+  sheet with its own title and close button, as on Android.
+
 ## Tests
 
 ```sh

@@ -131,6 +131,9 @@ describe('the working margin, as the conversation’s panel', () => {
     await settle()
     expect(selected()).toEqual(['Step'])
     expect(margin().getByText('calendar.search')).toBeTruthy()
+    // Its status reads as the step row says it ("Done"), not as the raw state.
+    const status = margin().getByText('Status').nextElementSibling
+    expect(status?.textContent).toBe('Done')
     fireEvent.click(margin().getByRole('button', { name: 'Clear the step' }))
     await settle()
     expect(margin().getByText(/Select a step in the conversation/)).toBeTruthy()

@@ -69,15 +69,21 @@ export function SectionTitle({
   id,
   ref,
   tabIndex,
+  asWritten = false,
 }: {
   children: ReactNode
   id?: string
   /** For a view that moves focus to its heading (for example after a delete). */
   ref?: Ref<HTMLHeadingElement>
   tabIndex?: number
+  /** A file name keeps its case ("SOUL.md", not "SOUL.MD"). */
+  asWritten?: boolean
 }) {
+  const className = asWritten
+    ? `${styles['section-title']} ${styles['as-written']}`
+    : styles['section-title']
   return (
-    <h2 className={styles['section-title']} id={id} ref={ref} tabIndex={tabIndex}>
+    <h2 className={className} id={id} ref={ref} tabIndex={tabIndex}>
       {children}
     </h2>
   )

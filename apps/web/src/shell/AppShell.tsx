@@ -1,5 +1,5 @@
 import { useCan, useLink, useOpenRequests } from '@cindl/client-react'
-import { SYNTHETIC_DEMO_LABEL, SYNTHETIC_DEMO_NOTICE } from '@cindl/contracts'
+import { SYNTHETIC_DEMO_NOTICE } from '@cindl/contracts'
 import { TriangleAlert } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { AgentView } from '../agent/AgentView.tsx'
@@ -18,9 +18,10 @@ import { forgetPlaces } from '../talk/places.ts'
 import { Notices } from './Notices.tsx'
 import { SignIn } from './SignIn.tsx'
 import { forgetAttempts, useSigningIn } from './session.ts'
-import { LinkStatusDot } from './LinkStatus.tsx'
+import { linkCopy, LinkStatusDot } from './LinkStatus.tsx'
 import { NavList } from './Navigation.tsx'
 import { ShortcutsDialog } from './ShortcutsDialog.tsx'
+import { pageTitle } from './title.ts'
 import styles from './shell.module.css'
 
 export function AppShell() {
@@ -38,6 +39,7 @@ export function AppShell() {
       link.phase === 'signed-out' ||
       (signingIn && link.phase === 'connecting'))
   const [theme] = usePreference('theme')
+  const status = linkCopy(link.phase, link.demo)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const talk = useRef<TalkHandle>(null)
@@ -60,8 +62,8 @@ export function AppShell() {
     if (link.phase === 'online') forgetAttempts()
   }, [link.phase])
   useEffect(() => {
-    document.title = link.demo ? `Cindl (${SYNTHETIC_DEMO_LABEL.toLowerCase()})` : 'Cindl'
-  }, [link.demo])
+    document.title = pageTitle(open.length, link.demo)
+  }, [link.demo, open.length])
 
   const commands = useMemo<Command[]>(
     () => [
@@ -118,16 +120,19 @@ export function AppShell() {
       {
         id: 'theme-light',
         label: 'Use light theme',
+        ...(theme === 'light' ? { hint: 'Current' } : {}),
         run: () => setPreference('theme', 'light'),
       },
       {
         id: 'theme-dark',
         label: 'Use dark theme',
+        ...(theme === 'dark' ? { hint: 'Current' } : {}),
         run: () => setPreference('theme', 'dark'),
       },
       {
         id: 'theme-system',
         label: 'Match system theme',
+        ...(theme === 'system' ? { hint: 'Current' } : {}),
         run: () => setPreference('theme', 'system'),
       },
       {
@@ -137,7 +142,7 @@ export function AppShell() {
         run: () => setHelpOpen(true),
       },
     ],
-    [canCreate],
+    [canCreate, theme],
   )
 
   useEffect(() => {
@@ -206,10 +211,12 @@ export function AppShell() {
         </a>
         <NavList current={current} workCount={open.length} />
         <div className={styles.spineFooter}>
+          {/* The status is in the name and the tooltip, not only in the dot's colour. */}
           <a
             className={styles.status}
             href="#/agent/runtime"
-            aria-label="Connection details"
+            aria-label={`Connection: ${status.label}. Show details`}
+            title={`${status.label}. Show connection details`}
           >
             <LinkStatusDot />
           </a>

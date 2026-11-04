@@ -7,21 +7,18 @@ import { RequireCapability } from '../views/Capability.tsx'
 import { Computer } from '../work/WorkView.tsx'
 import { duration } from './format.ts'
 import { keepPlace, useMarginTool, useSelectedStep, type MarginTool } from './places.ts'
-import { ToolIcon } from './ToolRow.tsx'
+import { ToolIcon, toolStatusLabel } from './ToolRow.tsx'
 import styles from './talk.module.css'
 
 function Evidence({ toolId, blocked }: { toolId: string; blocked: boolean }) {
   const tool = useTool(toolId)
   if (!tool)
     return <p className={styles.marginEmpty}>This step is no longer available.</p>
+  const waiting = blocked && (tool.status === 'running' || tool.status === 'generating')
   return (
     <div className={styles.evidence}>
       <p className={styles.evidenceTitle}>
-        <ToolIcon
-          status={tool.status}
-          blocked={blocked && (tool.status === 'running' || tool.status === 'generating')}
-        />{' '}
-        {tool.title}
+        <ToolIcon status={tool.status} blocked={waiting} /> {tool.title}
       </p>
       <dl className={styles.facts}>
         <dt>Tool</dt>
@@ -29,7 +26,9 @@ function Evidence({ toolId, blocked }: { toolId: string; blocked: boolean }) {
           <code>{tool.name}</code>
         </dd>
         <dt>Status</dt>
-        <dd>{tool.progress ?? tool.status}</dd>
+        <dd>
+          {waiting ? 'Waiting for you' : (tool.progress ?? toolStatusLabel[tool.status])}
+        </dd>
         {duration(tool.startedAt, tool.endedAt) ? (
           <>
             <dt>Duration</dt>

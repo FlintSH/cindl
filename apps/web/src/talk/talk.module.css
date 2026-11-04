@@ -505,6 +505,18 @@
   display: flex;
   gap: var(--space-1);
 }
+/* Stop is a bordered control beside Send, so its square never reads as a stray glyph. */
+.composerActions .stop {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+/* An empty box has no intent yet: Send stays neutral until there is text to send. */
+.composerActions .send:disabled {
+  border-color: transparent;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-tertiary);
+  opacity: 1;
+}
 .composerHint,
 .composerError {
   margin: var(--space-2) var(--space-1) 0;
@@ -680,6 +692,15 @@
   flex-direction: column;
   max-height: inherit;
 }
+.historyHead {
+  display: none;
+}
+.historyHeading {
+  margin: 0;
+  font-size: var(--text-ui-size);
+  line-height: var(--text-ui-line);
+  font-weight: 600;
+}
 .historySearch {
   border: 0;
   border-bottom: 1px solid var(--color-border);
@@ -768,6 +789,12 @@ dialog .margin {
   border-left: 0;
 }
 @media (max-width: 767px) {
+  .historyHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-1) var(--space-1) 0 var(--space-4);
+  }
   .tool {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }

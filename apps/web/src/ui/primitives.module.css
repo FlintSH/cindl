@@ -144,3 +144,7 @@
   text-transform: uppercase;
   color: var(--color-text-tertiary);
 }
+.as-written {
+  letter-spacing: normal;
+  text-transform: none;
+}
