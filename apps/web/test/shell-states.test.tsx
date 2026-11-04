@@ -388,9 +388,14 @@ describe('the sign-in screen through its own sign-in', () => {
     await shell.signIn()
     fireEvent.click(screen.getByRole('button', { name: 'Stop waiting' }))
     await shell.signIn()
-    // The first attempt ends (main cancels it for the new one): the screen stays.
+    // The first attempt ends as main ends a replaced one: the screen stays.
     await act(async () => {
-      shell.attempts[0]!.reject(new CindlError('cancelled', 'Replaced (fixture).'))
+      shell.attempts[0]!.reject(
+        new CindlError(
+          'unavailable',
+          'A newer sign-in or a sign-out replaced this sign-in.',
+        ),
+      )
       await Promise.resolve()
     })
     expect(screen.getByRole('button', { name: 'Stop waiting' })).toBeTruthy()
