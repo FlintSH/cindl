@@ -102,8 +102,10 @@ without a usable HTTP version gets no answer at all, since none could carry
 them. A request must arrive whole within 10 seconds (`--idle-timeout`, 1 to
 300), a connection that sends or reads nothing for that long is closed, and
 beyond 64 connections at once a new one is closed straight away. It ignores
-request headers, cookies included, and logs only the request line, in plain
-ASCII, with anything else written as `\xNN` and long lines cut short. It
+request headers, cookies included. It logs the request line, a request cut
+off at the deadline, and one line for a connection that fails mid-answer,
+never a header, in plain ASCII with anything else written as `\xNN` and long
+lines cut short. It
 takes the mount path as is (`/cindl/assets/...`) or with the front's mount
 stripped (`/assets/...`), and refuses a mount that names a path in the build.
 
@@ -114,18 +116,20 @@ local process could take its port and be served there.
 
 A front that strips the mount, as Tailscale Serve does, never shows the server
 the bare `/cindl`, and Tailscale Serve does not redirect it to `/cindl/`
-either. If the front can map that exact path, map it to the server's
-`/.cindl-bare`, which redirects to `/cindl/`. With Tailscale Serve that would
-be `/cindl/` mounted at `http://127.0.0.1:8099` and `/cindl` at
-`http://127.0.0.1:8099/.cindl-bare`; check it with the first two checks below.
-Otherwise always open `/cindl/` with the slash: at `/cindl` the page's
-relative asset paths miss.
+either. Nor can it map `/cindl` separately: it treats `/cindl` and `/cindl/`
+as the same mount, so a mapping for `/cindl` replaces the one for `/cindl/`
+(seen on a real deployment). With Tailscale Serve, mount `/cindl/` at
+`http://127.0.0.1:8099` only, and always open and link `/cindl/` with the
+slash: at `/cindl` the page's relative asset paths miss. A front that can map
+an exact path on its own can map `/cindl` to the server's `/.cindl-bare`,
+which redirects to `/cindl/`.
 
 Checks that need no sign-in, after mounting:
 
 - `/cindl/` answers 200 with `text/html`, the `frame-ancestors 'none'` policy
   and `Cache-Control: no-cache`; its body matches the build's `index.html`.
-- `/cindl` redirects (301 or 308) to `/cindl/`.
+- `/cindl` redirects (301 or 308) to `/cindl/`, where the front can do that
+  (not with Tailscale Serve, above).
 - `GET /api/status` answers as it did before, and Hermes's own pages still
   work.
 

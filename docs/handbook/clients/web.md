@@ -76,8 +76,10 @@ in through Hermes's own `/login` page.
   WebKit fixed that case in 2022 (bug 235873), and older Safari blocks them.
 - **What the mount must do.** Serve the build's files under the sub-path with
   their content types (`.js` as a JavaScript type such as `text/javascript`,
-  which browsers require for module scripts), redirect the bare sub-path (`/cindl`) to the one with a
-  trailing slash (the build's asset paths are relative), send
+  which browsers require for module scripts), redirect the bare sub-path
+  (`/cindl`) to the one with a trailing slash where the front can (the
+  build's asset paths are relative; Tailscale Serve cannot, so link to
+  `/cindl/`), send
   `Content-Security-Policy: frame-ancestors 'none'` with Cindl's pages and
   `Cache-Control: no-cache` with `/cindl/` and `index.html`, and pass every
   other path to Hermes unchanged. Cindl uses hash routes, so no other path

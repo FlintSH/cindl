@@ -20,7 +20,8 @@ good. A request must arrive whole within --idle-timeout seconds, a
 connection that sends or reads nothing for that long is closed, and beyond
 64 at once a new connection is closed straight away. The log is plain ASCII,
 with control bytes and anything else outside it written as hexadecimal
-escapes. Usage:
+escapes; a connection that fails mid-answer gets one line, not a traceback.
+Usage:
 
     python3 cindl-serve.py --root DIR --port 8099 [--host 127.0.0.1] [--mount /cindl]
         [--idle-timeout 10]
@@ -287,6 +288,13 @@ def main(argv=None):
                 super().process_request_thread(request, client_address)
             finally:
                 slots.release()
+
+        def handle_error(self, request, client_address):
+            # A connection that failed mid-answer (a reset, a client that
+            # stopped reading): one escaped line, not the standard library's
+            # traceback, which would bypass the log's escaping and its cut.
+            error = sys.exc_info()[1]
+            sys.stderr.write("cindl-serve: connection error: %s\n" % logged("%s: %s" % (type(error).__name__, error)))
 
     try:
         server = Server((args.host, args.port), handler(files, mount, args.idle_timeout))

@@ -90,6 +90,13 @@ function parsed(text: string) {
 let server: ChildProcess
 let port = 0
 let log = ''
+const BIG = 8 * 1024 * 1024
+const pause = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+const opened = () =>
+  new Promise<Socket>((resolve, reject) => {
+    const socket = connect(port, '127.0.0.1', () => resolve(socket))
+    socket.on('error', reject)
+  })
 
 beforeAll(async () => {
   mkdirSync(join(root, 'assets'), { recursive: true })
@@ -104,6 +111,8 @@ beforeAll(async () => {
   writeFileSync(join(root, 'notes.txt'), 'not part of a build')
   // Unhashed, though its name looks hashed: never cached for good.
   writeFileSync(join(root, 'sw-register.js'), 'export {}')
+  // Bigger than the socket buffers, so writing it takes as long as reading it.
+  writeFileSync(join(root, 'assets', 'big-AbCd1234.js'), Buffer.alloc(BIG, 'a'))
   // A FIFO: opening it to read would wait for a writer, so it must be skipped unopened.
   expect(spawnSync('mkfifo', [join(root, 'pipe.js')]).status).toBe(0)
   writeFileSync(join(work, 'secret.html'), 'outside the root')
@@ -424,19 +433,14 @@ describe('cindl-serve', () => {
     'closes a connection beyond the 64 it serves at once straight away, and serves again once they go',
     { timeout: 15_000 },
     async () => {
-      const held = await Promise.all(
-        Array.from(
-          { length: 64 },
-          () =>
-            new Promise<Socket>((resolve, reject) => {
-              const socket = connect(port, '127.0.0.1', () => resolve(socket))
-              socket.on('error', reject)
-            }),
-        ),
-      )
+      const held = await Promise.all(Array.from({ length: 63 }, opened))
       try {
-        await new Promise((resolve) => setTimeout(resolve, 100))
-        // Closed at once, not after the 1 s timeout the 64 are waiting out.
+        await pause(100)
+        // With 63 held, the 64th still gets its answer: the cap is not lower.
+        expect((await get(port, '/cindl/')).status).toBe(200)
+        held.push(await opened())
+        await pause(100)
+        // The 65th is closed at once, not after the 1 s timeout the 64 are waiting out.
         const extra = await raw(port, '', 3000)
         expect(extra?.text).toBe('')
         expect(extra!.ms).toBeLessThan(500)
@@ -444,6 +448,112 @@ describe('cindl-serve', () => {
         for (const socket of held) socket.destroy()
       }
       await expect.poll(async () => (await get(port, '/cindl/')).status).toBe(200)
+    },
+  )
+
+  it('answers and logs nothing for headers that trickle in after a whole request line', async () => {
+    const line = 'GET /cindl/trickled-headers HTTP/1.1\r\n'
+    const headers = 'Host: x\r\nX-Slow: qqqqqqqqqqqqqqqqqqqq\r\n\r\n'
+    const closed = await new Promise<{ text: string; ms: number }>((resolve) => {
+      const started = Date.now()
+      const chunks: Buffer[] = []
+      const socket = connect(port, '127.0.0.1', () => socket.write(line))
+      let sent = 0
+      // A byte every 200 ms: never quiet for the 1 s timeout, never whole in time.
+      const drip = setInterval(() => {
+        if (sent < headers.length && !socket.destroyed) socket.write(headers[sent++]!)
+      }, 200)
+      socket.on('data', (chunk: Buffer) => chunks.push(chunk))
+      socket.on('error', () => undefined)
+      socket.on('close', () => {
+        clearInterval(drip)
+        resolve({
+          text: Buffer.concat(chunks).toString('latin1'),
+          ms: Date.now() - started,
+        })
+      })
+    })
+    expect(closed.text).toBe('')
+    expect(closed.ms).toBeLessThan(3000)
+    await pause(200)
+    expect(log).not.toContain('"GET /cindl/trickled-headers HTTP/1.1"')
+    expect(log).not.toContain('Traceback')
+  })
+
+  it('logs a connection that fails mid-answer as one line, not a traceback', async () => {
+    await new Promise<void>((resolve) => {
+      const socket = connect(port, '127.0.0.1', () =>
+        socket.write('GET /cindl/assets/big-AbCd1234.js HTTP/1.1\r\nHost: x\r\n\r\n'),
+      )
+      socket.on('error', () => undefined)
+      socket.once('data', () => {
+        socket.resetAndDestroy()
+        resolve()
+      })
+    })
+    await expect.poll(() => log).toMatch(/cindl-serve: connection error: \w+/)
+    expect(log).not.toContain('Traceback')
+  })
+
+  it(
+    'gives a request that arrives just in time its whole answer, however slowly it is read',
+    { timeout: 20_000 },
+    async () => {
+      // Its own server with a 3 s deadline: the request arrives at 1.5 s, and the
+      // reader pauses from 1.5 s to 3.5 s, across the deadline. A deadline left
+      // running once the request is in would cut the answer at 3 s.
+      const slow = spawn(
+        'python3',
+        [script, '--root', root, '--port', '0', '--idle-timeout', '3'],
+        {
+          stdio: ['ignore', 'pipe', 'pipe'],
+        },
+      )
+      try {
+        const at = await new Promise<number>((resolve, reject) => {
+          slow.stdout.setEncoding('utf8')
+          slow.stdout.on('data', (line: string) => {
+            const found = /http:\/\/127\.0\.0\.1:(\d+)/.exec(line)
+            if (found) resolve(Number(found[1]))
+          })
+          slow.on('exit', (code) => reject(new Error(`cindl-serve exited ${code}`)))
+        })
+        const answer = await new Promise<{ body: number; length: number }>(
+          (resolve, reject) => {
+            const chunks: Buffer[] = []
+            let paused = false
+            const socket = connect(at, '127.0.0.1', () => {
+              setTimeout(
+                () =>
+                  socket.write(
+                    'GET /cindl/assets/big-AbCd1234.js HTTP/1.1\r\nHost: x\r\n\r\n',
+                  ),
+                1500,
+              )
+            })
+            socket.on('data', (chunk: Buffer) => {
+              chunks.push(chunk)
+              if (paused) return
+              paused = true
+              socket.pause()
+              setTimeout(() => socket.resume(), 2000)
+            })
+            socket.on('error', reject)
+            socket.on('close', () => {
+              const all = Buffer.concat(chunks)
+              const split = all.indexOf('\r\n\r\n')
+              const length = Number(
+                /content-length: (\d+)/i.exec(all.subarray(0, split).toString())?.[1],
+              )
+              resolve({ body: all.length - split - 4, length })
+            })
+          },
+        )
+        expect(answer.length).toBe(BIG)
+        expect(answer.body).toBe(BIG)
+      } finally {
+        slow.kill()
+      }
     },
   )
 
