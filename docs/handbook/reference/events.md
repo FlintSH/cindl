@@ -73,8 +73,12 @@ Before it connects, the direct client asks Hermes what it is
 (`GET /api/status`) and whether this device is signed in. When Hermes does not
 answer either (no network, a timeout, a 5xx while it restarts, rate limiting),
 the link is `offline` with that error, and the client asks again with the
-reconnect backoff, keeping that link until an attempt succeeds. An answer
-that is not Hermes is `error` and is not repeated. A discovery or sign-in that
+reconnect backoff, keeping that link until an attempt succeeds. Only the
+adapter's own reports of that (`hermesDidNotAnswer`) count, never a code
+alone. An answer that is not Hermes is `error` and is not repeated, and so is
+a failure on this device, such as a secret store that cannot be read: asking
+Hermes again cannot fix it, so the next `start()` or sign-in tries again. A
+discovery or sign-in that
 `stop()`, a newer `start()` or another sign-in overtakes neither connects nor
 changes the link.
 

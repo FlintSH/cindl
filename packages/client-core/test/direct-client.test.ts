@@ -1941,3 +1941,39 @@ describe('direct client: a subscriber that joins late', () => {
     expect(events).toEqual([])
   })
 })
+
+describe('direct client: a failure on this device during discovery', () => {
+  it('shows a secret store it cannot read as an error, not offline, and reads it again on start', async () => {
+    const first = await harness()
+    first.client.stop()
+    // The same device starts again, and its secret store is locked at first.
+    let locked = true
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...first.secrets,
+      get: (key) =>
+        locked
+          ? Promise.reject(new Error('keystore locked (fixture)'))
+          : first.secrets.get(key),
+    }
+    const h = await harness({ fake: first.fake, secrets, signIn: false })
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'error',
+      lastError: {
+        code: 'internal',
+        message: 'This device could not read its saved Hermes sign-in.',
+      },
+    })
+    // Asking Hermes again cannot open the store, so discovery does not repeat.
+    const statusReads = () =>
+      h.fake.calls.filter((c) => c.name === 'GET /api/status').length
+    const reads = statusReads()
+    await pause(150)
+    expect(statusReads()).toBe(reads)
+    expect(h.store.getState().link.phase).toBe('error')
+    // Once the store opens, the next start reads it again and connects.
+    locked = false
+    h.client.stop()
+    await h.client.start()
+    await online(h)
+  })
+})

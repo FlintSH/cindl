@@ -228,8 +228,12 @@ export class NativeAuth {
   }
 
   async #current(): Promise<NativeTokenResponse | undefined> {
-    // One shared load: concurrent first callers all see the stored tokens.
-    this.#loading ??= this.#load()
+    // One shared load: concurrent first callers all see the stored tokens. A
+    // load that failed is not kept, so the next caller reads the store again.
+    this.#loading ??= this.#load().catch((error: unknown) => {
+      this.#loading = undefined
+      throw error
+    })
     await this.#loading
     return this.#tokens
   }
@@ -237,7 +241,20 @@ export class NativeAuth {
   async #load(): Promise<void> {
     if (!this.#options.secrets.available) return
     const generation = this.#generation
-    const raw = await this.#options.secrets.get(this.#key)
+    let raw: string | undefined
+    try {
+      raw = await this.#options.secrets.get(this.#key)
+    } catch (error) {
+      // A failure on this device, not Hermes's answer: say so.
+      this.#log.log('warn', 'auth.secret-store-read-failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      })
+      throw new CindlError(
+        'internal',
+        'This device could not read its saved Hermes sign-in.',
+        'secret store read failed',
+      )
+    }
     if (!raw || generation !== this.#generation) return
     try {
       const parsed = NativeTokenResponse.safeParse(JSON.parse(raw))

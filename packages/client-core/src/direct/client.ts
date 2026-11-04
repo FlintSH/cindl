@@ -28,6 +28,7 @@ import {
   displayState,
   EventNormalizer,
   HermesConnection,
+  hermesDidNotAnswer,
   hermesReasonOf,
   isBaselineVersion,
   mapServerRequest,
@@ -151,12 +152,6 @@ const LOOPBACK_MODE =
 
 /** The gate's `error` when a browser session is over (middleware.py:72-87). */
 const SESSION_OVER = new Set(['unauthenticated', 'session_expired'])
-
-/**
- * Hermes did not answer: no network, a timeout, a 5xx while it restarts, or
- * rate limiting. Worth asking again, unlike an answer that it is not Hermes.
- */
-const NO_ANSWER = new Set(['offline', 'timeout', 'unavailable', 'internal'])
 
 /** `session.events.since` watermark that returns no events, only `open_requests`. */
 const NO_EVENTS = Number.MAX_SAFE_INTEGER
@@ -615,13 +610,16 @@ class DirectHermesClient implements DirectClient {
   }
 
   /**
-   * When Hermes did not answer discovery, the link is offline with the cause
-   * and discovery runs again with the connection's backoff. Any other
-   * failure (not Hermes, a refusal) is an error to show, not to repeat.
+   * When Hermes did not answer discovery (no network, a timeout, a 5xx while
+   * it restarts, rate limiting), the link is offline with the cause and
+   * discovery runs again with the connection's backoff. Any other failure is
+   * an error to show, not to repeat: an answer that is not Hermes, a
+   * refusal, or a failure on this device, such as a secret store that cannot
+   * be read, which asking Hermes again cannot fix.
    */
   #discoveryFailed(cause: CindlError, run: number): void {
     if (run !== this.#run) return
-    if (!NO_ANSWER.has(cause.code)) {
+    if (!hermesDidNotAnswer(cause)) {
       this.#setLink('error', cause)
       this.#refreshCapabilities()
       return

@@ -347,3 +347,49 @@ describe('native PKCE sign-in', () => {
     await expect(again.identity()).resolves.toMatchObject({ userId: 'fixture-owner' })
   })
 })
+
+describe('NativeAuth: a secret store that cannot be read', () => {
+  it('says the device could not read its sign-in, and reads again next time', async () => {
+    const fake = await fakeHermes()
+    const secrets = vault()
+    const first = new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      secrets,
+      crypto,
+    })
+    await first.signIn(browserLeg())
+    // A new start on the same device; its store fails once (a locked keystore).
+    let locked = true
+    const flaky: SecretVault = {
+      available: true,
+      get: (key) =>
+        locked
+          ? Promise.reject(new Error('keystore locked (fixture)'))
+          : secrets.get(key),
+      set: (key, value) => secrets.set(key, value),
+      delete: (key) => secrets.delete(key),
+    }
+    const log = captureLog()
+    const auth = new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      secrets: flaky,
+      crypto,
+      diagnostics: log.diagnostics,
+    })
+    const refused = await auth.identity().then(
+      () => undefined,
+      (error: unknown) => error as CindlError,
+    )
+    expect(refused).toBeInstanceOf(CindlError)
+    expect(refused?.code).toBe('internal')
+    expect(refused?.message).toBe('This device could not read its saved Hermes sign-in.')
+    expect(log.text()).toContain('auth.secret-store-read-failed')
+    // The failed read was not kept: once the store opens, the sign-in is there.
+    locked = false
+    expect(await auth.identity()).toMatchObject({ userId: 'fixture-owner' })
+  })
+})
