@@ -18,15 +18,71 @@ import {
  * page only, so a reload starts from what Hermes holds.
  */
 export function createSameOriginClient(origin: string): DirectClient {
-  return createDirectClient({
-    origin,
-    auth: 'same-origin-cookie',
-    fetch: sameOriginFetch,
-    socketFactory: browserSocket,
-    displaySocketFactory: browserBinarySocket,
-    clock,
-    kv: memoryStore(),
+  return announcingSignOut(
+    createDirectClient({
+      origin,
+      auth: 'same-origin-cookie',
+      fetch: sameOriginFetch,
+      socketFactory: browserSocket,
+      displaySocketFactory: browserBinarySocket,
+      clock,
+      kv: memoryStore(),
+      watchSession: browserSessionCue,
+    }),
+  )
+}
+
+/** The channel this browser's Cindl tabs on one origin share for sign-outs. */
+export const SESSION_CHANNEL = 'cindl.session'
+
+/**
+ * The cue to check this browser's Hermes session at once, not at the
+ * client's next request tick: the page becoming visible again, or another
+ * Cindl tab on this origin signing out. A cue only makes the client ask
+ * GET /api/auth/me, so a stray one costs one request.
+ */
+export function browserSessionCue(check: () => void): () => void {
+  const visible = () => {
+    if (document.visibilityState === 'visible') check()
+  }
+  document.addEventListener('visibilitychange', visible)
+  const tabs =
+    typeof BroadcastChannel === 'function'
+      ? new BroadcastChannel(SESSION_CHANNEL)
+      : undefined
+  tabs?.addEventListener('message', (event: MessageEvent) => {
+    if (event.data === 'signed-out') check()
   })
+  return () => {
+    document.removeEventListener('visibilitychange', visible)
+    tabs?.close()
+  }
+}
+
+/** Tells this browser's other Cindl tabs on this origin that this one signed out. */
+export function announceSignOut(): void {
+  if (typeof BroadcastChannel !== 'function') return
+  const tabs = new BroadcastChannel(SESSION_CHANNEL)
+  tabs.postMessage('signed-out')
+  tabs.close()
+}
+
+/**
+ * The client, announcing every sign-out here once it settles, whatever its
+ * outcome: the other tabs' session may have ended with this one, and they
+ * share its cookie.
+ */
+export function announcingSignOut(client: DirectClient): DirectClient {
+  return {
+    start: () => client.start(),
+    stop: () => client.stop(),
+    subscribe: (listener) => client.subscribe(listener),
+    call: (name, args) => {
+      const result = client.call(name, args)
+      if (name === 'auth.signOut') void result.then(announceSignOut, announceSignOut)
+      return result
+    },
+  }
 }
 
 /**

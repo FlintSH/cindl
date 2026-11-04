@@ -16,6 +16,7 @@ import { pruneRequestDrafts } from '../talk/RequestCard.tsx'
 import { forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
 import { Notices } from './Notices.tsx'
 import { SignIn } from './SignIn.tsx'
+import { forgetSignOut } from './signOut.ts'
 import { LinkStatusDot } from './LinkStatus.tsx'
 import { NavList } from './Navigation.tsx'
 import { ShortcutsDialog } from './ShortcutsDialog.tsx'
@@ -44,6 +45,10 @@ export function AppShell() {
   useEffect(() => {
     if (!link.demo && link.phase === 'signed-out') forgetDocumentDrafts()
   }, [link.demo, link.phase])
+  // Online again, an earlier sign-out Hermes did not confirm no longer applies.
+  useEffect(() => {
+    if (link.phase === 'online') forgetSignOut()
+  }, [link.phase])
   useEffect(() => {
     document.title = link.demo ? `Cindl (${SYNTHETIC_DEMO_LABEL.toLowerCase()})` : 'Cindl'
   }, [link.demo])

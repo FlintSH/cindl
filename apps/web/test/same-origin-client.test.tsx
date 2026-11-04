@@ -8,13 +8,18 @@ import {
   type CindlEvent,
   type LinkState,
 } from '@cindl/contracts'
+import { createScenarioClient } from '@cindl/fixtures/scenario'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  announceSignOut,
+  announcingSignOut,
   browserBinarySocket,
+  browserSessionCue,
   browserSocket,
   memoryStore,
   sameOriginFetch,
+  SESSION_CHANNEL,
 } from '../src/platform/browser.ts'
 import {
   probeThisOrigin,
@@ -23,15 +28,21 @@ import {
   STATUS_TIMEOUT_MS,
 } from '../src/platform/client.ts'
 import { ClientKindContext, type ClientKind } from '../src/platform/clientKind.ts'
+import { AppShell } from '../src/shell/AppShell.tsx'
 import { NotConnected } from '../src/shell/NotConnected.tsx'
 import { SignIn } from '../src/shell/SignIn.tsx'
+import { forgetSignOut, signOutHere } from '../src/shell/signOut.ts'
 
 afterEach(() => {
   cleanup()
+  forgetSignOut()
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
   vi.useRealTimers()
 })
+
+/** One turn of the event loop: long enough for a BroadcastChannel delivery. */
+const nextTask = () => new Promise((resolve) => setTimeout(resolve, 20))
 
 const ORIGIN = 'https://hermes.example.test'
 const status = (body: unknown, init: ResponseInit = { status: 200 }) =>
@@ -306,18 +317,73 @@ describe('signing in when served by Hermes', () => {
     expect(returnPath()).toBe('/cindl/#/talk')
   })
 
-  it("escapes the return for Hermes's two decodes, so an encoded view comes back intact", () => {
-    const assign = at(`${ORIGIN}/cindl/#/library/skills/notes%2Fdaily`)
+  it('brings a view back the same however often Hermes decodes the return', () => {
+    const assign = at(`${ORIGIN}/cindl/#/library/memory`)
     renderSignIn('hermes', vi.fn() as never)
     fireEvent.click(screen.getByRole('button', { name: 'Sign in on Hermes' }))
-    const next = new URL(assign.mock.calls[0]?.[0] as string, ORIGIN).searchParams.get(
-      'next',
+    const next =
+      new URL(assign.mock.calls[0]?.[0] as string, ORIGIN).searchParams.get('next') ?? ''
+    // Past the query's own parsing, Hermes decodes `next` twice more on a
+    // password sign-in (routes.py:93-97, 171), and once more again through
+    // /auth/login on an OAuth one (routes.py:224-231).
+    const twice = decodeURIComponent(decodeURIComponent(next))
+    expect(twice).toBe('/cindl/#/library/memory')
+    expect(decodeURIComponent(twice)).toBe('/cindl/#/library/memory')
+  })
+
+  it('returns to the mount alone from a view whose address holds a %, which the two sign-in paths would bring back differently', () => {
+    const assign = at(`${ORIGIN}/cindl/#/library/skills/notes%2Fdaily`)
+    expect(returnPath()).toBe('/cindl/')
+    renderSignIn('hermes', vi.fn() as never)
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in on Hermes' }))
+    expect(assign).toHaveBeenCalledWith(`/login?next=${encodeURIComponent('/cindl/')}`)
+  })
+
+  it('offers to sign out on Hermes again until Hermes confirms it', async () => {
+    const outcomes = [false, false, true]
+    const call = vi.fn((name: string) =>
+      name === 'auth.signOut'
+        ? Promise.resolve({ localOnly: true, hermesConfirmed: outcomes.shift() })
+        : Promise.reject(new Error(`unexpected ${name}`)),
     )
-    // Past the query's own parsing, Hermes decodes `next` twice more: at /login
-    // and again at the password login (routes.py:93-97, 171).
-    expect(decodeURIComponent(decodeURIComponent(next ?? ''))).toBe(
-      '/cindl/#/library/skills/notes%2Fdaily',
+    const api = call as unknown as CindlClientApi['call']
+    // The device page's sign-out, which Hermes did not confirm.
+    await signOutHere({ call: api, subscribe: () => () => undefined })
+    renderSignIn('hermes', api)
+    expect(screen.getByText(/Hermes has not confirmed the sign-out/)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Sign out on Hermes' }))
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    // Still not confirmed: the offer stays, ready for another try.
+    const again = screen.getByRole('button', { name: 'Sign out on Hermes' })
+    expect(again.hasAttribute('disabled')).toBe(false)
+    fireEvent.click(again)
+    await act(async () => {
+      await Promise.resolve()
+      await Promise.resolve()
+    })
+    expect(screen.queryByRole('button', { name: 'Sign out on Hermes' })).toBeNull()
+    expect(screen.queryByText(/has not confirmed/)).toBeNull()
+    expect(screen.getByRole('status').textContent).toBe(
+      'Hermes cleared its session cookie in this browser.',
     )
+    expect(call.mock.calls.filter(([name]) => name === 'auth.signOut')).toHaveLength(3)
+  })
+
+  it('offers no second sign-out after one Hermes confirmed, or one with nothing to confirm', async () => {
+    for (const result of [
+      { localOnly: true, hermesConfirmed: true },
+      { localOnly: true },
+    ]) {
+      const call = (() => Promise.resolve(result)) as unknown as CindlClientApi['call']
+      await signOutHere({ call, subscribe: () => () => undefined })
+      renderSignIn('hermes', call)
+      expect(screen.queryByRole('button', { name: 'Sign out on Hermes' })).toBeNull()
+      expect(screen.queryByText(/has not confirmed/)).toBeNull()
+      cleanup()
+    }
   })
 
   it('checks again on request and shows why it is still signed out', async () => {
@@ -345,6 +411,138 @@ describe('signing in when served by Hermes', () => {
     renderSignIn('desktop', vi.fn() as never)
     expect(screen.getByLabelText('Hermes address')).toBeTruthy()
     expect(screen.queryByRole('button', { name: 'Sign in on Hermes' })).toBeNull()
+  })
+})
+
+describe("the browser's session cue", () => {
+  it('asks for a check when the page becomes visible again, or another tab signs out', async () => {
+    const check = vi.fn()
+    const visibility = vi.spyOn(document, 'visibilityState', 'get')
+    const stop = browserSessionCue(check)
+    try {
+      visibility.mockReturnValue('hidden')
+      document.dispatchEvent(new Event('visibilitychange'))
+      expect(check).not.toHaveBeenCalled()
+      visibility.mockReturnValue('visible')
+      document.dispatchEvent(new Event('visibilitychange'))
+      expect(check).toHaveBeenCalledTimes(1)
+      announceSignOut()
+      await vi.waitFor(() => expect(check).toHaveBeenCalledTimes(2))
+    } finally {
+      stop()
+    }
+  })
+
+  it('takes nothing else on the channel for a cue, and goes quiet once unsubscribed', async () => {
+    const check = vi.fn()
+    const stop = browserSessionCue(check)
+    const other = new BroadcastChannel(SESSION_CHANNEL)
+    try {
+      other.postMessage('hello')
+      await nextTask()
+      expect(check).not.toHaveBeenCalled()
+      stop()
+      other.postMessage('signed-out')
+      document.dispatchEvent(new Event('visibilitychange'))
+      await nextTask()
+      expect(check).not.toHaveBeenCalled()
+    } finally {
+      other.close()
+    }
+  })
+
+  it('tells the other tabs once a sign-out here settles, succeeded or not, and after nothing else', async () => {
+    const heard: unknown[] = []
+    const tabs = new BroadcastChannel(SESSION_CHANNEL)
+    tabs.addEventListener('message', (event) => heard.push(event.data))
+    const client = (signOut: () => Promise<unknown>) =>
+      announcingSignOut({
+        start: () => Promise.resolve(),
+        stop: () => undefined,
+        subscribe: () => () => undefined,
+        call: ((name: string) =>
+          name === 'auth.signOut'
+            ? signOut()
+            : Promise.resolve([])) as unknown as CindlClientApi['call'],
+      })
+    try {
+      const signsOut = client(() =>
+        Promise.resolve({ localOnly: true, hermesConfirmed: true }),
+      )
+      await signsOut.call('conversations.list', {})
+      await nextTask()
+      expect(heard).toEqual([])
+      expect(await signsOut.call('auth.signOut', {})).toEqual({
+        localOnly: true,
+        hermesConfirmed: true,
+      })
+      await vi.waitFor(() => expect(heard).toEqual(['signed-out']))
+      const fails = client(() => Promise.reject(new Error('Keychain locked.')))
+      await expect(fails.call('auth.signOut', {})).rejects.toThrow('Keychain locked.')
+      await vi.waitFor(() => expect(heard).toEqual(['signed-out', 'signed-out']))
+    } finally {
+      tabs.close()
+    }
+  })
+})
+
+describe('an unconfirmed sign-out in the shell', () => {
+  it('is forgotten once the page is online again', async () => {
+    window.history.replaceState(null, '', '#/talk')
+    // jsdom has no matchMedia: a narrow window.
+    vi.stubGlobal('matchMedia', (media: string) => ({
+      matches: false,
+      media,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    }))
+    const scenario = createScenarioClient({ speed: 0 })
+    const listeners = new Set<(event: CindlEvent) => void>()
+    const api: CindlClientApi = {
+      call: ((name: never, args: never) =>
+        name === 'auth.signOut'
+          ? Promise.resolve({ localOnly: true, hermesConfirmed: false })
+          : scenario.call(name, args)) as CindlClientApi['call'],
+      subscribe: (listener) => {
+        listeners.add(listener)
+        const off = scenario.subscribe(listener)
+        return () => {
+          listeners.delete(listener)
+          off()
+        }
+      },
+    }
+    render(
+      <ClientKindContext value="hermes">
+        <CindlProvider api={api}>
+          <AppShell />
+        </CindlProvider>
+      </ClientKindContext>,
+    )
+    const emit = (phase: LinkState['phase']) =>
+      act(async () => {
+        for (const listener of listeners)
+          listener({
+            type: 'link.changed',
+            link: {
+              phase,
+              demo: false,
+              since: new Date().toISOString(),
+              connectionEpoch: 2,
+            },
+          })
+        await Promise.resolve()
+      })
+    await act(async () => {
+      for (let i = 0; i < 12; i++) await Promise.resolve()
+    })
+    await signOutHere(api)
+    await emit('signed-out')
+    expect(screen.getByRole('button', { name: 'Sign out on Hermes' })).toBeTruthy()
+    await emit('online')
+    await emit('signed-out')
+    expect(screen.getByRole('button', { name: 'Sign in on Hermes' })).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Sign out on Hermes' })).toBeNull()
   })
 })
 

@@ -201,3 +201,99 @@ test("served at /cindl/ on Hermes's origin, the production build signs in with H
   expect(kept).toEqual({ local: [], session: 0, databases: [] })
   expect(errors).toEqual([])
 })
+
+test('a sign-out in one tab reaches the other tabs at once, and one Hermes did not confirm can be tried again', async ({
+  browser,
+}) => {
+  test.setTimeout(90_000)
+  const context = await browser.newContext()
+  try {
+    const errors: string[] = []
+    const watch = (page: Page, name: string) =>
+      page.on('console', (message) => {
+        if (message.type() === 'error')
+          errors.push(`${name}: ${message.text()} (${message.location().url || 'page'})`)
+      })
+    // Online, whatever conversations the fake already holds from the test before.
+    const online = (page: Page) => page.getByRole('img', { name: 'Connected' })
+    const a = await context.newPage()
+    watch(a, 'a')
+    await a.goto(`${site.origin}/cindl/`)
+    await a.getByRole('button', { name: 'Sign in on Hermes' }).click()
+    await a.waitForURL(/\/login\?next=/)
+    await a.getByRole('button', { name: 'Sign in' }).click()
+    await a.waitForURL(`${site.origin}/cindl/`)
+    await expect(online(a)).toBeVisible()
+
+    // A second tab, on the same cookie. Its clock stops once it is online, so
+    // no timer of its own (the 15 s request tick) can ask Hermes about the
+    // session: only the other tab's cue can.
+    const b = await context.newPage()
+    watch(b, 'b')
+    const checks: string[] = []
+    b.on('request', (request) => {
+      if (new URL(request.url()).pathname === '/api/auth/me')
+        checks.push(request.method())
+    })
+    await b.clock.install()
+    await b.goto(`${site.origin}/cindl/`)
+    await expect(online(b)).toBeVisible()
+    await b.clock.pauseAt(Date.now() + 1000)
+    const before = checks.length
+    const session = async () =>
+      (await context.cookies()).filter((cookie) =>
+        cookie.name.startsWith('hermes_session'),
+      ).length
+
+    // Hermes fails the logout: this tab says so and offers another try. The
+    // other tab asks Hermes at once and, its cookie still good, stays signed in.
+    fake.failNextRest('POST /auth/logout', 500)
+    await a.goto(`${site.origin}/cindl/#/agent/device`)
+    await a.getByRole('button', { name: 'Sign out on this device' }).click()
+    const again = a.getByRole('button', { name: 'Sign out on Hermes' })
+    await expect(again).toBeVisible()
+    await expect(a.getByText(/Hermes has not confirmed the sign-out/)).toBeVisible()
+    await expect.poll(() => checks.length).toBe(before + 1)
+    await expect(online(b)).toBeVisible()
+    expect(await session()).toBeGreaterThan(0)
+
+    // Tried again from the keyboard and still refused: the offer stays, with focus on it.
+    fake.failNextRest('POST /auth/logout', 500)
+    await again.focus()
+    await a.keyboard.press('Enter')
+    await expect.poll(() => checks.length).toBe(before + 2)
+    await expect(again).toBeEnabled()
+    await expect(again).toBeFocused()
+
+    // Hermes clears the cookie this time: this tab confirms it and moves focus
+    // to signing in, and the other tab, told at once, signs out too.
+    await a.keyboard.press('Enter')
+    await expect(
+      a
+        .getByRole('status')
+        .filter({ hasText: 'Hermes cleared its session cookie in this browser.' }),
+    ).toBeVisible()
+    await expect(again).toHaveCount(0)
+    await expect(a.getByRole('button', { name: 'Sign in on Hermes' })).toBeFocused()
+    await expect(b.getByRole('button', { name: 'Sign in on Hermes' })).toBeVisible()
+    expect(checks.length).toBe(before + 3)
+    expect(await session()).toBe(0)
+
+    // Expected errors only: Hermes's two failed logouts, the gate's 401 before
+    // the sign-in and after the sign-out, and the fake login page's missing icon.
+    const failed = `Failed to load resource: the server responded with a status of 500 (Internal Server Error) (${site.origin}/auth/logout)`
+    const refused = `Failed to load resource: the server responded with a status of 401 (Unauthorized) (${site.origin}/api/auth/me)`
+    const noIcon = `Failed to load resource: the server responded with a status of 404 (Not Found) (${site.origin}/favicon.ico)`
+    expect(errors.filter((error) => error !== `a: ${noIcon}`).sort()).toEqual(
+      [
+        `a: ${refused}`,
+        `a: ${failed}`,
+        `a: ${failed}`,
+        `a: ${refused}`,
+        `b: ${refused}`,
+      ].sort(),
+    )
+  } finally {
+    await context.close()
+  }
+})

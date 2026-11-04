@@ -1,11 +1,12 @@
 import { useCindlApi, useLink } from '@cindl/client-react'
 import { HermesOrigin, isCindlError } from '@cindl/contracts'
-import { useId, useRef, useState } from 'react'
+import { useId, useLayoutEffect, useRef, useState } from 'react'
 import { hermesSignInPage } from '../platform/client.ts'
 import { useClientKind } from '../platform/clientKind.ts'
 import { Mark } from '../ui/Mark.tsx'
 import { Button } from '../ui/primitives.tsx'
 import styles from './notconnected.module.css'
+import { signOutHere, useSignOutUnconfirmed } from './signOut.ts'
 
 /** Shown when this client has no Hermes session; how it signs in depends on the client. */
 export function SignIn() {
@@ -19,19 +20,56 @@ export function SignIn() {
  */
 function SameOriginSignIn() {
   const api = useCindlApi()
+  const unconfirmed = useSignOutUnconfirmed()
   const [error, setError] = useState<string>()
-  const [busy, setBusy] = useState(false)
+  const [busy, setBusy] = useState<'checking' | 'signing-out'>()
+  // Hermes confirmed the sign-out this screen tried again.
+  const [confirmed, setConfirmed] = useState(false)
+  const signInButton = useRef<HTMLButtonElement>(null)
+  // The button pressed is disabled while its request is out, which takes
+  // focus off it in a browser. Once the request settles, focus goes back to
+  // it, or to what replaced it, unless the owner moved focus meanwhile.
+  const returnFocus = useRef<HTMLButtonElement | null>(null)
+  useLayoutEffect(() => {
+    if (busy !== undefined) return
+    const target = returnFocus.current
+    returnFocus.current = null
+    if (!target?.isConnected) return
+    const active = target.ownerDocument.activeElement
+    if (!active || active === target.ownerDocument.body || active === target)
+      target.focus()
+  }, [busy])
   const signIn = () => window.location.assign(hermesSignInPage())
   // Signed in elsewhere (another tab): check this browser's session again.
-  const retry = async () => {
+  const retry = async (button: HTMLButtonElement) => {
+    returnFocus.current = button
     setError(undefined)
-    setBusy(true)
+    setBusy('checking')
     try {
       await api.call('auth.signIn', { origin: window.location.origin })
     } catch (err) {
       setError(isCindlError(err) ? err.message : 'Sign-in did not complete.')
     } finally {
-      setBusy(false)
+      setBusy(undefined)
+    }
+  }
+  // Hermes did not confirm the last sign-out, so its cookie may still sign
+  // this browser in: ask Hermes again.
+  const signOutAgain = async (button: HTMLButtonElement) => {
+    returnFocus.current = button
+    setError(undefined)
+    setBusy('signing-out')
+    try {
+      const result = await signOutHere(api)
+      if (result.hermesConfirmed !== false) {
+        setConfirmed(true)
+        // The button pressed is gone: the next step is signing in.
+        returnFocus.current = signInButton.current
+      }
+    } catch {
+      setError('Signing out did not complete. Try again.')
+    } finally {
+      setBusy(undefined)
     }
   }
   return (
@@ -43,17 +81,39 @@ function SameOriginSignIn() {
           This Cindl is served by your Hermes. Sign in on Hermes's own page and you come
           back here. Cindl never sees your password; your session stays in this browser.
         </p>
+        {unconfirmed ? (
+          <>
+            <p>
+              Hermes has not confirmed the sign-out, so this browser may still be signed
+              in to it.
+            </p>
+            <div className={styles.actions}>
+              <Button
+                disabled={busy !== undefined}
+                onClick={(event) => void signOutAgain(event.currentTarget)}
+              >
+                {busy === 'signing-out' ? 'Signing out…' : 'Sign out on Hermes'}
+              </Button>
+            </div>
+          </>
+        ) : confirmed ? (
+          <p role="status">Hermes cleared its session cookie in this browser.</p>
+        ) : null}
         {error ? (
           <p className={styles.fieldError} role="alert">
             {error}
           </p>
         ) : null}
         <div className={styles.actions}>
-          <Button variant="primary" onClick={signIn}>
+          <Button ref={signInButton} variant="primary" onClick={signIn}>
             Sign in on Hermes
           </Button>
-          <Button variant="quiet" disabled={busy} onClick={() => void retry()}>
-            {busy ? 'Checking…' : 'Check again'}
+          <Button
+            variant="quiet"
+            disabled={busy !== undefined}
+            onClick={(event) => void retry(event.currentTarget)}
+          >
+            {busy === 'checking' ? 'Checking…' : 'Check again'}
           </Button>
         </div>
       </div>

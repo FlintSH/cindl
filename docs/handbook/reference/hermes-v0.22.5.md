@@ -170,10 +170,13 @@ same-origin requests, and it keeps nothing in browser storage.
   a socket outlives the cookies that opened it: a sign-out in another tab
   clears the cookies the tabs share, not this tab's socket. In cookie mode the
   direct client therefore asks `GET /api/auth/me` on its 15 s request tick and
-  whenever the platform's `watchSession` cue fires, such as a page becoming
-  visible again; the gate's 401 then ends the session as above. Cues share
-  the one request in flight, any other failure waits for the next check, and
-  native mode never asks.
+  whenever the platform's `watchSession` cue fires; the gate's 401 then ends
+  the session as above. The web's cue is the page becoming visible again, or
+  a `'signed-out'` message on the `BroadcastChannel` `cindl.session`, which
+  each tab posts once its `auth.signOut` settles. Cues share the one request
+  in flight, any other failure waits for the next check, and native mode never
+  asks. The check is a request like any other, so it also lets the gate renew
+  an expired access cookie: an open tab keeps its session in use.
 - `auth.signOut` posts `POST /auth/logout` (`routes.py:496-512`). Hermes clears
   the cookies, which only it can do since they are HttpOnly, and answers a 302
   to `/login`, an opaque redirect to a browser under `redirect: 'manual'`.

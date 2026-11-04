@@ -17,8 +17,8 @@ import { linkCopy } from '../shell/LinkStatus.tsx'
 import { Badge, Button, Dot, SectionTitle, type Tone } from '../ui/primitives.tsx'
 import { RequireCapability } from '../views/Capability.tsx'
 import { useClientKind } from '../platform/clientKind.ts'
-import { pruneRequestDrafts } from '../talk/RequestCard.tsx'
-import { DocumentEditor, forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
+import { signOutHere } from '../shell/signOut.ts'
+import { DocumentEditor } from '../views/DocumentEditor.tsx'
 import { useResource } from '../views/useResource.ts'
 import styles from '../views/views.module.css'
 
@@ -274,13 +274,8 @@ function Device() {
           disabled={link.phase === 'signed-out'}
           onClick={() => {
             setOutcome(undefined)
-            void api.call('auth.signOut', {}).then(
-              () => {
-                // Nothing typed on this device outlives the session.
-                pruneRequestDrafts(new Set())
-                forgetDocumentDrafts()
-                setOutcome('done')
-              },
+            void signOutHere(api).then(
+              () => setOutcome('done'),
               () => setOutcome('failed'),
             )
           }}
