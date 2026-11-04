@@ -2335,6 +2335,44 @@ describe('direct client: the switch after a sign-in with a working session', () 
     expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
   })
 
+  it("reads B's device state once, before its checks, with nothing read after them", async () => {
+    const h = await harness()
+    const b = await fakeHermes()
+    const realGet = h.kv.get.bind(h.kv)
+    const reads: string[] = []
+    h.kv.get = async (key: string) => {
+      if (key.includes(`|${b.origin}|`)) reads.push(key.slice(key.lastIndexOf('|') + 1))
+      return realGet(key)
+    }
+    await h.client.call('auth.signIn', { origin: b.origin })
+    expect(reads.sort()).toEqual(['accepted', 'epoch', 'main', 'outbox'])
+  })
+
+  it("saves B's outbox as the switch recovered it", async () => {
+    const h = await harness()
+    const b = await fakeHermes()
+    const outboxKey = `cindl.direct.v1|${b.origin}|outbox`
+    // A prompt this device was sending to B when the app last stopped.
+    await h.kv.set(
+      outboxKey,
+      JSON.stringify([
+        {
+          clientId: 'p-was-sending',
+          conversationId: 'c-fixture',
+          text: 'Send the report (fixture)',
+          createdAt: '2026-01-01T00:00:00.000Z',
+          state: 'sending',
+        },
+      ]),
+    )
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.waitFor(
+      () =>
+        (JSON.parse(h.kv.map.get(outboxKey) ?? '[]') as Array<{ state?: string }>)[0]
+          ?.state === 'uncertain',
+    )
+  })
+
   it('does not connect after a stop() there; the next start finds the sign-in', async () => {
     const h = await harness()
     const b = await fakeHermes()
