@@ -32,7 +32,8 @@ allowBuilds:
   esbuild: false
 
 # Security overrides for transitive dev tooling. Remove each one once its
-# dependents accept the patched version.
+# dependents accept the patched version. Alerts left without one, and why,
+# are in docs/handbook/development/workflow.md (glob 13, under Expo's tools).
 overrides:
   # GHSA-g3hv-75wg-m249 (ReDoS through glob parts). Dev-only. 11.0.1 is the
   # first fix. It also replaces the ^3 that electron-builder's glob@7.2.3 and

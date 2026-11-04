@@ -93,6 +93,103 @@ const approve = (h: Harness, requestId: string, choice: 'once' | 'deny') =>
     answer: { kind: 'approval', choice },
   })
 
+/** A prompt this device was sending to `origin` when the app last stopped; returns its outbox key. */
+async function seedSendingPrompt(kv: KeyValueStore, origin: string): Promise<string> {
+  const key = `cindl.direct.v1|${origin}|outbox`
+  await kv.set(
+    key,
+    JSON.stringify([
+      {
+        clientId: 'p-was-sending',
+        conversationId: 'c-fixture',
+        text: 'Send the report (fixture)',
+        createdAt: '2026-01-01T00:00:00.000Z',
+        state: 'sending',
+      },
+    ]),
+  )
+  return key
+}
+
+/** Hold the first device-state read for `origin`, which the switch makes. */
+function holdDeviceRead(h: Harness, origin: string) {
+  const realGet = h.kv.get.bind(h.kv)
+  const hold: { armed: boolean; arrived?: () => void; release?: () => void } = {
+    armed: true,
+  }
+  const arrived = new Promise<void>((resolve) => (hold.arrived = resolve))
+  h.kv.get = async (key: string) => {
+    if (hold.armed && key.includes(`|${origin}|`)) {
+      hold.armed = false
+      hold.arrived?.()
+      await new Promise<void>((resolve) => (hold.release = resolve))
+    }
+    return realGet(key)
+  }
+  return { arrived, release: () => hold.release?.() }
+}
+
+/** The names of `origin`'s device state the client reads from now on. */
+function deviceReads(h: Harness, origin: string): string[] {
+  const realGet = h.kv.get.bind(h.kv)
+  const reads: string[] = []
+  h.kv.get = async (key: string) => {
+    if (key.includes(`|${origin}|`)) reads.push(key.slice(key.lastIndexOf('|') + 1))
+    return realGet(key)
+  }
+  return reads
+}
+
+/** The store holds what a renderer subscribing now is told. */
+function expectStoreMatchesSeed(h: Harness): void {
+  const late = createStore({
+    phase: 'connecting',
+    since: '2026-01-01T00:00:00.000Z',
+    connectionEpoch: 0,
+  })
+  h.client.subscribe((event) => late.dispatch(event))()
+  for (const key of ['link', 'capabilities', 'conversations', 'prompts'] as const)
+    expect(h.store.getState()[key]).toEqual(late.getState()[key])
+}
+
+/**
+ * A browser leg whose first sign-in waits until the test fails it; later ones
+ * complete. No shipped shell overlaps two sign-ins in the client: desktop's
+ * inTurn lets the older attempt settle before the newer one reaches it, and
+ * Android refuses a second sign-in. The client keeps them apart all the same.
+ */
+function heldFirstLeg() {
+  const leg: { calls: number; arrived?: () => void; fail?: (error: Error) => void } = {
+    calls: 0,
+  }
+  const arrived = new Promise<void>((resolve) => (leg.arrived = resolve))
+  const authorizer = {
+    async authorize(buildUrl: (redirectUri: string) => string) {
+      if (++leg.calls === 1) {
+        leg.arrived?.()
+        await new Promise<never>((_, reject) => (leg.fail = reject))
+      }
+      const response = await fetch(buildUrl('http://127.0.0.1:53682/callback'), {
+        redirect: 'manual',
+      })
+      return response.headers.get('location') ?? ''
+    },
+  }
+  return { authorizer, arrived, fail: (error: Error) => leg.fail?.(error) }
+}
+
+/** The links the client reports from now on, as `phase@origin`. */
+function linkLog(h: Harness): string[] {
+  const links: string[] = []
+  h.client.subscribe((event) => {
+    if (event.type === 'link.changed')
+      links.push(`${event.link.phase}@${event.link.server?.origin ?? 'none'}`)
+  })
+  // Not the link a new subscriber is told at once.
+  links.length = 0
+  return links
+}
+
 describe('direct client: start', () => {
   it('tells its subscriber the link and capabilities when no Hermes is configured', async () => {
     const unreachable = () => Promise.reject(new Error('not used (fixture)'))
@@ -117,6 +214,37 @@ describe('direct client: start', () => {
     expect(events[0]).toMatchObject({ link: { phase: 'unconfigured' } })
     for (const event of events) CindlEvent.parse(event)
     client.stop()
+  })
+})
+
+describe('direct client: a fresh client wired into a store that saw another origin', () => {
+  it('names its origin before the prompts start() recovers, so the store keeps them', async () => {
+    const a = await fakeHermes()
+    const kv = memoryKv()
+    await seedSendingPrompt(kv, a.origin)
+    // Desktop's restart after a failed switch: the renderer's store last saw B.
+    const store = createStore({
+      phase: 'unconfigured',
+      since: '2026-01-01T00:00:00.000Z',
+      connectionEpoch: 0,
+    })
+    store.dispatch({
+      type: 'link.changed',
+      link: {
+        phase: 'signed-out',
+        since: '2026-01-01T00:00:00.000Z',
+        connectionEpoch: 0,
+        auth: 'native-pkce',
+        server: { origin: 'https://hermes-b.example.invalid' },
+      },
+    })
+    const h = await harness({ fake: a, kv, store, signIn: false })
+    expect(h.events[0]).toMatchObject({
+      type: 'link.changed',
+      link: { server: { origin: a.origin } },
+    })
+    expect(entry(h.store.getState().prompts, 'p-was-sending')?.state).toBe('uncertain')
+    expectStoreMatchesSeed(h)
   })
 })
 
@@ -148,6 +276,22 @@ describe('direct client: signing in to another origin', () => {
     expect(await h.client.call('conversations.list', {})).toBeDefined()
   })
 
+  it("reads none of A's device state again, whether the sign-in elsewhere fails or not", async () => {
+    const h = await harness()
+    // A prompt saved as sending that A's client does not hold as such.
+    await seedSendingPrompt(h.kv, h.fake.origin)
+    const readsA = deviceReads(h, h.fake.origin)
+    const other = await fakeHermes({ nativeSignIn: 'deny' })
+    expect(await codeOf(h.client.call('auth.signIn', { origin: other.origin }))).not.toBe(
+      'resolved',
+    )
+    // Still on A, which shows no such prompt.
+    expect(entry(h.store.getState().prompts, 'p-was-sending')).toBeUndefined()
+    const b = await fakeHermes()
+    await h.client.call('auth.signIn', { origin: b.origin })
+    expect(readsA).toEqual([])
+  })
+
   it('switches only once the new sign-in succeeds', async () => {
     const h = await harness()
     const other = await fakeHermes()
@@ -158,6 +302,129 @@ describe('direct client: signing in to another origin', () => {
         h.store.getState().link.server?.origin === other.origin,
     )
     await h.waitFor(() => h.fake.gateway.connections.size === 0)
+  })
+
+  it("keeps B's recovered prompts when a sign-in without a session switches to B", async () => {
+    const h = await harness({ signIn: false })
+    const b = await fakeHermes()
+    const outboxKey = await seedSendingPrompt(h.kv, b.origin)
+    const links = linkLog(h)
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === b.origin,
+    )
+    // The link named B before B's prompts came, so the store kept them.
+    expect(entry(h.store.getState().prompts, 'p-was-sending')?.state).toBe('uncertain')
+    expect(JSON.parse(h.kv.map.get(outboxKey) ?? '[]')).toMatchObject([
+      { clientId: 'p-was-sending', state: 'uncertain' },
+    ])
+    expect(links[0]).toBe(`connecting@${b.origin}`)
+    expect(new Set(links)).toEqual(
+      new Set([`connecting@${b.origin}`, `online@${b.origin}`]),
+    )
+  })
+
+  it("asks B nothing before it has read B's device state", async () => {
+    const h = await harness({ signIn: false })
+    const b = await fakeHermes()
+    const read = holdDeviceRead(h, b.origin)
+    const signingIn = h.client.call('auth.signIn', { origin: b.origin })
+    await read.arrived
+    await pause(100)
+    expect(b.calls.filter((c) => c.kind === 'rest')).toEqual([])
+    read.release()
+    await signingIn
+  })
+
+  it('lets a stop() during the switch hold: no connect until start()', async () => {
+    const h = await harness({ signIn: false })
+    const b = await fakeHermes()
+    const read = holdDeviceRead(h, b.origin)
+    const signingIn = h.client.call('auth.signIn', { origin: b.origin })
+    await read.arrived
+    h.client.stop()
+    read.release()
+    // The sign-in stands, but nothing connects, and the link says so for B.
+    expect(await signingIn).toMatchObject({
+      phase: 'offline',
+      server: { origin: b.origin },
+    })
+    await pause(100)
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'offline',
+      server: { origin: b.origin },
+    })
+    expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
+    await h.client.start()
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === b.origin,
+    )
+  })
+
+  it('keeps a failure off the link when a stop() came first', async () => {
+    const h = await harness({ signIn: false })
+    const b = await fakeHermes({ nativeSignIn: 'deny' })
+    const status = b.holdNextRest('GET /api/status')
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await status.arrived
+    h.client.stop()
+    status.release()
+    // The sign-in still fails to its caller, but the link stays the stop()'s.
+    expect(await signingIn).toBe('unauthenticated')
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'offline',
+      server: { origin: b.origin },
+    })
+    expect(h.store.getState().link.lastError).toBeUndefined()
+  })
+
+  it("keeps an older sign-in's failure off a newer one's link", async () => {
+    const leg = heldFirstLeg()
+    const h = await harness({ signIn: false, deps: { authorizer: leg.authorizer } })
+    const b = await fakeHermes()
+    const c = await fakeHermes()
+    const first = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await leg.arrived
+    const statusC = c.holdNextRest('GET /api/status')
+    const second = h.client.call('auth.signIn', { origin: c.origin })
+    await statusC.arrived
+    leg.fail(new Error('browser closed (fixture)'))
+    expect(await first).not.toBe('resolved')
+    // C's sign-in is still under way, and its link shows nothing of B's failure.
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'connecting',
+      server: { origin: c.origin },
+    })
+    expect(h.store.getState().link.lastError).toBeUndefined()
+    statusC.release()
+    await second
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === c.origin,
+    )
+  })
+
+  it("keeps an older sign-in's Hermes version off a newer one's failed link", async () => {
+    const leg = heldFirstLeg()
+    const h = await harness({ signIn: false, deps: { authorizer: leg.authorizer } })
+    const b = await fakeHermes({ version: '9.9.9-b' })
+    const c = await fakeHermes()
+    const first = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await leg.arrived
+    const statusC = c.holdNextRest('GET /api/status')
+    const second = codeOf(h.client.call('auth.signIn', { origin: c.origin }))
+    await statusC.arrived
+    leg.fail(new Error('browser closed (fixture)'))
+    expect(await first).not.toBe('resolved')
+    // C does not answer, so its failed link has no version to show: none of B's.
+    statusC.release({ status: 500, body: { detail: 'restarting (fixture)' } })
+    expect(await second).not.toBe('resolved')
+    expect(h.store.getState().link.server).toEqual({ origin: c.origin })
   })
 
   it('ends a failed first sign-in signed out with the error, not connecting', async () => {
@@ -177,6 +444,21 @@ describe('direct client: signing in to another origin', () => {
       lastError: { code: 'offline' },
       server: { origin: UNREACHABLE },
     })
+  })
+})
+
+describe('direct client: signing in again to the same origin', () => {
+  it('reads none of its device state again, so a saved copy cannot replace what it holds', async () => {
+    const h = await harness()
+    await h.client.call('auth.signOut', {})
+    // A prompt saved as sending that this client does not hold as such, as a
+    // failed outbox write can leave one behind.
+    await seedSendingPrompt(h.kv, h.fake.origin)
+    const reads = deviceReads(h, h.fake.origin)
+    await h.client.call('auth.signIn', { origin: h.fake.origin })
+    await online(h)
+    expect(reads).toEqual([])
+    expect(entry(h.store.getState().prompts, 'p-was-sending')).toBeUndefined()
   })
 })
 
@@ -2292,5 +2574,148 @@ describe('direct client: a sign-out whose own delete is slow', () => {
     state.releaseDelete?.()
     await signingOut
     expect(state.setsFor).not.toContain(nativeTokensKey(b.origin))
+  })
+})
+
+describe('direct client: the switch after a sign-in with a working session', () => {
+  it('fails the sign-in on a sign-out there: the client stays on A, signed out, with no tokens', async () => {
+    const h = await harness()
+    const b = await fakeHermes()
+    const read = holdDeviceRead(h, b.origin)
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await read.arrived
+    // B's sign-in has stored its tokens by now; the switch is still to come.
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(true)
+    await h.client.call('auth.signOut', {})
+    read.release()
+    expect(await signingIn).toBe('unauthenticated')
+    await pause(100)
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'signed-out',
+      server: { origin: h.fake.origin },
+    })
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(false)
+    expect(h.secrets.map.has(nativeTokensKey(h.fake.origin))).toBe(false)
+    expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
+  })
+
+  it("reads B's device state once, before its checks, with nothing read after them", async () => {
+    const h = await harness()
+    const b = await fakeHermes()
+    const reads = deviceReads(h, b.origin)
+    await h.client.call('auth.signIn', { origin: b.origin })
+    expect(reads.sort()).toEqual(['accepted', 'epoch', 'main', 'outbox'])
+  })
+
+  it("saves B's outbox as the switch recovered it, and the store keeps it", async () => {
+    const h = await harness()
+    const b = await fakeHermes()
+    const outboxKey = await seedSendingPrompt(h.kv, b.origin)
+    const links = linkLog(h)
+    await h.client.call('auth.signIn', { origin: b.origin })
+    await h.waitFor(
+      () =>
+        (JSON.parse(h.kv.map.get(outboxKey) ?? '[]') as Array<{ state?: string }>)[0]
+          ?.state === 'uncertain',
+    )
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === b.origin,
+    )
+    // The link named B before B's prompts came, so the store kept them.
+    expect(entry(h.store.getState().prompts, 'p-was-sending')?.state).toBe('uncertain')
+    // The sign-in succeeded, so B is connecting: never signed out or offline,
+    // and A does not show offline on the way.
+    expect(links[0]).toBe(`connecting@${b.origin}`)
+    expect(new Set(links)).toEqual(
+      new Set([`connecting@${b.origin}`, `online@${b.origin}`]),
+    )
+  })
+
+  it('does not connect after a stop() there; the next start finds the sign-in', async () => {
+    const h = await harness()
+    const b = await fakeHermes()
+    const a = await conversation(h)
+    const read = holdDeviceRead(h, b.origin)
+    const signingIn = h.client.call('auth.signIn', { origin: b.origin })
+    await read.arrived
+    h.client.stop()
+    read.release()
+    expect((await signingIn).server?.origin).toBe(b.origin)
+    await pause(100)
+    // Nothing connects, and the link says so for B, the origin it now has.
+    expect(h.store.getState().link).toMatchObject({
+      phase: 'offline',
+      server: { origin: b.origin },
+    })
+    expect(entry(h.store.getState().conversations, a.id)).toBeUndefined()
+    // The store holds what a renderer subscribing now is told: nothing of A.
+    expectStoreMatchesSeed(h)
+    expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
+    // The switch took B's device state up, so the next start reads none of it.
+    const reads = deviceReads(h, b.origin)
+    await h.client.start()
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === b.origin,
+    )
+    expect(reads).toEqual([])
+  })
+})
+
+describe('direct client: a sign-out while an installed sign-in writes its tokens', () => {
+  /** A store that applies writes in call order, and answers one key's write only when released. */
+  function slowWriteSecrets() {
+    const base = memorySecrets()
+    const hold: { key: string | undefined; arrived?: () => void; release?: () => void } =
+      {
+        key: undefined,
+      }
+    const arrived = new Promise<void>((resolve) => (hold.arrived = resolve))
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...base,
+      set: async (key, value) => {
+        await base.set(key, value)
+        if (key === hold.key) {
+          hold.key = undefined
+          hold.arrived?.()
+          await new Promise<void>((resolve) => (hold.release = resolve))
+        }
+      },
+    }
+    return { base, secrets, hold, arrived }
+  }
+
+  it('fails a sign-in to another origin without a working session, and keeps no tokens', async () => {
+    const s = slowWriteSecrets()
+    const h = await harness({ signIn: false, secrets: s.secrets })
+    await h.waitFor(() => h.store.getState().link.phase === 'signed-out')
+    const b = await fakeHermes()
+    s.hold.key = nativeTokensKey(b.origin)
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await s.arrived
+    await h.client.call('auth.signOut', {})
+    s.hold.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    await pause(100)
+    expect(h.store.getState().link.phase).toBe('signed-out')
+    expect(s.base.map.has(nativeTokensKey(b.origin))).toBe(false)
+  })
+
+  it('fails a sign-in to the same origin, and keeps no tokens', async () => {
+    const s = slowWriteSecrets()
+    const h = await harness({ signIn: false, secrets: s.secrets })
+    await h.waitFor(() => h.store.getState().link.phase === 'signed-out')
+    s.hold.key = nativeTokensKey(h.fake.origin)
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: h.fake.origin }))
+    await s.arrived
+    await h.client.call('auth.signOut', {})
+    s.hold.release?.()
+    expect(await signingIn).toBe('unauthenticated')
+    await pause(100)
+    expect(h.store.getState().link.phase).toBe('signed-out')
+    expect(s.base.map.has(nativeTokensKey(h.fake.origin))).toBe(false)
   })
 })

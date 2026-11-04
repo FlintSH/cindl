@@ -147,6 +147,14 @@ interface TrackedRequest {
 
 type ReattachOutcome = 'ok' | 'gone' | 'abort'
 
+/** This device's state for one Hermes origin, as its storage holds it. */
+interface DeviceState {
+  epoch: number
+  main: string | undefined
+  accepted: string[]
+  outbox: PendingPrompt[]
+}
+
 const LOOPBACK_MODE =
   'Hermes is running in loopback-token mode. Cindl needs a sign-in provider (password or OAuth) and never reads the per-process dashboard token.'
 
@@ -245,7 +253,9 @@ class DirectHermesClient implements DirectClient {
   #started = false
   /**
    * Bumped by start(), stop() and sign-in: work begun under an older value
-   * (a discovery, a sign-in) neither connects nor changes the link.
+   * (a discovery, a sign-in) neither connects nor shows its outcome on the
+   * link, except that a sign-in with a working session still switches to its
+   * origin when it succeeds, offline.
    */
   #run = 0
   #discoveryRetry: unknown
@@ -262,12 +272,13 @@ class DirectHermesClient implements DirectClient {
   /**
    * Native sign-ins to another origin still in flight. They are installed
    * only once they succeed, so a sign-out in the meantime finds them here and
-   * signs each out too: none can store tokens or switch the client after it.
+   * signs each out too: none keeps tokens or switches the client after it.
    */
   readonly #signingIn = new Set<NativeAuth>()
   /**
-   * Bumped by auth.signOut. A native sign-in begun before it never opens the
-   * browser, stores tokens or switches the client after it, wherever it was.
+   * Bumped by auth.signOut. A native sign-in begun before it fails: it opens
+   * no browser after it, keeps no tokens (any it wrote, the sign-out deletes)
+   * and does not switch the client after it.
    */
   #signOuts = 0
   #deviceLoaded = false
@@ -457,11 +468,26 @@ class DirectHermesClient implements DirectClient {
       this.#refreshCapabilities()
       return
     }
-    if (!this.#deviceLoaded) await this.#loadDevice()
+    if (!this.#deviceLoaded) {
+      // Name the origin on the link before any of its device state, as a
+      // switch does: a store that last saw another origin (desktop wires a
+      // fresh client into the renderer's store) would forget what came first.
+      this.#setLink('connecting')
+      await this.#loadDevice()
+    }
     await this.#discoverAndConnect(run)
   }
 
   stop(): void {
+    this.#halt()
+    const phase = this.#link.phase
+    if (phase === 'online' || phase === 'connecting' || phase === 'reconnecting')
+      this.#setLink('offline')
+    this.#refreshCapabilities()
+  }
+
+  /** What stop() does, without reporting it on the link or in capabilities. */
+  #halt(): void {
     this.#started = false
     this.#run++
     this.#deps.clock.clearTimeout(this.#discoveryRetry)
@@ -473,10 +499,6 @@ class DirectHermesClient implements DirectClient {
     this.#handshake = undefined
     this.#deps.clock.clearTimeout(this.#listRefresh)
     this.#deps.clock.clearTimeout(this.#requestSync)
-    const phase = this.#link.phase
-    if (phase === 'online' || phase === 'connecting' || phase === 'reconnecting')
-      this.#setLink('offline')
-    this.#refreshCapabilities()
   }
 
   // --- setup -------------------------------------------------------------------
@@ -542,27 +564,63 @@ class DirectHermesClient implements DirectClient {
     this.#install(this.#parts(origin))
   }
 
+  /**
+   * Switch with the new origin's device state already read: it awaits
+   * nothing, so no sign-out or stop() can land halfway through it. `phase`
+   * is the new origin's first link: connecting when a connect follows,
+   * offline when a stop() keeps it from connecting.
+   */
+  #switchToRead(
+    parts: OriginParts,
+    device: DeviceState,
+    phase: 'connecting' | 'offline',
+  ): void {
+    this.#leaveFor(parts, phase)
+    this.#deviceLoaded = true
+    if (this.#takeDevice(device)) void parts.storage.saveOutbox(this.#prompts.values())
+  }
+
   /** Leave the current origin and take up `parts`: nothing of the old session survives. */
-  async #switchTo(parts: OriginParts): Promise<void> {
+  #leaveFor(parts: OriginParts, phase: 'connecting' | 'offline'): void {
     // Retire the sign-in left behind first: a refresh it still has in flight
     // must never write the old origin's tokens back once the platform deleted
     // them, nor touch a record for the same origin signed in again.
     if (this.#native !== parts.native) this.#native?.retire()
-    this.stop()
+    this.#halt()
     this.#reset()
     this.#install(parts)
-    await this.#loadDevice()
+    // Name the new origin on the link before any of its device state: the
+    // store forgets everything from another origin when a link first names a
+    // new one, so events sent before it (recovered prompts) would be lost.
+    this.#setLink(phase)
+    this.#refreshCapabilities()
   }
 
   async #loadDevice(): Promise<void> {
     const storage = this.#storage
     if (!storage) return
     this.#deviceLoaded = true
-    this.#epoch = await storage.loadEpoch()
-    this.#main = await storage.loadMain()
-    for (const clientId of await storage.loadAccepted()) this.#accepted.add(clientId)
+    if (this.#takeDevice(await this.#readDevice(storage)))
+      await storage.saveOutbox(this.#prompts.values())
+  }
+
+  /** What this device holds for one origin. Reads only. */
+  async #readDevice(storage: DirectStorage): Promise<DeviceState> {
+    return {
+      epoch: await storage.loadEpoch(),
+      main: await storage.loadMain(),
+      accepted: await storage.loadAccepted(),
+      outbox: await storage.loadOutbox(),
+    }
+  }
+
+  /** Take up device state already read; true when the outbox changed and wants saving. */
+  #takeDevice(device: DeviceState): boolean {
+    this.#epoch = device.epoch
+    this.#main = device.main
+    for (const clientId of device.accepted) this.#accepted.add(clientId)
     let changed = false
-    for (const prompt of await storage.loadOutbox()) {
+    for (const prompt of device.outbox) {
       // A prompt that was being sent when the app stopped may have reached Hermes.
       const recovered: PendingPrompt =
         prompt.state === 'sending'
@@ -576,7 +634,7 @@ class DirectHermesClient implements DirectClient {
       this.#prompts.set(recovered.clientId, recovered)
       this.#emit({ type: 'prompt.updated', prompt: recovered })
     }
-    if (changed) await storage.saveOutbox(this.#prompts.values())
+    return changed
   }
 
   /**
@@ -1814,8 +1872,9 @@ class DirectHermesClient implements DirectClient {
     'auth.signIn': async ({ origin }) => {
       // A working session (its link, tokens and connection) stays exactly as
       // it is until the new sign-in succeeds; a failed or cancelled one leaves
-      // it usable. Without one, the attempt shows on the link and a failure
-      // ends signed-out with the error.
+      // it usable. Without one, the attempt shows on the link, and a failure
+      // ends signed-out with the error while this sign-in still owns the
+      // client: not after a stop(), a newer start() or another sign-in.
       const signOuts = this.#signOuts
       const overtaken = () => {
         if (signOuts !== this.#signOuts)
@@ -1825,7 +1884,7 @@ class DirectHermesClient implements DirectClient {
       const switching = origin !== this.#origin
       const parts = switching ? this.#parts(origin) : this.#currentParts()
       if (!keep) {
-        if (switching) await this.#switchTo(parts)
+        if (switching) this.#leaveFor(parts, 'connecting')
         this.#started = true
         this.#setLink('connecting')
       }
@@ -1835,6 +1894,9 @@ class DirectHermesClient implements DirectClient {
       // stops, and a stop() before it finishes keeps it from connecting.
       const run = ++this.#run
       this.#deps.clock.clearTimeout(this.#discoveryRetry)
+      // Without a session the switch came first. Its device state loads only
+      // now, so a stop() during the read keeps this sign-in from connecting.
+      if (!keep && switching) await this.#loadDevice()
       let status: wire.StatusResponse | undefined
       let failed: LinkPhase = 'signed-out'
       try {
@@ -1868,22 +1930,31 @@ class DirectHermesClient implements DirectClient {
       } catch (error) {
         if (pending) this.#signingIn.delete(pending)
         const cause = asCindlError(error, 'auth.signIn')
-        if (!keep) {
+        // Without a session the failure shows on the link, but only while
+        // this sign-in still owns the client: after a stop(), a newer start()
+        // or another sign-in, the link is theirs.
+        if (!keep && run === this.#run) {
           if (status) this.#status = status
           this.#setLink(failed, cause)
           this.#refreshCapabilities()
         }
         throw cause
       }
+      // With a working session the switch comes only now. The new origin's
+      // device state is read before the checks below, and the switch itself
+      // awaits nothing, so a sign-out or stop() during the read is seen.
+      const device = keep && switching ? await this.#readDevice(parts.storage) : undefined
       // A sign-out came while it was in flight and signed it out as well: it
-      // stores nothing and does not switch the client.
+      // keeps no tokens and does not switch the client.
       if (pending && !this.#signingIn.delete(pending))
         throw new CindlError('unauthenticated', 'Signed out while signing in.')
+      // A sign-out at any point before here (the installed sign-in's token
+      // write included) fails this one.
       if (parts.native) overtaken()
       // stop() came in meanwhile: the sign-in stands, but nothing connects
       // until start(), which finds it again.
       const stopped = run !== this.#run
-      if (keep && switching) await this.#switchTo(parts)
+      if (device) this.#switchToRead(parts, device, stopped ? 'offline' : 'connecting')
       this.#status = status
       if (stopped) return this.#link
       this.#started = true

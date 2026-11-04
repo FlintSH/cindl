@@ -19,7 +19,7 @@ import { LinkState } from './link.ts'
 /**
  * Notices that can stop applying, so a renderer can retire them:
  * `sign-out-unconfirmed`, Hermes did not confirm a cookie sign-out (until a
- * later one is confirmed, or the client is signed in again).
+ * later one is confirmed, or the client is online again).
  */
 export const NoticeCode = z.enum(['sign-out-unconfirmed'])
 

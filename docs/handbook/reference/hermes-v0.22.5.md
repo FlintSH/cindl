@@ -112,7 +112,15 @@ bearer to public endpoints.
   until the new sign-in succeeds; a failed or cancelled one leaves it usable
   and the error is rethrown. Without a working session the attempt shows as
   `connecting`, and a failure ends `signed-out` (or `incompatible` for a
-  loopback-token Hermes) with the error as `lastError`.
+  loopback-token Hermes) with the error as `lastError`, unless a `stop()`, a
+  newer `start()` or another sign-in came first: the link is then theirs,
+  and the failure only rejects. A `stop()` during it, the new origin's
+  device state read included, keeps a sign-in that succeeds from
+  connecting: the link stays `offline`, and a `start()` after the sign-in
+  finds it. A `start()` that runs while the sign-in is still in flight may
+  look before the tokens are stored: its discovery then ends `signed-out`,
+  and nothing connects until `stop()` then `start()`, an app restart or
+  another sign-in.
 - A switch that succeeds retires the previous origin's sign-in before the
   new one is installed (`NativeAuth.retire`). Work it still has in flight, a
   token refresh above all, can no longer store, return or delete tokens, and
@@ -122,11 +130,11 @@ bearer to public endpoints.
   again under the same key. A failed or cancelled switch retires nothing:
   its refresh may still store. Signing in to the same origin again is no
   switch, and sign-out is unchanged.
-- A sign-out during a native sign-in (Hermes's status read, the stored
-  sign-in read, a switch's device state when there is no working session,
-  the browser leg or the token exchange) stores nothing, and no browser opens
-  after it: the sign-in fails with "Signed out while signing in.". With a
-  working session the client stays on the origin it had, signed out. Without
+- A sign-out at any point of a native sign-in (Hermes's status read, the
+  stored sign-in read, the new origin's device state, the browser leg, the
+  token exchange or its write) keeps no tokens, and no browser opens after
+  it: the sign-in fails with "Signed out while signing in.". With a working
+  session the client stays on the origin it had, signed out. Without
   one it took up the new origin as the sign-in began, so for the rest of the
   session it is on that origin, signed out; Android's wrapper saves no new
   origin, so the next start is on the old one. The desktop app already runs a
@@ -141,16 +149,15 @@ bearer to public endpoints.
   never reads a store in that state
   (`packages/hermes-adapter/src/native-auth.ts`), and the memory goes
   with the process.
-- One window is not covered yet. With a working session, a sign-in to
-  another origin reads that origin's device state only after it has
-  succeeded and stored its tokens. A sign-out during that read lets the
-  sign-in resolve: the client connects once on the new origin and ends there
-  signed out, the sign-out deletes the tokens the sign-in stored, and
-  Android's wrapper keeps the new origin for the next start. A `stop()` in
-  the same window is ignored, and the client goes online on the new origin.
-  No shipped screen reaches this window: Android hides sign-out while
-  signing in, the desktop app runs a sign-out only after the sign-in in
-  flight, and the web never switches origin. The fix is with the transport.
+- With a working session, a sign-in to another origin switches only once it
+  has succeeded and stored its tokens. It reads the new origin's device state
+  before its last checks and then switches with nothing awaited, so no
+  sign-out or `stop()` lands in between. A sign-out during that read fails
+  the sign-in as above: the client stays on the origin it had, signed out,
+  the sign-out deletes the tokens the sign-in stored, and Android's wrapper
+  saves no new origin. A `stop()` during it lets the sign-in stand but keeps
+  it from connecting: the link names the new origin, `offline`, and the next
+  `start()` finds the sign-in there.
 
 ### Web sign-in (cookie)
 

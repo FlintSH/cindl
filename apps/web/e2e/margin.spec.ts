@@ -165,7 +165,7 @@ test('leaving the Computer tool gives control back', async ({ page }) => {
   await expect(margin.getByRole('button', { name: 'Take control…' })).toBeVisible()
 })
 
-test('focus survives the margin closing and a switch of conversation; the reading place comes back', async ({
+test('focus survives the margin closing, choosing the shown conversation and a switch of conversation; the reading place comes back', async ({
   page,
 }) => {
   await page.setViewportSize({ width: 1440, height: 1000 })
@@ -184,8 +184,16 @@ test('focus survives the margin closing and a switch of conversation; the readin
   const read = await timeline.evaluate((el) => el.scrollTop)
   expect(read).toBeGreaterThan(0)
   const switcher = page.getByRole('button', { name: /Switch conversation/ })
-  await switcher.click()
   const list = page.getByRole('dialog', { name: 'Conversations' })
+  // Choosing the conversation already shown opens nothing: the address, the
+  // reading place and the focus on the switcher all stay.
+  await switcher.click()
+  await list.getByRole('button', { name: /Today/ }).click()
+  await expect(list).toBeHidden()
+  await expect(switcher).toBeFocused()
+  expect(new URL(page.url()).hash).toBe('#/talk')
+  expect(await timeline.evaluate((el) => el.scrollTop)).toBe(read)
+  await switcher.click()
   await list.getByRole('button', { name: /Kiln inventory sheet/ }).click()
   await expect(
     page.getByRole('region', { name: 'Conversation: Kiln inventory sheet' }),

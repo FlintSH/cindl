@@ -110,6 +110,8 @@ export async function harness(
     secrets?: ReturnType<typeof memorySecrets>
     deps?: Partial<DirectClientDeps>
     signIn?: boolean
+    /** A store the client is wired into, as desktop wires a restarted client into the renderer's. */
+    store?: ClientStore
   } = {},
 ): Promise<Harness> {
   const fake = options.fake ?? (await fakeHermes())
@@ -138,7 +140,7 @@ export async function harness(
     connection: { backoff: { initialMs: 20, maxMs: 100 }, ...options.deps?.connection },
   })
   const events: CindlEvent[] = []
-  const store = createStore(initialLink)
+  const store = options.store ?? createStore(initialLink)
   client.subscribe((event) => {
     events.push(event)
     store.dispatch(event)
