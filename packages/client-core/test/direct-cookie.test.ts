@@ -622,17 +622,19 @@ describe('direct client in cookie mode: a sign-out in another tab', () => {
 
   it('lets a tick share the check in flight, and asks no more after it', async () => {
     const page = pageCue()
-    // b ticks every 300 ms; a never does.
+    // b ticks every 400 ms; a never does.
     const { fake, b } = await twoTabs(
       { connection: { requestSyncMs: 0 } },
-      { watchSession: page.watchSession, connection: { requestSyncMs: 300 } },
+      { watchSession: page.watchSession, connection: { requestSyncMs: 400 } },
     )
     const before = requests(fake, 'GET /api/auth/me')
     const held = fake.holdNextRest('GET /api/auth/me')
     page.fire()
     await held.arrived
-    // b's tick comes while the cue's check is out, and waits on that check.
-    await pause(450)
+    // b's tick comes while the cue's check is out (the hold spans three tick
+    // periods), and waits on that check. Had no tick come by now, the one
+    // after the release would send its own check and fail the count below.
+    await pause(1200)
     expect(requests(fake, 'GET /api/auth/me')).toBe(before + 1)
     const syncs = b.rpcCalls('session.events.since')
     held.release()
