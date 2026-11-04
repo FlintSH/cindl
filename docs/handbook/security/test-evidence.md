@@ -21,17 +21,18 @@ matrix's live transport row), and no code coverage is measured.
     replayed";
   - "says the code expired when Hermes refuses it (its 400)".
 - **A sign-in that a `stop()` withdraws** opens no browser, leaves no
-  listener and saves nothing:
+  listener and saves nothing; one whose browser has answered still stands:
   - direct client (`packages/client-core/test/direct-client.test.ts`): "a
     stop() while the page is open cancels the leg and ends the sign-in at
-    once" and "a stop() after the browser answered lets the sign-in stand";
+    once", and at the boundary "a stop() after the browser answered lets the
+    sign-in stand";
   - desktop (`apps/desktop/test/transport.test.ts`): "a stop() while the
     browser is open closes the loopback listener";
   - Android (`apps/android/test/loopback.test.ts`): "opens no browser, and
     writes no marker, when cancelled while its listener starts";
   - Android (`apps/android/test/direct.test.ts`), during the attempt-marker
-    write: "Cancel sign-in then opens no browser, and the sign-in fails as
-    cancelled".
+    write: "a stop() then opens no browser, and leaves no listener or
+    marker".
 - **The owner's Cancel** withdraws a native sign-in the same way, without
   stopping the client (`packages/client-core/test/direct-client.test.ts`):
   - "without a session: a Cancel during B's status read opens none, and the
@@ -42,7 +43,9 @@ matrix's live transport row), and no code coverage is measured.
     connects".
 - **Android's Cancel sign-in** is that Cancel
   (`apps/android/test/direct.test.ts`): "a Cancel during B's status read
-  opens no browser, starts no listener and saves nothing".
+  opens no browser, starts no listener and saves nothing", and during the
+  attempt-marker write "Cancel sign-in then opens no browser, and the
+  sign-in fails as cancelled".
 - **Overtaken sign-ins** (`packages/client-core/test/direct-client.test.ts`):
   "with a session: a newer sign-in withdraws an older one as it starts,
   before its own reads" and "start() after a stop() withdraws a sign-in
@@ -91,8 +94,10 @@ matrix's live transport row), and no code coverage is measured.
 - **REST path parameters** (`packages/hermes-adapter/test/rest.test.ts`): "sends
   no "." or ".." as a session id: nothing reaches Hermes", since URL
   normalization would route a dot segment elsewhere, and "still encodes and
-  sends an id with dots among other characters". Profile names are checked
-  by `ProfileName` at every source.
+  sends an id with dots among other characters". This is a second layer:
+  Cindl's operations check their ids as `EntityId` and profile names as
+  `ProfileName` before any handler runs, so neither reaches the REST client
+  as a dot segment today.
 
 ## Approval replay and expiry
 
@@ -152,3 +157,8 @@ matrix's live transport row), and no code coverage is measured.
   handling.
 - The platforms' own rendering of an offline link: each reads the shared
   store, which the tests above cover.
+- Two exceptions to the owner's Cancel, being fixed: on Android, a Cancel
+  pressed while the app reads which Hermes it last used (before the sign-in
+  reaches the direct client) is missed; and a sign-in that needs no browser,
+  because tokens for that Hermes are already stored, is not withdrawn by a
+  Cancel or a `stop()`. Neither authorizes or saves anything new.

@@ -63,9 +63,10 @@ the browser.
 Path parameters (`{id}`, `{name}`) are percent-encoded, and an empty value,
 `.` or `..` is never sent: a dot segment would survive the encoding and
 route elsewhere once the URL is normalized (`/api/sessions/..` is `/api/`).
-Profile names are checked where they come from; session ids come from
-Hermes's data, so this refusal (`invalid`, with nothing sent) is what keeps
-them on their route (`packages/hermes-adapter/src/compat.ts`).
+The refusal (`invalid`, with nothing sent) is a second layer
+(`packages/hermes-adapter/src/compat.ts`): Cindl's operations already check
+ids as `EntityId` and profile names as `ProfileName` before any handler
+runs.
 
 Session endpoints accept the cookie session, or
 `Authorization: Bearer <access token>` from the native flow, verified by the same provider stack
@@ -162,7 +163,14 @@ bearer to public endpoints.
   Android's Cancel sign-in calls `cancelSignIn()`
   (`apps/android/src/platform/direct.ts`), so it stops an attempt from
   Hermes's status read until the browser has answered; its authorizer's own
-  `cancel()` is what the client calls once the page is open.
+  `cancel()` is what the client calls once the page is open. Two exceptions
+  remain: Android's wrapper reads the origin it last used before it calls
+  the client, and a Cancel during that read is missed; and a sign-in that
+  needs no browser, because tokens for the new origin are already stored,
+  is withdrawn by neither a Cancel nor a `stop()` (it finishes, online after
+  a Cancel, offline after a `stop()`). A Cancel during a read already in
+  flight also waits for that read: if it fails, its error is the one
+  reported.
 - A switch that succeeds retires the previous origin's sign-in before the
   new one is installed (`NativeAuth.retire`). Work it still has in flight, a
   token refresh above all, can no longer store, return or delete tokens, and
