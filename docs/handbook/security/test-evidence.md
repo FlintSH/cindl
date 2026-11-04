@@ -29,6 +29,18 @@ matrix's live transport row), and no code coverage is measured.
     browser is open closes the loopback listener";
   - Android (`apps/android/test/loopback.test.ts`): "opens no browser, and
     writes no marker, when cancelled while its listener starts";
+- **The owner's Cancel** withdraws a native sign-in the same way, without
+  stopping the client (`packages/client-core/test/direct-client.test.ts`):
+  - "without a session: a Cancel during B's status read opens none, and the
+    link says why";
+  - "a Cancel while the page is open cancels the leg and ends the sign-in at
+    once";
+  - "a Cancel after the browser answered: the sign-in still finishes and
+    connects".
+- **Overtaken sign-ins** (`packages/client-core/test/direct-client.test.ts`):
+  "with a session: a newer sign-in withdraws an older one as it starts,
+  before its own reads" and "start() after a stop() withdraws a sign-in
+  begun after that stop()".
   - Android (`apps/android/test/direct.test.ts`), during the attempt-marker
     write: "Cancel sign-in then opens no browser, and the sign-in fails as cancelled".
 
@@ -72,12 +84,11 @@ matrix's live transport row), and no code coverage is measured.
 - **Memory and documents** (`packages/client-core/test/direct-client.test.ts`):
   "refuses stale ids, text over the store limit, positional ids and
   unconfirmed changes".
-- **Gap:** the REST client (`endpointPath` in
-  `packages/hermes-adapter/src/compat.ts`) percent-encodes path parameters but
-  accepts `.` and `..`, which URL normalization turns into another route.
-  Profile names never reach it that way, because `ProfileName` checks every
-  source. Session ids do: they come from Hermes's data unchecked. The fix
-  refuses both segments.
+- **REST path parameters** (`packages/hermes-adapter/test/rest.test.ts`): "sends
+  no "." or ".." as a session id: nothing reaches Hermes", since URL
+  normalization would route a dot segment elsewhere, and "still encodes and
+  sends an id with dots among other characters". Profile names are checked
+  by `ProfileName` at every source.
 
 ## Approval replay and expiry
 
