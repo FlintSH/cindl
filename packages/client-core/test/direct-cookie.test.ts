@@ -315,7 +315,10 @@ describe('direct client in same-origin-cookie mode (the web)', () => {
 
   it('signs out through /auth/logout, after which Hermes answers 401', async () => {
     const { fake, jar, h } = await signedIn()
-    expect(await h.client.call('auth.signOut', {})).toEqual({ localOnly: true })
+    expect(await h.client.call('auth.signOut', {})).toStrictEqual({
+      localOnly: true,
+      hermesConfirmed: true,
+    })
     expect(requests(fake, 'POST /auth/logout')).toBe(1)
     expect(jar.sentWithCookie).toContain('POST /auth/logout')
     expect(h.store.getState().link.phase).toBe('signed-out')
@@ -327,7 +330,10 @@ describe('direct client in same-origin-cookie mode (the web)', () => {
   it('signs out locally when Hermes does not confirm, and says so', async () => {
     const { fake, h } = await signedIn()
     fake.failNextRest('POST /auth/logout', 500)
-    expect(await h.client.call('auth.signOut', {})).toEqual({ localOnly: true })
+    expect(await h.client.call('auth.signOut', {})).toStrictEqual({
+      localOnly: true,
+      hermesConfirmed: false,
+    })
     expect(h.store.getState().link.phase).toBe('signed-out')
     expect(
       h.events.some(
@@ -449,7 +455,8 @@ describe('direct client in same-origin-cookie mode (the web)', () => {
 describe('direct client in native mode, unchanged', () => {
   it('signs out without calling /auth/logout', async () => {
     const h = await harness()
-    expect(await h.client.call('auth.signOut', {})).toEqual({ localOnly: true })
+    // Nothing to confirm: a native sign-out never asks Hermes.
+    expect(await h.client.call('auth.signOut', {})).toStrictEqual({ localOnly: true })
     expect(requests(h.fake, 'POST /auth/logout')).toBe(0)
   })
 
@@ -570,7 +577,10 @@ describe('direct client in cookie mode: confirming a sign-out', () => {
     expect(jar.jar.size).toBe(3)
     expect(notices(h)).toBe(1)
     // Signed out here already, the second sign-out still asks Hermes.
-    expect(await h.client.call('auth.signOut', {})).toEqual({ localOnly: true })
+    expect(await h.client.call('auth.signOut', {})).toStrictEqual({
+      localOnly: true,
+      hermesConfirmed: true,
+    })
     expect(requests(fake, 'POST /auth/logout')).toBe(2)
     expect(jar.jar.size).toBe(0)
     expect(notices(h)).toBe(1)
@@ -580,7 +590,9 @@ describe('direct client in cookie mode: confirming a sign-out', () => {
     const { fake, h } = await signedIn()
     // Hermes clears the cookies, but a proxy answers the check with its own 401.
     fake.failNextRest('GET /api/auth/me', 401)
-    await h.client.call('auth.signOut', {})
+    expect(await h.client.call('auth.signOut', {})).toMatchObject({
+      hermesConfirmed: false,
+    })
     expect(notices(h)).toBe(1)
   })
 
@@ -591,7 +603,7 @@ describe('direct client in cookie mode: confirming a sign-out', () => {
     const signingOut = h.client.call('auth.signOut', {})
     await held.arrived
     held.release({ status: 302, body: {} })
-    expect(await signingOut).toEqual({ localOnly: true })
+    expect(await signingOut).toStrictEqual({ localOnly: true, hermesConfirmed: false })
     expect(h.store.getState().link.phase).toBe('signed-out')
     expect(jar.jar.size).toBe(3)
     expect(notices(h)).toBe(1)

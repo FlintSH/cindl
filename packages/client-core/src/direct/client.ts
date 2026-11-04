@@ -1836,12 +1836,16 @@ class DirectHermesClient implements DirectClient {
     },
     'auth.signOut': async () => {
       this.stop()
+      let hermesConfirmed: boolean | undefined
       if (this.#native) await this.#native.signOut()
-      else await this.#endCookieSession()
+      else hermesConfirmed = await this.#endCookieSession()
       this.#forgetSession()
       this.#setLink('signed-out')
       this.#refreshCapabilities()
-      return { localOnly: true as const }
+      // Cookie mode says whether Hermes confirmed it, so the web can offer another try.
+      return hermesConfirmed === undefined
+        ? { localOnly: true as const }
+        : { localOnly: true as const, hermesConfirmed }
     },
     'conversations.list': () => this.#listConversations(),
     'conversations.create': async ({ title }) => {

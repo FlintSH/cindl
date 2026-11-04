@@ -181,8 +181,10 @@ same-origin requests, and it keeps nothing in browser storage.
   as confirmed only when `GET /api/auth/me` then answers the gate's 401; a
   second `auth.signOut` posts `/auth/logout` again. A failure never blocks the local
   sign-out: the link still goes `signed-out`, with a warning notice to sign
-  out again. The result stays `{localOnly: true}`: what Hermes ends on its side
-  depends on the provider. The basic, Nous and drain providers revoke nothing
+  out again. In cookie mode the result is `{localOnly: true, hermesConfirmed}`,
+  `hermesConfirmed` saying whether that 401 came, and the web's sign-in screen
+  offers to sign out on Hermes again while it is `false`; native results carry
+  no `hermesConfirmed`. What Hermes ends on its side depends on the provider. The basic, Nous and drain providers revoke nothing
   (`plugins/dashboard_auth/basic/__init__.py:165-167`,
   `nous/__init__.py:67-70`, `drain/__init__.py:106-107`), so a copy of the
   cookies keeps working until it expires (basic defaults: 12 h access, 30 d
