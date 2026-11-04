@@ -46,6 +46,15 @@ matrix's live transport row), and no code coverage is measured.
   opens no browser, starts no listener and saves nothing", and during the
   attempt-marker write "Cancel sign-in then opens no browser, and the
   sign-in fails as cancelled".
+  Pressed with Sign in, before the client is called: "a Cancel pressed with
+  Sign in, before the client is called, opens no browser and saves nothing
+  (re-check PA1)"; after the browser answered: "a Cancel after the browser
+  answered does not stop the sign-in: it finishes and is saved".
+- **A sign-in that needs no browser,** because tokens for that Hermes are
+  already stored, is withdrawn the same way
+  (`packages/client-core/test/direct-client.test.ts`): "without a session: a
+  Cancel during B's status read fails it as cancelled" and "without a
+  session: a stop() during B's status read fails it as stopped".
 - **Overtaken sign-ins** (`packages/client-core/test/direct-client.test.ts`):
   "with a session: a newer sign-in withdraws an older one as it starts,
   before its own reads" and "start() after a stop() withdraws a sign-in
@@ -157,11 +166,3 @@ matrix's live transport row), and no code coverage is measured.
   handling.
 - The platforms' own rendering of an offline link: each reads the shared
   store, which the tests above cover.
-- Two exceptions to the owner's Cancel, being fixed: on Android, a Cancel
-  pressed while the app reads which Hermes it last used (before the sign-in
-  reaches the direct client) is missed; and a sign-in that needs no browser,
-  because tokens for that Hermes are already stored, is not withdrawn by a
-  Cancel or a `stop()`. The first can still end in stored tokens: the page
-  opens, and a sign-in finished there (by the owner, or by a live session
-  at an upstream identity provider with no input) is saved. The second
-  authorizes and saves nothing new.

@@ -161,12 +161,11 @@ bearer to public endpoints.
   with that error on the origin it took up; with one, the session stays as
   it was. A sign-in whose browser has answered still finishes and connects.
   Android's Cancel sign-in calls `cancelSignIn()`
-  (`apps/android/src/platform/direct.ts`), so it stops an attempt from
-  Hermes's status read until the browser has answered; its authorizer's own
-  `cancel()` is what the client calls once the page is open. One exception
-  remains: Android's wrapper reads the origin it last used before it calls
-  the client, and a Cancel during that read is missed, so the page opens
-  and a sign-in finished there is saved. A sign-in that needs no browser,
+  (`apps/android/src/platform/direct.ts`), so it stops an attempt from the
+  moment Sign in is pressed until the browser has answered; its authorizer's own
+  `cancel()` is what the client calls once the page is open. Android's
+  wrapper hands the sign-in to the client before any wait of its own, so a
+  Cancel is never pressed too early to find it. A sign-in that needs no browser,
   because tokens for the new origin are already stored, is withdrawn the
   same way until it has read them: a Cancel or a `stop()` during Hermes's
   status read or the stored sign-in read fails it as cancelled or stopped,
