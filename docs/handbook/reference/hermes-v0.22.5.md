@@ -114,13 +114,30 @@ bearer to public endpoints.
   `connecting`, and a failure ends `signed-out` (or `incompatible` for a
   loopback-token Hermes) with the error as `lastError`, unless a `stop()`, a
   newer `start()` or another sign-in came first: the link is then theirs,
-  and the failure only rejects. A `stop()` during it, the new origin's
-  device state read included, keeps a sign-in that succeeds from
+  and the failure only rejects. A `stop()` before the browser has answered
+  withdraws a native sign-in (below). One after that, during the code
+  exchange or the token write, keeps a sign-in that succeeds from
   connecting: the link stays `offline`, and a `start()` after the sign-in
-  finds it. A `start()` that runs while the sign-in is still in flight may
-  look before the tokens are stored: its discovery then ends `signed-out`,
-  and nothing connects until `stop()` then `start()`, an app restart or
-  another sign-in.
+  finds it. A `start()` that runs while such a sign-in is still storing its
+  tokens may look too early: its discovery then ends `signed-out`, and
+  nothing connects until `stop()` then `start()`, an app restart or another
+  sign-in.
+- A `stop()` withdraws a native sign-in whose browser has not answered yet,
+  with or without a working session, and so do a newer sign-in and a
+  sign-out. No browser opens after that, and a browser leg under way is
+  cancelled through the authorizer's `cancel()`, so the sign-in's wait ends
+  at once: Android's loopback listener closes, and the desktop's session
+  `stop()` cancels its own listener. A leg that is still binding its
+  listener fails when it builds the page's address, and closes it. The PKCE
+  verifier and state live only in that sign-in's memory and go with it;
+  Hermes's pending authorization expires on its own. The sign-in fails with
+  `unavailable` ("Sign-in was stopped before it finished. Nothing was
+  saved."), or with "Signed out while signing in." for a sign-out, and
+  leaves the link as the `stop()` set it. Once the browser has answered,
+  nothing is withdrawn. One window is still the platform's: Android's
+  authorizer writes its attempt marker between building the page's address
+  and opening it, and a `cancel()` during that write still opens the Custom
+  Tab, its listener already closed (`apps/android/src/auth/loopback.ts`).
 - A switch that succeeds retires the previous origin's sign-in before the
   new one is installed (`NativeAuth.retire`). Work it still has in flight, a
   token refresh above all, can no longer store, return or delete tokens, and
@@ -132,8 +149,9 @@ bearer to public endpoints.
   switch, and sign-out is unchanged.
 - A sign-out at any point of a native sign-in (Hermes's status read, the
   stored sign-in read, the new origin's device state, the browser leg, the
-  token exchange or its write) keeps no tokens, and no browser opens after
-  it: the sign-in fails with "Signed out while signing in.". With a working
+  token exchange or its write) keeps no tokens; no browser opens after it,
+  and a browser leg under way is cancelled: the sign-in fails with "Signed
+  out while signing in.". With a working
   session the client stays on the origin it had, signed out. Without
   one it took up the new origin as the sign-in began, so for the rest of the
   session it is on that origin, signed out; Android's wrapper saves no new

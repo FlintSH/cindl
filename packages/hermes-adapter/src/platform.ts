@@ -37,6 +37,8 @@ export interface SecretVault {
 /** Runs the RFC 8252 loopback leg and resolves with the callback URL. */
 export interface LoopbackLeg {
   authorize(buildUrl: (redirectUri: string) => string): Promise<string>
+  /** Ends the wait of the attempt under way, if any: its promise rejects. */
+  cancel?(): void
 }
 
 export type FetchLike = (url: string, init: RequestInit) => Promise<Response>

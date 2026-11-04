@@ -22,6 +22,49 @@ export interface NativeIdentity {
   persistent: boolean
 }
 
+/**
+ * Withdraws a native sign-in its caller no longer wants (the direct client's
+ * stop(), a newer sign-in, a sign-out). Once withdrawn, the sign-in opens no
+ * browser, and a browser leg it waits on is cancelled; a sign-in whose
+ * browser has already answered finishes regardless.
+ */
+export interface SignInStop {
+  /** What the sign-in fails with once withdrawn; undefined while it is wanted. */
+  readonly stopped: CindlError | undefined
+  /** Calls `listener` once when withdrawn (at once if it already is); returns its removal. */
+  onStop(listener: () => void): () => void
+}
+
+/** What a sign-in that a stop() withdrew fails with. */
+export const signInStoppedError = () =>
+  new CindlError(
+    'unavailable',
+    'Sign-in was stopped before it finished. Nothing was saved.',
+  )
+
+const withdrawnError = (stop: SignInStop) => stop.stopped ?? signInStoppedError()
+
+/**
+ * The leg's answer, unless the sign-in is withdrawn first: the leg is then
+ * cancelled, so its listener closes, and the wait fails at once.
+ */
+function untilWithdrawn(
+  leg: LoopbackLeg,
+  answer: Promise<string>,
+  stop: SignInStop | undefined,
+): Promise<string> {
+  if (!stop) return answer
+  let remove: () => void = () => undefined
+  const withdrawn = new Promise<never>((_, reject) => {
+    remove = stop.onStop(() => {
+      leg.cancel?.()
+      reject(withdrawnError(stop))
+    })
+  })
+  // The race also handles a leg that rejects after the withdrawal.
+  return Promise.race([answer, withdrawn]).finally(() => remove())
+}
+
 export interface NativeAuthOptions {
   origin: string
   fetch: FetchLike
@@ -94,19 +137,29 @@ export class NativeAuth {
     return tokens && this.#identityOf(tokens)
   }
 
-  async signIn(leg: LoopbackLeg, provider?: string): Promise<NativeIdentity> {
+  async signIn(
+    leg: LoopbackLeg,
+    provider?: string,
+    stop?: SignInStop,
+  ): Promise<NativeIdentity> {
     const generation = this.#generation
     const pkce = await createPkcePair(this.#options.crypto)
     const state = createState(this.#options.crypto)
-    const callbackUrl = await leg.authorize((redirectUri) =>
-      buildAuthorizeUrl({
+    // Withdrawn before the browser leg: no browser opens. A leg builds the
+    // authorize URL after binding its listener and before opening the page,
+    // so a withdrawal by then fails that build, and the leg closes its listener.
+    if (stop?.stopped) throw stop.stopped
+    const answer = leg.authorize((redirectUri) => {
+      if (stop?.stopped) throw stop.stopped
+      return buildAuthorizeUrl({
         origin: this.#options.origin,
         redirectUri,
         pkce,
         state,
         ...(provider ? { provider } : {}),
-      }),
-    )
+      })
+    })
+    const callbackUrl = await untilWithdrawn(leg, answer, stop)
     const callback = parseCallback(callbackUrl, state)
     if (!callback.ok) {
       this.#log.log('warn', 'auth.callback-rejected', { reason: callback.reason })

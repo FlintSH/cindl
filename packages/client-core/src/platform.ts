@@ -65,6 +65,12 @@ export type BinaryWebSocketFactory = (url: string) => BinaryWebSocketLike
 /** Runs the RFC 8252 loopback leg: opens the system browser and resolves with the callback URL. */
 export interface LoopbackAuthorizer {
   authorize(buildUrl: (redirectUri: string) => string): Promise<string>
+  /**
+   * Ends the wait of the attempt under way, if any: its promise rejects and
+   * its listener closes. The direct client calls it when a stop(), a newer
+   * sign-in or a sign-out withdraws a sign-in waiting on the browser.
+   */
+  cancel?(): void
 }
 
 export interface Clock {

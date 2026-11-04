@@ -42,6 +42,7 @@ import {
   RestClient,
   routineFromJob,
   sendAnswer,
+  signInStoppedError,
   skillFromRow,
   transcriptToHistory,
   unsupportedReasons,
@@ -54,8 +55,10 @@ import {
   type Handshake,
   type HermesEventParams,
   type InboundServerRequest,
+  type LoopbackLeg,
   type NormalizerEffect,
   type SecretVault,
+  type SignInStop,
   type SocketFactory,
   type Timers,
   type UnhandledServerRequest,
@@ -78,6 +81,7 @@ export type PlatformTypesMatch = [
   Assignable<WebSocketFactory, SocketFactory>,
   Assignable<Clock, Timers>,
   Assignable<SecretStore, SecretVault>,
+  Assignable<LoopbackAuthorizer, LoopbackLeg>,
 ]
 
 export interface DirectClientDeps {
@@ -132,7 +136,11 @@ export interface DirectClientDeps {
 export interface DirectClient extends CindlClientApi {
   /** Load device state, discover Hermes and connect when signed in. */
   start(): Promise<void>
-  /** Close the connection. Device state stays; `start()` connects again. */
+  /**
+   * Close the connection. Device state stays; `start()` connects again. A
+   * native sign-in whose browser has not answered fails: no browser opens
+   * for it after this, and one under way stops being waited on.
+   */
   stop(): void
 }
 
@@ -168,6 +176,36 @@ const NO_EVENTS = Number.MAX_SAFE_INTEGER
 const isTransient = (error: unknown) =>
   error instanceof NotSentError ||
   (error instanceof CindlError && (error.code === 'offline' || error.code === 'timeout'))
+
+const signedOutWhileSigningIn = () =>
+  new CindlError('unauthenticated', 'Signed out while signing in.')
+
+/** A native sign-in's SignInStop, withdrawn once its run has moved on. */
+function signInStop() {
+  let stopped: CindlError | undefined
+  const listeners = new Set<() => void>()
+  return {
+    get stopped() {
+      return stopped
+    },
+    onStop(listener: () => void) {
+      if (stopped) {
+        listener()
+        return () => undefined
+      }
+      listeners.add(listener)
+      return () => {
+        listeners.delete(listener)
+      }
+    },
+    withdraw(reason: CindlError) {
+      if (stopped) return
+      stopped = reason
+      for (const listener of [...listeners]) listener()
+      listeners.clear()
+    },
+  } satisfies SignInStop & { withdraw(reason: CindlError): void }
+}
 
 /**
  * The direct Hermes client (overview: data flow). It implements every
@@ -255,9 +293,12 @@ class DirectHermesClient implements DirectClient {
    * Bumped by start(), stop() and sign-in: work begun under an older value
    * (a discovery, a sign-in) neither connects nor shows its outcome on the
    * link, except that a sign-in with a working session still switches to its
-   * origin when it succeeds, offline.
+   * origin when it succeeds, offline. Each bump also withdraws a native
+   * sign-in whose browser has not answered (#nextRun).
    */
   #run = 0
+  /** Native sign-ins whose browser has not answered yet. */
+  readonly #withdrawable = new Set<ReturnType<typeof signInStop>>()
   #discoveryRetry: unknown
   #discoveryAttempt = 0
   /** A link was reported: from then on a new subscriber is told the state so far. */
@@ -457,7 +498,7 @@ class DirectHermesClient implements DirectClient {
   async start(): Promise<void> {
     if (this.#started) return
     this.#started = true
-    const run = ++this.#run
+    const run = this.#nextRun()
     this.#discoveryAttempt = 0
     if (!this.#origin) {
       // The link starts out unconfigured, so #setLink stays silent here and a
@@ -486,10 +527,24 @@ class DirectHermesClient implements DirectClient {
     this.#refreshCapabilities()
   }
 
+  /**
+   * Moves the run on. A native sign-in begun before is withdrawn: no browser
+   * opens for it after this, and a browser leg it waits on is cancelled.
+   */
+  #nextRun(): number {
+    if (this.#withdrawable.size) this.#withdrawSignIns(signInStoppedError())
+    return ++this.#run
+  }
+
+  #withdrawSignIns(reason: CindlError): void {
+    for (const stop of this.#withdrawable) stop.withdraw(reason)
+    this.#withdrawable.clear()
+  }
+
   /** What stop() does, without reporting it on the link or in capabilities. */
   #halt(): void {
     this.#started = false
-    this.#run++
+    this.#nextRun()
     this.#deps.clock.clearTimeout(this.#discoveryRetry)
     this.#unwatchSession?.()
     this.#unwatchSession = undefined
@@ -1877,8 +1932,7 @@ class DirectHermesClient implements DirectClient {
       // client: not after a stop(), a newer start() or another sign-in.
       const signOuts = this.#signOuts
       const overtaken = () => {
-        if (signOuts !== this.#signOuts)
-          throw new CindlError('unauthenticated', 'Signed out while signing in.')
+        if (signOuts !== this.#signOuts) throw signedOutWhileSigningIn()
       }
       const keep = this.#signedIn
       const switching = origin !== this.#origin
@@ -1891,8 +1945,12 @@ class DirectHermesClient implements DirectClient {
       const pending = parts.native !== this.#native ? parts.native : undefined
       if (pending) this.#signingIn.add(pending)
       // From here this sign-in owns the client: a discovery still running
-      // stops, and a stop() before it finishes keeps it from connecting.
-      const run = ++this.#run
+      // stops, and a stop() before it finishes keeps it from connecting. One
+      // before the browser answered also withdraws it: no browser opens after
+      // that, and a browser leg under way is cancelled.
+      const run = this.#nextRun()
+      const withdrawal = signInStop()
+      this.#withdrawable.add(withdrawal)
       this.#deps.clock.clearTimeout(this.#discoveryRetry)
       // Without a session the switch came first. Its device state loads only
       // now, so a stop() during the read keeps this sign-in from connecting.
@@ -1920,7 +1978,7 @@ class DirectHermesClient implements DirectClient {
             // A sign-out during the reads above (Hermes's status, the stored
             // sign-in, a switch's device state) means no browser opens.
             overtaken()
-            await parts.native.signIn(this.#deps.authorizer)
+            await parts.native.signIn(this.#deps.authorizer, undefined, withdrawal)
           }
         } else if (!(await this.#cookieSignedIn(parts.rest)))
           throw new CindlError(
@@ -1939,6 +1997,8 @@ class DirectHermesClient implements DirectClient {
           this.#refreshCapabilities()
         }
         throw cause
+      } finally {
+        this.#withdrawable.delete(withdrawal)
       }
       // With a working session the switch comes only now. The new origin's
       // device state is read before the checks below, and the switch itself
@@ -1946,8 +2006,7 @@ class DirectHermesClient implements DirectClient {
       const device = keep && switching ? await this.#readDevice(parts.storage) : undefined
       // A sign-out came while it was in flight and signed it out as well: it
       // keeps no tokens and does not switch the client.
-      if (pending && !this.#signingIn.delete(pending))
-        throw new CindlError('unauthenticated', 'Signed out while signing in.')
+      if (pending && !this.#signingIn.delete(pending)) throw signedOutWhileSigningIn()
       // A sign-out at any point before here (the installed sign-in's token
       // write included) fails this one.
       if (parts.native) overtaken()
@@ -1964,6 +2023,8 @@ class DirectHermesClient implements DirectClient {
     },
     'auth.signOut': async () => {
       this.#signOuts++
+      // A sign-in waiting on the browser fails as signed out, not stopped.
+      this.#withdrawSignIns(signedOutWhileSigningIn())
       this.stop()
       const pending = [...this.#signingIn]
       this.#signingIn.clear()

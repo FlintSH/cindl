@@ -178,6 +178,55 @@ function heldFirstLeg() {
   return { authorizer, arrived, fail: (error: Error) => leg.fail?.(error) }
 }
 
+/**
+ * A browser leg that records what it does: `authorized` counts its
+ * authorize() calls, `opened` the pages it opened, `cancelled` its cancel()
+ * calls. In `bind` mode it waits before it builds the page's address, as a
+ * platform binds its listener; in `wait` mode the page stays open without an
+ * answer until cancel(). `answer` mode signs the fixture owner in at once.
+ */
+function recordingLeg() {
+  const state = {
+    mode: 'answer' as 'answer' | 'bind' | 'wait',
+    authorized: 0,
+    opened: [] as string[],
+    cancelled: 0,
+    /** What the last authorize() came to. */
+    settled: Promise.resolve(''),
+  }
+  let reach: () => void = () => undefined
+  let release: () => void = () => undefined
+  let failWait: (error: Error) => void = () => undefined
+  const reached = new Promise<void>((resolve) => (reach = resolve))
+  const authorizer = {
+    authorize(buildUrl: (redirectUri: string) => string): Promise<string> {
+      state.authorized++
+      const mode = state.mode
+      state.settled = (async () => {
+        if (mode === 'bind') {
+          reach()
+          await new Promise<void>((resolve) => (release = resolve))
+        }
+        const url = buildUrl('http://127.0.0.1:53682/callback')
+        state.opened.push(url)
+        if (mode === 'wait') {
+          reach()
+          return new Promise<string>((_, reject) => (failWait = reject))
+        }
+        const response = await fetch(url, { redirect: 'manual' })
+        return response.headers.get('location') ?? ''
+      })()
+      return state.settled
+    },
+    cancel() {
+      state.cancelled++
+      failWait(new CindlError('unavailable', 'Sign-in was cancelled.'))
+    },
+  }
+  /** Resolves when the leg reaches its bind hold or its open page. */
+  return { state, authorizer, reached, release: () => release() }
+}
+
 /** The links the client reports from now on, as `phase@origin`. */
 function linkLog(h: Harness): string[] {
   const links: string[] = []
@@ -338,43 +387,43 @@ describe('direct client: signing in to another origin', () => {
     await signingIn
   })
 
-  it('lets a stop() during the switch hold: no connect until start()', async () => {
-    const h = await harness({ signIn: false })
+  it('lets a stop() during the switch hold: no browser, and nothing connects', async () => {
+    const browser = recordingLeg()
+    const h = await harness({ signIn: false, deps: { authorizer: browser.authorizer } })
     const b = await fakeHermes()
     const read = holdDeviceRead(h, b.origin)
-    const signingIn = h.client.call('auth.signIn', { origin: b.origin })
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
     await read.arrived
     h.client.stop()
     read.release()
-    // The sign-in stands, but nothing connects, and the link says so for B.
-    expect(await signingIn).toMatchObject({
-      phase: 'offline',
-      server: { origin: b.origin },
-    })
+    // Withdrawn before its browser leg, the sign-in fails; the link says so for B.
+    expect(await signingIn).toBe('unavailable')
+    expect(browser.state.authorized).toBe(0)
     await pause(100)
     expect(h.store.getState().link).toMatchObject({
       phase: 'offline',
       server: { origin: b.origin },
     })
     expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
+    // Nothing was stored, so the next start finds B signed out.
     await h.client.start()
     await h.waitFor(
       () =>
-        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.phase === 'signed-out' &&
         h.store.getState().link.server?.origin === b.origin,
     )
   })
 
   it('keeps a failure off the link when a stop() came first', async () => {
     const h = await harness({ signIn: false })
-    const b = await fakeHermes({ nativeSignIn: 'deny' })
+    const b = await fakeHermes()
     const status = b.holdNextRest('GET /api/status')
     const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
     await status.arrived
     h.client.stop()
-    status.release()
+    status.release({ status: 500, body: { detail: 'restarting (fixture)' } })
     // The sign-in still fails to its caller, but the link stays the stop()'s.
-    expect(await signingIn).toBe('unauthenticated')
+    expect(await signingIn).toBe('internal')
     expect(h.store.getState().link).toMatchObject({
       phase: 'offline',
       server: { origin: b.origin },
@@ -2338,6 +2387,127 @@ describe('direct client: a sign-out during a native sign-in to another origin', 
       server: { origin: a.origin },
     })
     expect(b.calls.filter((c) => c.name === '/api/ws')).toHaveLength(0)
+  })
+})
+
+describe('direct client: no browser after a stop()', () => {
+  it("without a session: a stop() during B's status read opens none and stores nothing", async () => {
+    const browser = recordingLeg()
+    const h = await harness({ signIn: false, deps: { authorizer: browser.authorizer } })
+    const b = await fakeHermes()
+    const status = b.holdNextRest('GET /api/status')
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await status.arrived
+    h.client.stop()
+    status.release()
+    expect(await signingIn).toBe('unavailable')
+    expect(browser.state.authorized).toBe(0)
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(false)
+  })
+
+  it("with a session: a stop() during B's status read opens none and stores nothing", async () => {
+    const browser = recordingLeg()
+    const h = await harness({ deps: { authorizer: browser.authorizer } })
+    const b = await fakeHermes()
+    const authorized = browser.state.authorized
+    const status = b.holdNextRest('GET /api/status')
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await status.arrived
+    h.client.stop()
+    status.release()
+    expect(await signingIn).toBe('unavailable')
+    expect(browser.state.authorized).toBe(authorized)
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(false)
+    expect(h.store.getState().link.server?.origin).toBe(h.fake.origin)
+  })
+
+  it("a stop() while B's stored sign-in is read opens none", async () => {
+    const browser = recordingLeg()
+    const base = memorySecrets()
+    const hold: { key: string | undefined; arrived?: () => void; release?: () => void } =
+      { key: undefined }
+    const arrived = new Promise<void>((resolve) => (hold.arrived = resolve))
+    const secrets: ReturnType<typeof memorySecrets> = {
+      ...base,
+      get: async (key) => {
+        if (key === hold.key) {
+          hold.key = undefined
+          hold.arrived?.()
+          await new Promise<void>((resolve) => (hold.release = resolve))
+        }
+        return base.get(key)
+      },
+    }
+    const h = await harness({
+      signIn: false,
+      secrets,
+      deps: { authorizer: browser.authorizer },
+    })
+    const b = await fakeHermes()
+    hold.key = nativeTokensKey(b.origin)
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await arrived
+    h.client.stop()
+    hold.release?.()
+    expect(await signingIn).toBe('unavailable')
+    expect(browser.state.authorized).toBe(0)
+  })
+
+  it('a stop() while the leg binds its listener opens no page, and the leg gives up', async () => {
+    const browser = recordingLeg()
+    const h = await harness({ signIn: false, deps: { authorizer: browser.authorizer } })
+    const b = await fakeHermes()
+    browser.state.mode = 'bind'
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await browser.reached
+    h.client.stop()
+    browser.release()
+    expect(await signingIn).toBe('unavailable')
+    // The leg builds the page's address only after binding: that build fails.
+    await expect(browser.state.settled).rejects.toMatchObject({ code: 'unavailable' })
+    expect(browser.state.opened).toEqual([])
+  })
+
+  it('a stop() while the page is open cancels the leg and ends the sign-in at once', async () => {
+    const browser = recordingLeg()
+    const h = await harness({ signIn: false, deps: { authorizer: browser.authorizer } })
+    const b = await fakeHermes()
+    browser.state.mode = 'wait'
+    const signingIn = codeOf(h.client.call('auth.signIn', { origin: b.origin }))
+    await browser.reached
+    h.client.stop()
+    expect(
+      await Promise.race([signingIn, pause(1_000).then(() => 'still waiting')]),
+    ).toBe('unavailable')
+    expect(browser.state.cancelled).toBe(1)
+    await expect(browser.state.settled).rejects.toMatchObject({ code: 'unavailable' })
+    expect(b.calls.filter((c) => c.name === 'POST /auth/native/token')).toHaveLength(0)
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(false)
+  })
+
+  it('a stop() after the browser answered lets the sign-in stand', async () => {
+    const browser = recordingLeg()
+    const h = await harness({ signIn: false, deps: { authorizer: browser.authorizer } })
+    const b = await fakeHermes()
+    const exchange = b.holdNextRest('POST /auth/native/token')
+    const signingIn = h.client.call('auth.signIn', { origin: b.origin })
+    await exchange.arrived
+    h.client.stop()
+    exchange.release()
+    // Its tokens are stored, but nothing connects until start().
+    expect(await signingIn).toMatchObject({
+      phase: 'offline',
+      server: { origin: b.origin },
+    })
+    expect(h.secrets.map.has(nativeTokensKey(b.origin))).toBe(true)
+    expect(browser.state.cancelled).toBe(0)
+    expect(b.calls.filter((c) => c.kind === 'ws')).toHaveLength(0)
+    await h.client.start()
+    await h.waitFor(
+      () =>
+        h.store.getState().link.phase === 'online' &&
+        h.store.getState().link.server?.origin === b.origin,
+    )
   })
 })
 
