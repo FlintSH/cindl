@@ -95,7 +95,9 @@ bearer to public endpoints.
   them in memory and says so. A store that fails to read is a failure on the
   device ("This device could not read its saved Hermes sign-in."), never
   Hermes not answering: discovery shows it as `error` without asking Hermes
-  again, and the next attempt reads the store afresh. Sign-out is
+  again, and the next attempt reads the store afresh. A sign-out or a switch
+  away that comes while a failing read is out stands: the failure does not
+  undo it. Sign-out is
   local: there is no native revoke route, so logout does not revoke native
   tokens (with the basic provider they are stateless, 12 h access and 30 d
   refresh; with OIDC they are the identity provider's tokens). Sign-out always deletes the

@@ -229,11 +229,16 @@ export class NativeAuth {
 
   async #current(): Promise<NativeTokenResponse | undefined> {
     // One shared load: concurrent first callers all see the stored tokens. A
-    // load that failed is not kept, so the next caller reads the store again.
-    this.#loading ??= this.#load().catch((error: unknown) => {
-      this.#loading = undefined
-      throw error
-    })
+    // load that failed is not kept, so the next caller reads the store again,
+    // unless a sign-out, a retirement or a store replaced it meanwhile: what
+    // they set stands.
+    if (!this.#loading) {
+      const loading: Promise<void> = this.#load().catch((error: unknown) => {
+        if (this.#loading === loading) this.#loading = undefined
+        throw error
+      })
+      this.#loading = loading
+    }
     await this.#loading
     return this.#tokens
   }

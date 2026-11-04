@@ -393,3 +393,66 @@ describe('NativeAuth: a secret store that cannot be read', () => {
     expect(await auth.identity()).toMatchObject({ userId: 'fixture-owner' })
   })
 })
+
+describe('NativeAuth: a failing read that a sign-out or retirement overtakes', () => {
+  /** A device signed in once, whose store now holds every read until it fails it. */
+  async function heldRead(options: { deleteFails?: boolean } = {}) {
+    const fake = await fakeHermes()
+    const secrets = vault()
+    await new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      secrets,
+      crypto,
+    }).signIn(browserLeg())
+    const state: { locked: boolean; fail?: () => void } = { locked: true }
+    const store: SecretVault = {
+      available: true,
+      get: (key) =>
+        state.locked
+          ? new Promise((_resolve, reject) => {
+              state.fail = () => reject(new Error('keystore locked (fixture)'))
+            })
+          : secrets.get(key),
+      set: (key, value) => secrets.set(key, value),
+      delete: (key) =>
+        options.deleteFails
+          ? Promise.reject(new Error('keystore locked (fixture)'))
+          : secrets.delete(key),
+    }
+    const auth = new NativeAuth({
+      origin: fake.origin,
+      fetch: (url, init) => fetch(url, init),
+      timers,
+      secrets: store,
+      crypto,
+    })
+    const first = auth.identity().then(
+      () => 'resolved',
+      (error: unknown) => (error instanceof CindlError ? error.code : 'other'),
+    )
+    await until(() => state.fail !== undefined)
+    return { auth, state, first }
+  }
+
+  it('stays retired when the read that was out fails afterwards', async () => {
+    const { auth, state, first } = await heldRead()
+    auth.retire()
+    state.fail?.()
+    expect(await first).toBe('internal')
+    state.locked = false
+    // The retirement stands: the stored record is no longer this sign-in's.
+    expect(await auth.identity()).toBeUndefined()
+  })
+
+  it('stays signed out, its delete failed, when the read that was out fails afterwards', async () => {
+    const { auth, state, first } = await heldRead({ deleteFails: true })
+    await auth.signOut()
+    state.fail?.()
+    expect(await first).toBe('internal')
+    state.locked = false
+    // The record is still in the store, but the sign-out stands.
+    expect(await auth.identity()).toBeUndefined()
+  })
+})
