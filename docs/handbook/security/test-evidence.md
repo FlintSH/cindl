@@ -29,6 +29,9 @@ matrix's live transport row), and no code coverage is measured.
     browser is open closes the loopback listener";
   - Android (`apps/android/test/loopback.test.ts`): "opens no browser, and
     writes no marker, when cancelled while its listener starts";
+  - Android (`apps/android/test/direct.test.ts`), during the attempt-marker
+    write: "Cancel sign-in then opens no browser, and the sign-in fails as
+    cancelled".
 - **The owner's Cancel** withdraws a native sign-in the same way, without
   stopping the client (`packages/client-core/test/direct-client.test.ts`):
   - "without a session: a Cancel during B's status read opens none, and the
@@ -37,12 +40,13 @@ matrix's live transport row), and no code coverage is measured.
     once";
   - "a Cancel after the browser answered: the sign-in still finishes and
     connects".
+- **Android's Cancel sign-in** is that Cancel
+  (`apps/android/test/direct.test.ts`): "a Cancel during B's status read
+  opens no browser, starts no listener and saves nothing".
 - **Overtaken sign-ins** (`packages/client-core/test/direct-client.test.ts`):
   "with a session: a newer sign-in withdraws an older one as it starts,
   before its own reads" and "start() after a stop() withdraws a sign-in
   begun after that stop()".
-  - Android (`apps/android/test/direct.test.ts`), during the attempt-marker
-    write: "Cancel sign-in then opens no browser, and the sign-in fails as cancelled".
 
 ## Origin and CSRF
 
@@ -146,7 +150,5 @@ matrix's live transport row), and no code coverage is measured.
 
 - Anything against a live Hermes, including Hermes's own CSRF and session
   handling.
-- Android's "Cancel sign-in" pressed while Cindl still checks Hermes: the
-  browser opens anyway ([clients/android.md](../clients/android.md), step 4).
 - The platforms' own rendering of an offline link: each reads the shared
   store, which the tests above cover.

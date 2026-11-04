@@ -159,11 +159,10 @@ bearer to public endpoints.
   session the sign-in still owns the client, so the link ends `signed-out`
   with that error on the origin it took up; with one, the session stays as
   it was. A sign-in whose browser has answered still finishes and connects.
-  Android's Cancel still reaches only its authorizer
-  (`apps/android/src/platform/direct.ts`), which has no attempt before the
-  browser leg, so a Cancel during those reads is lost there until it calls
-  `cancelSignIn()`; with an upstream OIDC provider that has a live session,
-  that sign-in can then finish and store its tokens.
+  Android's Cancel sign-in calls `cancelSignIn()`
+  (`apps/android/src/platform/direct.ts`), so it stops an attempt from
+  Hermes's status read until the browser has answered; its authorizer's own
+  `cancel()` is what the client calls once the page is open.
 - A switch that succeeds retires the previous origin's sign-in before the
   new one is installed (`NativeAuth.retire`). Work it still has in flight, a
   token refresh above all, can no longer store, return or delete tokens, and
