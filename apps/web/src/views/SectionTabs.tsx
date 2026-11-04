@@ -5,7 +5,8 @@ import styles from './views.module.css'
 /**
  * A destination's sections (Library's and Agent's), as links. On a phone the
  * strip scrolls sideways: the current section is scrolled into view, and the
- * edge fades while more sections are off to the side (views.module.css).
+ * strip's end fades (views.module.css), which shows only where a section runs
+ * under it; padding lets the last one scroll clear.
  */
 export function SectionTabs<T extends string>({
   label,

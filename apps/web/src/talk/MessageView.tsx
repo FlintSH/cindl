@@ -84,7 +84,16 @@ export function MessageView({
   return (
     <article
       className={styles.assistant}
-      aria-label={`${agentName}${moment ? `, ${moment}` : ''}`}
+      // Named as its header reads, as on Android: working, waiting, or its time.
+      aria-label={`${agentName}${
+        streaming && turn === 'working'
+          ? ', working'
+          : streaming && turn === 'waiting'
+            ? ', waiting for you'
+            : moment
+              ? `, ${moment}`
+              : ''
+      }`}
       aria-busy={streaming}
     >
       <header className={styles.assistantMeta}>

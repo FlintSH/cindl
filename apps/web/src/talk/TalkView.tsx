@@ -25,7 +25,7 @@ import { usePreference } from '../platform/preferences.ts'
 import { useMediaQuery } from '../platform/useMediaQuery.ts'
 import { Overlay } from '../shell/Overlay.tsx'
 import { navigate } from '../router.ts'
-import { shortcutText } from '../shortcuts.ts'
+import { matchShortcut, shortcutText } from '../shortcuts.ts'
 import { Button, Dot } from '../ui/primitives.tsx'
 import { Composer, type ComposerHandle } from './Composer.tsx'
 import { HistoryPopover } from './HistoryPopover.tsx'
@@ -161,7 +161,8 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
       const onKey = (event: KeyboardEvent) => {
         if (event.defaultPrevented || event.isComposing) return
         if (event.ctrlKey || event.metaKey || event.altKey) return
-        if (event.key.length !== 1 || ' /?'.includes(event.key)) return
+        // Shortcuts keep their keys (the registry decides, not a list here).
+        if (event.key.length !== 1 || event.key === ' ' || matchShortcut(event)) return
         const target = event.target
         if (
           target instanceof HTMLElement &&
@@ -408,9 +409,14 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                 // from the keyboard, focus goes on to the message box.
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={(event) => {
-                  const fromKeyboard = document.activeElement === event.currentTarget
+                  const pill = event.currentTarget
+                  const fromKeyboard = document.activeElement === pill
                   jumpToLatest()
-                  if (fromKeyboard) composer.current?.focus()
+                  if (!fromKeyboard) return
+                  composer.current?.focus()
+                  // A disabled message box (offline) takes no focus: the
+                  // switcher does, so focus never falls to the page.
+                  if (document.activeElement === pill) switcher.current?.focus()
                 }}
                 aria-label={
                   waitingBelow

@@ -305,9 +305,10 @@ its switcher; choosing the one already shown just closes the list.
 | `?`                     | Show keyboard shortcuts            |
 | `Enter` / `Shift Enter` | Send / new line in the message box |
 
-In the conversation list (`Ctrl/⌘ J`), `Enter` in the search box opens the
-top match, `↓` moves into the list and `↑` back up to the search box, and
-typing from the list goes on in the search box. In the command palette the
+In the conversation list (`Ctrl/⌘ J`), which opens with focus in its search
+box at every width, `Enter` in the search box opens the top match, `↓` moves
+into the list and `↑` back up to the search box, `Space` or `Enter` opens
+the row with focus, and typing from the list goes on in the search box. In the command palette the
 arrow keys wrap at either end and keep the highlighted row in view; the theme
 in use is marked "Current". The shortcuts list has a close button as well as
 `Escape`.
@@ -330,7 +331,8 @@ in use is marked "Current". The shortcuts list has a close button as well as
   A conversation with nothing in it yet says so in one line, instead of an
   empty page.
 - **Copy.** A finished reply's header has Copy (on hover or focus; phones and
-  touch screens keep their own text selection), and so does every code block.
+  touch screens keep their own text selection), and so does every code block
+  (on touch screens in a band of its own above the code, so it covers none).
   Copy takes only the reply's own words, as Markdown, not its steps. The
   desktop app refuses the browser's clipboard permission, so Cindl falls back
   to the copy command there, which needs only the click; nothing is ever read
@@ -338,14 +340,16 @@ in use is marked "Current". The shortcuts list has a close button as well as
 - **Latest.** When you have scrolled up, "Latest" brings you back down. It
   adds "Needs you" while a decision waits at the end of the conversation.
   Pressing it never moves focus; from the keyboard, focus goes on to the
-  message box.
+  message box, or to the conversation switcher while the message box is off
+  (offline), never to the page.
 - **Tooltips** on the header's buttons and the conversation switcher name
   their shortcut ("New side conversation (Ctrl+Shift+O)"), and the command
   palette lists its keys along its foot (hidden on touch screens).
 - **Needs you** on Work says which conversation each request belongs to, and
   links to it ("In Kiln inventory sheet"); a prompt that belongs to none says
   so.
-- **Routines** say when they run next and how their last run went, in words:
+- **Routines** say when they run next (while active, and only a time still
+  ahead) and how their last run went, in words:
   "Weekdays at 07:30 · next today at 7:30 AM · last run yesterday at 7:30 AM,
   succeeded".
 - **Page title.** While something waits on you, the tab's title (and the
@@ -354,7 +358,8 @@ in use is marked "Current". The shortcuts list has a close button as well as
   in its tooltip and to screen readers ("Connection: Connected. Show
   details"), not only in its colour.
 - **Times.** Message times follow your locale without a padded hour and know
-  the day: "8:03 AM" today, "Yesterday, 8:03 AM", then the date; hovering one
+  the day: "8:03 AM" today, "Yesterday, 8:03 AM", then the date, with its
+  year when it is another year's; hovering one
   gives the whole date. The conversation list shows today's conversations by
   the clock and older ones by the day. A document says when it was read in
   words ("Read today at 9:55 PM"); a step's status reads as its row does
@@ -364,8 +369,9 @@ in use is marked "Current". The shortcuts list has a close button as well as
   conversation.
 - **Lists and tabs.** Rows that open something end in a chevron and are
   divided like every other list; "All skills" leads back with one. On a
-  phone a section strip that does not fit (Agent's five) fades at its edge
-  and scrolls to the section shown, and the capability table stacks each
+  phone a section strip's end fades, so one that does not fit (Agent's five)
+  shows a section running under it, and the strip scrolls to the section
+  shown, clear of the fade; the capability table stacks each
   capability's state above its reason. The conversation list on a phone is a
   sheet with its own title and close button, as on Android.
 

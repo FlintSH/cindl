@@ -53,7 +53,7 @@ export function HistoryPopover({
     if (event.key === 'Enter' && !event.nativeEvent.isComposing && filtered[0]) {
       event.preventDefault()
       open_(filtered[0].id)
-    } else if (event.key === 'ArrowDown') {
+    } else if (event.key === 'ArrowDown' && !event.nativeEvent.isComposing) {
       event.preventDefault()
       rows()[0]?.focus()
     }
@@ -77,7 +77,11 @@ export function HistoryPopover({
       if (to < 0) search.current?.focus()
       else all[to]?.focus()
     } else if (
+      // Space stays with the row: a button acts on it (at key-up, so moving
+      // focus here would type a space into the search instead).
       event.key.length === 1 &&
+      event.key !== ' ' &&
+      !event.nativeEvent.isComposing &&
       !event.altKey &&
       !event.ctrlKey &&
       !event.metaKey
@@ -86,7 +90,15 @@ export function HistoryPopover({
     }
   }
   return (
-    <Overlay open={open} onClose={close} label="Conversations" placement="top">
+    // The search box takes focus at every width: on a phone the sheet's close
+    // button comes first in the DOM, and the dialog would otherwise focus it.
+    <Overlay
+      open={open}
+      onClose={close}
+      label="Conversations"
+      placement="top"
+      initialFocus="input"
+    >
       <div className={styles.history}>
         {/* Shown on phones, where the list is a bottom sheet (as on Android). */}
         <div className={styles.historyHead}>

@@ -89,6 +89,17 @@ describe('day-aware times', () => {
     expect(
       routineDetail({ schedule: 'Hourly', enabled: true, nextRunAt: undefined }, now),
     ).toBe('Hourly')
+    // A next run already past (a stale read, a late scheduler) is not "next".
+    expect(
+      routineDetail({ ...routine, nextRunAt: at(0, 7), lastRun: undefined }, now),
+    ).toBe('Weekdays at 07:30')
+  })
+
+  it('names the year of a date from another year', () => {
+    const lastYear = new Date(2025, 10, 4, 8, 3).toISOString()
+    expect(listTime(lastYear, now)).toMatch(/2025/)
+    expect(messageTime(lastYear, now)).toMatch(/2025/)
+    expect(listTime(at(30), now)).not.toMatch(/2026/)
   })
 })
 

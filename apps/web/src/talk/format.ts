@@ -30,7 +30,10 @@ export function relativeDay(iso?: string, now = new Date()): string | undefined 
   if (days === 0) return 'Today'
   if (days === 1) return 'Yesterday'
   if (days > 1 && days < 7) return date.toLocaleDateString([], { weekday: 'long' })
-  return date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+  // Another year says which ("Nov 4, 2025"), so last year's date never reads as this year's.
+  return date.getFullYear() === now.getFullYear()
+    ? date.toLocaleDateString([], { month: 'short', day: 'numeric' })
+    : date.toLocaleDateString([], { month: 'short', day: 'numeric', year: 'numeric' })
 }
 
 const startOfDay = (date: Date) =>
@@ -95,7 +98,12 @@ export function routineDetail(
   now = new Date(),
 ): string {
   const parts = [routine.schedule]
-  const next = routine.enabled ? momentInSentence(routine.nextRunAt, now) : undefined
+  // A next run already in the past (a stale read, a late scheduler) is not "next".
+  const upcoming =
+    routine.enabled &&
+    routine.nextRunAt !== undefined &&
+    Date.parse(routine.nextRunAt) > now.getTime()
+  const next = upcoming ? momentInSentence(routine.nextRunAt, now) : undefined
   if (next) parts.push(`next ${next}`)
   if (routine.lastRun)
     parts.push(

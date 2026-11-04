@@ -129,6 +129,27 @@ test('the conversation search opens its best match on Enter; the arrows walk the
   ).toBeVisible()
 })
 
+test('on a phone the conversation list opens on its search, and Space opens a row', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.keyboard.press(`${mod}+J`)
+  const history = page.getByRole('dialog', { name: 'Conversations' })
+  await expect(history.getByRole('button', { name: 'Close conversations' })).toBeVisible()
+  const search = history.getByRole('textbox', { name: 'Search conversations' })
+  await expect(search).toBeFocused()
+  await search.press('ArrowDown')
+  await page.keyboard.press('ArrowDown')
+  await expect(
+    history.getByRole('button', { name: /Kiln inventory sheet/ }),
+  ).toBeFocused()
+  await page.keyboard.press('Space')
+  await expect(history).toBeHidden()
+  await expect(
+    page.getByRole('region', { name: 'Conversation: Kiln inventory sheet' }),
+  ).toBeVisible()
+})
+
 test('the palette wraps, marks the theme in use, and the shortcuts list closes from its button', async ({
   page,
 }) => {

@@ -67,6 +67,11 @@
   .code .copyCode {
     opacity: 1;
   }
+  /* Always shown on touch screens, so it gets a band of its own above the
+     code instead of covering the end of its first lines. */
+  .code .pre {
+    padding-top: calc(var(--touch-target) + var(--space-1));
+  }
 }
 .pre {
   position: relative;

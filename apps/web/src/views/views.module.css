@@ -71,6 +71,15 @@
   font-size: var(--text-label-size);
   line-height: var(--text-label-line);
 }
+@media (max-width: 767px), (pointer: coarse) {
+  /* A 44px hit area for the conversation's link, drawn into the gap around
+     the line rather than pushing the card down. */
+  .provenance a {
+    display: inline-block;
+    padding-block: calc((var(--touch-target) - var(--text-label-line)) / 2);
+    margin-block: calc((var(--text-label-line) - var(--touch-target)) / 2);
+  }
+}
 .sectionHead {
   display: flex;
   align-items: baseline;
