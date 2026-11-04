@@ -153,8 +153,8 @@ bearer to public endpoints.
   withdraws it, and nothing is saved.
 - The owner's Cancel is the direct client's `cancelSignIn()`: it withdraws
   a native sign-in the same way at any of those points (Hermes's status
-  read, the stored sign-in read, the new origin's device state, the browser
-  leg), without stopping the client. The sign-in fails with
+  read, the stored sign-in read, the new origin's device state when there is
+  no working session, the browser leg), without stopping the client. The sign-in fails with
   `unauthenticated` ("Sign-in was cancelled. Nothing was saved."), the
   outcome Android's listener gives a cancelled attempt. Without a working
   session the sign-in still owns the client, so the link ends `signed-out`

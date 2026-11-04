@@ -360,7 +360,11 @@ with no Hermes session shows **Sign in to Hermes** (or **Signed out**):
    connects. Signing in to another Hermes forgets the previous one's tokens,
    once that sign-in succeeded. A sign-in that fails or is cancelled changes
    nothing: a working session stays connected as it was, and without one the
-   screen shows the reason and stays signed out. If the connection does not
+   screen shows the reason and stays signed out. One rare exception: if app
+   storage fails after Hermes accepted the sign-in (reading or saving which
+   Hermes was used, or forgetting the previous one's tokens), the screen
+   reports that failure although the client is already on the new Hermes;
+   the next start uses the address saved before. If the connection does not
    come up (for example `/api/ws` fails), the
    sign-in screen says so, with the reason, and offers **Continue to Cindl**:
    the app then shows the connection's state and keeps trying, and Agent can
