@@ -12,6 +12,9 @@ design tokens with the other clients.
   APKs on GitHub-hosted runners: the synthetic demo and a real build. They are
   test builds, not releases: each run signs them with a new throwaway key (see
   [Test APKs](#test-apks)).
+- **Releases.** From v1.0.0 a production APK, signed with Cindl's release key,
+  is published on GitHub Releases (see
+  [Installing a release](#installing-a-release)).
 - **Emulator tests in CI.** Each run installs both APKs on an Android 16
   emulator and drives them (see [Emulator tests](#emulator-tests)).
 - **Real builds** connect to your Hermes server through the direct client
@@ -22,6 +25,29 @@ design tokens with the other clients.
   emulator. It has not been validated against a real Hermes server or on a
   phone.
 
+## Installing a release
+
+Cindl's stable channel is a signed APK attached to a release on GitHub
+(`cindl-1.0.0-android.apk` for v1.0.0), not an app store. Beside it are
+`SHA256SUMS` and the licence notices.
+
+1. Download the APK on the phone and open it. Android asks to allow installs
+   from the app that downloaded it (your browser, under **Install unknown
+   apps**); allow it for this install. You can turn it off again afterwards.
+2. Check the file before installing it. Its SHA-256 must match `SHA256SUMS`
+   (`sha256sum cindl-1.0.0-android.apk`), and its signing certificate must be
+   Cindl's release key. On a computer with the Android SDK build-tools,
+   `apksigner verify --print-certs cindl-1.0.0-android.apk` prints
+   `Signer #1 certificate SHA-256 digest:
+a4105f20f7fa5901035eb08db22e02cc8402b922f59d77d79e532a920e2bb9b6`, which is
+   the release certificate's fingerprint (valid until 2056-10-27), the same as
+   keytool prints it:
+   `A4:10:5F:20:F7:FA:59:01:03:5E:B0:8D:B2:2E:02:CC:84:02:B9:22:F5:9D:77:D7:9E:53:2A:92:0E:2B:B9:B6`.
+3. Later releases install over it as updates. Android accepts an update only
+   when it is signed with the same key, so an APK signed with any other key,
+   a CI test APK included, does not install over a release (nor a release
+   over a test APK); uninstalling first deletes the app's data.
+
 ## Android SDK licence
 
 Building an APK or running an emulator uses Android SDK packages under Google's
@@ -29,7 +55,10 @@ Android Software Development Kit License Agreement (sdkmanager id
 `android-sdk-license`). On 2026-11-03 the owner approved accepting it **for
 Cindl APK builds and emulator tests on GitHub-hosted runners only**. The
 approval does not cover development machines, personal devices, paid or store
-services, store enrolment or production signing.
+services, store enrolment or production signing. Signing a published release
+with a stable key was approved separately by the owner for v1.0.0: the key is
+kept in GitHub Actions secrets and used only by the release workflow, on a
+`v*` tag.
 
 The workflow keeps to that scope:
 
@@ -428,8 +457,14 @@ Hermes server, Chrome's Custom Tab, and a phone.
 - **Backups:** off. `allowBackup=false`, and data extraction rules exclude
   every storage domain from cloud backups and device-to-device transfers,
   because some Android 12+ devices transfer data despite `allowBackup=false`.
-- **Signing:** release builds are signed only with the throwaway CI key; without
-  it they stay unsigned (`apps/android/plugins/withTestSigning.ts`).
+- **Signing:** test builds are signed with the throwaway CI key, and a
+  published release with the release key, only on a `v*` tag and never in a
+  demo build; with neither, release builds stay unsigned
+  (`apps/android/plugins/withTestSigning.ts`, which stops the build when the
+  release key's secrets are incomplete, when both keys are set or when a demo
+  build has the release key). `apps/android/scripts/release-apk.sh` builds a
+  release, and `check-apk.ts release` refuses it unless its certificate is the
+  committed release fingerprint (`apps/android/scripts/apk-signing.ts`).
 - **No WebView:** Expo's unused DOM-components WebView module is excluded from
   autolinking. `@expo/log-box` is still autolinked and compiles an
   `android.webkit.WebView` wrapper, which only debug builds use, with

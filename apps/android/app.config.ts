@@ -14,6 +14,25 @@ import { withTestSigning } from './plugins/withTestSigning.ts'
  */
 const fontsDir = '../../packages/tokens/fonts'
 
+export const VERSION = '1.0.0'
+
+/**
+ * Android's versionCode, from the version: major × 10000 + minor × 100 +
+ * patch, so 1.0.0 is 10000 and every later release (1.0.1 is 10001, 1.1.0 is
+ * 10100) installs as an update of the one before, signed with the same key.
+ * Minor and patch stay under 100. Test APKs carry it too; they are signed with
+ * a throwaway key, so a release never updates one, nor one a release.
+ */
+export function versionCodeOf(version: string): number {
+  const parts = /^(\d+)\.(\d+)\.(\d+)$/.exec(version)
+  const [major, minor, patch] = (parts?.slice(1) ?? []).map(Number)
+  if (major === undefined || minor === undefined || patch === undefined)
+    throw new Error(`app.config.ts: version ${version} is not major.minor.patch`)
+  if (minor > 99 || patch > 99)
+    throw new Error(`app.config.ts: version ${version} has a minor or patch over 99`)
+  return major * 10_000 + minor * 100 + patch
+}
+
 export default ({ config }: ConfigContext): ExpoConfig =>
   withTestSigning(
     withAndroidToolchain(
@@ -25,7 +44,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
             name:
               process.env.EXPO_PUBLIC_CINDL_DEMO === '1' ? DEMO_PRODUCT_NAME : 'Cindl',
             slug: 'cindl',
-            version: '0.1.0',
+            version: VERSION,
             description: 'A calm, cross-device home for a self-hosted Hermes agent.',
             platforms: ['android'],
             orientation: 'default',
@@ -35,7 +54,7 @@ export default ({ config }: ConfigContext): ExpoConfig =>
             icon: './assets/icon.png',
             android: {
               package: 'dev.fl1nt.cindl',
-              versionCode: 1,
+              versionCode: versionCodeOf(VERSION),
               adaptiveIcon: {
                 foregroundImage: './assets/adaptive-icon.png',
                 monochromeImage: './assets/adaptive-icon-monochrome.png',
