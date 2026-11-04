@@ -103,8 +103,9 @@ them. A request must arrive whole within 10 seconds (`--idle-timeout`, 1 to
 300), a connection that sends or reads nothing for that long is closed, and
 beyond 64 connections at once a new one is closed straight away. It ignores
 request headers, cookies included. It logs the request line, a request cut
-off at the deadline, and one line for a connection that fails mid-answer,
-never a header, in plain ASCII with anything else written as `\xNN` and long
+off at the deadline, Python's own "Request timed out" for a connection gone
+quiet, and one line for a connection that fails mid-answer, never a header,
+in plain ASCII with anything else written as `\xNN` and long
 lines cut short. It
 takes the mount path as is (`/cindl/assets/...`) or with the front's mount
 stripped (`/assets/...`), and refuses a mount that names a path in the build.

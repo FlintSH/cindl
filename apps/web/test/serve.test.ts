@@ -438,6 +438,8 @@ describe('cindl-serve', () => {
         await pause(100)
         // With 63 held, the 64th still gets its answer: the cap is not lower.
         expect((await get(port, '/cindl/')).status).toBe(200)
+        // Let that connection's slot come free before holding the 64th.
+        await pause(100)
         held.push(await opened())
         await pause(100)
         // The 65th is closed at once, not after the 1 s timeout the 64 are waiting out.
