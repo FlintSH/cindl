@@ -667,9 +667,19 @@ Hermes server, Chrome's Custom Tab, and a phone.
   button sends.
 - **Composer:** Send stays neutral (no ember) until there is text to send.
   While Hermes works, **Stop** sits beside it as a bordered button with a
-  solid square, so it never reads as a checkbox. Message times read as the
-  phone's locale writes them, without a padded hour ("8:03 AM"), and a
-  document says when it was read in words ("Read today at 9:55 PM").
+  solid square, so it never reads as a checkbox. A reply in progress counts
+  up in its header ("Working for 12s") in place of its time. A conversation
+  with nothing in it yet says so in one line, instead of an empty screen; a
+  new one does not open the on-screen keyboard by itself.
+- **Times** read as the phone's locale writes them, without a padded hour,
+  and know the day: "8:03 AM" today, "Yesterday, 8:03 AM", then the date
+  (TalkBack hears "Hermes, yesterday at 8:03 AM"). The conversation list
+  shows today's conversations by the clock and older ones by the day; a
+  document says when it was read in words ("Read today at 9:55 PM"); a
+  routine says when it runs next and how its last run went ("last run
+  yesterday at 7:30 AM, succeeded").
+- **Needs you** on Work names the conversation each request belongs to ("In
+  Kiln inventory sheet"), as on the web.
 - **Tabs** that do not fit (Agent's five on a phone) fade at the edge that
   hides more of them. SOUL.md's section label keeps its file name's case, and
   an MCP server's state reads like the capability states ("Connected",

@@ -6,7 +6,7 @@ import { Sheet } from '../overlay/Sheet.tsx'
 import { useTheme } from '../theme/theme.tsx'
 import { Pin, Plus } from '../ui/icons.ts'
 import { Badge, Note, Press, Txt } from '../ui/primitives.tsx'
-import { fuzzyScore, relativeDay } from './format.ts'
+import { fuzzyScore, listTime } from './format.ts'
 
 /** Searchable conversation switcher (the web history popover, as a sheet). */
 export function HistorySheet({
@@ -162,7 +162,7 @@ function ConversationItem({
   onPress: () => void
 }) {
   const theme = useTheme()
-  const day = relativeDay(conversation.updatedAt)
+  const day = listTime(conversation.updatedAt)
   const status =
     conversation.status === 'waiting-on-you'
       ? 'Needs you'

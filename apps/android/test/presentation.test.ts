@@ -10,7 +10,16 @@ import {
   REFUSED_AFTER_SIGN_IN,
 } from '../src/shell/afterSignIn.ts'
 import { keyboardOverlap } from '../src/shell/keyboardOverlap.ts'
-import { clockTime, duration, fuzzyScore, momentInSentence } from '../src/talk/format.ts'
+import {
+  clockTime,
+  duration,
+  elapsed,
+  fuzzyScore,
+  listTime,
+  messageTime,
+  momentInSentence,
+  routineDetail,
+} from '../src/talk/format.ts'
 import { composerHint, linkCopy, presenceCopy } from '../src/talk/presence.ts'
 import { buildTheme, resolveThemeName } from '../src/theme/model.ts'
 
@@ -120,6 +129,29 @@ describe('formatting shared with web', () => {
     expect(momentInSentence(at(1), now)).toMatch(/^yesterday at \S/)
     expect(momentInSentence(at(30), now)).toMatch(/^on \S.* at \S/)
     expect(momentInSentence('not a date', now)).toBeUndefined()
+  })
+
+  it('shares the web’s day-aware times, live timer and routine line', () => {
+    const now = new Date(2026, 5, 10, 18, 0)
+    const at = (days: number, hour = 9) =>
+      new Date(2026, 5, 10 - days, hour, 55).toISOString()
+    expect(messageTime(at(0), now)).toBe(clockTime(at(0)))
+    expect(messageTime(at(1), now)).toBe(`Yesterday, ${clockTime(at(1))}`)
+    expect(listTime(at(0), now)).toBe(clockTime(at(0)))
+    expect(listTime(at(1), now)).toBe('Yesterday')
+    const start = Date.parse('2026-06-10T10:00:00.000Z')
+    expect(elapsed(new Date(start).toISOString(), start + 65_000)).toBe('1m 5s')
+    expect(elapsed(new Date(start).toISOString(), start - 1_000)).toBeUndefined()
+    expect(
+      routineDetail(
+        {
+          schedule: 'Weekdays at 07:30',
+          enabled: true,
+          lastRun: { at: at(1, 7), status: 'skipped' },
+        },
+        now,
+      ),
+    ).toBe(`Weekdays at 07:30 · last run yesterday at ${clockTime(at(1, 7))}, skipped`)
   })
 })
 
