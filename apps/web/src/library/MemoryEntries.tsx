@@ -156,7 +156,10 @@ export function MemoryEntries() {
     />
   )
   return (
-    <section className={styles.section} aria-labelledby="memory-entries-title">
+    <section
+      className={`${styles.section} ${styles.memoryEntries}`}
+      aria-labelledby="memory-entries-title"
+    >
       <SectionTitle id="memory-entries-title" ref={heading} tabIndex={-1}>
         Entries
       </SectionTitle>

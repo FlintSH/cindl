@@ -6,14 +6,15 @@ import {
   useConversations,
   useOpenRequests,
 } from '@cindl/client-react'
-import type { Routine } from '@cindl/contracts'
+import type { Routine, ServerRequest } from '@cindl/contracts'
 import { useState } from 'react'
 import { View } from 'react-native'
 import { useDestinationActive, useNavigate } from '../nav/NavProvider.tsx'
 import { Dialog } from '../overlay/Sheet.tsx'
 import { describeFailure, ROUTINE_UNCERTAIN } from '../talk/failures.ts'
-import { relativeDay } from '../talk/format.ts'
+import { routineDetail } from '../talk/format.ts'
 import { RequestCard } from '../talk/RequestCard.tsx'
+import { useTheme } from '../theme/theme.tsx'
 import { requestKeyOf } from '../talk/requests.ts'
 import {
   Badge,
@@ -119,11 +120,7 @@ function Routines() {
           <Row
             key={routine.id}
             title={routine.name}
-            detail={`${routine.schedule}${
-              routine.lastRun
-                ? ` · last run ${relativeDay(routine.lastRun.at) ?? ''} (${routine.lastRun.status})`
-                : ''
-            }`}
+            detail={routineDetail(routine)}
             aside={
               <>
                 <Badge tone={routine.enabled ? 'success' : 'neutral'}>
@@ -198,8 +195,20 @@ function ComputerSection() {
   )
 }
 
+/** "In Kiln inventory sheet", or for an app-level prompt "Not part of a conversation". */
+function provenance(
+  request: ServerRequest,
+  conversations: ReadonlyArray<{ id: string; title: string }>,
+): string {
+  if (!request.conversationId) return 'Not part of a conversation'
+  const title = conversations.find((c) => c.id === request.conversationId)?.title
+  return `In ${title ?? 'its conversation'}`
+}
+
 export function WorkView() {
+  const theme = useTheme()
   const requests = useOpenRequests()
+  const conversations = useConversations()
   return (
     <Page
       title="Work"
@@ -208,7 +217,11 @@ export function WorkView() {
       <Section title="Needs you">
         {requests.length ? (
           requests.map((request) => (
-            <RequestCard key={requestKeyOf(request)} request={request} />
+            // Every conversation's requests are here: each says whose it is (web parity).
+            <View key={requestKeyOf(request)} style={{ gap: theme.space[1.5] }}>
+              <Note>{provenance(request, conversations)}</Note>
+              <RequestCard request={request} />
+            </View>
           ))
         ) : (
           <Empty>Nothing is waiting on you.</Empty>

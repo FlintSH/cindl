@@ -1,13 +1,41 @@
 import type { Message } from '@cindl/contracts'
 import { ChevronDown } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { CopyButton } from '../ui/CopyButton.tsx'
 import { Markdown } from './Markdown.tsx'
 import { ToolRow } from './ToolRow.tsx'
-import { clockTime } from './format.ts'
+import { elapsed, fullTime, messageTime, momentInSentence } from './format.ts'
 import styles from './talk.module.css'
+
+/** While a reply streams, its header counts up from when it started. */
+function Working({ since }: { since: string | undefined }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const tick = window.setInterval(() => setNow(Date.now()), 1000)
+    return () => window.clearInterval(tick)
+  }, [])
+  const took = elapsed(since, now)
+  return (
+    <span className={styles.working}>{took ? `Working for ${took}` : 'Working…'}</span>
+  )
+}
 
 const originNote: Partial<Record<NonNullable<Message['origin']>, string>> = {
   routine: 'From a routine',
   proactive: 'Unprompted',
+}
+
+/**
+ * What a streaming reply's header says, from the conversation's observed
+ * phase: counting while Hermes works, "Waiting for you" while it is blocked on
+ * the owner, nothing (just its time) when Cindl cannot tell. A reply blocked
+ * overnight never claims to have worked all night.
+ */
+export type TurnState = 'working' | 'waiting' | undefined
+
+export function turnStateOf(phase: string): TurnState {
+  if (phase === 'waiting-on-you') return 'waiting'
+  return phase === 'executing' || phase === 'queued' ? 'working' : undefined
 }
 
 export function MessageView({
@@ -16,20 +44,29 @@ export function MessageView({
   selectedToolId,
   blockedToolIds,
   onSelectTool,
+  turn,
 }: {
   message: Message
   agentName: string
   selectedToolId: string | undefined
   blockedToolIds: ReadonlySet<string>
   onSelectTool: (toolId: string) => void
+  /** The conversation's turn, for a streaming reply's header. */
+  turn?: TurnState
 }) {
-  const time = clockTime(message.createdAt)
+  const time = messageTime(message.createdAt)
+  // Spoken as part of the message's name: "You, today at 8:03 AM".
+  const moment = momentInSentence(message.createdAt)
   if (message.role === 'user') {
     const text = message.parts
       .map((part) => (part.type === 'text' ? part.text : ''))
       .join('')
     return (
-      <article className={styles.user} aria-label={`You${time ? ` at ${time}` : ''}`}>
+      <article
+        className={styles.user}
+        aria-label={`You${moment ? `, ${moment}` : ''}`}
+        title={fullTime(message.createdAt)}
+      >
         <div className={styles.userBubble}>
           <p className={styles.userText}>{text}</p>
         </div>
@@ -37,16 +74,43 @@ export function MessageView({
     )
   }
   const note = message.origin ? originNote[message.origin] : undefined
+  const streaming = message.status === 'streaming'
+  // The reply's own words, as Markdown: steps and notices are not part of it.
+  const words = () =>
+    message.parts
+      .flatMap((part) => (part.type === 'text' ? [part.text] : []))
+      .join('\n\n')
+  const hasWords = message.parts.some((part) => part.type === 'text' && part.text.trim())
   return (
     <article
       className={styles.assistant}
-      aria-label={`${agentName}${time ? ` at ${time}` : ''}`}
-      aria-busy={message.status === 'streaming'}
+      // Named as its header reads, as on Android: working, waiting, or its time.
+      aria-label={`${agentName}${
+        streaming && turn === 'working'
+          ? ', working'
+          : streaming && turn === 'waiting'
+            ? ', waiting for you'
+            : moment
+              ? `, ${moment}`
+              : ''
+      }`}
+      aria-busy={streaming}
     >
       <header className={styles.assistantMeta}>
         <span className={styles.assistantName}>{agentName}</span>
         {note ? <span className={styles.origin}>{note}</span> : null}
-        {time ? <time dateTime={message.createdAt}>{time}</time> : null}
+        {streaming && turn === 'working' ? (
+          <Working since={message.createdAt} />
+        ) : streaming && turn === 'waiting' ? (
+          <span className={styles.working}>Waiting for you</span>
+        ) : time ? (
+          <time dateTime={message.createdAt} title={fullTime(message.createdAt)}>
+            {time}
+          </time>
+        ) : null}
+        {!streaming && hasWords ? (
+          <CopyButton label="Copy reply" className={styles.copyReply} text={words} />
+        ) : null}
       </header>
       <div className={styles.assistantBody}>
         {message.parts.map((part, index) => {
@@ -80,9 +144,6 @@ export function MessageView({
               )
           }
         })}
-        {message.status === 'streaming' && message.parts.length === 0 ? (
-          <p className={styles.thinking}>Working…</p>
-        ) : null}
         {message.status === 'interrupted' ? (
           <p className={styles.notice}>Stopped.</p>
         ) : null}

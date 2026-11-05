@@ -107,6 +107,7 @@ export function Button({
   accessibilityLabel,
   accessibilityHint,
   icon: Icon,
+  filledIcon = false,
   iconOnly = false,
   variant = 'default',
   disabled = false,
@@ -122,6 +123,8 @@ export function Button({
   accessibilityLabel?: string
   accessibilityHint?: string
   icon?: LucideIcon
+  /** Draw the icon as a solid shape (Stop's square), not an outline. */
+  filledIcon?: boolean
   /** Square icon button (one touch target, 48dp); `label` is then only spoken. */
   iconOnly?: boolean
   variant?: ButtonVariant
@@ -166,7 +169,11 @@ export function Button({
       ]}
     >
       {Icon ? (
-        <Icon size={iconOnly ? 18 : 16} color={foreground} strokeWidth={1.75} />
+        filledIcon ? (
+          <Icon size={13} color={foreground} fill={foreground} strokeWidth={0} />
+        ) : (
+          <Icon size={iconOnly ? 18 : 16} color={foreground} strokeWidth={1.75} />
+        )
       ) : null}
       {iconOnly ? null : (
         <Text
@@ -280,10 +287,13 @@ export function Dot({ tone = 'neutral' }: { tone?: Tone }) {
 export function SectionTitle({
   ref,
   children,
+  asWritten = false,
 }: {
   /** The heading's view, for sending TalkBack focus to it. */
   ref?: Ref<HostInstance>
   children: string
+  /** A file name keeps its case ("SOUL.md", not "SOUL.MD"). */
+  asWritten?: boolean
 }) {
   const theme = useTheme()
   return (
@@ -296,8 +306,8 @@ export function SectionTitle({
         {
           fontFamily: theme.fonts.semibold,
           color: theme.colors.textTertiary,
-          letterSpacing: +(0.04 * theme.text.label.fontSize).toFixed(2),
-          textTransform: 'uppercase',
+          letterSpacing: asWritten ? 0 : +(0.04 * theme.text.label.fontSize).toFixed(2),
+          textTransform: asWritten ? 'none' : 'uppercase',
         },
       ]}
     >

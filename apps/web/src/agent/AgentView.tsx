@@ -12,13 +12,14 @@ import {
 } from '@cindl/contracts'
 import { useState } from 'react'
 import { usePreference, type ThemePreference } from '../platform/preferences.ts'
-import { formatRoute, type AgentSection } from '../router.ts'
+import type { AgentSection } from '../router.ts'
 import { linkCopy } from '../shell/LinkStatus.tsx'
 import { Badge, Button, Dot, SectionTitle, type Tone } from '../ui/primitives.tsx'
 import { RequireCapability } from '../views/Capability.tsx'
 import { useClientKind } from '../platform/clientKind.ts'
 import { signOutHere } from '../shell/session.ts'
 import { DocumentEditor } from '../views/DocumentEditor.tsx'
+import { SectionTabs } from '../views/SectionTabs.tsx'
 import { useResource } from '../views/useResource.ts'
 import styles from '../views/views.module.css'
 
@@ -56,7 +57,9 @@ function Identity() {
   )
   return (
     <section className={styles.section} aria-labelledby="soul-title">
-      <SectionTitle id="soul-title">SOUL.md</SectionTitle>
+      <SectionTitle id="soul-title" asWritten>
+        SOUL.md
+      </SectionTitle>
       <p className={styles.note}>
         Who Hermes is for this profile: its truths, limits and voice.
       </p>
@@ -82,6 +85,14 @@ function Identity() {
   )
 }
 
+/** Badge copy, cased like the capability states ("Available"). */
+const mcpLabel: Record<McpServerStatus['state'], string> = {
+  connected: 'Connected',
+  connecting: 'Connecting',
+  error: 'Error',
+  disabled: 'Disabled',
+  unknown: 'Unknown',
+}
 const mcpTone: Record<McpServerStatus['state'], Tone> = {
   connected: 'success',
   connecting: 'info',
@@ -120,7 +131,7 @@ function McpServers() {
                     : 'No tool count reported')}
               </span>
               <span className={styles.rowAside}>
-                <Badge tone={mcpTone[server.state]}>{server.state}</Badge>
+                <Badge tone={mcpTone[server.state]}>{mcpLabel[server.state]}</Badge>
               </span>
             </li>
           ))}
@@ -209,27 +220,35 @@ function Runtime() {
       <section className={styles.section} aria-labelledby="caps-title">
         <SectionTitle id="caps-title">Capabilities</SectionTitle>
         <div className={styles.tableScroll}>
-          <table className={styles.capTable}>
-            <thead>
-              <tr>
-                <th scope="col">Capability</th>
-                <th scope="col">State</th>
-                <th scope="col">Why</th>
+          {/* Explicit roles: a phone stacks the rows with CSS display, which can
+              drop native table semantics in some browsers. */}
+          <table className={styles.capTable} role="table">
+            <thead role="rowgroup">
+              <tr role="row">
+                <th scope="col" role="columnheader">
+                  Capability
+                </th>
+                <th scope="col" role="columnheader">
+                  State
+                </th>
+                <th scope="col" role="columnheader">
+                  Why
+                </th>
               </tr>
             </thead>
-            <tbody>
+            <tbody role="rowgroup">
               {capabilityIds.map((id) => {
                 const capability = capabilities[id]
                 const state = capability?.state ?? 'unknown'
                 return (
-                  <tr key={id}>
-                    <td>
+                  <tr key={id} role="row">
+                    <td role="cell">
                       <code>{id}</code>
                     </td>
-                    <td>
+                    <td role="cell">
                       <Badge tone={stateTone[state]}>{stateLabel[state]}</Badge>
                     </td>
-                    <td>
+                    <td role="cell">
                       {capability?.reason ??
                         (capability
                           ? (capability.source.endpoint ?? '')
@@ -269,7 +288,7 @@ function Device() {
           on other devices.
         </p>
       )}
-      <div className={styles.actions}>
+      <div className={styles.actions} data-align="start">
         <Button
           disabled={link.phase === 'signed-out'}
           onClick={() => {
@@ -341,18 +360,12 @@ export function AgentView({ section }: { section: AgentSection }) {
             Who Hermes is, what it is connected to, and how this device reaches it.
           </p>
         </header>
-        <nav className={styles.tabs} aria-label="Agent sections">
-          {sections.map((s) => (
-            <a
-              key={s.id}
-              className={styles.tab}
-              href={formatRoute({ view: 'agent', section: s.id })}
-              aria-current={section === s.id ? 'page' : undefined}
-            >
-              {s.label}
-            </a>
-          ))}
-        </nav>
+        <SectionTabs
+          label="Agent sections"
+          items={sections}
+          current={section}
+          route={(id) => ({ view: 'agent', section: id })}
+        />
         {section === 'identity' ? (
           <RequireCapability id="soul.read" label="Identity">
             <Identity />

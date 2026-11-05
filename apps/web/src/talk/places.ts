@@ -61,10 +61,26 @@ export function takeSwitch(): boolean {
   return was
 }
 
+// Cindl just created the conversation now opening: the owner made it to
+// write in it, so it opens with focus in its message box.
+let fresh = false
+
+export function noteFresh() {
+  fresh = true
+}
+
+/** Whether the conversation now opening was just created here (asked once). */
+export function takeFresh(): boolean {
+  const was = fresh
+  fresh = false
+  return was
+}
+
 /** The session ended: nothing typed or read on this device outlives it. */
 export function forgetPlaces() {
   places.clear()
   switched = false
+  fresh = false
   for (const listener of listeners) listener()
 }
 

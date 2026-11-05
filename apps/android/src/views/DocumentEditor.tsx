@@ -14,6 +14,7 @@ import { giveKeyboardFocus } from '../overlay/keyboardFocus.ts'
 import { ownerMoves } from '../overlay/opener.ts'
 import { Dialog } from '../overlay/Sheet.tsx'
 import { describeFailure, NOT_APPLIED, SAVE_UNCERTAIN } from '../talk/failures.ts'
+import { momentInSentence } from '../talk/format.ts'
 import { useTheme } from '../theme/theme.tsx'
 import { Button, Note, Txt } from '../ui/primitives.tsx'
 import { keptDrafts } from './drafts.ts'
@@ -320,7 +321,7 @@ export function DocumentEditor({
           </Text>
         </View>
         <Note>
-          {`Read ${new Date(document.readAt).toLocaleString()} from ${document.source}. Version ${document.version.slice(0, 12)}.`}
+          {`Read ${momentInSentence(document.readAt) ?? document.readAt} from ${document.source}. Version ${document.version.slice(0, 12)}.`}
         </Note>
         {offered !== undefined && !locked ? (
           <View style={{ gap: theme.space[2] }}>

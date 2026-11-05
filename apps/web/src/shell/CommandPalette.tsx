@@ -1,5 +1,5 @@
 import { useConversations } from '@cindl/client-react'
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { navigate } from '../router.ts'
 import { shortcuts, type ShortcutId } from '../shortcuts.ts'
 import { Keys } from '../ui/primitives.tsx'
@@ -67,6 +67,14 @@ export function CommandPalette({
         .map((r) => r.command),
     [all, query],
   )
+  const list = useRef<HTMLUListElement>(null)
+  // The highlighted row stays in view as the arrow keys move past the list's edge.
+  useEffect(() => {
+    const row = list.current?.querySelector('[aria-selected="true"]')
+    // jsdom has no scrollIntoView.
+    if (typeof row?.scrollIntoView === 'function')
+      row.scrollIntoView({ block: 'nearest' })
+  }, [active, results])
   const close = () => {
     setQuery('')
     setActive(0)
@@ -96,19 +104,22 @@ export function CommandPalette({
             setActive(0)
           }}
           onKeyDown={(event) => {
+            // The arrows wrap at either end, as they do in most palettes.
             if (event.key === 'ArrowDown') {
               event.preventDefault()
-              setActive((i) => Math.min(i + 1, results.length - 1))
+              if (results.length) setActive((i) => (i + 1) % results.length)
             } else if (event.key === 'ArrowUp') {
               event.preventDefault()
-              setActive((i) => Math.max(i - 1, 0))
-            } else if (event.key === 'Enter') {
+              if (results.length)
+                setActive((i) => (i - 1 + results.length) % results.length)
+            } else if (event.key === 'Enter' && !event.nativeEvent.isComposing) {
               event.preventDefault()
               run(results[active])
             }
           }}
         />
         <ul
+          ref={list}
           className={styles.results}
           id="palette-results"
           role="listbox"
@@ -136,6 +147,18 @@ export function CommandPalette({
           })}
           {results.length === 0 ? <li className={styles.empty}>No matches</li> : null}
         </ul>
+        {/* For a keyboard; hidden on touch screens (palette.module.css). */}
+        <p className={styles.footer} aria-hidden="true">
+          <span>
+            <kbd>↑</kbd> <kbd>↓</kbd> to move
+          </span>
+          <span>
+            <kbd>Enter</kbd> to run
+          </span>
+          <span>
+            <kbd>Esc</kbd> to close
+          </span>
+        </p>
       </div>
     </Overlay>
   )

@@ -665,6 +665,30 @@ Hermes server, Chrome's Custom Tab, and a phone.
 - **Keyboard:** the composer and sheets stay above the on-screen keyboard; the
   bottom navigation steps aside while it is open. Enter adds a line; the Send
   button sends.
+- **Composer:** Send stays neutral (no ember) until there is text to send.
+  While Hermes works, **Stop** sits beside it as a bordered button with a
+  solid square, so it never reads as a checkbox. A reply in progress says
+  in its header, in place of its time, "Working for 12s" while Hermes works
+  and "Waiting for you" while it waits on you (web parity). A conversation
+  with nothing in it yet says so in one line, instead of an empty screen; a
+  new one does not open the on-screen keyboard by itself.
+- **Times** read as the phone's locale writes them, without a padded hour,
+  and know the day: "8:03 AM" today, "Yesterday, 8:03 AM", then the date
+  (with its year when it is another year's)
+  (TalkBack hears "Hermes, yesterday at 8:03 AM"). The conversation list
+  shows today's conversations by the clock and older ones by the day; a
+  document says when it was read in words ("Read today at 9:55 PM"); a
+  routine says when it runs next (only a time still ahead) and how its last
+  run went ("last run yesterday at 7:30 AM, succeeded").
+- **Needs you** on Work names the conversation each request belongs to ("In
+  Kiln inventory sheet"), as on the web.
+- **Tabs:** a page's tab strip fades at its end, so a tab cut off there
+  (Agent's five on a phone) reads as more to come, and the last tab scrolls
+  clear of the fade. React Native 0.88 draws an edge's fade at a fixed
+  strength whatever the scroll position, so the start has none: it would
+  wash out the first tab at rest. SOUL.md's section label keeps its file name's case, and
+  an MCP server's state reads like the capability states ("Connected",
+  "Error").
 - **Accessibility:** touch targets are at least 48dp (Android's guidance; the
   shared tokens' 44px is the floor for every client), TalkBack labels match the
   web labels, and the system font size, dark theme and "Remove animations"

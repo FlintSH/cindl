@@ -140,20 +140,23 @@ export const Composer = forwardRef<
         <div className={styles.composerActions}>
           {canStop && canInterrupt ? (
             <Button
-              variant="quiet"
               icon
+              className={styles.stop}
               aria-label="Stop the current turn"
-              title="Stop"
+              title="Stop the current turn"
               onClick={() => void api.call('conversation.interrupt', { conversationId })}
             >
-              <Square size={12} fill="currentColor" strokeWidth={0} aria-hidden="true" />
+              <Square size={11} fill="currentColor" strokeWidth={0} aria-hidden="true" />
             </Button>
           ) : null}
+          {/* Ember only once there is something to send: an empty box has no intent yet. */}
           <Button
             type="submit"
             variant="primary"
             icon
+            className={styles.send}
             aria-label="Send"
+            title="Send (Enter)"
             disabled={!ready || !text.trim()}
           >
             <ArrowUp size={16} aria-hidden="true" />

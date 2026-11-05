@@ -49,13 +49,24 @@ export function Page({
   )
 }
 
-export function Section({ title, children }: { title: string; children: ReactNode }) {
+export function Section({
+  title,
+  asWritten = false,
+  children,
+}: {
+  title: string
+  /** Keep the title's case (a file name). */
+  asWritten?: boolean
+  children: ReactNode
+}) {
   const theme = useTheme()
   const heading = useRef<HostInstance | null>(null)
   const focusHeading = useCallback(() => heading.current, [])
   return (
     <View style={{ gap: theme.space[3] }}>
-      <SectionTitle ref={heading}>{title}</SectionTitle>
+      <SectionTitle ref={heading} asWritten={asWritten}>
+        {title}
+      </SectionTitle>
       {/* An overlay closed after what opened it here went gives focus to this heading. */}
       <FocusFallback value={focusHeading}>{children}</FocusFallback>
     </View>
@@ -110,6 +121,13 @@ export function Tabs<T extends string>({
     <ScrollView
       horizontal
       showsHorizontalScrollIndicator={false}
+      // The end fades, so a tab cut off there (Agent's five at phone width)
+      // reads as "more this way". React Native 0.88 draws each edge's fade at
+      // a fixed strength whatever the scroll position, so only the end gets
+      // one (the start would wash out the first tab at rest), and the end
+      // padding lets the last tab scroll clear of it (web parity).
+      fadingEdgeLength={{ start: 0, end: theme.space[8] }}
+      contentContainerStyle={{ paddingRight: theme.space[8] }}
       accessibilityLabel={label}
       accessibilityRole="tablist"
       style={{ flexGrow: 0, borderBottomWidth: 1, borderColor: theme.colors.border }}

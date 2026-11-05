@@ -58,6 +58,7 @@ export function Composer({
   const [focused, setFocused] = useState(false)
   const connected = link.phase === 'online'
   const ready = connected && canSend
+  const sendable = ready && !sending && text.trim().length > 0
 
   const submit = async () => {
     const value = text.trim()
@@ -154,11 +155,13 @@ export function Composer({
           ]}
         />
         {canStop && canInterrupt ? (
+          // A bordered control with a solid square, so it never reads as a checkbox.
           <Button
             label="Stop the current turn"
             icon={Square}
+            filledIcon
             iconOnly
-            variant="quiet"
+            style={{ borderColor: theme.colors.borderStrong }}
             onPress={() =>
               void api.call('conversation.interrupt', { conversationId }).then(
                 () => setError(undefined),
@@ -173,13 +176,19 @@ export function Composer({
             }
           />
         ) : null}
+        {/* Ember only once there is something to send (web parity). */}
         <Button
           label="Send"
           icon={ArrowUp}
           iconOnly
-          variant="primary"
-          disabled={!ready || !text.trim() || sending}
+          variant={sendable ? 'primary' : 'quiet'}
+          disabled={!sendable}
           busy={sending}
+          style={
+            sendable
+              ? undefined
+              : { backgroundColor: theme.colors.surfaceSunken, opacity: 1 }
+          }
           onPress={() => void submit()}
         />
       </View>

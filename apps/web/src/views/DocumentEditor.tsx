@@ -11,6 +11,7 @@ import {
   type FocusEvent,
   type Ref,
 } from 'react'
+import { momentInSentence } from '../talk/format.ts'
 import { Button } from '../ui/primitives.tsx'
 import styles from './views.module.css'
 
@@ -295,8 +296,8 @@ export function DocumentEditor({
         <Fragment key="view">
           <pre className={styles.doc}>{document.content}</pre>
           <p className={styles.note}>
-            Read {new Date(document.readAt).toLocaleString()} from {document.source}.
-            Version <code>{document.version.slice(0, 12)}</code>.
+            Read {momentInSentence(document.readAt) ?? document.readAt} from{' '}
+            {document.source}. Version <code>{document.version.slice(0, 12)}</code>.
           </p>
           {otherKept !== undefined && !lockText ? (
             <div className={styles.section}>

@@ -10,7 +10,16 @@ import {
   REFUSED_AFTER_SIGN_IN,
 } from '../src/shell/afterSignIn.ts'
 import { keyboardOverlap } from '../src/shell/keyboardOverlap.ts'
-import { duration, fuzzyScore } from '../src/talk/format.ts'
+import {
+  clockTime,
+  duration,
+  elapsed,
+  fuzzyScore,
+  listTime,
+  messageTime,
+  momentInSentence,
+  routineDetail,
+} from '../src/talk/format.ts'
 import { composerHint, linkCopy, presenceCopy } from '../src/talk/presence.ts'
 import { buildTheme, resolveThemeName } from '../src/theme/model.ts'
 
@@ -105,6 +114,48 @@ describe('formatting shared with web', () => {
     expect(duration('2026-06-02T08:00:00.000Z', '2026-06-02T08:00:00.300Z')).toBe('<1s')
     expect(fuzzyScore('kiln', 'Kiln inventory sheet')).toBeLessThan(0)
     expect(fuzzyScore('xyz', 'Kiln inventory sheet')).toBeUndefined()
+  })
+
+  it('writes times like the web client: no padded hour, no seconds', () => {
+    const iso = '2026-06-02T08:03:09'
+    expect(clockTime(iso)).toBe(
+      new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }),
+    )
+    if (Intl.DateTimeFormat().resolvedOptions().locale === 'en-US')
+      expect(clockTime(iso)).toMatch(/^8:03\sAM$/u)
+    const now = new Date(2026, 5, 10, 18, 0)
+    const at = (days: number) => new Date(2026, 5, 10 - days, 9, 55).toISOString()
+    expect(momentInSentence(at(0), now)).toMatch(/^today at \S/)
+    expect(momentInSentence(at(1), now)).toMatch(/^yesterday at \S/)
+    expect(momentInSentence(at(30), now)).toMatch(/^on \S.* at \S/)
+    expect(momentInSentence('not a date', now)).toBeUndefined()
+  })
+
+  it('shares the web’s day-aware times, live timer and routine line', () => {
+    const now = new Date(2026, 5, 10, 18, 0)
+    const at = (days: number, hour = 9) =>
+      new Date(2026, 5, 10 - days, hour, 55).toISOString()
+    expect(messageTime(at(0), now)).toBe(clockTime(at(0)))
+    expect(messageTime(at(1), now)).toBe(`Yesterday, ${clockTime(at(1))}`)
+    expect(listTime(at(0), now)).toBe(clockTime(at(0)))
+    expect(listTime(at(1), now)).toBe('Yesterday')
+    const start = Date.parse('2026-06-10T10:00:00.000Z')
+    expect(elapsed(new Date(start).toISOString(), start + 65_000)).toBe('1m 5s')
+    expect(elapsed(new Date(start).toISOString(), start - 1_000)).toBeUndefined()
+    expect(
+      routineDetail(
+        {
+          schedule: 'Weekdays at 07:30',
+          enabled: true,
+          lastRun: { at: at(1, 7), status: 'skipped' },
+        },
+        now,
+      ),
+    ).toBe(`Weekdays at 07:30 · last run yesterday at ${clockTime(at(1, 7))}, skipped`)
+    expect(
+      routineDetail({ schedule: 'Hourly', enabled: true, nextRunAt: at(0, 7) }, now),
+    ).toBe('Hourly')
+    expect(listTime(new Date(2025, 10, 4, 8, 3).toISOString(), now)).toMatch(/2025/)
   })
 })
 

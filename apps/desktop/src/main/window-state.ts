@@ -15,7 +15,12 @@ export interface WindowState {
   maximized: boolean
 }
 
-export const DEFAULT_SIZE = { width: 1280, height: 820 } as const
+/**
+ * Wide enough that the page itself is at least 1280px (the conversation
+ * panel's breakpoint) even where the width includes the window frame, as on
+ * Windows; 1280 itself left about 1264px there, and the panel opened as a sheet.
+ */
+export const DEFAULT_SIZE = { width: 1360, height: 820 } as const
 export const MIN_SIZE = { width: 400, height: 520 } as const
 /** How much of the window's top edge must be on a screen to keep a saved position. */
 const VISIBLE = { width: 120, height: 40 } as const

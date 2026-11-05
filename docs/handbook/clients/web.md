@@ -143,6 +143,14 @@ which has no data to label.
 
 ![Deleting a memory entry on a phone: Cindl warns that Hermes keeps no backup](/screenshots/web/memory-delete-phone-dark.png)
 
+![Talk on a tablet in the dark theme: day-aware message times, a reply waiting on the owner, and Latest noting that something below needs you](/screenshots/web/talk-tablet-dark.png)
+
+![The conversation list on a phone: a sheet with its own title and close button](/screenshots/web/history-phone-light.png)
+
+![The command palette in the dark theme: the theme in use marked Current, and its keys along the foot](/screenshots/web/palette-desktop-dark.png)
+
+![Agent, Runtime on a phone in the dark theme: the section strip fades where more sections are, and each capability's state sits above its reason](/screenshots/web/agent-runtime-phone-dark.png)
+
 ![The desktop app's sign-in screen, which asks only for the Hermes address](/screenshots/web/desktop-sign-in-light.png)
 
 ## Build
@@ -296,6 +304,76 @@ its switcher; choosing the one already shown just closes the list.
 | `/`                     | Focus the message box              |
 | `?`                     | Show keyboard shortcuts            |
 | `Enter` / `Shift Enter` | Send / new line in the message box |
+
+In the conversation list (`Ctrl/⌘ J`), which opens with focus in its search
+box at every width, `Enter` in the search box opens the top match, `↓` moves
+into the list and `↑` back up to the search box, `Space` or `Enter` opens
+the row with focus, and typing from the list goes on in the search box. In the command palette the
+arrow keys wrap at either end and keep the highlighted row in view; the theme
+in use is marked "Current". The shortcuts list has a close button as well as
+`Escape`.
+
+## Small signals
+
+- **Composer.** Send stays neutral until there is text to send; while Hermes
+  works, Stop sits beside it as a bordered button. Both say what they do in
+  a tooltip. On Talk, typing while nothing that takes text has focus goes
+  on in the message box (as `/` does); shortcut keys, Space and keys with
+  Ctrl, Alt or ⌘ keep their own jobs.
+- **A reply in progress** says what it is doing in its header, in place of
+  its time, from the conversation's state as Cindl sees it: while Hermes
+  works, it counts up from when the reply started ("Working for 12s"); while
+  the reply waits on you, it says "Waiting for you" (a reply blocked
+  overnight never claims to have worked all night); when Cindl cannot tell,
+  it shows the time.
+- **New conversations** you start in Cindl (the header's +, the conversation
+  list, the palette or `Ctrl/⌘ Shift O`) open with focus in the message box.
+  A conversation with nothing in it yet says so in one line, instead of an
+  empty page.
+- **Copy.** A finished reply's header has Copy (on hover or focus; phones and
+  touch screens keep their own text selection), and so does every code block
+  (on touch screens in a band of its own above the code, so it covers none).
+  Copy takes only the reply's own words, as Markdown, not its steps. The
+  desktop app refuses the browser's clipboard permission, so Cindl falls back
+  to the copy command there, which needs only the click; nothing is ever read
+  from the clipboard.
+- **Latest.** When you have scrolled up, "Latest" brings you back down. It
+  adds "Needs you" while a decision waits at the end of the conversation.
+  Pressing it never moves focus; from the keyboard, focus goes on to the
+  message box, or to the conversation switcher while the message box is off
+  (offline), never to the page.
+- **Tooltips** on the header's buttons and the conversation switcher name
+  their shortcut ("New side conversation (Ctrl+Shift+O)"), and the command
+  palette lists its keys along its foot (hidden on touch screens).
+- **Needs you** on Work says which conversation each request belongs to, and
+  links to it ("In Kiln inventory sheet"); a prompt that belongs to none says
+  so.
+- **Routines** say when they run next (while active, and only a time still
+  ahead) and how their last run went, in words:
+  "Weekdays at 07:30 · next today at 7:30 AM · last run yesterday at 7:30 AM,
+  succeeded".
+- **Page title.** While something waits on you, the tab's title (and the
+  desktop window's) leads with the same count as Work's badge: "(2) Cindl".
+- **Connection status.** The dot at the foot of the navigation says its state
+  in its tooltip and to screen readers ("Connection: Connected. Show
+  details"), not only in its colour.
+- **Times.** Message times follow your locale without a padded hour and know
+  the day: "8:03 AM" today, "Yesterday, 8:03 AM", then the date, with its
+  year when it is another year's; hovering one
+  gives the whole date. The conversation list shows today's conversations by
+  the clock and older ones by the day. A document says when it was read in
+  words ("Read today at 9:55 PM"); a step's status reads as its row does
+  ("Done", "Failed").
+- **Scrollbars** are thin and in the theme's colours, so Windows, Linux and
+  the desktop app no longer draw wide grey bars with arrow buttons beside the
+  conversation.
+- **Lists and tabs.** Rows that open something end in a chevron and are
+  divided like every other list; "All skills" leads back with one. On a
+  phone a section strip's end fades, so one that does not fit (Agent's five)
+  shows a section running under it, and the strip scrolls to the section
+  shown, clear of the fade; the capability table stacks each
+  capability's state above its reason. The conversation list on a phone is a
+  sheet with its own title and close button, as on Android.
 
 ## Tests
 

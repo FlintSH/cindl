@@ -103,6 +103,17 @@
   transform: translateX(-50%);
   box-shadow: var(--shadow-overlay);
 }
+/* What waits below, beside "Latest": the owner's cue to scroll down. */
+.jumpNote {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1_5);
+  color: var(--color-accent-text);
+}
+.jumpNote::before {
+  content: '·';
+  color: var(--color-text-tertiary);
+}
 .timeline {
   position: relative;
   flex: 1;
@@ -118,8 +129,15 @@
   gap: var(--space-6);
   width: 100%;
   max-width: var(--reading-measure);
+  min-height: 100%;
   margin: 0 auto;
   padding: var(--space-8) var(--space-5) var(--space-6);
+}
+/* A conversation with nothing in it yet: one quiet line, in the middle. */
+.emptyConversation {
+  margin: auto 0;
+  color: var(--color-text-tertiary);
+  text-align: center;
 }
 .loading,
 .emptyTalk {
@@ -153,9 +171,31 @@
 }
 
 .assistant {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
+}
+/* Copy sits in the empty end of the reply's header line, shown on hover or
+   focus. Phones and touch screens keep their own text selection instead: a
+   44px button there would sit over the reply's first step. */
+.assistant .copyReply {
+  position: absolute;
+  top: calc((var(--text-label-line) - var(--pointer-target)) / 2);
+  right: 0;
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.assistant:hover .copyReply,
+.assistant:focus-within .copyReply,
+.assistant .copyReply[data-state='copied'],
+.assistant .copyReply[data-state='failed'] {
+  opacity: 1;
+}
+@media (max-width: 767px), (hover: none), (pointer: coarse) {
+  .assistant .copyReply {
+    display: none;
+  }
 }
 .assistantMeta {
   display: flex;
@@ -178,9 +218,9 @@
   flex-direction: column;
   gap: var(--space-2);
 }
-.thinking {
-  margin: 0;
-  color: var(--color-text-tertiary);
+/* A streaming reply's live timer: tabular, so the counting digits do not jitter. */
+.working {
+  font-variant-numeric: tabular-nums;
 }
 .notice {
   margin: 0;
@@ -505,6 +545,18 @@
   display: flex;
   gap: var(--space-1);
 }
+/* Stop is a bordered control beside Send, so its square never reads as a stray glyph. */
+.composerActions .stop {
+  border-color: var(--color-border-strong);
+  color: var(--color-text);
+}
+/* An empty box has no intent yet: Send stays neutral until there is text to send. */
+.composerActions .send:disabled {
+  border-color: transparent;
+  background: var(--color-surface-sunken);
+  color: var(--color-text-tertiary);
+  opacity: 1;
+}
 .composerHint,
 .composerError {
   margin: var(--space-2) var(--space-1) 0;
@@ -680,6 +732,15 @@
   flex-direction: column;
   max-height: inherit;
 }
+.historyHead {
+  display: none;
+}
+.historyHeading {
+  margin: 0;
+  font-size: var(--text-ui-size);
+  line-height: var(--text-ui-line);
+  font-weight: 600;
+}
 .historySearch {
   border: 0;
   border-bottom: 1px solid var(--color-border);
@@ -768,6 +829,12 @@ dialog .margin {
   border-left: 0;
 }
 @media (max-width: 767px) {
+  .historyHead {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--space-1) var(--space-1) 0 var(--space-4);
+  }
   .tool {
     grid-template-columns: auto minmax(0, 1fr) auto;
   }

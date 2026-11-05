@@ -10,6 +10,14 @@
 html {
   -webkit-text-size-adjust: 100%;
   text-size-adjust: 100%;
+  /* Scrollbars in the theme's colours (inherited by every scroller), and thin:
+     Windows, Linux and the desktop app otherwise draw wide grey bars with
+     arrow buttons beside the conversation and the margin. */
+  scrollbar-color: var(--color-border-strong) transparent;
+}
+
+* {
+  scrollbar-width: thin;
 }
 
 html,

@@ -27,7 +27,7 @@ import { ArrowDown, ChevronDown, PanelBottom, Plus } from '../ui/icons.ts'
 import { Button, Dot, ErrorText, focusRing, Press, Txt } from '../ui/primitives.tsx'
 import { Composer } from './Composer.tsx'
 import { HistorySheet } from './HistorySheet.tsx'
-import { MessageView } from './MessageView.tsx'
+import { MessageView, turnStateOf } from './MessageView.tsx'
 import { keepPlace, placeOf, useSelectedStep } from './places.ts'
 import { composerHint, presenceCopy } from './presence.ts'
 import { RequestCard } from './RequestCard.tsx'
@@ -399,6 +399,9 @@ export function TalkView() {
                 selectedToolId={selectedToolId}
                 blockedToolIds={activity.blockedToolIds}
                 onSelectTool={selectTool}
+                turn={
+                  message.status === 'streaming' ? turnStateOf(activity.phase) : undefined
+                }
               />
             ))}
             {activity.openRequests.map((request) => (
@@ -415,6 +418,17 @@ export function TalkView() {
                 />
               </View>
             ))}
+            {loaded && !messages.length && !activity.openRequests.length ? (
+              // Nothing here yet: one quiet line instead of an empty screen (web parity).
+              <Txt
+                tone="tertiary"
+                style={{ textAlign: 'center', paddingVertical: theme.space[8] }}
+              >
+                {conversation.kind === 'main'
+                  ? 'Nothing here yet.'
+                  : 'Nothing here yet. This side conversation runs apart from the main one.'}
+              </Txt>
+            ) : null}
           </ScrollView>
           {!atEnd ? (
             <View

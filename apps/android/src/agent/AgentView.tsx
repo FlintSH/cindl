@@ -73,7 +73,7 @@ function Identity() {
     'SOUL.md could not be read.',
   )
   return (
-    <Section title="SOUL.md">
+    <Section title="SOUL.md" asWritten>
       <Note>Who Hermes is for this profile: its truths, limits and voice.</Note>
       {soul.error ? <ErrorText>{soul.error}</ErrorText> : null}
       {!soul.data && !soul.error ? <Note>Loading SOUL.md…</Note> : null}
@@ -99,6 +99,14 @@ function Identity() {
   )
 }
 
+/** Badge copy, cased like the capability states ("Available"). */
+const mcpLabel: Record<McpServerStatus['state'], string> = {
+  connected: 'Connected',
+  connecting: 'Connecting',
+  error: 'Error',
+  disabled: 'Disabled',
+  unknown: 'Unknown',
+}
 const mcpTone: Record<McpServerStatus['state'], Tone> = {
   connected: 'success',
   connecting: 'info',
@@ -131,7 +139,7 @@ function McpServers() {
               ? `${server.toolCount} tools`
               : 'No tool count reported')
           }
-          aside={<Badge tone={mcpTone[server.state]}>{server.state}</Badge>}
+          aside={<Badge tone={mcpTone[server.state]}>{mcpLabel[server.state]}</Badge>}
         />
       ))}
     </Rows>

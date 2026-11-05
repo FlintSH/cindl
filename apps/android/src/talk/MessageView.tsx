@@ -1,16 +1,43 @@
 import type { Message } from '@cindl/contracts'
-import { memo, useState } from 'react'
+import { memo, useEffect, useState } from 'react'
 import { Text, View } from 'react-native'
 import { Markdown } from '../markdown/Markdown.tsx'
 import { useTheme } from '../theme/theme.tsx'
 import { ChevronDown, ChevronRight } from '../ui/icons.ts'
 import { Press, Txt } from '../ui/primitives.tsx'
-import { clockTime } from './format.ts'
+import { elapsed, messageTime, momentInSentence } from './format.ts'
 import { ToolRow } from './ToolRow.tsx'
+
+/** While a reply streams, its header counts up from when it started (web parity). */
+function Working({ since }: { since: string | undefined }) {
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    const tick = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(tick)
+  }, [])
+  const took = elapsed(since, now)
+  return (
+    <Txt variant="label" tone="tertiary" style={{ fontVariant: ['tabular-nums'] }}>
+      {took ? `Working for ${took}` : 'Working…'}
+    </Txt>
+  )
+}
 
 const originNote: Partial<Record<NonNullable<Message['origin']>, string>> = {
   routine: 'From a routine',
   proactive: 'Unprompted',
+}
+
+/**
+ * What a streaming reply's header says, from the conversation's observed
+ * phase (web parity): counting while Hermes works, "Waiting for you" while it
+ * is blocked on the owner, just its time when Cindl cannot tell.
+ */
+export type TurnState = 'working' | 'waiting' | undefined
+
+export function turnStateOf(phase: string): TurnState {
+  if (phase === 'waiting-on-you') return 'waiting'
+  return phase === 'executing' || phase === 'queued' ? 'working' : undefined
 }
 
 /** Owner messages are compact right-aligned bubbles; Hermes replies are full-width reading blocks. */
@@ -20,15 +47,20 @@ export const MessageView = memo(function MessageView({
   selectedToolId,
   blockedToolIds,
   onSelectTool,
+  turn,
 }: {
   message: Message
   agentName: string
   selectedToolId: string | undefined
   blockedToolIds: ReadonlySet<string>
   onSelectTool: (toolId: string) => void
+  /** The conversation's turn, for a streaming reply's header. */
+  turn?: TurnState
 }) {
   const theme = useTheme()
-  const time = clockTime(message.createdAt)
+  const time = messageTime(message.createdAt)
+  // Spoken: "You, today at 8:03 AM" (web parity).
+  const moment = momentInSentence(message.createdAt)
   if (message.role === 'user') {
     const text = message.parts
       .map((part) => (part.type === 'text' ? part.text : ''))
@@ -37,7 +69,7 @@ export const MessageView = memo(function MessageView({
       <View style={{ alignItems: 'flex-end' }}>
         <View
           accessible
-          accessibilityLabel={`You${time ? ` at ${time}` : ''}: ${text}`}
+          accessibilityLabel={`You${moment ? `, ${moment}` : ''}: ${text}`}
           style={{
             maxWidth: '85%',
             paddingVertical: theme.space[2.5],
@@ -55,12 +87,21 @@ export const MessageView = memo(function MessageView({
     )
   }
   const note = message.origin ? originNote[message.origin] : undefined
+  const streaming = message.status === 'streaming'
   return (
     <View style={{ gap: theme.space[2] }}>
       <View
         accessible
         accessibilityRole="header"
-        accessibilityLabel={`${agentName}${note ? `, ${note}` : ''}${time ? ` at ${time}` : ''}`}
+        accessibilityLabel={`${agentName}${note ? `, ${note}` : ''}${
+          streaming && turn === 'working'
+            ? ', working'
+            : streaming && turn === 'waiting'
+              ? ', waiting for you'
+              : moment
+                ? `, ${moment}`
+                : ''
+        }`}
         style={{ flexDirection: 'row', alignItems: 'baseline', gap: theme.space[2] }}
       >
         <Txt variant="label" weight="semibold">
@@ -71,7 +112,13 @@ export const MessageView = memo(function MessageView({
             {note}
           </Txt>
         ) : null}
-        {time ? (
+        {streaming && turn === 'working' ? (
+          <Working since={message.createdAt} />
+        ) : streaming && turn === 'waiting' ? (
+          <Txt variant="label" tone="tertiary">
+            Waiting for you
+          </Txt>
+        ) : time ? (
           <Txt variant="label" tone="tertiary">
             {time}
           </Txt>
@@ -98,9 +145,6 @@ export const MessageView = memo(function MessageView({
               return <Notice key={index} level={part.level} text={part.text} />
           }
         })}
-        {message.status === 'streaming' && message.parts.length === 0 ? (
-          <Txt tone="tertiary">Working…</Txt>
-        ) : null}
         {message.status === 'interrupted' ? (
           <Notice level="info" text="Stopped." />
         ) : null}

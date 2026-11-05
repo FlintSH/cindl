@@ -28,12 +28,16 @@
   margin: 0;
   color: var(--color-text-secondary);
 }
+.tabsWrap {
+  position: relative;
+}
 .tabs {
   position: relative;
   display: flex;
   gap: var(--space-1);
   border-bottom: 1px solid var(--color-border);
   overflow-x: auto;
+  scrollbar-width: none;
 }
 .tab {
   display: inline-flex;
@@ -54,6 +58,27 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
+}
+/* Needs you: a request's conversation, then its card. */
+.needsItem {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1_5);
+}
+.provenance {
+  margin: 0;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-label-size);
+  line-height: var(--text-label-line);
+}
+@media (max-width: 767px), (pointer: coarse) {
+  /* A 44px hit area for the conversation's link, drawn into the gap around
+     the line rather than pushing the card down. */
+  .provenance a {
+    display: inline-block;
+    padding-block: calc((var(--touch-target) - var(--text-label-line)) / 2);
+    margin-block: calc((var(--text-label-line) - var(--touch-target)) / 2);
+  }
 }
 .sectionHead {
   display: flex;
@@ -76,7 +101,8 @@
   gap: var(--space-1) var(--space-4);
   padding: var(--space-3) var(--space-4);
 }
-.row + .row {
+/* Rows are often links inside list items, so divide the items, not the rows. */
+.rows > li + li {
   border-top: 1px solid var(--color-border);
 }
 .rowLink {
@@ -84,6 +110,40 @@
   text-decoration: none;
 }
 .rowLink:hover {
+  background: var(--color-surface-sunken);
+}
+/* A hovered first or last row keeps the list's rounded corners. */
+.rows > li:first-child > .rowLink {
+  border-top-left-radius: calc(var(--radius-md) - 1px);
+  border-top-right-radius: calc(var(--radius-md) - 1px);
+}
+.rows > li:last-child > .rowLink {
+  border-bottom-left-radius: calc(var(--radius-md) - 1px);
+  border-bottom-right-radius: calc(var(--radius-md) - 1px);
+}
+.rowChevron {
+  flex: none;
+  color: var(--color-text-tertiary);
+}
+.rowLink:hover .rowChevron {
+  color: var(--color-text-secondary);
+}
+/* "All skills": a quiet way back, with its direction drawn. */
+.back {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  align-self: flex-start;
+  min-height: var(--pointer-target);
+  margin-left: calc(-1 * var(--space-1));
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-sm);
+  color: var(--color-text-secondary);
+  font-weight: 500;
+  text-decoration: none;
+}
+.back:hover {
+  color: var(--color-text);
   background: var(--color-surface-sunken);
 }
 .rowTitle {
@@ -127,7 +187,9 @@
 }
 .facts {
   display: grid;
-  grid-template-columns: minmax(10rem, auto) 1fr;
+  /* As wide as the longest label, up to 12rem: a narrow panel (the working
+     margin) keeps its room for the values. */
+  grid-template-columns: fit-content(12rem) minmax(0, 1fr);
   gap: var(--space-2) var(--space-5);
   margin: 0;
 }
@@ -197,6 +259,10 @@
   justify-content: flex-end;
   gap: var(--space-2);
 }
+/* A page's one action sits under the text it acts on, not at the far edge. */
+.actions[data-align='start'] {
+  justify-content: flex-start;
+}
 .error {
   margin: 0;
   color: var(--color-danger);
@@ -234,6 +300,8 @@
 }
 .segmented {
   display: inline-flex;
+  /* In a flex column it would stretch; it holds three short options. */
+  align-self: flex-start;
   padding: var(--space-0_5);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
@@ -263,6 +331,21 @@
     padding: var(--space-5) var(--space-4) var(--space-10);
     gap: var(--space-6);
   }
+  /* Functional, not decoration: the strip's end fades so a cut-off section
+     reads as "more this way". The padding lets the last section scroll clear. */
+  .tabs {
+    padding-right: var(--space-8);
+  }
+  .tabsWrap::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 1px;
+    width: var(--space-8);
+    background: linear-gradient(to right, transparent, var(--color-canvas));
+    pointer-events: none;
+  }
   .facts {
     grid-template-columns: 1fr;
     gap: var(--space-0_5);
@@ -270,18 +353,51 @@
   .facts dd {
     margin-bottom: var(--space-2);
   }
+  /* Capabilities stack on a phone: name and state, then why. The table keeps
+     its roles (AgentView sets them), whatever its display. */
+  .capTable thead {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+  .capTable tr {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: var(--space-1) var(--space-3);
+    padding: var(--space-2) 0;
+    border-bottom: 1px solid var(--color-border);
+  }
+  .capTable td {
+    display: block;
+    padding: 0;
+    border: 0;
+  }
+  .capTable td:nth-child(3) {
+    grid-column: 1 / -1;
+    color: var(--color-text-secondary);
+    font-size: var(--text-label-size);
+    line-height: var(--text-label-line);
+  }
 }
 @media (max-width: 767px), (pointer: coarse) {
   .row {
     min-height: var(--touch-target);
   }
   .segment,
-  .tab {
+  .tab,
+  .back {
     min-height: var(--touch-target);
   }
 }
 
 /* Memory entries (Library > Memory). */
+/* Its own block under the overview, not crowded against the source line. */
+.memoryEntries {
+  margin-top: var(--space-5);
+}
 .memoryStore + .memoryStore {
   margin-top: var(--space-5);
 }

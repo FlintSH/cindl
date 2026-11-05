@@ -43,9 +43,39 @@
   border-radius: var(--radius-xs);
   background: var(--color-surface-sunken);
 }
-.pre {
+/* The block holds the scrolling code and, over its corner, the copy button. */
+.code {
   position: relative;
   margin: 0 0 var(--space-3);
+}
+.code .copyCode {
+  position: absolute;
+  top: var(--space-1);
+  right: var(--space-1);
+  border-color: var(--color-border);
+  background: var(--color-surface-raised);
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.code:hover .copyCode,
+.code:focus-within .copyCode,
+.code .copyCode[data-state='copied'],
+.code .copyCode[data-state='failed'] {
+  opacity: 1;
+}
+@media (hover: none), (pointer: coarse) {
+  .code .copyCode {
+    opacity: 1;
+  }
+  /* Always shown on touch screens, so it gets a band of its own above the
+     code instead of covering the end of its first lines. */
+  .code .pre {
+    padding-top: calc(var(--touch-target) + var(--space-1));
+  }
+}
+.pre {
+  position: relative;
+  margin: 0;
   padding: var(--space-3);
   border: 1px solid var(--color-border);
   border-radius: var(--radius-md);
