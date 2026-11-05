@@ -46,7 +46,8 @@ export const requiredPairs: ReadonlyArray<{
   },
   {
     foreground: 'accentText',
-    backgrounds: ['canvas', 'surface', 'surfaceRaised', 'accentSubtle'],
+    // surfaceSunken: "Needs you" on the conversation list's selected row.
+    backgrounds: ['canvas', 'surface', 'surfaceRaised', 'surfaceSunken', 'accentSubtle'],
     minimum: 4.5,
   },
   { foreground: 'onAccent', backgrounds: ['accent', 'accentHover'], minimum: 4.5 },
@@ -65,7 +66,12 @@ export const requiredPairs: ReadonlyArray<{
     backgrounds: ['canvas', 'surface', 'dangerSubtle'],
     minimum: 4.5,
   },
-  { foreground: 'info', backgrounds: ['canvas', 'surface', 'infoSubtle'], minimum: 4.5 },
+  {
+    foreground: 'info',
+    // surfaceSunken: "Working" on the conversation list's selected row.
+    backgrounds: ['canvas', 'surface', 'surfaceSunken', 'infoSubtle'],
+    minimum: 4.5,
+  },
   {
     foreground: 'focus',
     backgrounds: ['canvas', 'surface', 'surfaceRaised'],

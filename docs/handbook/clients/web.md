@@ -300,26 +300,73 @@ its switcher; choosing the one already shown just closes the list.
 | `Ctrl/⌘ J`              | Switch conversation                |
 | `Ctrl/⌘ Shift O`        | Start a side conversation          |
 | `Ctrl/⌘ .`              | Show or hide the working margin    |
+| `Ctrl/⌘ B`              | Show or hide the conversation list |
 | `Alt 1` to `Alt 4`      | Go to Talk, Work, Library, Agent   |
 | `/`                     | Focus the message box              |
 | `?`                     | Show keyboard shortcuts            |
 | `Enter` / `Shift Enter` | Send / new line in the message box |
 
-In the conversation list (`Ctrl/⌘ J`), which opens with focus in its search
-box at every width, `Enter` in the search box opens the top match, `↓` moves
+In the conversation switcher (`Ctrl/⌘ J` where the conversation list is not
+shown), which opens with focus in its search box at every width, `Enter` in the search box opens the top match, `↓` moves
 into the list and `↑` back up to the search box, `Space` or `Enter` opens
 the row with focus, and typing from the list goes on in the search box. In the command palette the
 arrow keys wrap at either end and keep the highlighted row in view; the theme
 in use is marked "Current". The shortcuts list has a close button as well as
 `Escape`.
 
+## Talk's workspace
+
+After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
+
+- **Conversation list.** On wide screens (1280px and up), a column beside the
+  conversation lists the main conversation (pinned), what needs you, then
+  the rest by recency. A row shows its status in place of its age: "Needs
+  you" (or "2 need you"), "Working" with a pulsing dot, else "5m", "3h",
+  "2d" or the date. The arrow keys move through it without opening anything,
+  Enter opens, Home and End jump, `↑` from the first row reaches its search
+  box, and typing from a row goes on in the search box. F2 or a double click
+  renames a conversation in place (Enter saves, Escape keeps the old name)
+  when Hermes offers renaming. `Ctrl/⌘ B` hides it, putting focus on the
+  button that shows it again if focus was inside, and shows it again; while
+  it is shown, `Ctrl/⌘ J` goes to its search instead of opening the
+  switcher, and its own button starts a side conversation (the header's +
+  steps aside). Narrower windows keep the switcher.
+- **Work log.** Two or more consecutive steps fold into one line once they
+  are all done: "2 steps · 1m 24s", with "2 steps, 1 failed" when one
+  failed. It stays open while Hermes works, waits on you or has a failure,
+  and while one of its steps is selected; opening or closing it yourself
+  holds for the session. The running step's label has a slow sweep of light
+  (none with reduced motion).
+- **Composer.** The text on top, two lines to start with on a wide screen; a
+  bar beneath it says what sending does now, or the keys ("Enter to send ·
+  Shift Enter for a new line · ↑ for your last message", hidden on touch
+  screens), with the primary button at its end. Its presses never take focus
+  from the text. `↑` in an empty box brings back the last message you sent
+  in this conversation, again for the one before; `↓` goes forward, then
+  back to an empty box. Once you change the text, the arrows move the caret
+  as usual.
+- **Questions.** On Talk, where there is room (768px wide and 640px tall or
+  more), a question set waits above the composer instead of in the
+  conversation: one question at a time ("1 of 2", previous and next), the
+  number keys pick the shown question's choices (not while typing in its own
+  answer, and never on a single quick question, whose buttons send), and a
+  single-choice pick moves on to the next question after a moment. Its
+  actions stay in view while a long question scrolls. It is the same card,
+  with the same answer-once lock and drafts. Approvals stay in the
+  conversation; Work shows every card in full; phones keep the set in the
+  conversation.
+- **Palette.** Its rows are grouped (Go to, Actions, Conversations, Theme)
+  with icons. Nothing typed, it lists every command and the five most recent
+  conversations; typed, the groups follow their best match. A leading `>`
+  searches commands only.
+
 ## Small signals
 
-- **Composer.** Send stays neutral until there is text to send; while Hermes
-  works, Stop sits beside it as a bordered button. Both say what they do in
-  a tooltip. On Talk, typing while nothing that takes text has focus goes
-  on in the message box (as `/` does); shortcut keys, Space and keys with
-  Ctrl, Alt or ⌘ keep their own jobs.
+- **Composer.** One primary button: Stop (bordered) while Hermes works and
+  the box is empty, Send as soon as there is text, neutral until then. It
+  says what it does in a tooltip. On Talk, typing while nothing that takes
+  text has focus goes on in the message box (as `/` does); shortcut keys,
+  Space and keys with Ctrl, Alt or ⌘ keep their own jobs.
 - **A reply in progress** says what it is doing in its header, in place of
   its time, from the conversation's state as Cindl sees it: while Hermes
   works, it counts up from when the reply started ("Working for 12s"); while

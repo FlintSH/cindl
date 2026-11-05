@@ -8,18 +8,19 @@ they differ.
 
 <!-- BEGIN GENERATED: keyboard-shortcuts. Source: apps/web/src/shortcuts.ts. Regenerate with node scripts/generate-docs-reference.mjs -->
 
-| Action                          | Windows and Linux                                 | macOS                                      | While typing | ID                    |
-| ------------------------------- | ------------------------------------------------- | ------------------------------------------ | ------------ | --------------------- |
-| Open the command palette        | <kbd>Ctrl</kbd> + <kbd>K</kbd>                    | <kbd>⌘</kbd> + <kbd>K</kbd>                | yes          | `palette`             |
-| Switch conversation             | <kbd>Ctrl</kbd> + <kbd>J</kbd>                    | <kbd>⌘</kbd> + <kbd>J</kbd>                | yes          | `switch-conversation` |
-| Start a side conversation       | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> | <kbd>⌘</kbd> + <kbd>⇧</kbd> + <kbd>O</kbd> | yes          | `new-side`            |
-| Show or hide the working margin | <kbd>Ctrl</kbd> + <kbd>.</kbd>                    | <kbd>⌘</kbd> + <kbd>.</kbd>                | yes          | `toggle-margin`       |
-| Go to Talk                      | <kbd>Alt</kbd> + <kbd>1</kbd>                     | <kbd>⌥</kbd> + <kbd>1</kbd>                | yes          | `go-talk`             |
-| Go to Work                      | <kbd>Alt</kbd> + <kbd>2</kbd>                     | <kbd>⌥</kbd> + <kbd>2</kbd>                | yes          | `go-work`             |
-| Go to Library                   | <kbd>Alt</kbd> + <kbd>3</kbd>                     | <kbd>⌥</kbd> + <kbd>3</kbd>                | yes          | `go-library`          |
-| Go to Agent                     | <kbd>Alt</kbd> + <kbd>4</kbd>                     | <kbd>⌥</kbd> + <kbd>4</kbd>                | yes          | `go-agent`            |
-| Focus the message box           | <kbd>/</kbd>                                      | <kbd>/</kbd>                               | no           | `focus-composer`      |
-| Show keyboard shortcuts         | <kbd>?</kbd>                                      | <kbd>?</kbd>                               | no           | `help`                |
+| Action                             | Windows and Linux                                 | macOS                                      | While typing | ID                     |
+| ---------------------------------- | ------------------------------------------------- | ------------------------------------------ | ------------ | ---------------------- |
+| Open the command palette           | <kbd>Ctrl</kbd> + <kbd>K</kbd>                    | <kbd>⌘</kbd> + <kbd>K</kbd>                | yes          | `palette`              |
+| Switch conversation                | <kbd>Ctrl</kbd> + <kbd>J</kbd>                    | <kbd>⌘</kbd> + <kbd>J</kbd>                | yes          | `switch-conversation`  |
+| Start a side conversation          | <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>O</kbd> | <kbd>⌘</kbd> + <kbd>⇧</kbd> + <kbd>O</kbd> | yes          | `new-side`             |
+| Show or hide the working margin    | <kbd>Ctrl</kbd> + <kbd>.</kbd>                    | <kbd>⌘</kbd> + <kbd>.</kbd>                | yes          | `toggle-margin`        |
+| Show or hide the conversation list | <kbd>Ctrl</kbd> + <kbd>B</kbd>                    | <kbd>⌘</kbd> + <kbd>B</kbd>                | yes          | `toggle-conversations` |
+| Go to Talk                         | <kbd>Alt</kbd> + <kbd>1</kbd>                     | <kbd>⌥</kbd> + <kbd>1</kbd>                | yes          | `go-talk`              |
+| Go to Work                         | <kbd>Alt</kbd> + <kbd>2</kbd>                     | <kbd>⌥</kbd> + <kbd>2</kbd>                | yes          | `go-work`              |
+| Go to Library                      | <kbd>Alt</kbd> + <kbd>3</kbd>                     | <kbd>⌥</kbd> + <kbd>3</kbd>                | yes          | `go-library`           |
+| Go to Agent                        | <kbd>Alt</kbd> + <kbd>4</kbd>                     | <kbd>⌥</kbd> + <kbd>4</kbd>                | yes          | `go-agent`             |
+| Focus the message box              | <kbd>/</kbd>                                      | <kbd>/</kbd>                               | no           | `focus-composer`       |
+| Show keyboard shortcuts            | <kbd>?</kbd>                                      | <kbd>?</kbd>                               | no           | `help`                 |
 
 <!-- END GENERATED: keyboard-shortcuts -->
 

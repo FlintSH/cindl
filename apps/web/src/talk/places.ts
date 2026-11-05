@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { groupChoice } from './workGroups.ts'
 
 /** The working margin's tools (ADR 0013). */
 export type MarginTool = 'waiting' | 'step' | 'computer'
@@ -79,6 +80,7 @@ export function takeFresh(): boolean {
 /** The session ended: nothing typed or read on this device outlives it. */
 export function forgetPlaces() {
   places.clear()
+  groupChoice.forget()
   switched = false
   fresh = false
   for (const listener of listeners) listener()

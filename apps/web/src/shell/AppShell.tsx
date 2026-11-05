@@ -1,10 +1,36 @@
-import { useCan, useLink, useOpenRequests } from '@cindl/client-react'
+import {
+  useCan,
+  useConversations,
+  useLink,
+  useMainConversation,
+  useOpenRequests,
+} from '@cindl/client-react'
 import { SYNTHETIC_DEMO_NOTICE } from '@cindl/contracts'
-import { TriangleAlert } from 'lucide-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import {
+  Activity,
+  Fingerprint,
+  Keyboard,
+  Library,
+  MessageSquareText,
+  Monitor,
+  Moon,
+  PanelLeft,
+  PanelRight,
+  Plug,
+  SquarePen,
+  Sun,
+  TriangleAlert,
+  UserRound,
+} from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AgentView } from '../agent/AgentView.tsx'
 import { LibraryView } from '../library/LibraryView.tsx'
 import { applyTheme, setPreference, usePreference } from '../platform/preferences.ts'
+import { useMediaQuery } from '../platform/useMediaQuery.ts'
+import {
+  ConversationList,
+  type ConversationListHandle,
+} from '../talk/ConversationList.tsx'
 import { navigate, useRoute, type Destination } from '../router.ts'
 import { matchShortcut } from '../shortcuts.ts'
 import { TalkView, type TalkHandle } from '../talk/TalkView.tsx'
@@ -40,6 +66,26 @@ export function AppShell() {
       (signingIn && link.phase === 'connecting'))
   const [theme] = usePreference('theme')
   const status = linkCopy(link.phase, link.demo)
+  // The conversation list beside Talk, on wide screens only (Ctrl/⌘ B).
+  const wide = useMediaQuery('(min-width: 1280px)')
+  const [listOpen, setListOpen] = usePreference('conversationsOpen')
+  const main = useMainConversation()
+  const conversations = useConversations()
+  const list = useRef<ConversationListHandle>(null)
+  const showList = wide && listOpen && route.view === 'talk' && !needsSignIn
+  const currentConversation =
+    route.view === 'talk'
+      ? (route.conversationId ?? main?.id ?? conversations[0]?.id)
+      : undefined
+  const hideList = useCallback(() => {
+    // Hidden with focus inside: focus goes to what shows it again.
+    const inside = document.activeElement?.closest('[data-conversation-list]') != null
+    setListOpen(false)
+    if (inside)
+      requestAnimationFrame(() =>
+        document.querySelector<HTMLElement>('[data-show-conversations]')?.focus(),
+      )
+  }, [setListOpen])
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [helpOpen, setHelpOpen] = useState(false)
   const talk = useRef<TalkHandle>(null)
@@ -69,12 +115,16 @@ export function AppShell() {
     () => [
       {
         id: 'go-talk',
+        group: 'go' as const,
+        icon: MessageSquareText,
         label: 'Go to Talk',
         shortcut: 'go-talk',
         run: () => navigate({ view: 'talk' }),
       },
       {
         id: 'go-work',
+        group: 'go' as const,
+        icon: Activity,
         label: 'Go to Work',
         hint: 'Approvals, running work, routines, computer',
         shortcut: 'go-work',
@@ -82,6 +132,8 @@ export function AppShell() {
       },
       {
         id: 'go-library',
+        group: 'go' as const,
+        icon: Library,
         label: 'Go to Library',
         hint: 'Skills, memory, artifacts',
         shortcut: 'go-library',
@@ -89,6 +141,8 @@ export function AppShell() {
       },
       {
         id: 'go-agent',
+        group: 'go' as const,
+        icon: UserRound,
         label: 'Go to Agent',
         hint: 'Identity, connections, runtime',
         shortcut: 'go-agent',
@@ -98,6 +152,8 @@ export function AppShell() {
         ? [
             {
               id: 'new-side',
+              group: 'actions' as const,
+              icon: SquarePen,
               label: 'Start a side conversation',
               shortcut: 'new-side' as const,
               run: () => {
@@ -109,40 +165,74 @@ export function AppShell() {
         : []),
       {
         id: 'identity',
+        group: 'go' as const,
+        icon: Fingerprint,
         label: 'Open identity (SOUL.md)',
         run: () => navigate({ view: 'agent', section: 'identity' }),
       },
       {
         id: 'runtime',
+        group: 'go' as const,
+        icon: Plug,
         label: 'Show connection and capabilities',
         run: () => navigate({ view: 'agent', section: 'runtime' }),
       },
       {
         id: 'theme-light',
+        group: 'theme' as const,
+        icon: Sun,
         label: 'Use light theme',
         ...(theme === 'light' ? { hint: 'Current' } : {}),
         run: () => setPreference('theme', 'light'),
       },
       {
         id: 'theme-dark',
+        group: 'theme' as const,
+        icon: Moon,
         label: 'Use dark theme',
         ...(theme === 'dark' ? { hint: 'Current' } : {}),
         run: () => setPreference('theme', 'dark'),
       },
       {
         id: 'theme-system',
+        group: 'theme' as const,
+        icon: Monitor,
         label: 'Match system theme',
         ...(theme === 'system' ? { hint: 'Current' } : {}),
         run: () => setPreference('theme', 'system'),
       },
       {
+        id: 'toggle-conversations',
+        group: 'actions' as const,
+        icon: PanelLeft,
+        label: 'Show or hide the conversation list',
+        shortcut: 'toggle-conversations',
+        run: () => {
+          if (route.view !== 'talk') navigate({ view: 'talk' })
+          setPreference('conversationsOpen', !listOpen)
+        },
+      },
+      {
+        id: 'toggle-margin',
+        group: 'actions' as const,
+        icon: PanelRight,
+        label: 'Show or hide the working margin',
+        shortcut: 'toggle-margin',
+        run: () => {
+          if (route.view !== 'talk') navigate({ view: 'talk' })
+          queueMicrotask(() => talk.current?.toggleMargin())
+        },
+      },
+      {
         id: 'help',
+        group: 'actions' as const,
+        icon: Keyboard,
         label: 'Show keyboard shortcuts',
         shortcut: 'help',
         run: () => setHelpOpen(true),
       },
     ],
-    [canCreate, theme],
+    [canCreate, theme, listOpen, route.view],
   )
 
   useEffect(() => {
@@ -154,7 +244,22 @@ export function AppShell() {
         case 'palette':
           setPaletteOpen(true)
           break
+        case 'toggle-conversations':
+          if (!wide) {
+            // No room for the list: the conversation switcher instead.
+            navigate({ view: 'talk' })
+            queueMicrotask(() => talk.current?.openHistory())
+          } else if (route.view !== 'talk') {
+            setListOpen(true)
+            navigate({ view: 'talk' })
+          } else if (listOpen) hideList()
+          else setListOpen(true)
+          break
         case 'switch-conversation':
+          if (showList) {
+            list.current?.focusSearch()
+            break
+          }
           navigate({
             view: 'talk',
             ...(route.view === 'talk' && route.conversationId
@@ -193,7 +298,7 @@ export function AppShell() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [route, canCreate])
+  }, [route, canCreate, wide, listOpen, showList, hideList, setListOpen])
 
   return (
     <div className={styles.shell}>
@@ -224,23 +329,34 @@ export function AppShell() {
       </nav>
       <main className={styles.main} id="main">
         <Notices />
-        <div className={styles.view}>
-          <ErrorBoundary key={window.location.hash} label="this view">
-            {needsSignIn ? (
-              <SignIn />
-            ) : (
-              <>
-                {route.view === 'talk' ? (
-                  <TalkView ref={talk} conversationId={route.conversationId} />
-                ) : null}
-                {route.view === 'work' ? <WorkView /> : null}
-                {route.view === 'library' ? (
-                  <LibraryView section={route.section} item={route.item} />
-                ) : null}
-                {route.view === 'agent' ? <AgentView section={route.section} /> : null}
-              </>
-            )}
-          </ErrorBoundary>
+        <div className={styles.workspace}>
+          {showList ? (
+            <ErrorBoundary label="the conversation list">
+              <ConversationList
+                ref={list}
+                currentId={currentConversation}
+                onHide={hideList}
+              />
+            </ErrorBoundary>
+          ) : null}
+          <div className={styles.view}>
+            <ErrorBoundary key={window.location.hash} label="this view">
+              {needsSignIn ? (
+                <SignIn />
+              ) : (
+                <>
+                  {route.view === 'talk' ? (
+                    <TalkView ref={talk} conversationId={route.conversationId} />
+                  ) : null}
+                  {route.view === 'work' ? <WorkView /> : null}
+                  {route.view === 'library' ? (
+                    <LibraryView section={route.section} item={route.item} />
+                  ) : null}
+                  {route.view === 'agent' ? <AgentView section={route.section} /> : null}
+                </>
+              )}
+            </ErrorBoundary>
+          </div>
         </div>
       </main>
       <nav className={styles.bottomNav} aria-label="Primary">

@@ -59,7 +59,17 @@ export function ToolRow({
       <span className={styles.toolIcon}>
         <ToolIcon status={tool.status} blocked={blocked} />
       </span>
-      <span className={styles.toolTitle}>{tool.title}</span>
+      {/* The live step's label shimmers, as in T3 Code; a blocked one is still. */}
+      <span
+        className={styles.toolTitle}
+        data-live={
+          !blocked && (tool.status === 'running' || tool.status === 'generating')
+            ? 'true'
+            : undefined
+        }
+      >
+        {tool.title}
+      </span>
       <span className={styles.toolMeta} aria-hidden="true">
         {meta}
       </span>

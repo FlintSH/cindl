@@ -10,10 +10,16 @@ export type ThemePreference = 'system' | 'light' | 'dark'
 interface Preferences {
   theme: ThemePreference
   marginOpen: boolean
+  /** The conversation list beside Talk on wide screens (Ctrl/⌘ B). */
+  conversationsOpen: boolean
 }
 
 const KEY = 'cindl.preferences.v1'
-const defaults: Preferences = { theme: 'system', marginOpen: true }
+const defaults: Preferences = {
+  theme: 'system',
+  marginOpen: true,
+  conversationsOpen: true,
+}
 const listeners = new Set<() => void>()
 let cache: Preferences | undefined
 
@@ -27,6 +33,8 @@ function read(): Preferences {
       theme:
         parsed.theme === 'light' || parsed.theme === 'dark' ? parsed.theme : 'system',
       marginOpen: typeof parsed.marginOpen === 'boolean' ? parsed.marginOpen : true,
+      conversationsOpen:
+        typeof parsed.conversationsOpen === 'boolean' ? parsed.conversationsOpen : true,
     }
   } catch {
     cache = { ...defaults }

@@ -1,7 +1,7 @@
-import { useCan, useCindlApi, useLink } from '@cindl/client-react'
-import { isCindlError } from '@cindl/contracts'
+import { useCan, useCindlApi, useLink, useMessages } from '@cindl/client-react'
+import { isCindlError, type Message } from '@cindl/contracts'
 import { ArrowUp, Square } from 'lucide-react'
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react'
+import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Button } from '../ui/primitives.tsx'
 import { keepPlace, placeOf } from './places.ts'
 import styles from './talk.module.css'
@@ -24,12 +24,28 @@ const NOT_SENT = new Set([
   'unauthenticated',
 ])
 
+const textOf = (message: Message) =>
+  message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')
+
+/** Whether the caret sits on the text's first line (or last), as prompt recall asks. */
+const onFirstLine = (el: HTMLTextAreaElement) =>
+  !el.value.slice(0, el.selectionStart).includes('\n')
+const onLastLine = (el: HTMLTextAreaElement) =>
+  !el.value.slice(el.selectionEnd).includes('\n')
+
 /**
  * Non-blocking: you can send while Hermes works or waits (Hermes queues,
  * steers or redirects). Enter sends, Shift+Enter adds a line. Sending and
  * stopping are offered only when their capabilities are usable. When the
  * outcome of a send is unknown, the text is not silently restored (that would
  * invite a duplicate); the owner can put it back explicitly.
+ *
+ * Laid out after T3 Code's composer: the text on top, a bar beneath it in the
+ * same box with what sending does now on the left and one primary button on
+ * the right. That button is Stop while Hermes works and the box is empty, and
+ * Send as soon as there is text. Its clicks never take focus from the text.
+ * ArrowUp in an empty box (or on the first line of a recalled message) brings
+ * back what you sent here before; ArrowDown goes forward again.
  */
 export const Composer = forwardRef<
   ComposerHandle,
@@ -57,6 +73,24 @@ export const Composer = forwardRef<
   useImperativeHandle(ref, () => ({ focus: () => input.current?.focus() }), [])
   const connected = link.phase === 'online'
   const ready = connected && canSend
+  // What the owner sent in this conversation, oldest first, for recall.
+  const messages = useMessages(conversationId)
+  const sent = useMemo(
+    () =>
+      messages
+        .filter((m) => m.role === 'user')
+        .map(textOf)
+        .filter((t) => t.trim()),
+    [messages],
+  )
+  const [recalled, setRecalled] = useState<number>()
+  const recalling = recalled !== undefined && text === sent[recalled]
+  const recall = (to: number | undefined) => {
+    setRecalled(to)
+    setText(to === undefined ? '' : (sent[to] ?? ''))
+  }
+  const running = canStop && canInterrupt
+  const stopping = running && !text.trim()
   const submit = async () => {
     const value = text.trim()
     if (!value || !ready) return
@@ -127,47 +161,96 @@ export const Composer = forwardRef<
           aria-describedby={hint ? 'composer-hint' : undefined}
           onChange={(event) => setText(event.target.value)}
           onKeyDown={(event) => {
-            if (
-              event.key === 'Enter' &&
+            const el = event.currentTarget
+            const plain =
               !event.shiftKey &&
+              !event.altKey &&
+              !event.ctrlKey &&
+              !event.metaKey &&
               !event.nativeEvent.isComposing
-            ) {
+            if (event.key === 'Enter' && plain) {
               event.preventDefault()
               void submit()
+            } else if (
+              event.key === 'ArrowUp' &&
+              plain &&
+              (text === '' || (recalling && onFirstLine(el)))
+            ) {
+              const to = recalling ? (recalled ?? 0) - 1 : sent.length - 1
+              if (to < 0) return
+              event.preventDefault()
+              recall(to)
+            } else if (
+              event.key === 'ArrowDown' &&
+              plain &&
+              recalling &&
+              onLastLine(el)
+            ) {
+              event.preventDefault()
+              const to = (recalled ?? 0) + 1
+              recall(to < sent.length ? to : undefined)
             }
           }}
         />
-        <div className={styles.composerActions}>
-          {canStop && canInterrupt ? (
-            <Button
-              icon
-              className={styles.stop}
-              aria-label="Stop the current turn"
-              title="Stop the current turn"
-              onClick={() => void api.call('conversation.interrupt', { conversationId })}
-            >
-              <Square size={11} fill="currentColor" strokeWidth={0} aria-hidden="true" />
-            </Button>
-          ) : null}
-          {/* Ember only once there is something to send: an empty box has no intent yet. */}
-          <Button
-            type="submit"
-            variant="primary"
-            icon
-            className={styles.send}
-            aria-label="Send"
-            title="Send (Enter)"
-            disabled={!ready || !text.trim()}
-          >
-            <ArrowUp size={16} aria-hidden="true" />
-          </Button>
+        <div className={styles.composerBar}>
+          {hint ? (
+            <p className={styles.composerHint} id="composer-hint">
+              {hint}
+            </p>
+          ) : (
+            <p className={styles.composerKeys} aria-hidden="true">
+              <kbd>Enter</kbd> to send · <kbd>Shift</kbd> <kbd>Enter</kbd> for a new line
+              {sent.length ? (
+                <>
+                  {' '}
+                  · <kbd>↑</kbd> for your last message
+                </>
+              ) : null}
+            </p>
+          )}
+          <div className={styles.composerActions}>
+            {stopping ? (
+              <Button
+                icon
+                className={styles.stop}
+                aria-label="Stop the current turn"
+                title="Stop the current turn"
+                // Its press never takes focus from the text (it goes as it lands).
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  void api.call('conversation.interrupt', { conversationId })
+                  input.current?.focus()
+                }}
+              >
+                <Square
+                  size={11}
+                  fill="currentColor"
+                  strokeWidth={0}
+                  aria-hidden="true"
+                />
+              </Button>
+            ) : (
+              // Ember only once there is something to send: an empty box has no intent yet.
+              <Button
+                type="submit"
+                variant="primary"
+                icon
+                className={styles.send}
+                aria-label="Send"
+                title={
+                  running
+                    ? 'Send (Enter): Hermes queues or steers with it'
+                    : 'Send (Enter)'
+                }
+                disabled={!ready || !text.trim()}
+                onMouseDown={(event) => event.preventDefault()}
+              >
+                <ArrowUp size={16} aria-hidden="true" />
+              </Button>
+            )}
+          </div>
         </div>
       </div>
-      {hint ? (
-        <p className={styles.composerHint} id="composer-hint">
-          {hint}
-        </p>
-      ) : null}
     </form>
   )
 })

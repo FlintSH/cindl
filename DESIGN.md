@@ -26,9 +26,13 @@ Four destinations. Conversation is the anchor; everything else is one step away.
 | **Library** | Skills, memory, artifacts.                                                                |
 | **Agent**   | Identity (SOUL.md), connections, runtime and capabilities, this device, appearance.       |
 
-Talk has no permanent thread column. A searchable history popover (title
-button, `Mod+J`) switches conversations; the command palette (`Mod+K`) reaches
-everything. The **working margin** is the conversation's panel
+On wide screens Talk has a **conversation list** beside the conversation,
+after T3 Code's thread sidebar
+([ADR 0014](docs/handbook/architecture/decisions/0014-t3-workspace.md)): the
+main conversation pinned, what needs the owner, then the rest by recency,
+each row with its status or its age. `Mod+B` hides and shows it. Narrower
+screens keep the searchable switcher (title button, `Mod+J`); the command
+palette (`Mod+K`) reaches everything. The **working margin** is the conversation's panel
 ([ADR 0013](docs/handbook/architecture/decisions/0013-conversation-panel.md)):
 beside the conversation, it switches between a few tools for that
 conversation (Waiting, Step and Computer), and only when the owner asks; a new
@@ -37,13 +41,14 @@ panes.
 
 ## Layout
 
-| Width                 | Layout                                                                                  |
-| --------------------- | --------------------------------------------------------------------------------------- |
-| `< 768px` (compact)   | Single column, bottom navigation, margin as a bottom sheet, safe-area insets respected. |
-| `768–1279px` (medium) | 72px navigation spine; margin overlays from the right.                                  |
-| `>= 1280px` (wide)    | Spine, conversation at a 720px reading measure, margin as a 400px column.               |
+| Width                 | Layout                                                                                                           |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| `< 768px` (compact)   | Single column, bottom navigation, margin as a bottom sheet, safe-area insets respected.                          |
+| `768–1279px` (medium) | 72px navigation spine; margin overlays from the right.                                                           |
+| `>= 1280px` (wide)    | Spine, conversation list (264px, `Mod+B`), conversation up to a 720px reading measure, margin as a 400px column. |
 
-Breakpoints are literal in media queries: 768 and 1280. The working margin
+Breakpoints are literal in media queries: 768 and 1280, and 640px of height
+for the question dock. The working margin
 opens as a sheet over the conversation below 1280px, so closing it returns to
 the same scroll position. Each conversation also keeps where the owner left
 it (the unsent message, the reading position, the selected step and the
@@ -91,14 +96,23 @@ using it.
   agent name and time. Unprompted output (routines, proactive messages) shows
   its provenance ("From a routine").
 - **Tool activity.** One quiet line per step: status icon, title, duration.
-  Selecting it opens redacted evidence in the margin.
+  Selecting it opens redacted evidence in the margin. Two or more consecutive
+  steps fold into one work-log line once they are all done ("2 steps · 1m
+  24s"), and stay open while working, waiting on the owner or failed. The
+  running step's label has a slow sweep of light (off with reduced motion).
 - **Decision cards.** Approvals and questions are structured, deliberate cards:
   what will run (verbatim, as Hermes redacted it), why, and only the offered
   choices Cindl may send. Primary action is ember; there is no "approve all".
   Standing grants are named as withheld, not hidden.
 - **Composer.** Always available while connected; sending while Hermes works is
   allowed (Hermes queues, steers or redirects). Enter sends, Shift+Enter adds a
-  line. When not connected it says so instead of silently queueing.
+  line. When not connected it says so instead of silently queueing. The text
+  sits on top and a bar beneath it carries what sending does now and one
+  primary button: Stop while Hermes works and the box is empty, Send (ember)
+  once there is text. ArrowUp in an empty box recalls what you sent.
+- **Questions on Talk** dock above the composer where there is room: one
+  question at a time, number keys on its choices. Approvals stay in the
+  conversation; Work shows every card in full.
 - **Unavailable features.** Rendered with `RequireCapability`: name, state and
   the concrete reason. Never an empty shell that looks like working software.
 - **Rows, not cards.** Work, Library and Agent use bordered row lists.

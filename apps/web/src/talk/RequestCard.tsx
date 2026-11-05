@@ -8,8 +8,14 @@ import {
   type ServerRequest,
   type UnsupportedRequestKind,
 } from '@cindl/contracts'
-import { HelpCircle, KeyRound, ShieldAlert } from 'lucide-react'
-import { useId, useRef, useState } from 'react'
+import {
+  ChevronLeft,
+  ChevronRight,
+  HelpCircle,
+  KeyRound,
+  ShieldAlert,
+} from 'lucide-react'
+import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './talk.module.css'
 
@@ -64,16 +70,22 @@ function QuestionFields({
   draft,
   disabled,
   onChange,
+  keyHints = false,
+  onPicked,
 }: {
   question: ClarifyQuestion
   draft: Draft
   disabled: boolean
   onChange: (draft: Draft) => void
+  /** Docked above the composer: each choice shows the number key that picks it. */
+  keyHints?: boolean
+  /** A single-choice pick, so a docked set can move on to its next question. */
+  onPicked?: () => void
 }) {
   const name = useId()
   const choices = question.choices ?? []
   const single = !question.multiSelect && choices.length > 0
-  const pick = (choice: string) =>
+  const pick = (choice: string) => {
     onChange({
       ...draft,
       useOther: false,
@@ -83,11 +95,18 @@ function QuestionFields({
           : [...draft.selected, choice]
         : [choice],
     })
+    if (single) onPicked?.()
+  }
   return (
     <fieldset className={styles.questionSet} disabled={disabled}>
       <legend className={styles.requestBody}>{question.question}</legend>
-      {choices.map((choice) => (
+      {choices.map((choice, index) => (
         <label key={choice} className={styles.option}>
+          {keyHints && index < 9 ? (
+            <kbd className={styles.optionKey} aria-hidden="true">
+              {index + 1}
+            </kbd>
+          ) : null}
           <input
             type={question.multiSelect ? 'checkbox' : 'radio'}
             name={name}
@@ -148,12 +167,22 @@ function QuestionFields({
   )
 }
 
-/** One card per open request; prompts Cindl does not answer are read-only. */
-export function RequestCard({ request }: { request: ServerRequest }) {
+/**
+ * One card per open request; prompts Cindl does not answer are read-only. On
+ * Talk a question set docks above the composer (`dock`), after T3 Code's
+ * pending-input panel: one question at a time, with its number keys.
+ */
+export function RequestCard({
+  request,
+  layout = 'card',
+}: {
+  request: ServerRequest
+  layout?: 'card' | 'dock'
+}) {
   return request.kind === 'unsupported' ? (
     <UnsupportedCard request={request} />
   ) : (
-    <DecisionCard request={request} />
+    <DecisionCard request={request} layout={layout} />
   )
 }
 
@@ -211,9 +240,18 @@ function UnsupportedCard({ request }: { request: ServerRequest }) {
  * is answered in one submission. Buttons lock on the first click so a quick
  * second click cannot send a second answer.
  */
-function DecisionCard({ request }: { request: ServerRequest }) {
+function DecisionCard({
+  request,
+  layout,
+}: {
+  request: ServerRequest
+  layout: 'card' | 'dock'
+}) {
   const api = useCindlApi()
   const titleId = useId()
+  const [step, setStep] = useState(0)
+  const advance = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(advance.current), [])
   const [error, setError] = useState<string>()
   const [submitting, setSubmitting] = useState(false)
   const [drafts, setDraftsState] = useState<Record<string, Draft>>(
@@ -274,13 +312,54 @@ function DecisionCard({ request }: { request: ServerRequest }) {
     }),
   )
   const complete = clarifyAnswersComplete(request, answers)
+  // Docked, a set shows one question at a time; every draft stays kept.
+  const stepper = layout === 'dock' && !approval && questions.length > 1
+  const at = Math.min(step, Math.max(questions.length - 1, 0))
+  const shown = stepper ? questions.slice(at, at + 1) : questions
+  const goTo = (to: number) => {
+    window.clearTimeout(advance.current)
+    setStep(Math.max(0, Math.min(to, questions.length - 1)))
+  }
+  // A single-choice pick moves on after a moment, so the pick is seen first.
+  const pickedAt = (index: number) => () => {
+    if (!stepper || index >= questions.length - 1) return
+    window.clearTimeout(advance.current)
+    advance.current = window.setTimeout(() => goTo(index + 1), 200)
+  }
+  // Number keys pick the shown question's choices, unless typing in its own answer.
+  const numberKeys = (event: KeyboardEvent<HTMLElement>) => {
+    // A quick question sends on its button: one stray key must never answer it.
+    if (layout !== 'dock' || busy || quick) return
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    const target = event.target as HTMLElement
+    if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'text') return
+    if (!/^[1-9]$/.test(event.key)) return
+    const question = shown[0]
+    const choice = question?.choices?.[Number(event.key) - 1]
+    if (!question || !choice) return
+    event.preventDefault()
+    const draft = draftFor(question.qid) ?? emptyDraft
+    if (draft.skipped) return
+    setDraft(question.qid, {
+      ...draft,
+      useOther: false,
+      selected: question.multiSelect
+        ? draft.selected.includes(choice)
+          ? draft.selected.filter((c) => c !== choice)
+          : [...draft.selected, choice]
+        : [choice],
+    })
+    if (!question.multiSelect) pickedAt(questions.indexOf(question))()
+  }
 
   return (
     <section
       id={requestDomId(request)}
       className={styles.request}
       data-kind={request.kind}
+      data-layout={layout}
       aria-labelledby={titleId}
+      onKeyDown={numberKeys}
     >
       <header className={styles.requestHeader}>
         <span className={styles.requestKind}>
@@ -290,6 +369,33 @@ function DecisionCard({ request }: { request: ServerRequest }) {
             : questions.length > 1
               ? `${questions.length} questions`
               : 'Question'}
+          {stepper ? (
+            <span className={styles.stepper}>
+              <span className={styles.stepCount}>
+                {at + 1} of {questions.length}
+              </span>
+              <Button
+                variant="quiet"
+                icon
+                className={styles.stepButton}
+                aria-label="Previous question"
+                disabled={at === 0}
+                onClick={() => goTo(at - 1)}
+              >
+                <ChevronLeft size={14} aria-hidden="true" />
+              </Button>
+              <Button
+                variant="quiet"
+                icon
+                className={styles.stepButton}
+                aria-label="Next question"
+                disabled={at >= questions.length - 1}
+                onClick={() => goTo(at + 1)}
+              >
+                <ChevronRight size={14} aria-hidden="true" />
+              </Button>
+            </span>
+          ) : null}
         </span>
         <h3 id={titleId} className={styles.requestTitle} tabIndex={-1}>
           <span className="visually-hidden">
@@ -406,13 +512,15 @@ function DecisionCard({ request }: { request: ServerRequest }) {
             if (complete) void send({ kind: 'clarify', answers })
           }}
         >
-          {questions.map((question) => (
+          {shown.map((question) => (
             <QuestionFields
               key={question.qid}
               question={question}
               draft={draftFor(question.qid) ?? emptyDraft}
               disabled={busy}
               onChange={(draft) => setDraft(question.qid, draft)}
+              keyHints={layout === 'dock'}
+              onPicked={pickedAt(questions.indexOf(question))}
             />
           ))}
           <div className={styles.requestFooter}>

@@ -1,17 +1,80 @@
 import { useConversations } from '@cindl/client-react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { MessageSquare, Pin, type LucideIcon } from 'lucide-react'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { navigate } from '../router.ts'
 import { shortcuts, type ShortcutId } from '../shortcuts.ts'
 import { Keys } from '../ui/primitives.tsx'
 import { Overlay } from './Overlay.tsx'
 import styles from './palette.module.css'
 
+/** Where a command sits in the palette (after T3 Code's grouped palette). */
+export type CommandGroup = 'go' | 'actions' | 'conversations' | 'theme'
+
+const groupLabels: Record<CommandGroup, string> = {
+  go: 'Go to',
+  actions: 'Actions',
+  conversations: 'Conversations',
+  theme: 'Theme',
+}
+const groupOrder: CommandGroup[] = ['go', 'actions', 'conversations', 'theme']
+/** With nothing typed, the palette lists only the most recent conversations. */
+const RECENT = 5
+
 export interface Command {
   id: string
   label: string
   hint?: string
   shortcut?: ShortcutId
+  group: CommandGroup
+  icon?: LucideIcon
   run: () => void
+}
+
+interface Group {
+  group: CommandGroup
+  items: Command[]
+}
+
+/**
+ * The palette's rows, grouped. Nothing typed: every command in a fixed group
+ * order, and the most recent conversations. Typed: matches only, groups
+ * ordered by their best match so Enter runs the best row. A leading `>`
+ * searches commands alone, as in T3 Code.
+ */
+export function paletteGroups(
+  commands: readonly Command[],
+  conversations: readonly Command[],
+  query: string,
+): Group[] {
+  const commandsOnly = query.trimStart().startsWith('>')
+  const typed = (commandsOnly ? query.trimStart().slice(1) : query).trim()
+  const pool = commandsOnly ? commands : [...commands, ...conversations]
+  if (!typed)
+    return groupOrder
+      .map((group) => {
+        const items = pool.filter((c) => c.group === group)
+        return {
+          group,
+          items: group === 'conversations' ? items.slice(0, RECENT) : items,
+        }
+      })
+      .filter((g) => g.items.length > 0)
+  const scored = pool
+    .map((command) => ({
+      command,
+      score: fuzzyScore(typed, `${command.label} ${command.hint ?? ''}`),
+    }))
+    .filter((r): r is { command: Command; score: number } => r.score !== undefined)
+    .sort((a, b) => a.score - b.score)
+  const best = new Map<CommandGroup, number>()
+  for (const { command, score } of scored)
+    if (!best.has(command.group)) best.set(command.group, score)
+  return [...best.keys()]
+    .sort((a, b) => (best.get(a) ?? 0) - (best.get(b) ?? 0))
+    .map((group) => ({
+      group,
+      items: scored.filter((r) => r.command.group === group).map((r) => r.command),
+    }))
 }
 
 /** Subsequence match: every query character appears in order. Lower score = better. */
@@ -41,33 +104,26 @@ export function CommandPalette({
 }) {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
+  const id = useId()
   const conversations = useConversations()
-  const all = useMemo<Command[]>(
-    () => [
-      ...commands,
-      ...conversations.map((c) => ({
+  const conversationCommands = useMemo<Command[]>(
+    () =>
+      conversations.map((c) => ({
         id: `conversation:${c.id}`,
         label: c.title,
         hint: c.kind === 'main' ? 'Main conversation' : 'Side conversation',
+        group: 'conversations' as const,
+        icon: c.kind === 'main' ? Pin : MessageSquare,
         run: () => navigate({ view: 'talk', conversationId: c.id }),
       })),
-    ],
-    [commands, conversations],
+    [conversations],
   )
-  const results = useMemo(
-    () =>
-      all
-        .map((command) => ({
-          command,
-          score: fuzzyScore(query, `${command.label} ${command.hint ?? ''}`),
-        }))
-        .filter((r): r is { command: Command; score: number } => r.score !== undefined)
-        .sort((a, b) => a.score - b.score)
-        .slice(0, 12)
-        .map((r) => r.command),
-    [all, query],
+  const groups = useMemo(
+    () => paletteGroups(commands, conversationCommands, query),
+    [commands, conversationCommands, query],
   )
-  const list = useRef<HTMLUListElement>(null)
+  const results = useMemo(() => groups.flatMap((g) => g.items), [groups])
+  const list = useRef<HTMLDivElement>(null)
   // The highlighted row stays in view as the arrow keys move past the list's edge.
   useEffect(() => {
     const row = list.current?.querySelector('[aria-selected="true"]')
@@ -97,7 +153,7 @@ export function CommandPalette({
           aria-activedescendant={
             results[active] ? `palette-${results[active].id}` : undefined
           }
-          placeholder="Type a command or a conversation"
+          placeholder="Search commands and conversations"
           value={query}
           onChange={(event) => {
             setQuery(event.target.value)
@@ -118,35 +174,52 @@ export function CommandPalette({
             }
           }}
         />
-        <ul
+        <div
           ref={list}
           className={styles.results}
           id="palette-results"
           role="listbox"
           aria-label="Results"
         >
-          {results.map((command, index) => {
-            const shortcut = shortcuts.find((s) => s.id === command.shortcut)
-            return (
-              <li
-                key={command.id}
-                id={`palette-${command.id}`}
-                role="option"
-                aria-selected={index === active}
-                className={styles.result}
-                onMouseMove={() => setActive(index)}
-                onClick={() => run(command)}
-              >
-                <span className={styles.label}>{command.label}</span>
-                {command.hint ? (
-                  <span className={styles.hint}>{command.hint}</span>
-                ) : null}
-                {shortcut ? <Keys keys={shortcut.keys} /> : null}
-              </li>
-            )
-          })}
-          {results.length === 0 ? <li className={styles.empty}>No matches</li> : null}
-        </ul>
+          {groups.map((group) => (
+            <div
+              key={group.group}
+              role="group"
+              aria-labelledby={`${id}-${group.group}`}
+              className={styles.group}
+            >
+              <div id={`${id}-${group.group}`} className={styles.groupLabel}>
+                {groupLabels[group.group]}
+              </div>
+              {group.items.map((command) => {
+                const index = results.indexOf(command)
+                const shortcut = shortcuts.find((s) => s.id === command.shortcut)
+                const Icon = command.icon
+                return (
+                  <div
+                    key={command.id}
+                    id={`palette-${command.id}`}
+                    role="option"
+                    aria-selected={index === active}
+                    className={styles.result}
+                    onMouseMove={() => setActive(index)}
+                    onClick={() => run(command)}
+                  >
+                    {Icon ? (
+                      <Icon size={16} aria-hidden="true" className={styles.icon} />
+                    ) : null}
+                    <span className={styles.label}>{command.label}</span>
+                    {command.hint ? (
+                      <span className={styles.hint}>{command.hint}</span>
+                    ) : null}
+                    {shortcut ? <Keys keys={shortcut.keys} /> : null}
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+          {results.length === 0 ? <p className={styles.empty}>No matches</p> : null}
+        </div>
         {/* For a keyboard; hidden on touch screens (palette.module.css). */}
         <p className={styles.footer} aria-hidden="true">
           <span>
@@ -157,6 +230,9 @@ export function CommandPalette({
           </span>
           <span>
             <kbd>Esc</kbd> to close
+          </span>
+          <span>
+            <kbd>&gt;</kbd> for commands only
           </span>
         </p>
       </div>

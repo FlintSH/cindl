@@ -4,6 +4,8 @@ import { useEffect, useState } from 'react'
 import { CopyButton } from '../ui/CopyButton.tsx'
 import { Markdown } from './Markdown.tsx'
 import { ToolRow } from './ToolRow.tsx'
+import { WorkGroup } from './WorkGroup.tsx'
+import { segmentsOf } from './workGroups.ts'
 import { elapsed, fullTime, messageTime, momentInSentence } from './format.ts'
 import styles from './talk.module.css'
 
@@ -113,7 +115,19 @@ export function MessageView({
         ) : null}
       </header>
       <div className={styles.assistantBody}>
-        {message.parts.map((part, index) => {
+        {segmentsOf(message.parts).map((segment) => {
+          if (segment.kind === 'work')
+            return (
+              <WorkGroup
+                key={segment.key}
+                groupKey={`${message.id}:${segment.key}`}
+                toolIds={segment.toolIds}
+                selectedToolId={selectedToolId}
+                blockedToolIds={blockedToolIds}
+                onSelectTool={onSelectTool}
+              />
+            )
+          const { part, index } = segment
           switch (part.type) {
             case 'text':
               return <Markdown key={index} text={part.text} />

@@ -18,6 +18,7 @@ export type ShortcutId =
   | 'new-side'
   | 'focus-composer'
   | 'toggle-margin'
+  | 'toggle-conversations'
   | 'go-talk'
   | 'go-work'
   | 'go-library'
@@ -42,6 +43,12 @@ export const shortcuts: readonly Shortcut[] = [
     id: 'toggle-margin',
     keys: ['Mod', '.'],
     label: 'Show or hide the working margin',
+    global: true,
+  },
+  {
+    id: 'toggle-conversations',
+    keys: ['Mod', 'B'],
+    label: 'Show or hide the conversation list',
     global: true,
   },
   { id: 'go-talk', keys: ['Alt', '1'], label: 'Go to Talk', global: true },

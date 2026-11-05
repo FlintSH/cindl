@@ -8,7 +8,9 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('opens on the main conversation with honest presence', async ({ page }) => {
-  await expect(page.getByRole('button', { name: /Today/ })).toBeVisible()
+  await expect(
+    page.getByRole('button', { name: /Today.*Switch conversation/ }),
+  ).toBeVisible()
   await expect(
     page.getByRole('status').filter({ hasText: 'Waiting on you' }),
   ).toContainText('1 approval, 1 question')
@@ -74,7 +76,7 @@ test('keyboard reaches every destination and the palette', async ({ page }) => {
   await page.keyboard.press('Alt+4')
   await expect(page.getByRole('heading', { level: 1, name: 'Agent' })).toBeVisible()
   await page.keyboard.press('Alt+1')
-  await expect(page.getByRole('button', { name: /Today/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Switch conversation/ })).toBeVisible()
 })
 
 test('the working margin points to open requests instead of duplicating them', async ({
@@ -93,6 +95,10 @@ test('the working margin points to open requests instead of duplicating them', a
 })
 
 test('switches conversations from the searchable history', async ({ page }) => {
+  // Narrower than the conversation list's 1280px: Ctrl/⌘ J opens the switcher.
+  await page.setViewportSize({ width: 1100, height: 800 })
+  // Load at that width, so no wider layout's handlers are still in place.
+  await page.goto('/#/talk')
   await page.keyboard.press(`${mod}+J`)
   const history = page.getByRole('dialog', { name: 'Conversations' })
   await history.getByRole('textbox', { name: 'Search conversations' }).fill('kiln')
@@ -104,6 +110,9 @@ test('switches conversations from the searchable history', async ({ page }) => {
 test('the conversation search opens its best match on Enter; the arrows walk the list', async ({
   page,
 }) => {
+  await page.setViewportSize({ width: 1100, height: 800 })
+  // Load at that width, so no wider layout's handlers are still in place.
+  await page.goto('/#/talk')
   await page.keyboard.press(`${mod}+J`)
   const history = page.getByRole('dialog', { name: 'Conversations' })
   const search = history.getByRole('textbox', { name: 'Search conversations' })
@@ -246,6 +255,10 @@ test('"Latest" says what waits below and never drops focus', async ({ page }) =>
 test('a new side conversation opens ready to write in, and says it is empty', async ({
   page,
 }) => {
+  // The header's + and the switcher's button (the list has its own, tested apart).
+  await page.setViewportSize({ width: 1100, height: 800 })
+  // Load at that width, so no wider layout's handlers are still in place.
+  await page.goto('/#/talk')
   const box = page.getByRole('textbox', { name: 'Message Hermes' })
   await page.getByRole('button', { name: 'New side conversation' }).click()
   await expect(
