@@ -201,17 +201,22 @@ export function AppShell() {
         ...(theme === 'system' ? { hint: 'Current' } : {}),
         run: () => setPreference('theme', 'system'),
       },
-      {
-        id: 'toggle-conversations',
-        group: 'actions' as const,
-        icon: PanelLeft,
-        label: 'Show or hide the conversation list',
-        shortcut: 'toggle-conversations',
-        run: () => {
-          if (route.view !== 'talk') navigate({ view: 'talk' })
-          setPreference('conversationsOpen', !listOpen)
-        },
-      },
+      // Only where the list can show (wide screens).
+      ...(wide
+        ? [
+            {
+              id: 'toggle-conversations',
+              group: 'actions' as const,
+              icon: PanelLeft,
+              label: 'Show or hide the conversation list',
+              shortcut: 'toggle-conversations' as const,
+              run: () => {
+                if (route.view !== 'talk') navigate({ view: 'talk' })
+                setPreference('conversationsOpen', !listOpen)
+              },
+            },
+          ]
+        : []),
       {
         id: 'toggle-margin',
         group: 'actions' as const,
@@ -232,7 +237,7 @@ export function AppShell() {
         run: () => setHelpOpen(true),
       },
     ],
-    [canCreate, theme, listOpen, route.view],
+    [canCreate, theme, listOpen, route.view, wide],
   )
 
   useEffect(() => {

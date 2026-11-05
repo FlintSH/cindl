@@ -366,7 +366,9 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
 - **Palette.** Its rows are grouped (Go to, Actions, Conversations, Theme)
   with icons. Nothing typed, it lists every command and the five most recent
   conversations; typed, the groups follow their best match. A leading `>`
-  searches commands only.
+  searches commands only. A row's hint gives way before its label does; on
+  a phone the hints and keys are left out, and showing or hiding the
+  conversation list is offered only where the list can show.
 
 ## Small signals
 
