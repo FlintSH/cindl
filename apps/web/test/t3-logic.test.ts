@@ -78,11 +78,25 @@ describe('the conversation list', () => {
 
   it('marks what finished unseen as Done, below what needs you or works', () => {
     const idle = conversation({ updatedAt: '2026-06-10T11:00:00.000Z' })
-    expect(rowStatus(idle, 0, { finished: true })).toMatchObject({ kind: 'done' })
-    expect(rowStatus(list[2] as Conversation, 0, { finished: true }).kind).toBe('working')
+    expect(rowStatus(idle, 0, { finished: 'done' })).toMatchObject({ kind: 'done' })
+    expect(rowStatus(list[2] as Conversation, 0, { finished: 'done' }).kind).toBe(
+      'working',
+    )
     expect(
-      rowStatus(list[1] as Conversation, 0, { finished: true, requests: [] }).kind,
+      rowStatus(list[1] as Conversation, 0, { finished: 'done', requests: [] }).kind,
     ).toBe('needs-you')
+  })
+
+  it('says Failed or Stopped when the reply that finished unseen ended that way', () => {
+    const idle = conversation({})
+    expect(rowStatus(idle, 0, { finished: 'failed' })).toMatchObject({
+      kind: 'failed',
+      label: 'Failed',
+    })
+    expect(rowStatus(idle, 0, { finished: 'stopped' })).toMatchObject({
+      kind: 'stopped',
+      label: 'Stopped',
+    })
   })
 
   it('says ages in full for a screen reader', () => {

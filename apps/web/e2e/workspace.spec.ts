@@ -245,3 +245,102 @@ test('a long message folds; Show full message opens it', async ({ page }) => {
   await mine.hover()
   await expect(mine.getByRole('button', { name: 'Copy message' })).toBeVisible()
 })
+
+test('typing on a conversation row searches the list and never reaches the message box', async ({
+  page,
+}) => {
+  const list = page.getByRole('navigation', { name: 'Conversations' })
+  const search = list.getByRole('textbox', { name: 'Search conversations' })
+  const box = page.getByRole('textbox', { name: 'Message Hermes' })
+  await list.getByRole('button', { name: /^Kiln inventory sheet/ }).focus()
+  await page.keyboard.type('Studio')
+  await expect(search).toHaveValue('Studio')
+  await expect(box).toHaveValue('')
+  // Enter opens the match; nothing was sent.
+  await page.keyboard.press('Enter')
+  await expect(
+    page.getByRole('region', { name: 'Conversation: Studio offsite planning' }),
+  ).toBeVisible()
+  await expect(box).toHaveValue('')
+  // Shortcuts keep their keys: / goes to the message box.
+  await list.getByRole('button', { name: /^Studio offsite planning/ }).focus()
+  await page.keyboard.press('/')
+  await expect(box).toBeFocused()
+})
+
+test('Ctrl/⌘ B on a narrow window opens the switcher over the conversation already open', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1100, height: 900 })
+  await page.goto('/#/talk/demo-inventory')
+  await expect(
+    page.getByRole('region', { name: 'Conversation: Kiln inventory sheet' }),
+  ).toBeVisible()
+  await page.keyboard.press(`${mod}+B`)
+  await expect(page.getByRole('dialog', { name: 'Conversations' })).toBeVisible()
+  await page.keyboard.press('Escape')
+  await expect(
+    page.getByRole('region', { name: 'Conversation: Kiln inventory sheet' }),
+  ).toBeVisible()
+})
+
+test('in the docked set the arrows only move, a number key picks and moves on, and focus stays in the set', async ({
+  page,
+}) => {
+  const dock = page.getByRole('region', { name: /Question: Offsite venue and prep/ })
+  await dock.getByRole('radio', { name: 'Harbor Loft (fictional)' }).focus()
+  await page.keyboard.press('ArrowDown')
+  await expect(
+    dock.getByRole('radio', { name: 'Orchard Barn (fictional)' }),
+  ).toBeChecked()
+  // An arrow is not a pick: the set stays on its question.
+  await page.waitForTimeout(500)
+  await expect(dock).toContainText('1 of 2')
+  // Space confirms the choice an arrow selected, even though it is checked.
+  await page.keyboard.press('Space')
+  await expect(dock).toContainText('2 of 2')
+  await expect(dock.locator(':focus')).toHaveCount(1)
+  await dock.getByRole('button', { name: 'Previous question' }).click()
+  await page.keyboard.press('1')
+  await expect(dock).toContainText('2 of 2')
+  // Focus went with the set, not down to the page.
+  await expect(dock.locator(':focus')).toHaveCount(1)
+  // Two quick digits answer one question each.
+  await dock.getByRole('button', { name: 'Previous question' }).click()
+  await expect(dock).toContainText('1 of 2')
+  await expect(dock.locator(':focus')).toHaveCount(1)
+  await page.keyboard.press('2')
+  await page.keyboard.press('1')
+  await expect(dock).toContainText('2 of 2')
+  await expect(dock.getByRole('checkbox', { name: 'Floor plan' })).toBeChecked()
+  await dock.getByRole('button', { name: 'Previous question' }).click()
+  await expect(
+    dock.getByRole('radio', { name: 'Orchard Barn (fictional)' }),
+  ).toBeChecked()
+  // Nothing was sent: the set waits for Send answers.
+  await expect(dock.getByRole('button', { name: 'Send answers' })).toBeVisible()
+})
+
+test('from another destination, the palette shows the conversation list on Talk', async ({
+  page,
+}) => {
+  await page.goto('/#/work')
+  await page.keyboard.press(`${mod}+K`)
+  await page.getByRole('combobox').fill('conversation list')
+  await page.keyboard.press('Enter')
+  await expect(page.getByRole('navigation', { name: 'Conversations' })).toBeVisible()
+})
+
+test('returning to a skipped question keeps focus on an enabled control in the dock', async ({
+  page,
+}) => {
+  const dock = page.getByRole('region', { name: /Question: Offsite venue and prep/ })
+  await dock.getByRole('radio', { name: 'Harbor Loft (fictional)' }).focus()
+  await page.keyboard.press('ArrowDown')
+  await dock.getByRole('checkbox', { name: 'Skip this question' }).check()
+  await dock.getByRole('button', { name: 'Next question' }).click()
+  await dock.getByRole('button', { name: 'Previous question' }).click()
+  await expect(dock.getByRole('checkbox', { name: 'Skip this question' })).toBeFocused()
+  await page.keyboard.type('abc')
+  await expect(page.getByRole('textbox', { name: 'Message Hermes' })).toHaveValue('')
+})

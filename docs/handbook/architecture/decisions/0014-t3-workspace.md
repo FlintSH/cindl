@@ -30,7 +30,8 @@ are.
   "Jun 2"), in T3 Code's order and each with the icon of what it stands
   for: what the owner must answer ("Approval", "Question", "2 need you"),
   then "Working", then "Done" for a conversation Hermes finished while the
-  owner looked elsewhere, until they open it. The arrow keys move through
+  owner looked elsewhere, until they open it ("Failed" or "Stopped" when
+  this client saw the reply end with an error or interruption). The arrow keys move through
   it without opening anything, Enter opens and keeps focus in the list, a
   pointer pick opens with focus in the message box, F2 or a double click
   renames when Hermes offers renaming, and typing searches. `Ctrl/⌘ B` hides and shows it
@@ -49,7 +50,8 @@ are.
   box with what sending does now (or the keys) on the left and one round
   primary button on the right. That button is Stop while Hermes works and the
   box is empty, and Send as soon as there is text, so Stop and Send never
-  compete.
+  compete. A rapid second press after Send becomes Stop cannot interrupt the
+  turn; on Android, Send stays until its request settles.
   Its presses never take focus from the text. ArrowUp in an empty box brings
   back what the owner sent in this conversation; ArrowDown goes forward.
 - **Questions docked above the composer:** on Talk, with room (768px wide and
@@ -57,7 +59,9 @@ are.
   after T3 Code's drawer: one line with what it is, where the owner is in it
   and a chevron that folds it to that line, then one question at a time with
   number keys on its choices, and a short pause before a single-choice pick
-  moves on. Folding answers nothing. It is the same card as before,
+  moves on. Arrow keys select without moving on, successive number keys
+  carry on to the next question, and focus stays in the set as it changes.
+  Folding answers nothing. It is the same card as before,
   with the same answer-once lock, drafts and refusals; only its layout
   changed. Approvals stay in the conversation, beside the step they hold.
   Work shows every card in full.
@@ -96,7 +100,7 @@ are.
 - Steps addressed by title (tests, the panel's Show) are inside a folded line
   when finished; the selected step's line stays open.
 - Android takes the work log, the live timer, the one-slot round Stop and
-  Send, and "Done" in its conversation sheet; it keeps the sheet and its
+  Send, and "Done", "Failed" or "Stopped" in its conversation sheet; it keeps the sheet and its
   question cards in the conversation, since a phone has no room for a list
   or a dock.
 - Round Send and Stop are the only round buttons; DESIGN.md names them.

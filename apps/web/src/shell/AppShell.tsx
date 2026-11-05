@@ -218,8 +218,21 @@ export function AppShell() {
               label: 'Show or hide the conversation list',
               shortcut: 'toggle-conversations' as const,
               run: () => {
-                if (route.view !== 'talk') navigate({ view: 'talk' })
-                setPreference('conversationsOpen', !listOpen)
+                if (route.view !== 'talk') {
+                  // From elsewhere it shows the list, as Ctrl/⌘ B does.
+                  setPreference('conversationsOpen', true)
+                  navigate({ view: 'talk' })
+                } else if (listOpen) {
+                  setPreference('conversationsOpen', false)
+                  // Focus goes back to what opened the palette, which may have
+                  // gone with the list: then to what shows the list again.
+                  requestAnimationFrame(() => {
+                    if (document.activeElement === document.body)
+                      document
+                        .querySelector<HTMLElement>('[data-show-conversations]')
+                        ?.focus()
+                  })
+                } else setPreference('conversationsOpen', true)
               },
             },
           ]
@@ -258,8 +271,14 @@ export function AppShell() {
           break
         case 'toggle-conversations':
           if (!wide) {
-            // No room for the list: the conversation switcher instead.
-            navigate({ view: 'talk' })
+            // No room for the list: the conversation switcher instead, over
+            // the conversation already open.
+            navigate({
+              view: 'talk',
+              ...(route.view === 'talk' && route.conversationId
+                ? { conversationId: route.conversationId }
+                : {}),
+            })
             queueMicrotask(() => talk.current?.openHistory())
           } else if (route.view !== 'talk') {
             setListOpen(true)

@@ -76,9 +76,16 @@ export function paletteGroups(
         Number(a.command.current ?? false) - Number(b.command.current ?? false) ||
         a.score - b.score,
     )
+  // The conversation on screen never lifts its group: it comes last.
   const best = new Map<CommandGroup, number>()
   for (const { command, score } of scored)
-    if (!best.has(command.group)) best.set(command.group, score)
+    best.set(
+      command.group,
+      Math.min(
+        best.get(command.group) ?? Number.POSITIVE_INFINITY,
+        command.current ? Number.POSITIVE_INFINITY : score,
+      ),
+    )
   return [...best.keys()]
     .sort((a, b) => (best.get(a) ?? 0) - (best.get(b) ?? 0))
     .map((group) => ({

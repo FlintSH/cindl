@@ -1,4 +1,5 @@
 import type { Conversation, ServerRequest } from '@cindl/contracts'
+import type { Outcome } from './finished.ts'
 import { fuzzyScore } from '../shell/CommandPalette.tsx'
 
 /**
@@ -42,21 +43,21 @@ export function shelvesOf(conversations: readonly Conversation[], query = ''): S
  */
 export type RowStatus =
   | { kind: 'approval' | 'question' | 'needs-you'; label: string; spoken?: string }
-  | { kind: 'working' | 'done'; label: string; spoken?: string }
+  | { kind: 'working' | 'done' | 'failed' | 'stopped'; label: string; spoken?: string }
   | { kind: 'time'; label: string; spoken: string }
   | { kind: 'none'; label: string; spoken?: string }
 
 export interface RowFacts {
   /** This conversation's open requests, by kind. */
   requests?: readonly Pick<ServerRequest, 'kind'>[]
-  /** Hermes finished it while the owner was elsewhere (finished.ts). */
-  finished?: boolean
+  /** Hermes finished it while the owner was elsewhere, and how (finished.ts). */
+  finished?: Outcome | undefined
 }
 
 export function rowStatus(
   conversation: Conversation,
   now = Date.now(),
-  { requests = [], finished = false }: RowFacts = {},
+  { requests = [], finished }: RowFacts = {},
 ): RowStatus {
   const approvals = requests.filter((r) => r.kind === 'approval').length
   const questions = requests.filter((r) => r.kind === 'clarify').length
@@ -70,6 +71,10 @@ export function rowStatus(
   if (requests.length || conversation.status === 'waiting-on-you')
     return { kind: 'needs-you', label: 'Needs you' }
   if (conversation.status === 'working') return { kind: 'working', label: 'Working' }
+  if (finished === 'failed')
+    return { kind: 'failed', label: 'Failed', spoken: 'Failed, not seen yet' }
+  if (finished === 'stopped')
+    return { kind: 'stopped', label: 'Stopped', spoken: 'Stopped, not seen yet' }
   if (finished) return { kind: 'done', label: 'Done', spoken: 'Done, not seen yet' }
   const ago = shortAgo(conversation.updatedAt, now)
   return ago

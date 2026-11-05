@@ -41,4 +41,22 @@ describe('the keys and the palette, after T3 Code', () => {
     const typed = paletteGroups([], rows, 'kiln')
     expect(typed[0]?.items.map((c) => c.id)).toEqual(['b', 'a'])
   })
+
+  it('never lets the conversation on screen lift its group above a better command', () => {
+    const conversation = {
+      id: 'conversation:c',
+      label: 'Theme ideas',
+      group: 'conversations' as const,
+      current: true,
+      run: () => undefined,
+    }
+    const theme = {
+      id: 'theme-dark',
+      label: 'Use dark theme',
+      group: 'theme' as const,
+      run: () => undefined,
+    }
+    const groups = paletteGroups([theme], [conversation], 'theme')
+    expect(groups.map((g) => g.group)).toEqual(['theme', 'conversations'])
+  })
 })

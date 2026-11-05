@@ -1,4 +1,7 @@
-import { expect, test, type Page } from '@playwright/test'
+import type { CindlEvent } from '@cindl/contracts'
+import { scenarioData } from '@cindl/fixtures/scenario'
+import type { Page } from '@playwright/test'
+import { expect, test } from './fixtures.ts'
 
 /**
  * Where focus lands in the document editors (memory entries and SOUL) in a
@@ -45,6 +48,7 @@ type Harness = Awaited<ReturnType<typeof harness>>
 declare global {
   interface Window {
     harness: {
+      emit: (event: CindlEvent) => void
       hold: (name: string, mode: 'request' | 'answer') => void
       held: (name: string) => boolean
       release: (name: string) => void
@@ -59,6 +63,97 @@ declare global {
     }
   }
 }
+
+test('focus follows a conversation row across shelves, but never follows after the owner leaves it', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto(`${harnessUrl}#/talk/demo-main`)
+  const list = page.getByRole('navigation', { name: 'Conversations' })
+  const row = list.getByRole('button', { name: /^Studio offsite planning/ })
+  await row.focus()
+  const offsite = scenarioData.conversations.find((c) => c.id === 'demo-offsite')!
+  await page.evaluate(
+    (conversation) =>
+      window.harness.emit({
+        type: 'conversation.upserted',
+        conversation,
+      }),
+    { ...offsite, status: 'waiting-on-you' as const },
+  )
+  await expect(row).toContainText('Needs you')
+  await expect(row).toBeFocused()
+  await page.getByRole('heading', { name: 'Needs you', exact: false }).click()
+  await page.evaluate(
+    (conversation) =>
+      window.harness.emit({
+        type: 'conversation.upserted',
+        conversation,
+      }),
+    { ...offsite, status: 'idle' as const },
+  )
+  await expect(row).not.toBeFocused()
+})
+
+test('a rename draft survives its conversation moving to another shelf', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto(`${harnessUrl}#/talk/demo-main`)
+  const list = page.getByRole('navigation', { name: 'Conversations' })
+  const row = list.getByRole('button', { name: /^Studio offsite planning/ })
+  await row.focus()
+  await page.keyboard.press('F2')
+  const field = list.getByRole('textbox', { name: 'Rename Studio offsite planning' })
+  await field.fill('Offsite draft (synthetic)')
+  const offsite = scenarioData.conversations.find((c) => c.id === 'demo-offsite')!
+  await page.evaluate(
+    (conversation) =>
+      window.harness.emit({ type: 'conversation.upserted', conversation }),
+    { ...offsite, status: 'waiting-on-you' as const },
+  )
+  await expect(field).toHaveValue('Offsite draft (synthetic)')
+  await expect(field).toBeFocused()
+  await page.keyboard.press('Escape')
+  await expect(row).toBeFocused()
+})
+
+test('focus follows a step joining a work log and keeps its finished group open until focus leaves', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1440, height: 1000 })
+  await page.goto(`${harnessUrl}#/talk/demo-offsite`)
+  await page.getByRole('textbox', { name: 'Message Hermes' }).waitFor()
+  await page.evaluate(() =>
+    window.harness.emit({
+      type: 'message.started',
+      conversationId: 'demo-offsite',
+      messageId: 'focus-reply',
+      role: 'assistant',
+    }),
+  )
+  const step = (id: string, title: string, status: 'running' | 'complete') =>
+    page.evaluate((activity) => window.harness.emit({ type: 'tool.updated', activity }), {
+      id,
+      title,
+      status,
+      name: 'notes.search',
+      conversationId: 'demo-offsite',
+    })
+  await step('focus-a', 'Searched synthetic notes', 'running')
+  const first = page.getByRole('button', { name: /^Searched synthetic notes/ })
+  await first.focus()
+  await step('focus-b', 'Read synthetic floor plan', 'running')
+  await expect(first).toBeFocused()
+  await step('focus-a', 'Searched synthetic notes', 'complete')
+  await step('focus-b', 'Read synthetic floor plan', 'complete')
+  const group = page.getByRole('button', { name: /^2 steps/ })
+  await expect(group).toHaveAttribute('aria-expanded', 'true')
+  await expect(first).toBeFocused()
+  await group.focus()
+  await expect(group).toHaveAttribute('aria-expanded', 'false')
+  await expect(group).toBeFocused()
+})
 
 const button = (page: Page, name: string | RegExp) =>
   page.getByRole('button', { name, exact: typeof name === 'string' })

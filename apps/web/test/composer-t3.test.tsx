@@ -1,13 +1,14 @@
 import { CindlProvider } from '@cindl/client-react'
 import type { CapabilityMap, CindlClientApi, CindlEvent, Message } from '@cindl/contracts'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Composer } from '../src/talk/Composer.tsx'
 import { forgetPlaces } from '../src/talk/places.ts'
 
 afterEach(() => {
   cleanup()
   forgetPlaces()
+  vi.restoreAllMocks()
 })
 
 const said = (id: string, text: string): Message => ({
@@ -96,5 +97,27 @@ describe('the composer, after T3 Code', () => {
     box.setSelectionRange(0, 0)
     fireEvent.keyDown(box, { key: 'ArrowUp' })
     expect(box.value).toBe('Draft')
+  })
+
+  it('never takes the second click of a double click on Send as Stop, and keeps focus in the text', async () => {
+    const { box, calls } = await renderComposer(true)
+    fireEvent.change(box, { target: { value: 'Steer toward the kiln' } })
+    const send = screen.getByRole('button', { name: 'Send' })
+    send.focus()
+    fireEvent.click(send, { detail: 1 })
+    expect(calls).toEqual(['prompt.submit'])
+    // Sent from the button, focus is back in the text, not on the Stop that took its place.
+    expect(document.activeElement).toBe(box)
+    const stop = screen.getByRole('button', { name: 'Stop the current turn' })
+    expect(stop).not.toBe(send)
+    fireEvent.click(stop, { detail: 2 })
+    // A single click right after Stop appears is not a stop either.
+    fireEvent.click(stop, { detail: 1 })
+    expect(calls).toEqual(['prompt.submit'])
+    // A moment later it is.
+    const later = performance.now() + 600
+    vi.spyOn(performance, 'now').mockReturnValue(later)
+    fireEvent.click(stop, { detail: 1 })
+    expect(calls).toEqual(['prompt.submit', 'conversation.interrupt'])
   })
 })

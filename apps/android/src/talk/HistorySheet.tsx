@@ -6,7 +6,7 @@ import { Sheet } from '../overlay/Sheet.tsx'
 import { useTheme } from '../theme/theme.tsx'
 import { Pin, Plus } from '../ui/icons.ts'
 import { Badge, Note, Press, Txt } from '../ui/primitives.tsx'
-import { useFinished } from './finished.ts'
+import { useFinishedOutcomes } from './finished.ts'
 import { fuzzyScore, listTime } from './format.ts'
 
 /** Searchable conversation switcher (the web history popover, as a sheet). */
@@ -164,16 +164,21 @@ function ConversationItem({
 }) {
   const theme = useTheme()
   const day = listTime(conversation.updatedAt)
-  // "Done": Hermes finished it while the owner looked elsewhere (finished.ts).
-  const finished = useFinished().has(conversation.id)
+  // Hermes finished it while the owner looked elsewhere (finished.ts): "Done",
+  // or "Failed" and "Stopped" when this client saw the reply end that way.
+  const finished = useFinishedOutcomes().get(conversation.id)
   const status =
     conversation.status === 'waiting-on-you'
       ? 'Needs you'
       : conversation.status === 'working'
         ? 'Working'
-        : finished
-          ? 'Done'
-          : undefined
+        : finished === 'failed'
+          ? 'Failed'
+          : finished === 'stopped'
+            ? 'Stopped'
+            : finished
+              ? 'Done'
+              : undefined
   const label = [
     conversation.title,
     conversation.kind === 'main' ? 'Main' : undefined,
@@ -215,7 +220,15 @@ function ConversationItem({
         {status ? (
           <Badge
             tone={
-              status === 'Needs you' ? 'accent' : status === 'Done' ? 'success' : 'info'
+              status === 'Needs you'
+                ? 'accent'
+                : status === 'Done'
+                  ? 'success'
+                  : status === 'Failed'
+                    ? 'danger'
+                    : status === 'Stopped'
+                      ? 'neutral'
+                      : 'info'
             }
           >
             {status}

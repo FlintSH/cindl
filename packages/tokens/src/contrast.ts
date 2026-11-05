@@ -64,7 +64,8 @@ export const requiredPairs: ReadonlyArray<{
   },
   {
     foreground: 'danger',
-    backgrounds: ['canvas', 'surface', 'dangerSubtle'],
+    // surfaceSunken: "Failed" on the conversation list's selected row.
+    backgrounds: ['canvas', 'surface', 'surfaceSunken', 'dangerSubtle'],
     minimum: 4.5,
   },
   {

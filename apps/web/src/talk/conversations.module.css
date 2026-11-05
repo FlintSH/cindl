@@ -225,6 +225,9 @@
 .rowStatus[data-kind='done'] {
   color: var(--color-success);
 }
+.rowStatus[data-kind='failed'] {
+  color: var(--color-danger);
+}
 .renaming {
   padding: var(--space-0_5) 0;
 }

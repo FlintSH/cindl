@@ -1,7 +1,14 @@
 import { useCan, useCindlApi, useLink, useMessages } from '@cindl/client-react'
 import { isCindlError, type Message } from '@cindl/contracts'
 import { ArrowUp, Square } from 'lucide-react'
-import { forwardRef, useImperativeHandle, useMemo, useRef, useState } from 'react'
+import {
+  forwardRef,
+  useImperativeHandle,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react'
 import { Button } from '../ui/primitives.tsx'
 import { keepPlace, placeOf } from './places.ts'
 import styles from './talk.module.css'
@@ -91,12 +98,22 @@ export const Composer = forwardRef<
   }
   const running = canStop && canInterrupt
   const stopping = running && !text.trim()
+  // Stop takes Send's place as soon as the box empties, under the same
+  // pointer. A press right after it appears (the second click of a double
+  // click on Send) is never taken as Stop.
+  const stopShown = useRef(0)
+  useLayoutEffect(() => {
+    if (stopping) stopShown.current = performance.now()
+  }, [stopping])
   const submit = async () => {
     const value = text.trim()
     if (!value || !ready) return
     setError(undefined)
     setUnconfirmed(undefined)
     setText('')
+    // Sent from the button by keyboard, focus goes back to the text, not to
+    // the Stop that replaces the button.
+    input.current?.focus()
     try {
       await api.call('prompt.submit', {
         conversationId,
@@ -211,13 +228,16 @@ export const Composer = forwardRef<
           <div className={styles.composerActions}>
             {stopping ? (
               <Button
+                key="stop"
                 icon
                 className={styles.stop}
                 aria-label="Stop the current turn"
                 title="Stop the current turn"
                 // Its press never takes focus from the text (it goes as it lands).
                 onMouseDown={(event) => event.preventDefault()}
-                onClick={() => {
+                onClick={(event) => {
+                  if (event.detail > 1 || performance.now() - stopShown.current < 500)
+                    return
                   void api.call('conversation.interrupt', { conversationId })
                   input.current?.focus()
                 }}
@@ -232,6 +252,7 @@ export const Composer = forwardRef<
             ) : (
               // Ember only once there is something to send: an empty box has no intent yet.
               <Button
+                key="send"
                 type="submit"
                 variant="primary"
                 icon

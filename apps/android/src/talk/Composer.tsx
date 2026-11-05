@@ -1,5 +1,5 @@
 import { useCan, useCindlApi, useLink } from '@cindl/client-react'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { TextInput, View, useWindowDimensions } from 'react-native'
 import { newClientId } from '../platform/ids.ts'
 import { useTheme } from '../theme/theme.tsx'
@@ -59,7 +59,13 @@ export function Composer({
   const connected = link.phase === 'online'
   const ready = connected && canSend
   const sendable = ready && !sending && text.trim().length > 0
-  const stopping = canStop && canInterrupt && !text.trim()
+  // Not while a send is on its way; and a press right after Stop appears
+  // under the finger (the second tap of a double tap on Send) is not a stop.
+  const stopping = canStop && canInterrupt && !text.trim() && !sending
+  const stopShown = useRef(0)
+  useLayoutEffect(() => {
+    if (stopping) stopShown.current = Date.now()
+  }, [stopping])
 
   const submit = async () => {
     const value = text.trim()
@@ -166,7 +172,8 @@ export function Composer({
             iconOnly
             variant="strong"
             style={{ borderRadius: theme.radius.pill }}
-            onPress={() =>
+            onPress={() => {
+              if (Date.now() - stopShown.current < 600) return
               void api.call('conversation.interrupt', { conversationId }).then(
                 () => setError(undefined),
                 (failure: unknown) =>
@@ -177,7 +184,7 @@ export function Composer({
                     ).message,
                   ),
               )
-            }
+            }}
           />
         ) : (
           <Button

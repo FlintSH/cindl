@@ -17,7 +17,14 @@ import {
   KeyRound,
   ShieldAlert,
 } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type KeyboardEvent } from 'react'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './talk.module.css'
 
@@ -92,6 +99,9 @@ function QuestionFields({
   const name = useId()
   const choices = question.choices ?? []
   const single = !question.multiSelect && choices.length > 0
+  // The arrow keys move through a radio group by picking each choice they
+  // pass: only a deliberate pick (a press, Space or a number key) moves on.
+  const arrowed = useRef(false)
   const pick = (choice: string) => {
     onChange({
       ...draft,
@@ -102,10 +112,22 @@ function QuestionFields({
           : [...draft.selected, choice]
         : [choice],
     })
-    if (single) onPicked?.()
+    if (single && !arrowed.current) onPicked?.()
   }
   return (
-    <fieldset className={styles.questionSet} disabled={disabled}>
+    <fieldset
+      className={styles.questionSet}
+      disabled={disabled}
+      onKeyDown={(event) => {
+        arrowed.current = event.key.startsWith('Arrow')
+      }}
+      onKeyUp={() => {
+        arrowed.current = false
+      }}
+      onPointerDown={() => {
+        arrowed.current = false
+      }}
+    >
       <legend className={styles.requestBody}>{question.question}</legend>
       {choices.map((choice, index) => (
         <label key={choice} className={styles.option}>
@@ -119,6 +141,14 @@ function QuestionFields({
                 : !draft.useOther && draft.selected[0] === choice
             }
             onChange={() => pick(choice)}
+            onKeyDown={(event) => {
+              // Space confirms a radio already selected with the arrows too;
+              // browsers do not fire change again for that selection.
+              if (single && event.key === ' ' && event.currentTarget.checked) {
+                event.preventDefault()
+                onPicked?.()
+              }
+            }}
           />
           <span>{choice}</span>
           {keyHints && index < 9 ? (
@@ -335,14 +365,46 @@ function DecisionCard({
   const stepper = layout === 'dock' && !approval && questions.length > 1
   const at = Math.min(step, Math.max(questions.length - 1, 0))
   const shown = stepper ? questions.slice(at, at + 1) : questions
+  // Where a pick that is about to move on is going.
+  const pending = useRef<number | undefined>(undefined)
+  const card = useRef<HTMLElement>(null)
+  const follow = useRef(false)
   const goTo = (to: number) => {
     window.clearTimeout(advance.current)
-    setStep(Math.max(0, Math.min(to, questions.length - 1)))
+    pending.current = undefined
+    const next = Math.max(0, Math.min(to, questions.length - 1))
+    if (next === at) return
+    follow.current = card.current?.contains(document.activeElement) ?? false
+    setStep(next)
   }
+  // Focus that was in the set stays in it as it moves on: the old question's
+  // choices go, and Previous or Next is disabled at either end. It goes to the
+  // new question's choice, never down to the page (where typing would start a
+  // message).
+  useLayoutEffect(() => {
+    if (!follow.current) return
+    follow.current = false
+    // Chrome lets go of a control that was disabled under focus only later:
+    // it counts as lost already.
+    const active = document.activeElement
+    if (
+      active &&
+      active !== document.body &&
+      card.current?.contains(active) &&
+      !(active instanceof HTMLButtonElement && active.disabled)
+    )
+      return
+    card.current
+      ?.querySelector<HTMLInputElement>(
+        'fieldset input:checked:not(:disabled), fieldset input:not(:disabled)',
+      )
+      ?.focus()
+  }, [at])
   // A single-choice pick moves on after a moment, so the pick is seen first.
   const pickedAt = (index: number) => () => {
     if (!stepper || index >= questions.length - 1) return
     window.clearTimeout(advance.current)
+    pending.current = index + 1
     advance.current = window.setTimeout(() => goTo(index + 1), 200)
   }
   // Number keys pick the shown question's choices, unless typing in its own answer.
@@ -354,10 +416,14 @@ function DecisionCard({
     const target = event.target as HTMLElement
     if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'text') return
     if (!/^[1-9]$/.test(event.key)) return
-    const question = shown[0]
+    // A pick still waiting to move on moves on now, so quick digits answer
+    // one question each.
+    const index = stepper ? (pending.current ?? at) : 0
+    const question = stepper ? questions[index] : shown[0]
     const choice = question?.choices?.[Number(event.key) - 1]
     if (!question || !choice) return
     event.preventDefault()
+    if (stepper && pending.current !== undefined) goTo(pending.current)
     const draft = draftFor(question.qid) ?? emptyDraft
     if (draft.skipped) return
     setDraft(question.qid, {
@@ -384,6 +450,7 @@ function DecisionCard({
       data-layout={layout}
       data-folded={folded ? 'true' : undefined}
       aria-labelledby={titleId}
+      ref={card}
       onKeyDown={numberKeys}
     >
       <header className={styles.requestHeader}>

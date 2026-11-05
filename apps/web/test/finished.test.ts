@@ -1,7 +1,12 @@
 import type { Conversation } from '@cindl/contracts'
 import { act, renderHook } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
-import { forgetFinished, noteStatuses, useFinished } from '../src/talk/finished.ts'
+import {
+  forgetFinished,
+  noteStatuses,
+  outcomeOf,
+  useFinished,
+} from '../src/talk/finished.ts'
 
 const conversation = (id: string, status: Conversation['status']): Conversation => ({
   id,
@@ -60,5 +65,24 @@ describe('what Hermes finished while the owner looked elsewhere', () => {
     act(() => forgetFinished())
     // What it saw before goes too: idle now is not a finish.
     expect(note([conversation('b', 'idle')])).toEqual([])
+  })
+})
+
+describe('how a turn that finished unseen ended', () => {
+  const reply = (status: 'complete' | 'error' | 'interrupted' | 'streaming') => ({
+    role: 'assistant' as const,
+    status,
+  })
+  const own = { role: 'user' as const, status: 'complete' as const }
+
+  it('reads the last reply: an error is Failed, a stop is Stopped, else Done', () => {
+    expect(outcomeOf([reply('complete'), own, reply('error')])).toBe('failed')
+    expect(outcomeOf([reply('error'), own, reply('interrupted')])).toBe('stopped')
+    expect(outcomeOf([reply('error'), own, reply('complete'), own])).toBe('done')
+  })
+
+  it('says Done when this client saw no reply', () => {
+    expect(outcomeOf(undefined)).toBe('done')
+    expect(outcomeOf([own])).toBe('done')
   })
 })

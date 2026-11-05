@@ -2,7 +2,7 @@ import { entry } from '@cindl/client-core'
 import { useCindlState } from '@cindl/client-react'
 import type { ToolStatus } from '@cindl/contracts'
 import { Check, ChevronRight, CircleAlert, Hand, LoaderCircle } from 'lucide-react'
-import { useMemo, useReducer } from 'react'
+import { useMemo, useReducer, useState } from 'react'
 import { ToolRow } from './ToolRow.tsx'
 import { groupChoice, startsOpen, summarize, type StepFacts } from './workGroups.ts'
 import styles from './talk.module.css'
@@ -60,7 +60,10 @@ export function WorkGroup({
   const summary = summarize(facts)
   const [, rerender] = useReducer((n: number) => n + 1, 0)
   const holdsSelection = selectedToolId !== undefined && toolIds.includes(selectedToolId)
-  const open = holdsSelection || (groupChoice.get(groupKey) ?? startsOpen(summary))
+  // A step with focus is not folded away under it as the group settles.
+  const [stepFocused, setStepFocused] = useState(false)
+  const open =
+    holdsSelection || stepFocused || (groupChoice.get(groupKey) ?? startsOpen(summary))
   const icon =
     summary.blocked > 0 ? (
       <Hand size={14} aria-hidden="true" />
@@ -100,7 +103,13 @@ export function WorkGroup({
         <ChevronRight size={14} aria-hidden="true" className={styles.workChevron} />
       </button>
       {open ? (
-        <div className={styles.workSteps}>
+        <div
+          className={styles.workSteps}
+          onFocus={() => setStepFocused(true)}
+          onBlur={(event) => {
+            if (!event.currentTarget.contains(event.relatedTarget)) setStepFocused(false)
+          }}
+        >
           {toolIds.map((toolId) => (
             <ToolRow
               key={toolId}

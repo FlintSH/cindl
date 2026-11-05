@@ -668,7 +668,9 @@ Hermes server, Chrome's Custom Tab, and a phone.
 - **Composer:** one round primary slot, after T3 Code (web parity): **Stop**,
   filled in the text colour with a solid square (so it never reads as a
   checkbox), while Hermes works and the box is empty, and **Send** as soon as
-  there is text, neutral (no ember) until then. A reply in progress says
+  there is text, neutral (no ember) until then. Send stays while its request
+  is pending; a rapid second tap when Stop appears cannot stop the turn. A
+  reply in progress says
   in its header, in place of its time, "Working for 12s" while Hermes works
   and "Waiting for you" while it waits on you (web parity). A conversation
   with nothing in it yet says so in one line, instead of an empty screen; a
@@ -693,7 +695,9 @@ Hermes server, Chrome's Custom Tab, and a phone.
   conversation list or its docked questions.
 - **Done** (web parity): the conversation sheet marks a conversation Hermes
   finished while you were elsewhere (another conversation, or another
-  destination) with "Done" until you open it. Only finishes this session saw
+  destination) with "Done" until you open it. If Cindl saw the reply end with
+  an error or an interruption, the mark says "Failed" or "Stopped" instead.
+  Only finishes this session saw
   count, and sign-out forgets them.
 - **Tabs:** a page's tab strip fades at its end, so a tab cut off there
   (Agent's five on a phone) reads as more to come, and the last tab scrolls

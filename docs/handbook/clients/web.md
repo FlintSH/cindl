@@ -327,13 +327,16 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
   the icon of what it stands for: "Approval", "Question" or "2 need you"
   when you have something to answer there ("Needs you" when Cindl knows only
   that Hermes waits), "Working" while Hermes works, and "Done" when Hermes
-  finished there while you looked elsewhere, until you open it. Otherwise it
+  finished there while you looked elsewhere, until you open it. If Cindl saw
+  the reply end with an error or an interruption, it says "Failed" or
+  "Stopped" instead. Otherwise it
   shows "5m", "3h", "2d" or the date, spoken in full ("5 minutes ago"). Done
   counts only finishes this session saw, and is forgotten on sign-out; the
   switcher shows it too. The arrow keys move through it without opening
   anything, Enter opens and keeps focus in the list, Home and End jump, `↑`
   from the first row reaches its search box, and typing from a row goes on
-  in the search box. A conversation picked with the pointer opens with focus
+  in the search box. Focus follows a row when a status change moves it. A
+  conversation picked with the pointer opens with focus
   in its message box, ready to write in, as in T3 Code. F2 or a double click
   renames a conversation in place (Enter saves, Escape keeps the old name)
   when Hermes offers renaming. `Ctrl/⌘ B` hides it, putting focus on the
@@ -347,7 +350,8 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
   `Ctrl/⌘ Shift [` and `Ctrl/⌘ Shift ]` open the previous and next
   conversation in its order, at any width, stopping at either end (a browser
   tab may keep these keys for its own tabs; the desktop app does not).
-  Narrower windows keep the switcher.
+  Narrower windows keep the switcher; `Ctrl/⌘ B` opens it over the
+  conversation already on screen.
 - **Work log.** Two or more consecutive steps fold into one line once they
   are all done: "2 steps · 1m 24s", with "2 steps, 1 failed" when one
   failed. It stays open while Hermes works, waits on you or has a failure,
@@ -359,7 +363,8 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
   Shift Enter for a new line · ↑ for your last message", hidden on touch
   screens), with the primary button at its end: round, ember Send, or Stop
   filled in the text colour. Its presses never take focus
-  from the text. `↑` in an empty box brings back the last message you sent
+  from the text. A second click just after Send becomes Stop cannot stop the
+  turn. `↑` in an empty box brings back the last message you sent
   in this conversation, again for the one before; `↓` goes forward, then
   back to an empty box. Once you change the text, the arrows move the caret
   as usual.
@@ -376,7 +381,9 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
   end, and "Other" on the same row as your own answer. The number keys pick
   the shown question's choices (not while typing in its own answer, and
   never on a single quick question, whose buttons send), and a single-choice
-  pick moves on to the next question after a moment. Its actions stay in
+  pick moves on to the next question after a moment. Arrow keys change the
+  selected choice without moving on; quick number keys carry on to the next
+  question, and focus stays in the set as questions change. Its actions stay in
   view while a long question scrolls. The chevron folds it to its one line
   so you can read the conversation (nothing is answered, and the number keys
   rest), and it stays folded while it is open. It is the same card,
@@ -390,7 +397,8 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
   A press on a row keeps focus in its search box. A leading `>`
   searches commands only. A row's hint gives way before its label does; on
   a phone the hints and keys are left out, and showing or hiding the
-  conversation list is offered only where the list can show.
+  conversation list is offered only where the list can show. From another
+  destination, that command opens Talk with the list shown.
 
 ## Small signals
 

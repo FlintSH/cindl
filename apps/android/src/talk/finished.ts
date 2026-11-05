@@ -1,5 +1,7 @@
-import type { Conversation } from '@cindl/contracts'
-import { useSyncExternalStore } from 'react'
+import { entry } from '@cindl/client-core'
+import { useCindlState } from '@cindl/client-react'
+import type { Conversation, Message } from '@cindl/contracts'
+import { useMemo, useSyncExternalStore } from 'react'
 
 /**
  * Shared with the web client (apps/web/src/talk/finished.ts).
@@ -51,4 +53,50 @@ const subscribe = (listener: () => void) => {
 /** The conversations to mark "Done". */
 export function useFinished(): ReadonlySet<string> {
   return useSyncExternalStore(subscribe, () => finished)
+}
+
+/** How a turn that finished unseen ended, as far as this client saw. */
+export type Outcome = 'done' | 'failed' | 'stopped'
+
+/**
+ * A reply that ended in an error reads "Failed", one stopped part way
+ * "Stopped". Otherwise, including a reply this client never saw, "Done":
+ * Hermes finished the turn.
+ */
+export function outcomeOf(
+  messages: readonly Pick<Message, 'role' | 'status'>[] | undefined,
+): Outcome {
+  for (let index = (messages?.length ?? 0) - 1; index >= 0; index--) {
+    const message = messages?.[index]
+    if (message?.role !== 'assistant') continue
+    return message.status === 'error'
+      ? 'failed'
+      : message.status === 'interrupted'
+        ? 'stopped'
+        : 'done'
+  }
+  return 'done'
+}
+
+/** The conversations to mark, each with how its turn ended. */
+export function useFinishedOutcomes(): ReadonlyMap<string, Outcome> {
+  const ids = useFinished()
+  // One string, so the snapshot stays stable between unrelated changes.
+  const key = useCindlState((state) =>
+    [...ids]
+      .map((id) => `${id}\u0000${outcomeOf(entry(state.messages, id))}`)
+      .join('\u0001'),
+  )
+  return useMemo(
+    () =>
+      new Map(
+        key
+          ? key.split('\u0001').map((row) => {
+              const [id = '', outcome = 'done'] = row.split('\u0000')
+              return [id, outcome as Outcome] as const
+            })
+          : [],
+      ),
+    [key],
+  )
 }

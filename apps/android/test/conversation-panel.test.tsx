@@ -286,6 +286,50 @@ describe('the working margin, as the conversation’s panel', () => {
 })
 
 describe('the conversation sheet (web parity, after T3 Code)', () => {
+  it.each([
+    ['error', 'Failed'],
+    ['interrupted', 'Stopped'],
+  ] as const)(
+    'says %s as %s for an unseen reply, until its conversation is opened',
+    async (status, label) => {
+      const t = await talk()
+      const offsite = scenarioData.conversations.find((c) => c.id === 'demo-offsite')
+      if (!offsite) throw new Error('no offsite conversation in the scenario')
+      act(() =>
+        t.s.emit({
+          type: 'conversation.upserted',
+          conversation: { ...offsite, status: 'working' },
+        }),
+      )
+      await t.settle()
+      act(() => {
+        t.s.emit({
+          type: 'message.started',
+          conversationId: offsite.id,
+          messageId: 'unseen-reply',
+          role: 'assistant',
+        })
+        t.s.emit({
+          type: 'message.completed',
+          conversationId: offsite.id,
+          messageId: 'unseen-reply',
+          status,
+        })
+        t.s.emit({
+          type: 'conversation.upserted',
+          conversation: { ...offsite, status: 'idle' },
+        })
+      })
+      await t.settle()
+      await t.press('Today, Main. Switch conversation')
+      expect(t.has(label)).toBe(true)
+      expect(t.has('Done')).toBe(false)
+      await t.press(new RegExp(`^Studio offsite planning, ${label}`))
+      await t.press(/^Studio offsite planning.*Switch conversation$/)
+      expect(t.has(label)).toBe(false)
+    },
+  )
+
   it('says Done for a conversation Hermes finished while you were elsewhere, until you open it', async () => {
     const t = await talk()
     const offsite = scenarioData.conversations.find((c) => c.id === 'demo-offsite')

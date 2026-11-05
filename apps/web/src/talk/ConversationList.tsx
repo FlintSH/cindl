@@ -6,6 +6,8 @@ import {
 } from '@cindl/client-react'
 import { isCindlError, type Conversation } from '@cindl/contracts'
 import {
+  Ban,
+  CircleAlert,
   CircleCheck,
   CircleDashed,
   CircleHelp,
@@ -32,10 +34,10 @@ import {
 } from 'react'
 import { LIST_WIDTH, usePreference } from '../platform/preferences.ts'
 import { navigate } from '../router.ts'
-import { shortcutText } from '../shortcuts.ts'
+import { matchShortcut, shortcutText } from '../shortcuts.ts'
 import { Button } from '../ui/primitives.tsx'
 import { flatten, rowStatus, shelvesOf, type RowStatus } from './conversationList.ts'
-import { useFinished } from './finished.ts'
+import { useFinishedOutcomes } from './finished.ts'
 import { noteCompose } from './places.ts'
 import styles from './conversations.module.css'
 
@@ -46,6 +48,8 @@ const statusIcons: Partial<Record<RowStatus['kind'], LucideIcon>> = {
   'needs-you': Hand,
   working: CircleDashed,
   done: CircleCheck,
+  failed: CircleAlert,
+  stopped: Ban,
 }
 
 export interface ConversationListHandle {
@@ -87,12 +91,24 @@ export const ConversationList = forwardRef<
   const canRename = useCan('sessions.rename')
   // Counted per conversation, as the margin's Waiting tab counts its own.
   const waiting = useOpenRequests()
-  const finished = useFinished()
+  const finished = useFinishedOutcomes()
   const now = useNow()
   const [query, setQuery] = useState('')
   const shelves = useMemo(() => shelvesOf(conversations, query), [conversations, query])
   const flat = flatten(shelves)
   const [focusedId, setFocusedId] = useState<string>()
+  // A row that moves to another shelf, or within one, is put back into the
+  // page, which drops focus; React reports no blur for it, as it happens in
+  // its commit. Focus follows the row; a blur (the owner moving on) lets go.
+  const holding = useRef<string | undefined>(undefined)
+  useLayoutEffect(() => {
+    const held = holding.current
+    if (held && document.activeElement === document.body) rows.current.get(held)?.focus()
+  })
+  // What the owner typed into a rename, kept if its row moves meanwhile.
+  const [renameDrafts, setRenameDrafts] = useState<ReadonlyMap<string, string>>(
+    () => new Map(),
+  )
   const tabStop =
     flat.find((c) => c.id === focusedId)?.id ??
     flat.find((c) => c.id === currentId)?.id ??
@@ -191,10 +207,12 @@ export const ConversationList = forwardRef<
     } else if (
       event.key.length === 1 &&
       event.key !== ' ' &&
-      !event.shiftKey &&
-      !event.nativeEvent.isComposing
+      !event.nativeEvent.isComposing &&
+      !matchShortcut(event.nativeEvent)
     ) {
-      // Typing from the list goes on in its search box.
+      // Typing from the list goes on in its search box, and only there: Talk
+      // sends other stray typing to the message box. Shortcuts keep their keys.
+      event.stopPropagation()
       search.current?.focus()
     }
   }
@@ -291,7 +309,7 @@ export const ConversationList = forwardRef<
               {shelf.conversations.map((conversation) => {
                 const status = rowStatus(conversation, now, {
                   requests: waiting.filter((r) => r.conversationId === conversation.id),
-                  finished: finished.has(conversation.id),
+                  finished: finished.get(conversation.id),
                 })
                 const StatusIcon = statusIcons[status.kind]
                 return (
@@ -299,7 +317,18 @@ export const ConversationList = forwardRef<
                     {renaming === conversation.id ? (
                       <RenameField
                         conversation={conversation}
+                        draft={renameDrafts.get(conversation.id)}
+                        onDraft={(value) =>
+                          setRenameDrafts((current) =>
+                            new Map(current).set(conversation.id, value),
+                          )
+                        }
                         onDone={() => {
+                          setRenameDrafts((current) => {
+                            const next = new Map(current)
+                            next.delete(conversation.id)
+                            return next
+                          })
                           setRenaming(undefined)
                           requestAnimationFrame(() => focusRow(conversation.id))
                         }}
@@ -339,7 +368,13 @@ export const ConversationList = forwardRef<
                         onDoubleClick={() => {
                           if (canRename) setRenaming(conversation.id)
                         }}
-                        onFocus={() => setFocusedId(conversation.id)}
+                        onFocus={() => {
+                          setFocusedId(conversation.id)
+                          holding.current = conversation.id
+                        }}
+                        onBlur={() => {
+                          holding.current = undefined
+                        }}
                         onKeyDown={(event) => rowKeys(event, conversation)}
                       >
                         {conversation.kind === 'main' ? (
@@ -414,13 +449,22 @@ export const ConversationList = forwardRef<
 /** Renaming in place: Enter saves, Escape keeps the old name, leaving the field saves. */
 function RenameField({
   conversation,
+  draft,
+  onDraft,
   onDone,
 }: {
   conversation: Conversation
+  /** What was typed before this field was put back (its row moved). */
+  draft: string | undefined
+  onDraft: (value: string) => void
   onDone: () => void
 }) {
   const api = useCindlApi()
-  const [value, setValue] = useState(conversation.title)
+  const [value, setValueNow] = useState(draft ?? conversation.title)
+  const setValue = (next: string) => {
+    setValueNow(next)
+    onDraft(next)
+  }
   const [error, setError] = useState<string>()
   const [saving, setSaving] = useState(false)
   const settled = useRef(false)

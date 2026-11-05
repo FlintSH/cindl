@@ -53,6 +53,7 @@ export function ToolRow({
       type="button"
       className={styles.tool}
       data-status={blocked ? 'blocked' : tool.status}
+      data-tool-id={tool.id}
       aria-pressed={selected}
       onClick={() => onSelect(tool.id)}
     >

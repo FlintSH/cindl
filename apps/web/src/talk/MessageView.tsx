@@ -1,6 +1,6 @@
 import type { Message } from '@cindl/contracts'
 import { ChevronDown } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CopyButton } from '../ui/CopyButton.tsx'
 import { Markdown } from './Markdown.tsx'
 import { ToolRow } from './ToolRow.tsx'
@@ -80,6 +80,20 @@ export function MessageView({
   /** The conversation's turn, for a streaming reply's header. */
   turn?: TurnState
 }) {
+  // A step's row that becomes part of a work log (a second step arrived) is
+  // a new element, which drops focus; React reports no blur for it, as it
+  // happens in its commit. Focus follows the step; a blur lets go.
+  const body = useRef<HTMLDivElement>(null)
+  const holding = useRef<string | undefined>(undefined)
+  useLayoutEffect(() => {
+    const held = holding.current
+    if (!held || document.activeElement !== document.body) return
+    for (const row of body.current?.querySelectorAll<HTMLElement>('[data-tool-id]') ?? [])
+      if (row.dataset.toolId === held) {
+        row.focus()
+        break
+      }
+  })
   const time = messageTime(message.createdAt)
   // Spoken as part of the message's name: "You, today at 8:03 AM".
   const moment = momentInSentence(message.createdAt)
@@ -137,7 +151,17 @@ export function MessageView({
           <CopyButton label="Copy reply" className={styles.copyReply} text={words} />
         ) : null}
       </header>
-      <div className={styles.assistantBody}>
+      <div
+        ref={body}
+        className={styles.assistantBody}
+        onFocus={(event) => {
+          holding.current =
+            event.target instanceof HTMLElement ? event.target.dataset.toolId : undefined
+        }}
+        onBlur={() => {
+          holding.current = undefined
+        }}
+      >
         {segmentsOf(message.parts).map((segment) => {
           if (segment.kind === 'work')
             return (
