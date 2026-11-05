@@ -176,10 +176,10 @@ describe('test signing', () => {
 })
 
 describe('the release version', () => {
-  it('is 1.0.0, with a versionCode that grows with every release (major, minor, patch)', () => {
-    expect(build(false).version).toBe('1.0.0')
-    expect(build(false).android?.versionCode).toBe(10_000)
-    expect(build(true).android?.versionCode).toBe(10_000)
+  it('is 1.1.0, with a versionCode that grows with every release (major, minor, patch)', () => {
+    expect(build(false).version).toBe('1.1.0')
+    expect(build(false).android?.versionCode).toBe(10_100)
+    expect(build(true).android?.versionCode).toBe(10_100)
     expect(versionCodeOf('1.0.1')).toBe(10_001)
     expect(versionCodeOf('1.1.0')).toBe(10_100)
     expect(versionCodeOf('2.0.0')).toBe(20_000)

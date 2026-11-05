@@ -169,7 +169,8 @@ Open alerts, as of 2026-11-04:
 
 - **Versions:** every `package.json` and `apps/android/app.config.ts` carry the
   release version. Android's `versionCode` follows from it (major × 10000 +
-  minor × 100 + patch).
+  minor × 100 + patch). Update the current-version expectations in
+  `apps/android/test/config.test.ts` in the same commit.
 - **Notes:** each release's notes are committed with it, named after its tag,
   as in `.github/release-notes/v1.0.0.md`.
 - **Tag:** push a `vX.Y.Z` tag on a commit already on `main`.
