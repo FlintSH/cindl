@@ -14,7 +14,7 @@ import { withTestSigning } from './plugins/withTestSigning.ts'
  */
 const fontsDir = '../../packages/tokens/fonts'
 
-export const VERSION = '1.0.0'
+export const VERSION = '1.1.0'
 
 /**
  * Android's versionCode, from the version: major × 10000 + minor × 100 +
