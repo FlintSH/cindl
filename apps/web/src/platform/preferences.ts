@@ -12,13 +12,23 @@ interface Preferences {
   marginOpen: boolean
   /** The conversation list beside Talk on wide screens (Ctrl/⌘ B). */
   conversationsOpen: boolean
+  /** Its width in px, set by dragging its edge (LIST_WIDTH bounds it). */
+  conversationsWidth: number
 }
+
+/** The conversation list's width: default, and the bounds a drag stays within. */
+export const LIST_WIDTH = { initial: 264, min: 208, max: 384 } as const
+const clampWidth = (value: unknown) =>
+  typeof value === 'number' && Number.isFinite(value)
+    ? Math.round(Math.min(LIST_WIDTH.max, Math.max(LIST_WIDTH.min, value)))
+    : LIST_WIDTH.initial
 
 const KEY = 'cindl.preferences.v1'
 const defaults: Preferences = {
   theme: 'system',
   marginOpen: true,
   conversationsOpen: true,
+  conversationsWidth: LIST_WIDTH.initial,
 }
 const listeners = new Set<() => void>()
 let cache: Preferences | undefined
@@ -35,6 +45,7 @@ function read(): Preferences {
       marginOpen: typeof parsed.marginOpen === 'boolean' ? parsed.marginOpen : true,
       conversationsOpen:
         typeof parsed.conversationsOpen === 'boolean' ? parsed.conversationsOpen : true,
+      conversationsWidth: clampWidth(parsed.conversationsWidth),
     }
   } catch {
     cache = { ...defaults }

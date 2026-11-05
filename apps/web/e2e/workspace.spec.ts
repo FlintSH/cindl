@@ -125,3 +125,50 @@ test('the question set waits above the composer; approvals stay in the conversat
     }),
   ).toBeVisible()
 })
+
+test('the list resizes from its edge, by drag or keys, within bounds, and remembers', async ({
+  page,
+}) => {
+  const list = page.getByRole('navigation', { name: 'Conversations' })
+  const edge = list.getByRole('separator', { name: 'Resize the conversation list' })
+  const widthOf = async () => (await list.boundingBox())?.width ?? 0
+  const start = await widthOf()
+  await edge.focus()
+  await page.keyboard.press('ArrowRight')
+  await expect(edge).toHaveAttribute('aria-valuenow', String(Math.round(start) + 16))
+  await page.keyboard.press('End')
+  await expect(edge).toHaveAttribute('aria-valuenow', '384')
+  await edge.dblclick()
+  await expect(edge).toHaveAttribute('aria-valuenow', '264')
+  const box = await edge.boundingBox()
+  if (!box) throw new Error('No edge.')
+  await page.mouse.move(box.x + box.width / 2, box.y + 200)
+  await page.mouse.down()
+  await page.mouse.move(box.x + box.width / 2 - 40, box.y + 200, { steps: 4 })
+  await page.mouse.up()
+  await expect(edge).toHaveAttribute('aria-valuenow', '224')
+  await page.reload()
+  await expect(
+    page
+      .getByRole('navigation', { name: 'Conversations' })
+      .getByRole('separator', { name: 'Resize the conversation list' }),
+  ).toHaveAttribute('aria-valuenow', '224')
+})
+
+test('a long message folds; Show full message opens it', async ({ page }) => {
+  await page.goto('/#/talk/demo-offsite')
+  const box = page.getByRole('textbox', { name: 'Message Hermes' })
+  await box.fill('A line of a pasted log (synthetic).\n'.repeat(12))
+  await box.press('Enter')
+  const mine = page.getByRole('article', { name: /^You/ }).last()
+  const unfold = mine.getByRole('button', { name: 'Show full message' })
+  await expect(unfold).toHaveAttribute('aria-expanded', 'false')
+  await unfold.click()
+  await expect(mine.getByRole('button', { name: 'Show less' })).toHaveAttribute(
+    'aria-expanded',
+    'true',
+  )
+  // Copy sits beside it, shown on hover.
+  await mine.hover()
+  await expect(mine.getByRole('button', { name: 'Copy message' })).toBeVisible()
+})

@@ -1,12 +1,46 @@
 /* The conversation list beside Talk (wide screens), after T3 Code's thread sidebar. */
 .list {
+  position: relative;
   display: flex;
   flex-direction: column;
-  width: 16.5rem;
+  width: var(--list-width, 16.5rem);
   flex: none;
   min-height: 0;
   border-right: 1px solid var(--color-border);
   background: var(--color-surface);
+}
+/* Its edge: an 8px handle over the border, a line in the focus colour while
+   hovered, focused or dragged (after T3 Code). */
+.resize {
+  position: absolute;
+  top: 0;
+  right: -0.25rem;
+  bottom: 0;
+  z-index: 1;
+  width: 0.5rem;
+  cursor: col-resize;
+  touch-action: none;
+}
+.resize::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 1px);
+  width: 2px;
+  background: transparent;
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+.resize:hover::after,
+.resize:focus-visible::after,
+.list[data-resizing='true'] .resize::after {
+  background: var(--color-focus);
+}
+.resize:focus-visible {
+  outline: none;
+}
+.list[data-resizing='true'] {
+  user-select: none;
 }
 .head {
   display: flex;

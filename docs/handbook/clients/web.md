@@ -330,7 +330,10 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
   button that shows it again if focus was inside, and shows it again; while
   it is shown, `Ctrl/⌘ J` goes to its search instead of opening the
   switcher, and its own button starts a side conversation (the header's +
-  steps aside). Narrower windows keep the switcher.
+  steps aside). Its right edge resizes it: drag it, or focus it and use the
+  arrow keys (16px a step; Home and End for the narrowest and widest); a
+  double click goes back to 264px. The width stays between 208px and 384px
+  and is kept on the device. Narrower windows keep the switcher.
 - **Work log.** Two or more consecutive steps fold into one line once they
   are all done: "2 steps · 1m 24s", with "2 steps, 1 failed" when one
   failed. It stays open while Hermes works, waits on you or has a failure,
@@ -345,6 +348,11 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
   in this conversation, again for the one before; `↓` goes forward, then
   back to an empty box. Once you change the text, the arrows move the caret
   as usual.
+- **Messages.** A message of yours longer than 600 characters or 8 lines
+  folds to about six lines behind "Show full message" (and "Show less"), so
+  a pasted log never buries the conversation. Copy sits beside each of your
+  messages, as on Hermes's replies (hover or focus, not on touch screens).
+  A conversation with nothing in it yet asks "What should Hermes do?".
 - **Questions.** On Talk, where there is room (768px wide and 640px tall or
   more), a question set waits above the composer instead of in the
   conversation: one question at a time ("1 of 2", previous and next), the

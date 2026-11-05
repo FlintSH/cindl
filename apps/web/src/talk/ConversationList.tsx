@@ -11,11 +11,14 @@ import {
   useEffect,
   useId,
   useImperativeHandle,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
   type KeyboardEvent,
+  type PointerEvent,
 } from 'react'
+import { LIST_WIDTH, usePreference } from '../platform/preferences.ts'
 import { navigate } from '../router.ts'
 import { shortcutText } from '../shortcuts.ts'
 import { Button } from '../ui/primitives.tsx'
@@ -71,6 +74,38 @@ export const ConversationList = forwardRef<
   const [problem, setProblem] = useState<string>()
   const id = useId()
   useImperativeHandle(ref, () => ({ focusSearch: () => search.current?.focus() }), [])
+
+  // Its width follows a drag on its edge (after T3 Code), live while dragging
+  // and kept on the device once let go; the keyboard steps it by 16px.
+  const nav = useRef<HTMLElement>(null)
+  const [savedWidth, setSavedWidth] = usePreference('conversationsWidth')
+  const [dragging, setDragging] = useState<number>()
+  const width = dragging ?? savedWidth
+  const clamp = (value: number) =>
+    Math.round(Math.min(LIST_WIDTH.max, Math.max(LIST_WIDTH.min, value)))
+  useLayoutEffect(() => {
+    nav.current?.style.setProperty('--list-width', `${width}px`)
+  }, [width])
+  const startDrag = (event: PointerEvent<HTMLDivElement>) => {
+    if (event.button !== 0) return
+    event.preventDefault()
+    const handle = event.currentTarget
+    const from = event.clientX
+    const start = width
+    handle.setPointerCapture(event.pointerId)
+    const move = (e: globalThis.PointerEvent) =>
+      setDragging(clamp(start + e.clientX - from))
+    const end = (e: globalThis.PointerEvent) => {
+      handle.removeEventListener('pointermove', move)
+      handle.removeEventListener('pointerup', end)
+      handle.removeEventListener('pointercancel', end)
+      setSavedWidth(clamp(start + e.clientX - from))
+      setDragging(undefined)
+    }
+    handle.addEventListener('pointermove', move)
+    handle.addEventListener('pointerup', end)
+    handle.addEventListener('pointercancel', end)
+  }
 
   // The open conversation's row stays in view as it changes.
   useEffect(() => {
@@ -150,7 +185,13 @@ export const ConversationList = forwardRef<
   }
 
   return (
-    <nav className={styles.list} aria-label="Conversations" data-conversation-list>
+    <nav
+      ref={nav}
+      className={styles.list}
+      aria-label="Conversations"
+      data-conversation-list
+      data-resizing={dragging === undefined ? undefined : 'true'}
+    >
       <header className={styles.head}>
         <h2 className={styles.title}>Conversations</h2>
         {canCreate ? (
@@ -287,6 +328,35 @@ export const ConversationList = forwardRef<
           </p>
         ) : null}
       </div>
+      {/* The list's edge: drag, or arrow keys, to resize; a double click resets it. */}
+      <div
+        role="separator"
+        aria-orientation="vertical"
+        aria-label="Resize the conversation list"
+        aria-valuemin={LIST_WIDTH.min}
+        aria-valuemax={LIST_WIDTH.max}
+        aria-valuenow={width}
+        tabIndex={0}
+        title="Drag to resize; double-click to reset"
+        className={styles.resize}
+        onPointerDown={startDrag}
+        onDoubleClick={() => setSavedWidth(LIST_WIDTH.initial)}
+        onKeyDown={(event) => {
+          const to =
+            event.key === 'ArrowLeft'
+              ? width - 16
+              : event.key === 'ArrowRight'
+                ? width + 16
+                : event.key === 'Home'
+                  ? LIST_WIDTH.min
+                  : event.key === 'End'
+                    ? LIST_WIDTH.max
+                    : undefined
+          if (to === undefined) return
+          event.preventDefault()
+          setSavedWidth(clamp(to))
+        }}
+      />
     </nav>
   )
 })

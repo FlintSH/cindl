@@ -419,11 +419,14 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                     <RequestCard key={request.requestId} request={request} />
                   ))}
                 {loaded && !messages.length && !activity.openRequests.length ? (
-                  <p className={styles.emptyConversation}>
-                    {conversation.kind === 'main'
-                      ? 'Nothing here yet.'
-                      : 'Nothing here yet. This side conversation runs apart from the main one.'}
-                  </p>
+                  <div className={styles.emptyConversation}>
+                    <p className={styles.emptyTitle}>What should Hermes do?</p>
+                    <p>
+                      {conversation.kind === 'main'
+                        ? 'This is your main conversation with Hermes.'
+                        : 'This side conversation runs apart from the main one.'}
+                    </p>
+                  </div>
                 ) : null}
               </div>
             </div>

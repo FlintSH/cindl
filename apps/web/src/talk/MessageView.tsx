@@ -9,6 +9,30 @@ import { segmentsOf } from './workGroups.ts'
 import { elapsed, fullTime, messageTime, momentInSentence } from './format.ts'
 import styles from './talk.module.css'
 
+/** Past this, an owner's message folds (after T3 Code): a pasted log never buries the thread. */
+const LONG = { chars: 600, lines: 8 }
+
+/** The owner's own message, folded to a few lines when it is long. */
+function OwnText({ text }: { text: string }) {
+  const long = text.length > LONG.chars || text.split('\n').length > LONG.lines
+  const [open, setOpen] = useState(false)
+  return (
+    <div className={styles.userBubble} data-folded={long && !open ? 'true' : undefined}>
+      <p className={styles.userText}>{text}</p>
+      {long ? (
+        <button
+          type="button"
+          className={styles.unfold}
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? 'Show less' : 'Show full message'}
+        </button>
+      ) : null}
+    </div>
+  )
+}
+
 /** While a reply streams, its header counts up from when it started. */
 function Working({ since }: { since: string | undefined }) {
   const [now, setNow] = useState(() => Date.now())
@@ -69,9 +93,8 @@ export function MessageView({
         aria-label={`You${moment ? `, ${moment}` : ''}`}
         title={fullTime(message.createdAt)}
       >
-        <div className={styles.userBubble}>
-          <p className={styles.userText}>{text}</p>
-        </div>
+        <CopyButton label="Copy message" className={styles.copyMine} text={() => text} />
+        <OwnText text={text} />
       </article>
     )
   }

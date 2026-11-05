@@ -138,11 +138,24 @@
   margin: 0 auto;
   padding: var(--space-8) var(--space-5) var(--space-6);
 }
-/* A conversation with nothing in it yet: one quiet line, in the middle. */
+/* A conversation with nothing in it yet: a quiet prompt in the middle (after
+   T3 Code's "What should we work on?"). */
 .emptyConversation {
+  display: grid;
+  gap: var(--space-1);
   margin: auto 0;
   color: var(--color-text-tertiary);
   text-align: center;
+}
+.emptyConversation p {
+  margin: 0;
+}
+.emptyTitle {
+  color: var(--color-text);
+  font-size: var(--text-heading-size);
+  line-height: var(--text-heading-line);
+  font-weight: 600;
+  letter-spacing: var(--text-heading-tracking);
 }
 .loading,
 .emptyTalk {
@@ -173,6 +186,44 @@
   line-height: var(--text-body-line);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* A long message folds to about six lines, fading out above its toggle. */
+.userBubble[data-folded='true'] .userText {
+  max-height: calc(6 * var(--text-body-line));
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, var(--color-text) 65%, transparent);
+}
+.unfold {
+  margin-top: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent-text);
+  font-size: var(--text-label-size);
+  font-weight: 500;
+}
+.unfold:hover {
+  text-decoration: underline;
+}
+/* Copy beside the owner's message, on hover or focus (desktop). */
+.user {
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+.user .copyMine {
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.user:hover .copyMine,
+.user:focus-within .copyMine,
+.user .copyMine[data-state='copied'],
+.user .copyMine[data-state='failed'] {
+  opacity: 1;
+}
+@media (max-width: 767px), (hover: none), (pointer: coarse) {
+  .user .copyMine {
+    display: none;
+  }
 }
 
 .assistant {
