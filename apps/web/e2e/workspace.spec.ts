@@ -143,6 +143,26 @@ test('finished steps fold into one line that opens into them', async ({ page }) 
   await expect(group).toHaveAttribute('aria-expanded', 'true')
 })
 
+test('the docked question set folds to its line and back; folded, its number keys rest', async ({
+  page,
+}) => {
+  const dock = page.getByRole('region', { name: /Question: Offsite venue and prep/ })
+  const hide = dock.getByRole('button', { name: 'Hide the questions' })
+  await expect(hide).toHaveAttribute('aria-expanded', 'true')
+  await hide.click()
+  const show = dock.getByRole('button', { name: 'Show the questions' })
+  await expect(show).toHaveAttribute('aria-expanded', 'false')
+  await expect(dock.getByRole('radio')).toHaveCount(0)
+  await expect(dock.getByRole('button', { name: 'Send answers' })).toBeHidden()
+  // A number key on the folded line picks nothing.
+  await page.keyboard.press('1')
+  await show.click()
+  await expect(
+    dock.getByRole('radio', { name: 'Harbor Loft (fictional)' }),
+  ).not.toBeChecked()
+  await expect(dock.getByText('1 of 2')).toBeVisible()
+})
+
 test('the question set waits above the composer; approvals stay in the conversation', async ({
   page,
 }) => {

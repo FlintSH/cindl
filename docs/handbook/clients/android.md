@@ -665,10 +665,10 @@ Hermes server, Chrome's Custom Tab, and a phone.
 - **Keyboard:** the composer and sheets stay above the on-screen keyboard; the
   bottom navigation steps aside while it is open. Enter adds a line; the Send
   button sends.
-- **Composer:** one primary slot, after T3 Code (web parity): **Stop**, a
-  bordered button with a solid square (so it never reads as a checkbox),
-  while Hermes works and the box is empty, and **Send** as soon as there is
-  text, neutral (no ember) until then. A reply in progress says
+- **Composer:** one round primary slot, after T3 Code (web parity): **Stop**,
+  filled in the text colour with a solid square (so it never reads as a
+  checkbox), while Hermes works and the box is empty, and **Send** as soon as
+  there is text, neutral (no ember) until then. A reply in progress says
   in its header, in place of its time, "Working for 12s" while Hermes works
   and "Waiting for you" while it waits on you (web parity). A conversation
   with nothing in it yet says so in one line, instead of an empty screen; a

@@ -23,7 +23,10 @@ export const space = {
   16: 64,
 } as const
 
-/** Radii stop at 12px: no pillowy tiles. `pill` is for chips and status dots only. */
+/**
+ * Radii stop at 12px: no pillowy tiles. `pill` is for chips, status dots and
+ * the composer's round Send and Stop (after T3 Code).
+ */
 export const radius = { xs: 4, sm: 6, md: 8, lg: 12, pill: 999 } as const
 
 export const fontFamily = {

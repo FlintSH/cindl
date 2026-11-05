@@ -84,7 +84,8 @@ using it.
 
 ## Shape, space, depth, motion
 
-- 4px grid (`--space-*`). Radii: 4, 6, 8, 12; `pill` only for chips and dots.
+- 4px grid (`--space-*`). Radii: 4, 6, 8, 12; `pill` only for chips, dots and
+  the composer's round Send and Stop.
 - Depth comes from surfaces and 1px borders; shadows are soft and reserved for
   raised controls (composer, decision cards) and overlays.
 - Motion is brief (120/180/240ms, `--ease-standard`) and functional: overlays
@@ -110,11 +111,13 @@ using it.
   allowed (Hermes queues, steers or redirects). Enter sends, Shift+Enter adds a
   line. When not connected it says so instead of silently queueing. The text
   sits on top and a bar beneath it carries what sending does now and one
-  primary button: Stop while Hermes works and the box is empty, Send (ember)
-  once there is text. ArrowUp in an empty box recalls what you sent.
-- **Questions on Talk** dock above the composer where there is room: one
-  question at a time, number keys on its choices. Approvals stay in the
-  conversation; Work shows every card in full.
+  round primary button: Stop (filled in the text colour) while Hermes works
+  and the box is empty, Send (ember) once there is text. ArrowUp in an empty
+  box recalls what you sent.
+- **Questions on Talk** dock above the composer where there is room: one line
+  for what the set is and where you are in it, which folds the set away,
+  then one question at a time, number keys on its choices. Approvals stay in
+  the conversation; Work shows every card in full.
 - **Unavailable features.** Rendered with `RequireCapability`: name, state and
   the concrete reason. Never an empty shell that looks like working software.
 - **Rows, not cards.** Work, Library and Agent use bordered row lists.

@@ -353,7 +353,8 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
 - **Composer.** The text on top, two lines to start with on a wide screen; a
   bar beneath it says what sending does now, or the keys ("Enter to send ·
   Shift Enter for a new line · ↑ for your last message", hidden on touch
-  screens), with the primary button at its end. Its presses never take focus
+  screens), with the primary button at its end: round, ember Send, or Stop
+  filled in the text colour. Its presses never take focus
   from the text. `↑` in an empty box brings back the last message you sent
   in this conversation, again for the one before; `↓` goes forward, then
   back to an empty box. Once you change the text, the arrows move the caret
@@ -365,11 +366,16 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
   A conversation with nothing in it yet asks "What should Hermes do?".
 - **Questions.** On Talk, where there is room (768px wide and 640px tall or
   more), a question set waits above the composer instead of in the
-  conversation: one question at a time ("1 of 2", previous and next), the
-  number keys pick the shown question's choices (not while typing in its own
-  answer, and never on a single quick question, whose buttons send), and a
-  single-choice pick moves on to the next question after a moment. Its
-  actions stay in view while a long question scrolls. It is the same card,
+  conversation. One line says what it is and where you are ("2 questions ·
+  Offsite venue and prep", "1 of 2", previous and next); below it, one
+  question at a time, each choice a whole row with its number key at the
+  end, and "Other" on the same row as your own answer. The number keys pick
+  the shown question's choices (not while typing in its own answer, and
+  never on a single quick question, whose buttons send), and a single-choice
+  pick moves on to the next question after a moment. Its actions stay in
+  view while a long question scrolls. The chevron folds it to its one line
+  so you can read the conversation (nothing is answered, and the number keys
+  rest), and it stays folded while it is open. It is the same card,
   with the same answer-once lock and drafts. Approvals stay in the
   conversation; Work shows every card in full; phones keep the set in the
   conversation.
@@ -384,8 +390,8 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
 
 ## Small signals
 
-- **Composer.** One primary button: Stop (bordered) while Hermes works and
-  the box is empty, Send as soon as there is text, neutral until then. It
+- **Composer.** One round primary button: Stop (filled) while Hermes works
+  and the box is empty, Send as soon as there is text, neutral until then. It
   says what it does in a tooltip. On Talk, typing while nothing that takes
   text has focus goes on in the message box (as `/` does); shortcut keys,
   Space and keys with Ctrl, Alt or ⌘ keep their own jobs.

@@ -158,13 +158,14 @@ export function Composer({
         {/* One primary slot (web parity, after T3 Code): Stop while Hermes works
             and the box is empty, Send as soon as there is text. */}
         {stopping ? (
-          // A bordered control with a solid square, so it never reads as a checkbox.
+          // Round and filled, with a solid square, so it never reads as a checkbox.
           <Button
             label="Stop the current turn"
             icon={Square}
             filledIcon
             iconOnly
-            style={{ borderColor: theme.colors.borderStrong }}
+            variant="strong"
+            style={{ borderRadius: theme.radius.pill }}
             onPress={() =>
               void api.call('conversation.interrupt', { conversationId }).then(
                 () => setError(undefined),
@@ -188,8 +189,12 @@ export function Composer({
             busy={sending}
             style={
               sendable
-                ? undefined
-                : { backgroundColor: theme.colors.surfaceSunken, opacity: 1 }
+                ? { borderRadius: theme.radius.pill }
+                : {
+                    borderRadius: theme.radius.pill,
+                    backgroundColor: theme.colors.surfaceSunken,
+                    opacity: 1,
+                  }
             }
             onPress={() => void submit()}
           />

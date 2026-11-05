@@ -79,4 +79,6 @@ export const requiredPairs: ReadonlyArray<{
     minimum: 3,
   },
   { foreground: 'borderStrong', backgrounds: ['canvas', 'surface'], minimum: 3 },
+  // The composer's Stop: its square on the filled round button, and on hover.
+  { foreground: 'surfaceRaised', backgrounds: ['text', 'textSecondary'], minimum: 3 },
 ]

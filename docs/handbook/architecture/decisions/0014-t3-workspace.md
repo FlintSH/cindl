@@ -45,15 +45,18 @@ are.
   open or closed choice wins for the session. The step that is running has a
   slow sweep across its label.
 - **A composer in two parts:** the text on top, a bar beneath it in the same
-  box with what sending does now (or the keys) on the left and one primary
-  button on the right. That button is Stop while Hermes works and the box is
-  empty, and Send as soon as there is text, so Stop and Send never compete.
+  box with what sending does now (or the keys) on the left and one round
+  primary button on the right. That button is Stop while Hermes works and the
+  box is empty, and Send as soon as there is text, so Stop and Send never
+  compete.
   Its presses never take focus from the text. ArrowUp in an empty box brings
   back what the owner sent in this conversation; ArrowDown goes forward.
 - **Questions docked above the composer:** on Talk, with room (768px wide and
-  640px tall or more), a question set waits right where the owner types, one
-  question at a time with a counter, number keys on its choices, and a short
-  pause before a single-choice pick moves on. It is the same card as before,
+  640px tall or more), a question set waits right where the owner types,
+  after T3 Code's drawer: one line with what it is, where the owner is in it
+  and a chevron that folds it to that line, then one question at a time with
+  number keys on its choices, and a short pause before a single-choice pick
+  moves on. Folding answers nothing. It is the same card as before,
   with the same answer-once lock, drafts and refusals; only its layout
   changed. Approvals stay in the conversation, beside the step they hold.
   Work shows every card in full.
@@ -91,6 +94,8 @@ are.
   app opens at 1360px.
 - Steps addressed by title (tests, the panel's Show) are inside a folded line
   when finished; the selected step's line stays open.
-- Android takes the work log, the live timer and the one-slot Stop and Send;
-  it keeps its conversation sheet and its question cards in the
-  conversation, since a phone has no room for a list or a dock.
+- Android takes the work log, the live timer, the one-slot round Stop and
+  Send, and "Done" in its conversation sheet; it keeps the sheet and its
+  question cards in the conversation, since a phone has no room for a list
+  or a dock.
+- Round Send and Stop are the only round buttons; DESIGN.md names them.

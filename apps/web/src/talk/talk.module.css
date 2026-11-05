@@ -639,30 +639,92 @@
   accent-color: var(--color-accent);
   flex: none;
 }
+.otherRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-1);
+}
 .otherLabel {
   display: flex;
-  margin-top: var(--space-1);
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+/* Everything below a card's heading; a docked set folds it away. */
+.requestContent {
+  display: contents;
+}
+.requestContent[hidden] {
+  display: none;
 }
 
 /* A question set docked above the composer, after T3 Code's pending-input
-   panel: one question at a time, number keys on its choices. */
+   drawer: one line for what it is and where you are in it, then one question
+   at a time with number keys on its choices. It folds to that line. */
 .dock {
   position: relative;
   max-width: var(--reading-measure);
-  max-height: 50dvh;
+  max-height: min(26rem, 45dvh);
   margin: 0 auto var(--space-2);
   overflow-y: auto;
   border-radius: var(--radius-lg);
 }
 .request[data-layout='dock'] {
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-4) var(--space-4);
   border-radius: var(--radius-lg);
+}
+.request[data-layout='dock'][data-folded='true'] {
+  padding-bottom: var(--space-2);
+}
+.request[data-layout='dock'] .requestHeader {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2rem;
+}
+.request[data-layout='dock'] .requestKind {
+  flex: none;
+}
+.request[data-layout='dock'] .requestTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui-size);
+  line-height: var(--text-ui-line);
+}
+.request[data-layout='dock'] .requestTitle::before {
+  content: '·' / '';
+  margin-right: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-weight: 400;
+}
+.request[data-layout='dock'] .questionForm {
+  gap: var(--space-3);
+  padding-right: var(--space-1);
+}
+/* Choices are whole rows, as in T3 Code, with their number key at the end. */
+.request[data-layout='dock'] .option {
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+.request[data-layout='dock'] .option:hover {
+  background: var(--color-surface-sunken);
+}
+.request[data-layout='dock'] .otherRow .option {
+  margin-right: 0;
 }
 /* Its actions stay in reach while a long question scrolls inside the dock. */
 .request[data-layout='dock'] .questionForm > .requestFooter {
   position: sticky;
   bottom: calc(-1 * var(--space-4));
-  margin: 0 calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
-  padding: var(--space-2) var(--space-4) var(--space-3);
+  margin: 0 calc(-1 * var(--space-3)) calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
+  padding: var(--space-2) var(--space-3) var(--space-3) var(--space-4);
   border-top: 1px solid var(--color-border);
   background: var(--color-surface-raised);
 }
@@ -670,12 +732,11 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-0_5);
-  margin-left: auto;
+  flex: none;
   color: var(--color-text-tertiary);
+  font-size: var(--text-label-size);
+  line-height: var(--text-label-line);
   font-weight: 500;
-}
-.request[data-layout='dock'] .requestKind {
-  width: 100%;
 }
 .stepCount {
   margin-right: var(--space-1);
@@ -687,6 +748,7 @@
   flex: none;
   min-width: 1.25rem;
   height: 1.25rem;
+  margin-left: auto;
   border: 1px solid var(--color-border);
   border-bottom-width: 2px;
   border-radius: var(--radius-xs);
@@ -745,10 +807,20 @@
   gap: var(--space-1);
   margin-left: auto;
 }
-/* Stop is a bordered control beside Send, so its square never reads as a stray glyph. */
+/* After T3 Code, Send and Stop are round and share the bar's one slot. Stop is
+   filled, so its square never reads as a stray glyph. */
+.composerActions .send,
 .composerActions .stop {
-  border-color: var(--color-border-strong);
-  color: var(--color-text);
+  border-radius: var(--radius-pill);
+}
+.composerActions .stop {
+  border-color: var(--color-text);
+  background: var(--color-text);
+  color: var(--color-surface-raised);
+}
+.composerActions .stop:hover:not(:disabled) {
+  border-color: var(--color-text-secondary);
+  background: var(--color-text-secondary);
 }
 /* An empty box has no intent yet: Send stays neutral until there is text to send. */
 .composerActions .send:disabled {
