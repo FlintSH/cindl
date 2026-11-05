@@ -164,6 +164,7 @@ async function talk(s = scenario(), strict = false) {
 
 const STEP = /^Checked the studio calendar for Thursday\. /
 const STEP_EMPTY = 'Select a step in the conversation to see what Hermes did.'
+const STEPS = /^2 steps/
 
 describe('the working margin, as the conversation’s panel', () => {
   it('opens from the conversation on Waiting, with the count on its tab and focus there', async () => {
@@ -180,6 +181,8 @@ describe('the working margin, as the conversation’s panel', () => {
 
   it('opens on Step when a step is selected; Clear the step empties it, Step stays chosen, focus on its tab', async () => {
     const t = await talk()
+    // Finished steps fold into one work-log line: open it first (ADR 0014).
+    await t.press(STEPS)
     await t.press(STEP)
     expect(t.open()).toBe(true)
     expect(t.tabs()).toEqual(['Waiting 2', 'Step *', 'Computer'])
@@ -194,6 +197,8 @@ describe('the working margin, as the conversation’s panel', () => {
 
   it('un-selecting a step clears it without opening the margin, and Step stays chosen', async () => {
     const t = await talk()
+    // Finished steps fold into one work-log line: open it first (ADR 0014).
+    await t.press(STEPS)
     await t.press(STEP)
     await t.back()
     expect(t.open()).toBe(false)
@@ -207,6 +212,8 @@ describe('the working margin, as the conversation’s panel', () => {
 
   it('never switches tools by itself: a new request changes the count, not the tool', async () => {
     const t = await talk()
+    // Finished steps fold into one work-log line: open it first (ADR 0014).
+    await t.press(STEPS)
     await t.press(STEP)
     const request: ServerRequest = {
       requestId: 'srq-00000000dea9',

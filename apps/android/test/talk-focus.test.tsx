@@ -95,6 +95,8 @@ const STEP = /^Checked the studio calendar for Thursday\. /
 describe('Talk: what opens an overlay gets focus back when it closes', () => {
   it('a tool row, for the working margin it opens (P2)', async () => {
     const s = await talk()
+    // Finished steps fold into one work-log line: open it first (ADR 0014).
+    await s.press(/^2 steps/)
     await s.press(STEP)
     // The panel opens on Step, with TalkBack's focus and a keyboard's on its
     // tab (ADR 0013; review 4bdfe6c1, S-1).

@@ -218,3 +218,38 @@ describe('after the browser leg of sign-in (review of 636a2dd, N12)', () => {
     })
   })
 })
+
+describe('the work log (web parity)', () => {
+  it('folds consecutive steps into one line once they are done, and keeps trouble open', async () => {
+    const { segmentsOf, startsOpen, summarize } =
+      await import('../src/talk/workGroups.ts')
+    const segments = segmentsOf([
+      { type: 'tool', toolId: 'a' },
+      { type: 'tool', toolId: 'b' },
+      { type: 'text', text: 'done' },
+      { type: 'tool', toolId: 'c' },
+    ])
+    expect(segments.map((s) => s.kind)).toEqual(['work', 'part', 'part'])
+    const done = summarize([
+      {
+        status: 'complete',
+        startedAt: '2026-06-02T08:00:00Z',
+        endedAt: '2026-06-02T08:00:12Z',
+        blocked: false,
+      },
+      {
+        status: 'complete',
+        startedAt: '2026-06-02T08:00:20Z',
+        endedAt: '2026-06-02T08:01:05Z',
+        blocked: false,
+      },
+    ])
+    expect(done).toMatchObject({ label: '2 steps', took: '1m 5s' })
+    expect(startsOpen(done)).toBe(false)
+    const blocked = summarize([
+      { status: 'complete', blocked: false },
+      { status: 'running', blocked: true },
+    ])
+    expect(startsOpen(blocked)).toBe(true)
+  })
+})

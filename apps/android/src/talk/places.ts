@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { groupChoice } from './workGroups.ts'
 
 /** The working margin's tools: the conversation's panel (ADR 0013). */
 export type MarginTool = 'waiting' | 'step' | 'computer'
@@ -57,6 +58,7 @@ export function keepPlace(conversationId: string, change: Partial<Place>): void 
 /** The session ended: nothing typed or read on this device outlives it. */
 export function forgetPlaces(): void {
   places.clear()
+  groupChoice.forget()
   for (const listener of [...listeners]) listener()
 }
 

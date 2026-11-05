@@ -7,6 +7,8 @@ import { ChevronDown, ChevronRight } from '../ui/icons.ts'
 import { Press, Txt } from '../ui/primitives.tsx'
 import { elapsed, messageTime, momentInSentence } from './format.ts'
 import { ToolRow } from './ToolRow.tsx'
+import { WorkGroup } from './WorkGroup.tsx'
+import { segmentsOf } from './workGroups.ts'
 
 /** While a reply streams, its header counts up from when it started (web parity). */
 function Working({ since }: { since: string | undefined }) {
@@ -125,7 +127,19 @@ export const MessageView = memo(function MessageView({
         ) : null}
       </View>
       <View style={{ gap: theme.space[2] }}>
-        {message.parts.map((part, index) => {
+        {segmentsOf(message.parts).map((segment) => {
+          if (segment.kind === 'work')
+            return (
+              <WorkGroup
+                key={segment.key}
+                groupKey={`${message.id}:${segment.key}`}
+                toolIds={segment.toolIds}
+                selectedToolId={selectedToolId}
+                blockedToolIds={blockedToolIds}
+                onSelectTool={onSelectTool}
+              />
+            )
+          const { part, index } = segment
           switch (part.type) {
             case 'text':
               return <Markdown key={index} text={part.text} />

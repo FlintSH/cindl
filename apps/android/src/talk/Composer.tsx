@@ -59,6 +59,7 @@ export function Composer({
   const connected = link.phase === 'online'
   const ready = connected && canSend
   const sendable = ready && !sending && text.trim().length > 0
+  const stopping = canStop && canInterrupt && !text.trim()
 
   const submit = async () => {
     const value = text.trim()
@@ -154,7 +155,9 @@ export function Composer({
             },
           ]}
         />
-        {canStop && canInterrupt ? (
+        {/* One primary slot (web parity, after T3 Code): Stop while Hermes works
+            and the box is empty, Send as soon as there is text. */}
+        {stopping ? (
           // A bordered control with a solid square, so it never reads as a checkbox.
           <Button
             label="Stop the current turn"
@@ -175,22 +178,22 @@ export function Composer({
               )
             }
           />
-        ) : null}
-        {/* Ember only once there is something to send (web parity). */}
-        <Button
-          label="Send"
-          icon={ArrowUp}
-          iconOnly
-          variant={sendable ? 'primary' : 'quiet'}
-          disabled={!sendable}
-          busy={sending}
-          style={
-            sendable
-              ? undefined
-              : { backgroundColor: theme.colors.surfaceSunken, opacity: 1 }
-          }
-          onPress={() => void submit()}
-        />
+        ) : (
+          <Button
+            label="Send"
+            icon={ArrowUp}
+            iconOnly
+            variant={sendable ? 'primary' : 'quiet'}
+            disabled={!sendable}
+            busy={sending}
+            style={
+              sendable
+                ? undefined
+                : { backgroundColor: theme.colors.surfaceSunken, opacity: 1 }
+            }
+            onPress={() => void submit()}
+          />
+        )}
       </View>
       {hint ? (
         <Txt variant="label" tone="tertiary">
