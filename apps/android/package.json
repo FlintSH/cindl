@@ -16,7 +16,7 @@
     "@cindl/contracts": "workspace:*",
     "@cindl/hermes-adapter": "workspace:*",
     "@cindl/tokens": "workspace:*",
-    "@react-native-async-storage/async-storage": "2.2.0",
+    "@react-native-async-storage/async-storage": "3.1.1",
     "expo": "58.0.22",
     "expo-crypto": "58.0.7",
     "expo-font": "58.0.11",
@@ -30,7 +30,7 @@
     "micromark-extension-gfm": "3.0.0",
     "react": "catalog:",
     "react-native": "0.88.1",
-    "react-native-safe-area-context": "5.10.1",
+    "react-native-safe-area-context": "5.11.0",
     "react-native-svg": "15.16.0"
   },
   "devDependencies": {
