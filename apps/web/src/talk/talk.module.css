@@ -723,9 +723,11 @@
 .request[data-layout='dock'] .questionForm > .requestFooter {
   position: sticky;
   bottom: calc(-1 * var(--space-4));
-  margin: 0 calc(-1 * var(--space-3)) calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
-  padding: var(--space-2) var(--space-3) var(--space-3) var(--space-4);
+  /* Edge to edge: the card's padding, and the question's own on the right. */
+  margin: 0 calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
+  padding: var(--space-2) var(--space-4) var(--space-3);
   border-top: 1px solid var(--color-border);
+  border-radius: 0 0 calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px);
   background: var(--color-surface-raised);
 }
 .stepper {
