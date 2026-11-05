@@ -1,7 +1,7 @@
 // @vitest-environment node
 import type { Conversation, MessagePart } from '@cindl/contracts'
 import { describe, expect, it } from 'vitest'
-import { rowStatus, shelvesOf, shortAgo } from '../src/talk/conversationList.ts'
+import { longAgo, rowStatus, shelvesOf, shortAgo } from '../src/talk/conversationList.ts'
 import {
   segmentsOf,
   startsOpen,
@@ -52,8 +52,47 @@ describe('the conversation list', () => {
     })
     expect(
       rowStatus(conversation({ updatedAt: '2026-06-10T11:55:00.000Z' }), now),
-    ).toEqual({ kind: 'time', label: '5m' })
+    ).toEqual({ kind: 'time', label: '5m', spoken: '5 minutes ago' })
     expect(rowStatus(conversation({}), now)).toEqual({ kind: 'none', label: '' })
+  })
+
+  it('names what the owner must answer, approvals first, and counts them past one', () => {
+    const waiting = list[1] as Conversation
+    expect(rowStatus(waiting, 0, { requests: [{ kind: 'approval' }] })).toEqual({
+      kind: 'approval',
+      label: 'Approval',
+    })
+    expect(rowStatus(waiting, 0, { requests: [{ kind: 'clarify' }] })).toEqual({
+      kind: 'question',
+      label: 'Question',
+    })
+    expect(
+      rowStatus(waiting, 0, { requests: [{ kind: 'clarify' }, { kind: 'approval' }] }),
+    ).toEqual({ kind: 'approval', label: '2 need you' })
+    // A prompt Cindl never answers still needs the owner, elsewhere.
+    expect(rowStatus(waiting, 0, { requests: [{ kind: 'unsupported' }] })).toEqual({
+      kind: 'needs-you',
+      label: 'Needs you',
+    })
+  })
+
+  it('marks what finished unseen as Done, below what needs you or works', () => {
+    const idle = conversation({ updatedAt: '2026-06-10T11:00:00.000Z' })
+    expect(rowStatus(idle, 0, { finished: true })).toMatchObject({ kind: 'done' })
+    expect(rowStatus(list[2] as Conversation, 0, { finished: true }).kind).toBe('working')
+    expect(
+      rowStatus(list[1] as Conversation, 0, { finished: true, requests: [] }).kind,
+    ).toBe('needs-you')
+  })
+
+  it('says ages in full for a screen reader', () => {
+    const now = Date.parse('2026-06-10T12:00:00.000Z')
+    const ago = (ms: number) => longAgo(new Date(now - ms).toISOString(), now)
+    expect(ago(20_000)).toBe('just now')
+    expect(ago(60_000)).toBe('1 minute ago')
+    expect(ago(3 * 3_600_000)).toBe('3 hours ago')
+    expect(ago(86_400_000)).toBe('1 day ago')
+    expect(ago(400 * 86_400_000)).toMatch(/2025/)
   })
 
   it('writes short ages: now, minutes, hours, days, then the date', () => {

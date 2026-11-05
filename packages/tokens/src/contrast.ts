@@ -53,7 +53,8 @@ export const requiredPairs: ReadonlyArray<{
   { foreground: 'onAccent', backgrounds: ['accent', 'accentHover'], minimum: 4.5 },
   {
     foreground: 'success',
-    backgrounds: ['canvas', 'surface', 'successSubtle'],
+    // surfaceSunken: "Done" on the conversation list's selected row.
+    backgrounds: ['canvas', 'surface', 'surfaceSunken', 'successSubtle'],
     minimum: 4.5,
   },
   {

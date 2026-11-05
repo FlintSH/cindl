@@ -691,6 +691,10 @@ Hermes server, Chrome's Custom Tab, and a phone.
   own choice holds for the session. Android keeps its conversation sheet and
   its question cards in the conversation: a phone has no room for the web's
   conversation list or its docked questions.
+- **Done** (web parity): the conversation sheet marks a conversation Hermes
+  finished while you were elsewhere (another conversation, or another
+  destination) with "Done" until you open it. Only finishes this session saw
+  count, and sign-out forgets them.
 - **Tabs:** a page's tab strip fades at its end, so a tab cut off there
   (Agent's five on a phone) reads as more to come, and the last tab scrolls
   clear of the fade. React Native 0.88 draws an edge's fade at a fixed

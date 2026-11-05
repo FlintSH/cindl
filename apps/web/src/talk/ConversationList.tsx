@@ -5,7 +5,19 @@ import {
   useOpenRequests,
 } from '@cindl/client-react'
 import { isCindlError, type Conversation } from '@cindl/contracts'
-import { PanelLeftClose, Pin, Search, SquarePen, X } from 'lucide-react'
+import {
+  CircleCheck,
+  CircleDashed,
+  CircleHelp,
+  Hand,
+  PanelLeftClose,
+  Pin,
+  Search,
+  ShieldAlert,
+  SquarePen,
+  X,
+  type LucideIcon,
+} from 'lucide-react'
 import {
   forwardRef,
   useEffect,
@@ -22,9 +34,19 @@ import { LIST_WIDTH, usePreference } from '../platform/preferences.ts'
 import { navigate } from '../router.ts'
 import { shortcutText } from '../shortcuts.ts'
 import { Button } from '../ui/primitives.tsx'
-import { flatten, rowStatus, shelvesOf } from './conversationList.ts'
+import { flatten, rowStatus, shelvesOf, type RowStatus } from './conversationList.ts'
+import { useFinished } from './finished.ts'
 import { noteFresh } from './places.ts'
 import styles from './conversations.module.css'
+
+/** Each status's icon, as on the cards and steps it stands for; after T3 Code, none animate. */
+const statusIcons: Partial<Record<RowStatus['kind'], LucideIcon>> = {
+  approval: ShieldAlert,
+  question: CircleHelp,
+  'needs-you': Hand,
+  working: CircleDashed,
+  done: CircleCheck,
+}
 
 export interface ConversationListHandle {
   focusSearch(): void
@@ -44,7 +66,8 @@ function useNow(every = 30_000): number {
  * The conversation list beside Talk on wide screens, after T3 Code's thread
  * sidebar: the main conversation pinned, what needs the owner, then the rest
  * by recency. A row's right-hand slot shows its status when it has one worth
- * a glance ("Needs you", "Working"), else how long ago it changed. The arrow
+ * a glance ("Approval", "Question", "Working", "Done"), else how long ago it
+ * changed. The arrow
  * keys move through it without opening anything; Enter opens. F2 (or a
  * double click) renames, when Hermes offers renaming. It stays mounted while
  * conversations change, so its place, search and focus hold.
@@ -59,6 +82,7 @@ export const ConversationList = forwardRef<
   const canRename = useCan('sessions.rename')
   // Counted per conversation, as the margin's Waiting tab counts its own.
   const waiting = useOpenRequests()
+  const finished = useFinished()
   const now = useNow()
   const [query, setQuery] = useState('')
   const shelves = useMemo(() => shelvesOf(conversations, query), [conversations, query])
@@ -260,14 +284,11 @@ export const ConversationList = forwardRef<
             </h3>
             <ul className={styles.rows}>
               {shelf.conversations.map((conversation) => {
-                const status = rowStatus(conversation, now)
-                const asks = waiting.filter(
-                  (r) => r.conversationId === conversation.id,
-                ).length
-                const slot =
-                  status.kind === 'needs-you' && asks > 1
-                    ? `${asks} need you`
-                    : status.label
+                const status = rowStatus(conversation, now, {
+                  requests: waiting.filter((r) => r.conversationId === conversation.id),
+                  finished: finished.has(conversation.id),
+                })
+                const StatusIcon = statusIcons[status.kind]
                 return (
                   <li key={conversation.id}>
                     {renaming === conversation.id ? (
@@ -287,15 +308,18 @@ export const ConversationList = forwardRef<
                         className={styles.row}
                         aria-current={conversation.id === currentId ? 'page' : undefined}
                         tabIndex={conversation.id === tabStop ? 0 : -1}
-                        // Spoken as it reads, with what the pin means: "Today, main
-                        // conversation, 2 need you".
-                        aria-label={[
-                          conversation.title,
-                          conversation.kind === 'main' ? 'main conversation' : '',
-                          slot,
-                        ]
-                          .filter(Boolean)
-                          .join(', ')}
+                        // Named by what it shows ("Today 2 need you"), with
+                        // what the pin means as its description.
+                        aria-describedby={
+                          conversation.kind === 'main' ? `${id}-main` : undefined
+                        }
+                        data-attention={
+                          status.kind === 'time' ||
+                          status.kind === 'none' ||
+                          status.kind === 'working'
+                            ? undefined
+                            : 'true'
+                        }
                         title={conversation.preview}
                         onClick={() => open(conversation.id)}
                         onDoubleClick={() => {
@@ -308,12 +332,21 @@ export const ConversationList = forwardRef<
                           <Pin size={13} aria-hidden="true" className={styles.pin} />
                         ) : null}
                         <span className={styles.rowTitle}>{conversation.title}</span>
-                        <span className={styles.rowStatus} data-kind={status.kind}>
-                          {status.kind === 'working' ? (
-                            <span className={styles.pulse} aria-hidden="true" />
-                          ) : null}
-                          {slot}
-                        </span>
+                        {status.label ? (
+                          <span className={styles.rowStatus} data-kind={status.kind}>
+                            {StatusIcon ? (
+                              <StatusIcon size={12} aria-hidden="true" />
+                            ) : null}
+                            {status.spoken ? (
+                              <>
+                                <span aria-hidden="true">{status.label}</span>
+                                <span className="visually-hidden">{status.spoken}</span>
+                              </>
+                            ) : (
+                              status.label
+                            )}
+                          </span>
+                        ) : null}
                       </button>
                     )}
                   </li>
@@ -322,6 +355,9 @@ export const ConversationList = forwardRef<
             </ul>
           </section>
         ))}
+        <span id={`${id}-main`} hidden>
+          Main conversation
+        </span>
         {!flat.length ? (
           <p className={styles.empty}>
             {query ? 'No conversations match.' : 'No conversations yet.'}

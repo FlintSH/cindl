@@ -19,6 +19,8 @@ export type ShortcutId =
   | 'focus-composer'
   | 'toggle-margin'
   | 'toggle-conversations'
+  | 'previous-conversation'
+  | 'next-conversation'
   | 'go-talk'
   | 'go-work'
   | 'go-library'
@@ -51,6 +53,18 @@ export const shortcuts: readonly Shortcut[] = [
     label: 'Show or hide the conversation list',
     global: true,
   },
+  {
+    id: 'previous-conversation',
+    keys: ['Mod', 'Shift', '['],
+    label: 'Previous conversation',
+    global: true,
+  },
+  {
+    id: 'next-conversation',
+    keys: ['Mod', 'Shift', ']'],
+    label: 'Next conversation',
+    global: true,
+  },
   { id: 'go-talk', keys: ['Alt', '1'], label: 'Go to Talk', global: true },
   { id: 'go-work', keys: ['Alt', '2'], label: 'Go to Work', global: true },
   { id: 'go-library', keys: ['Alt', '3'], label: 'Go to Library', global: true },
@@ -81,7 +95,14 @@ function matches(shortcut: Shortcut, event: KeyboardEvent): boolean {
   const wantShift = shortcut.keys.includes('Shift')
   const mod = isMac() ? event.metaKey : event.ctrlKey
   const key = shortcut.keys.at(-1) as string
-  const code = /^\d$/.test(key) ? `Digit${key}` : undefined
+  // By position where Shift changes the character: Shift+[ types "{" on most layouts.
+  const code = /^\d$/.test(key)
+    ? `Digit${key}`
+    : key === '['
+      ? 'BracketLeft'
+      : key === ']'
+        ? 'BracketRight'
+        : undefined
   const keyMatches =
     (code !== undefined && event.code === code) ||
     event.key.toLowerCase() === key.toLowerCase()

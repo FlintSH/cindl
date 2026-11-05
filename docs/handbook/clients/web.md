@@ -294,17 +294,18 @@ its switcher; choosing the one already shown just closes the list.
 
 ## Keyboard
 
-| Keys                    | Action                             |
-| ----------------------- | ---------------------------------- |
-| `Ctrl/⌘ K`              | Open the command palette           |
-| `Ctrl/⌘ J`              | Switch conversation                |
-| `Ctrl/⌘ Shift O`        | Start a side conversation          |
-| `Ctrl/⌘ .`              | Show or hide the working margin    |
-| `Ctrl/⌘ B`              | Show or hide the conversation list |
-| `Alt 1` to `Alt 4`      | Go to Talk, Work, Library, Agent   |
-| `/`                     | Focus the message box              |
-| `?`                     | Show keyboard shortcuts            |
-| `Enter` / `Shift Enter` | Send / new line in the message box |
+| Keys                                | Action                             |
+| ----------------------------------- | ---------------------------------- |
+| `Ctrl/⌘ K`                          | Open the command palette           |
+| `Ctrl/⌘ J`                          | Switch conversation                |
+| `Ctrl/⌘ Shift O`                    | Start a side conversation          |
+| `Ctrl/⌘ .`                          | Show or hide the working margin    |
+| `Ctrl/⌘ B`                          | Show or hide the conversation list |
+| `Ctrl/⌘ Shift [` / `Ctrl/⌘ Shift ]` | Previous / next conversation       |
+| `Alt 1` to `Alt 4`                  | Go to Talk, Work, Library, Agent   |
+| `/`                                 | Focus the message box              |
+| `?`                                 | Show keyboard shortcuts            |
+| `Enter` / `Shift Enter`             | Send / new line in the message box |
 
 In the conversation switcher (`Ctrl/⌘ J` where the conversation list is not
 shown), which opens with focus in its search box at every width, `Enter` in the search box opens the top match, `↓` moves
@@ -320,9 +321,14 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
 
 - **Conversation list.** On wide screens (1280px and up), a column beside the
   conversation lists the main conversation (pinned), what needs you, then
-  the rest by recency. A row shows its status in place of its age: "Needs
-  you" (or "2 need you"), "Working" with a pulsing dot, else "5m", "3h",
-  "2d" or the date. The arrow keys move through it without opening anything,
+  the rest by recency. A row shows its status in place of its age, each with
+  the icon of what it stands for: "Approval", "Question" or "2 need you"
+  when you have something to answer there ("Needs you" when Cindl knows only
+  that Hermes waits), "Working" while Hermes works, and "Done" when Hermes
+  finished there while you looked elsewhere, until you open it. Otherwise it
+  shows "5m", "3h", "2d" or the date, spoken in full ("5 minutes ago"). Done
+  counts only finishes this session saw, and is forgotten on sign-out; the
+  switcher shows it too. The arrow keys move through it without opening anything,
   Enter opens, Home and End jump, `↑` from the first row reaches its search
   box, and typing from a row goes on in the search box. F2 or a double click
   renames a conversation in place (Enter saves, Escape keeps the old name)
@@ -333,7 +339,11 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
   steps aside). Its right edge resizes it: drag it, or focus it and use the
   arrow keys (16px a step; Home and End for the narrowest and widest); a
   double click goes back to 264px. The width stays between 208px and 384px
-  and is kept on the device. Narrower windows keep the switcher.
+  and is kept on the device. A screen reader hears it come and go.
+  `Ctrl/⌘ Shift [` and `Ctrl/⌘ Shift ]` open the previous and next
+  conversation in its order, at any width, stopping at either end (a browser
+  tab may keep these keys for its own tabs; the desktop app does not).
+  Narrower windows keep the switcher.
 - **Work log.** Two or more consecutive steps fold into one line once they
   are all done: "2 steps · 1m 24s", with "2 steps, 1 failed" when one
   failed. It stays open while Hermes works, waits on you or has a failure,
@@ -365,7 +375,9 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
   conversation.
 - **Palette.** Its rows are grouped (Go to, Actions, Conversations, Theme)
   with icons. Nothing typed, it lists every command and the five most recent
-  conversations; typed, the groups follow their best match. A leading `>`
+  conversations other than the one on screen; typed, the groups follow their
+  best match, with the conversation on screen last ("Current conversation").
+  A press on a row keeps focus in its search box. A leading `>`
   searches commands only. A row's hint gives way before its label does; on
   a phone the hints and keys are left out, and showing or hiding the
   conversation list is offered only where the list can show.

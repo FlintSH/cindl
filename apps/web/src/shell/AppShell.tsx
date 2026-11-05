@@ -41,6 +41,8 @@ import { ErrorBoundary } from './ErrorBoundary.tsx'
 import { pruneRequestDrafts } from '../talk/RequestCard.tsx'
 import { forgetDocumentDrafts } from '../views/DocumentEditor.tsx'
 import { forgetPlaces } from '../talk/places.ts'
+import { flatten, shelvesOf } from '../talk/conversationList.ts'
+import { noteStatuses } from '../talk/finished.ts'
 import { Notices } from './Notices.tsx'
 import { SignIn } from './SignIn.tsx'
 import { forgetAttempts, useSigningIn } from './session.ts'
@@ -92,6 +94,11 @@ export function AppShell() {
   const current: Destination = route.view
 
   useEffect(() => applyTheme(theme), [theme])
+  // What Hermes finishes while the owner looks elsewhere is marked "Done".
+  useEffect(
+    () => noteStatuses(conversations, currentConversation),
+    [conversations, currentConversation],
+  )
   // Drafts belong to open requests only.
   useEffect(() => pruneRequestDrafts(new Set(open.map((r) => r.requestId))), [open])
   // Nothing typed on this device outlives the session, however it ended: the
@@ -273,6 +280,19 @@ export function AppShell() {
           })
           queueMicrotask(() => talk.current?.openHistory())
           break
+        case 'previous-conversation':
+        case 'next-conversation': {
+          // In the list's order, stopping at either end (after T3 Code).
+          if (route.view !== 'talk') {
+            navigate({ view: 'talk' })
+            break
+          }
+          const order = flatten(shelvesOf(conversations))
+          const at = order.findIndex((c) => c.id === currentConversation)
+          const to = order[id === 'next-conversation' ? at + 1 : at - 1]
+          if (at >= 0 && to) navigate({ view: 'talk', conversationId: to.id })
+          break
+        }
         case 'new-side':
           if (!canCreate) break
           navigate({ view: 'talk' })
@@ -303,7 +323,17 @@ export function AppShell() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [route, canCreate, wide, listOpen, showList, hideList, setListOpen])
+  }, [
+    route,
+    canCreate,
+    wide,
+    listOpen,
+    showList,
+    hideList,
+    setListOpen,
+    conversations,
+    currentConversation,
+  ])
 
   return (
     <div className={styles.shell}>
@@ -371,8 +401,13 @@ export function AppShell() {
         open={paletteOpen}
         onClose={() => setPaletteOpen(false)}
         commands={commands}
+        currentId={currentConversation}
       />
       <ShortcutsDialog open={helpOpen} onClose={() => setHelpOpen(false)} />
+      {/* Says when the list comes and goes, which a screen reader cannot see. */}
+      <p className="visually-hidden" role="status">
+        {wide ? (listOpen ? 'Conversation list shown' : 'Conversation list hidden') : ''}
+      </p>
     </div>
   )
 }

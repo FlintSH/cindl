@@ -30,7 +30,9 @@ On wide screens Talk has a **conversation list** beside the conversation,
 after T3 Code's thread sidebar
 ([ADR 0014](docs/handbook/architecture/decisions/0014-t3-workspace.md)): the
 main conversation pinned, what needs the owner, then the rest by recency,
-each row with its status or its age. `Mod+B` hides and shows it. Narrower
+each row with its status (what to answer, Working, or Done when Hermes
+finished there unseen) or its age. `Mod+B` hides and shows it;
+`Mod+Shift+[` and `]` step through it. Narrower
 screens keep the searchable switcher (title button, `Mod+J`); the command
 palette (`Mod+K`) reaches everything. The **working margin** is the conversation's panel
 ([ADR 0013](docs/handbook/architecture/decisions/0013-conversation-panel.md)):

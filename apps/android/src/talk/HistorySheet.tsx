@@ -6,6 +6,7 @@ import { Sheet } from '../overlay/Sheet.tsx'
 import { useTheme } from '../theme/theme.tsx'
 import { Pin, Plus } from '../ui/icons.ts'
 import { Badge, Note, Press, Txt } from '../ui/primitives.tsx'
+import { useFinished } from './finished.ts'
 import { fuzzyScore, listTime } from './format.ts'
 
 /** Searchable conversation switcher (the web history popover, as a sheet). */
@@ -163,12 +164,16 @@ function ConversationItem({
 }) {
   const theme = useTheme()
   const day = listTime(conversation.updatedAt)
+  // "Done": Hermes finished it while the owner looked elsewhere (finished.ts).
+  const finished = useFinished().has(conversation.id)
   const status =
     conversation.status === 'waiting-on-you'
       ? 'Needs you'
       : conversation.status === 'working'
         ? 'Working'
-        : undefined
+        : finished
+          ? 'Done'
+          : undefined
   const label = [
     conversation.title,
     conversation.kind === 'main' ? 'Main' : undefined,
@@ -208,7 +213,13 @@ function ConversationItem({
           {conversation.title}
         </Text>
         {status ? (
-          <Badge tone={status === 'Needs you' ? 'accent' : 'info'}>{status}</Badge>
+          <Badge
+            tone={
+              status === 'Needs you' ? 'accent' : status === 'Done' ? 'success' : 'info'
+            }
+          >
+            {status}
+          </Badge>
         ) : null}
         {day ? (
           <Txt variant="label" tone="tertiary">

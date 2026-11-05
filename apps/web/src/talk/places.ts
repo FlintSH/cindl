@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { forgetFinished } from './finished.ts'
 import { groupChoice } from './workGroups.ts'
 
 /** The working margin's tools (ADR 0013). */
@@ -81,6 +82,7 @@ export function takeFresh(): boolean {
 export function forgetPlaces() {
   places.clear()
   groupChoice.forget()
+  forgetFinished()
   switched = false
   fresh = false
   for (const listener of listeners) listener()

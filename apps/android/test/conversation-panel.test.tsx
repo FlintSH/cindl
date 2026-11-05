@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { createScenarioClient } from '@cindl/fixtures/scenario'
+import { createScenarioClient, scenarioData } from '@cindl/fixtures/scenario'
 import { CindlError } from '@cindl/contracts'
 import type {
   CapabilityMap,
@@ -282,6 +282,27 @@ describe('the working margin, as the conversation’s panel', () => {
     expect(t.composer()).toBe('Ask about the glaze order (fixture)')
     await t.press('Show the working margin')
     expect(t.tabs()).toEqual(['Waiting 2', 'Step', 'Computer *'])
+  })
+})
+
+describe('the conversation sheet (web parity, after T3 Code)', () => {
+  it('says Done for a conversation Hermes finished while you were elsewhere, until you open it', async () => {
+    const t = await talk()
+    const offsite = scenarioData.conversations.find((c) => c.id === 'demo-offsite')
+    if (!offsite) throw new Error('no offsite conversation in the scenario')
+    // It works and finishes while Today is on screen.
+    for (const status of ['working', 'idle'] as const) {
+      act(() =>
+        t.s.emit({ type: 'conversation.upserted', conversation: { ...offsite, status } }),
+      )
+      await t.settle()
+    }
+    await t.press('Today, Main. Switch conversation')
+    expect(t.has('Done')).toBe(true)
+    await t.press(/^Studio offsite planning, Done/)
+    // Opened, it is seen.
+    await t.press(/^Studio offsite planning.*Switch conversation$/)
+    expect(t.has('Done')).toBe(false)
   })
 })
 

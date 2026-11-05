@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { forgetFinished } from './finished.ts'
 import { groupChoice } from './workGroups.ts'
 
 /** The working margin's tools: the conversation's panel (ADR 0013). */
@@ -59,6 +60,7 @@ export function keepPlace(conversationId: string, change: Partial<Place>): void 
 export function forgetPlaces(): void {
   places.clear()
   groupChoice.forget()
+  forgetFinished()
   for (const listener of [...listeners]) listener()
 }
 

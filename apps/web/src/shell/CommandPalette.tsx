@@ -27,6 +27,8 @@ export interface Command {
   shortcut?: ShortcutId
   group: CommandGroup
   icon?: LucideIcon
+  /** The conversation on screen: left out of the recent ones, last among matches. */
+  current?: boolean
   run: () => void
 }
 
@@ -37,9 +39,10 @@ interface Group {
 
 /**
  * The palette's rows, grouped. Nothing typed: every command in a fixed group
- * order, and the most recent conversations. Typed: matches only, groups
- * ordered by their best match so Enter runs the best row. A leading `>`
- * searches commands alone, as in T3 Code.
+ * order, and the most recent conversations other than the one on screen.
+ * Typed: matches only, groups ordered by their best match so Enter runs the
+ * best row, the conversation on screen last. A leading `>` searches commands
+ * alone. All after T3 Code.
  */
 export function paletteGroups(
   commands: readonly Command[],
@@ -55,7 +58,10 @@ export function paletteGroups(
         const items = pool.filter((c) => c.group === group)
         return {
           group,
-          items: group === 'conversations' ? items.slice(0, RECENT) : items,
+          items:
+            group === 'conversations'
+              ? items.filter((c) => !c.current).slice(0, RECENT)
+              : items,
         }
       })
       .filter((g) => g.items.length > 0)
@@ -65,7 +71,11 @@ export function paletteGroups(
       score: fuzzyScore(typed, `${command.label} ${command.hint ?? ''}`),
     }))
     .filter((r): r is { command: Command; score: number } => r.score !== undefined)
-    .sort((a, b) => a.score - b.score)
+    .sort(
+      (a, b) =>
+        Number(a.command.current ?? false) - Number(b.command.current ?? false) ||
+        a.score - b.score,
+    )
   const best = new Map<CommandGroup, number>()
   for (const { command, score } of scored)
     if (!best.has(command.group)) best.set(command.group, score)
@@ -97,10 +107,13 @@ export function CommandPalette({
   open,
   onClose,
   commands,
+  currentId,
 }: {
   open: boolean
   onClose: () => void
   commands: Command[]
+  /** The conversation on screen, if Talk is open. */
+  currentId?: string | undefined
 }) {
   const [query, setQuery] = useState('')
   const [active, setActive] = useState(0)
@@ -111,12 +124,18 @@ export function CommandPalette({
       conversations.map((c) => ({
         id: `conversation:${c.id}`,
         label: c.title,
-        hint: c.kind === 'main' ? 'Main conversation' : 'Side conversation',
+        hint:
+          c.id === currentId
+            ? 'Current conversation'
+            : c.kind === 'main'
+              ? 'Main conversation'
+              : 'Side conversation',
         group: 'conversations' as const,
         icon: c.kind === 'main' ? Pin : MessageSquare,
+        current: c.id === currentId,
         run: () => navigate({ view: 'talk', conversationId: c.id }),
       })),
-    [conversations],
+    [conversations, currentId],
   )
   const groups = useMemo(
     () => paletteGroups(commands, conversationCommands, query),
@@ -203,6 +222,8 @@ export function CommandPalette({
                     aria-selected={index === active}
                     className={styles.result}
                     onMouseMove={() => setActive(index)}
+                    // A press keeps focus in the search box, so the keys still work.
+                    onMouseDown={(event) => event.preventDefault()}
                     onClick={() => run(command)}
                   >
                     {Icon ? (

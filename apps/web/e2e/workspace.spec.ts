@@ -15,16 +15,52 @@ test('the conversation list shows status where it matters and the time otherwise
 }) => {
   const list = page.getByRole('navigation', { name: 'Conversations' })
   await expect(list.getByRole('heading', { name: 'Pinned' })).toBeVisible()
-  const today = list.getByRole('button', { name: /^Today, main conversation/ })
+  // Named by what it shows; the pin's meaning is its description.
+  const today = list.getByRole('button', { name: /^Today 2 need you/ })
   await expect(today).toHaveAttribute('aria-current', 'page')
-  await expect(today).toContainText('2 need you')
+  await expect(today).toHaveAccessibleDescription('Main conversation')
   await expect(list.getByRole('heading', { name: /Needs you/ })).toBeVisible()
   await expect(list.getByRole('button', { name: /^Kiln inventory sheet/ })).toContainText(
     'Needs you',
   )
+  // Its age is short on screen and whole when spoken.
+  const offsite = list.getByRole('button', { name: /^Studio offsite planning/ })
+  await expect(offsite).toContainText(/Jun \d|\dd|\dh|\dm|now/)
+  await expect(offsite).toHaveAccessibleName(
+    /^Studio offsite planning (June \d+|\d+ (day|hour|minute)s? ago|just now)$/,
+  )
+})
+
+test('a conversation Hermes finished while you were elsewhere says Done until you open it; Ctrl/⌘ Shift [ and ] step through the list', async ({
+  page,
+}) => {
+  const list = page.getByRole('navigation', { name: 'Conversations' })
+  const offsite = list.getByRole('button', { name: /^Studio offsite planning/ })
+  await offsite.click()
+  const box = page.getByRole('textbox', { name: 'Message Hermes' })
+  await box.fill('How big is each room? (synthetic)')
+  await box.press('Enter')
+  await expect(offsite).toHaveAccessibleName('Studio offsite planning Working')
+  // Back up the list while Hermes works; it finishes out of sight.
+  await page.keyboard.press(`${mod}+Shift+BracketLeft`)
   await expect(
-    list.getByRole('button', { name: /^Studio offsite planning/ }),
-  ).toContainText(/Jun 1|Jun 2|\dd|\dh|\dm|now/)
+    page.getByRole('region', { name: 'Conversation: Kiln inventory sheet' }),
+  ).toBeVisible()
+  await expect(offsite).toHaveAccessibleName(/^Studio offsite planning Done/, {
+    timeout: 15_000,
+  })
+  await expect(offsite).toContainText('Done')
+  // Down the list again: opening it clears the mark.
+  await page.keyboard.press(`${mod}+Shift+BracketRight`)
+  await expect(
+    page.getByRole('region', { name: 'Conversation: Studio offsite planning' }),
+  ).toBeVisible()
+  await expect(offsite).not.toContainText('Done')
+  // The list's last conversation has no next one.
+  await page.keyboard.press(`${mod}+Shift+BracketRight`)
+  await expect(
+    page.getByRole('region', { name: 'Conversation: Studio offsite planning' }),
+  ).toBeVisible()
 })
 
 test('the arrows walk the list without opening anything; Enter opens', async ({

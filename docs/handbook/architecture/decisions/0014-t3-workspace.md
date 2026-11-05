@@ -26,12 +26,17 @@ are.
 - **A conversation list** beside the conversation, on wide screens (1280px
   and up) only, inside Talk. It holds the main conversation (pinned), what
   needs the owner, then the rest by recency. A row's right-hand slot shows
-  a status worth a glance ("Needs you", "2 need you", "Working") in place of
-  how long ago it changed ("5m", "3h", "Jun 2"). The arrow keys move through
+  a status worth a glance in place of how long ago it changed ("5m", "3h",
+  "Jun 2"), in T3 Code's order and each with the icon of what it stands
+  for: what the owner must answer ("Approval", "Question", "2 need you"),
+  then "Working", then "Done" for a conversation Hermes finished while the
+  owner looked elsewhere, until they open it. The arrow keys move through
   it without opening anything, Enter opens, F2 or a double click renames when
   Hermes offers renaming, and typing searches. `Ctrl/⌘ B` hides and shows it
   (remembered on the device); `Ctrl/⌘ J` goes to its search while it is
-  shown, and to the switcher otherwise. Narrower windows, tablets and phones
+  shown, and to the switcher otherwise. `Ctrl/⌘ Shift [` and `]` open the
+  previous and next conversation in the list's order. Its edge resizes it
+  (208px to 384px, kept on the device). Narrower windows, tablets and phones
   keep the switcher.
 - **A work log:** two or more consecutive steps in a reply fold into one line
   that says how many and how long they took ("2 steps · 1m 24s") once all of
@@ -54,8 +59,8 @@ are.
   Work shows every card in full.
 - **A grouped command palette:** Go to, Actions, Conversations and Theme,
   each with a heading and its rows' icons; the most recent conversations
-  when nothing is typed; a leading `>` for commands only; the keys along its
-  foot.
+  other than the one on screen when nothing is typed; a leading `>` for
+  commands only; the keys along its foot.
 
 **Not taken, on purpose.**
 
@@ -67,8 +72,16 @@ are.
   keeps answers apart from messages to Hermes.
 - Shortcuts that answer: number keys only pick choices in the docked card,
   never send, and never act on a single quick question.
-- A resizable list and panel, hover menus, archive and snooze: Hermes v0.22.5
-  has no archive or snooze, and resizing can come later.
+- A resizable panel, hover menus, archive, snooze, settling and pinning:
+  Hermes v0.22.5 has no archive or snooze, and the main conversation is the
+  only pinned one.
+- Unread kept across sessions or devices, and "Mark unread": "Done" is only
+  what this session saw finish, in memory, so it never needs a stored visit
+  history.
+- A live elapsed time on "Working" rows: Hermes v0.22.5 gives Cindl no start
+  time for a conversation it is not showing.
+- `Ctrl/⌘ 1` to `9` for the list's rows: browsers keep them for their tabs.
+- Glass and 16px corners: DESIGN.md keeps radii at 12px and no glass.
 
 **Consequences.**
 
