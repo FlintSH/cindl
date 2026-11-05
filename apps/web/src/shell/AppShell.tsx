@@ -371,6 +371,7 @@ export function AppShell() {
                 ref={list}
                 currentId={currentConversation}
                 onHide={hideList}
+                onCompose={() => talk.current?.focusComposer()}
               />
             </ErrorBoundary>
           ) : null}

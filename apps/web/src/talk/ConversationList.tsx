@@ -36,7 +36,7 @@ import { shortcutText } from '../shortcuts.ts'
 import { Button } from '../ui/primitives.tsx'
 import { flatten, rowStatus, shelvesOf, type RowStatus } from './conversationList.ts'
 import { useFinished } from './finished.ts'
-import { noteFresh } from './places.ts'
+import { noteCompose } from './places.ts'
 import styles from './conversations.module.css'
 
 /** Each status's icon, as on the cards and steps it stands for; after T3 Code, none animate. */
@@ -74,8 +74,13 @@ function useNow(every = 30_000): number {
  */
 export const ConversationList = forwardRef<
   ConversationListHandle,
-  { currentId: string | undefined; onHide: () => void }
->(function ConversationList({ currentId, onHide }, ref) {
+  {
+    currentId: string | undefined
+    onHide: () => void
+    /** Puts focus in the open conversation's message box. */
+    onCompose: () => void
+  }
+>(function ConversationList({ currentId, onHide, onCompose }, ref) {
   const api = useCindlApi()
   const conversations = useConversations()
   const canCreate = useCan('sessions.create')
@@ -145,7 +150,7 @@ export const ConversationList = forwardRef<
     setProblem(undefined)
     try {
       const created = await api.call('conversations.create', {})
-      noteFresh()
+      noteCompose()
       navigate({ view: 'talk', conversationId: created.id })
     } catch (err) {
       setProblem(
@@ -321,7 +326,16 @@ export const ConversationList = forwardRef<
                             : 'true'
                         }
                         title={conversation.preview}
-                        onClick={() => open(conversation.id)}
+                        onClick={(event) => {
+                          // Picked with the pointer, it opens ready to write in, as
+                          // in T3 Code. From the keyboard (Enter, Space) focus stays
+                          // here, to go on through the list.
+                          if (event.detail > 0) {
+                            if (conversation.id === currentId) onCompose()
+                            else noteCompose()
+                          }
+                          open(conversation.id)
+                        }}
                         onDoubleClick={() => {
                           if (canRename) setRenaming(conversation.id)
                         }}

@@ -93,6 +93,23 @@ test('the arrows walk the list without opening anything; Enter opens', async ({
   ).toBeVisible()
 })
 
+test('a conversation picked with the pointer opens ready to write in, the open one too', async ({
+  page,
+}) => {
+  const list = page.getByRole('navigation', { name: 'Conversations' })
+  const kiln = list.getByRole('button', { name: /^Kiln inventory sheet/ })
+  const box = page.getByRole('textbox', { name: 'Message Hermes' })
+  await kiln.click()
+  await expect(
+    page.getByRole('region', { name: 'Conversation: Kiln inventory sheet' }),
+  ).toBeVisible()
+  await expect(box).toBeFocused()
+  await page.keyboard.type('Count the glaze batches (synthetic)')
+  await expect(box).toHaveValue('Count the glaze batches (synthetic)')
+  await kiln.click()
+  await expect(box).toBeFocused()
+})
+
 test('Ctrl/⌘ B hides and shows the list; hidden from inside, focus goes to what shows it', async ({
   page,
 }) => {

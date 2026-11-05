@@ -8,7 +8,7 @@ import { Overlay } from '../shell/Overlay.tsx'
 import { Badge, Button } from '../ui/primitives.tsx'
 import { listTime } from './format.ts'
 import { useFinished } from './finished.ts'
-import { noteFresh, noteSwitch } from './places.ts'
+import { noteCompose, noteSwitch } from './places.ts'
 import styles from './talk.module.css'
 
 export function HistoryPopover({
@@ -164,7 +164,7 @@ export function HistoryPopover({
               onClick={() =>
                 void api.call('conversations.create', {}).then(
                   (created) => {
-                    noteFresh()
+                    noteCompose()
                     open_(created.id)
                   },
                   (err: unknown) =>

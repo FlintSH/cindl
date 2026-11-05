@@ -63,18 +63,19 @@ export function takeSwitch(): boolean {
   return was
 }
 
-// Cindl just created the conversation now opening: the owner made it to
-// write in it, so it opens with focus in its message box.
-let fresh = false
+// The conversation now opening takes focus in its message box: Cindl just
+// created it (the owner made it to write in it), or the owner picked it with
+// the pointer from the conversation list, as in T3 Code.
+let compose = false
 
-export function noteFresh() {
-  fresh = true
+export function noteCompose() {
+  compose = true
 }
 
-/** Whether the conversation now opening was just created here (asked once). */
-export function takeFresh(): boolean {
-  const was = fresh
-  fresh = false
+/** Whether the conversation now opening takes focus in its message box (asked once). */
+export function takeCompose(): boolean {
+  const was = compose
+  compose = false
   return was
 }
 
@@ -84,7 +85,7 @@ export function forgetPlaces() {
   groupChoice.forget()
   forgetFinished()
   switched = false
-  fresh = false
+  compose = false
   for (const listener of listeners) listener()
 }
 

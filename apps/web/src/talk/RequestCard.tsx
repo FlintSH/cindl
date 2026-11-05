@@ -372,6 +372,10 @@ function DecisionCard({
     if (!question.multiSelect) pickedAt(questions.indexOf(question))()
   }
 
+  const foldLabel = `${folded ? 'Show' : 'Hide'} ${
+    questions.length > 1 ? 'the questions' : 'the question'
+  }`
+
   return (
     <section
       id={requestDomId(request)}
@@ -432,16 +436,8 @@ function DecisionCard({
             className={styles.stepButton}
             aria-expanded={!folded}
             aria-controls={bodyId}
-            aria-label={
-              questions.length > 1
-                ? folded
-                  ? 'Show the questions'
-                  : 'Hide the questions'
-                : folded
-                  ? 'Show the question'
-                  : 'Hide the question'
-            }
-            title={folded ? 'Show' : 'Hide until you are ready'}
+            aria-label={foldLabel}
+            title={foldLabel}
             onClick={() => setFolded(!folded)}
           >
             {folded ? (

@@ -328,9 +328,11 @@ After T3 Code ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
   finished there while you looked elsewhere, until you open it. Otherwise it
   shows "5m", "3h", "2d" or the date, spoken in full ("5 minutes ago"). Done
   counts only finishes this session saw, and is forgotten on sign-out; the
-  switcher shows it too. The arrow keys move through it without opening anything,
-  Enter opens, Home and End jump, `↑` from the first row reaches its search
-  box, and typing from a row goes on in the search box. F2 or a double click
+  switcher shows it too. The arrow keys move through it without opening
+  anything, Enter opens and keeps focus in the list, Home and End jump, `↑`
+  from the first row reaches its search box, and typing from a row goes on
+  in the search box. A conversation picked with the pointer opens with focus
+  in its message box, ready to write in, as in T3 Code. F2 or a double click
   renames a conversation in place (Enter saves, Escape keeps the old name)
   when Hermes offers renaming. `Ctrl/⌘ B` hides it, putting focus on the
   button that shows it again if focus was inside, and shows it again; while

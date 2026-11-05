@@ -31,8 +31,9 @@ are.
   for: what the owner must answer ("Approval", "Question", "2 need you"),
   then "Working", then "Done" for a conversation Hermes finished while the
   owner looked elsewhere, until they open it. The arrow keys move through
-  it without opening anything, Enter opens, F2 or a double click renames when
-  Hermes offers renaming, and typing searches. `Ctrl/⌘ B` hides and shows it
+  it without opening anything, Enter opens and keeps focus in the list, a
+  pointer pick opens with focus in the message box, F2 or a double click
+  renames when Hermes offers renaming, and typing searches. `Ctrl/⌘ B` hides and shows it
   (remembered on the device); `Ctrl/⌘ J` goes to its search while it is
   shown, and to the switcher otherwise. `Ctrl/⌘ Shift [` and `]` open the
   previous and next conversation in the list's order. Its edge resizes it

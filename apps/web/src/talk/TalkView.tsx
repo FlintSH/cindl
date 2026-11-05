@@ -32,9 +32,9 @@ import { HistoryPopover } from './HistoryPopover.tsx'
 import { MessageView, turnStateOf } from './MessageView.tsx'
 import {
   keepPlace,
-  noteFresh,
+  noteCompose,
   placeOf,
-  takeFresh,
+  takeCompose,
   takeSwitch,
   useSelectedStep,
 } from './places.ts'
@@ -105,7 +105,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         if (!canCreate) return
         try {
           const created = await api.call('conversations.create', {})
-          noteFresh()
+          noteCompose()
           navigate({ view: 'talk', conversationId: created.id })
         } catch (err) {
           setProblem(failureText(err, 'The side conversation could not be started.'))
@@ -146,9 +146,9 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     // Cindl just created opens with focus in its message box, once that is shown.
     const composeOnArrival = useRef(false)
     useEffect(() => {
-      const fresh = takeFresh()
+      const compose = takeCompose()
       const switched = takeSwitch()
-      if (fresh) composeOnArrival.current = true
+      if (compose) composeOnArrival.current = true
       else if (switched) switcher.current?.focus()
     }, [conversationId])
     useEffect(() => {
@@ -220,7 +220,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                     await api.call('conversations.setMain', {
                       conversationId: created.id,
                     })
-                    noteFresh()
+                    noteCompose()
                     navigate({ view: 'talk', conversationId: created.id })
                   } catch (err) {
                     setProblem(failureText(err, 'The conversation could not be started.'))
@@ -262,7 +262,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     const startSide = async () => {
       try {
         const created = await api.call('conversations.create', {})
-        noteFresh()
+        noteCompose()
         navigate({ view: 'talk', conversationId: created.id })
       } catch (err) {
         setProblem(failureText(err, 'The side conversation could not be started.'))
