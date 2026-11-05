@@ -7,7 +7,8 @@ import { fuzzyScore } from '../shell/CommandPalette.tsx'
 import { Overlay } from '../shell/Overlay.tsx'
 import { Badge, Button } from '../ui/primitives.tsx'
 import { listTime } from './format.ts'
-import { noteFresh, noteSwitch } from './places.ts'
+import { useFinishedOutcomes } from './finished.ts'
+import { noteCompose, noteSwitch } from './places.ts'
 import styles from './talk.module.css'
 
 export function HistoryPopover({
@@ -22,6 +23,7 @@ export function HistoryPopover({
   const api = useCindlApi()
   const conversations = useConversations()
   const canCreate = useCan('sessions.create')
+  const finished = useFinishedOutcomes()
   const [error, setError] = useState<string>()
   const [query, setQuery] = useState('')
   const filtered = useMemo(
@@ -138,6 +140,13 @@ export function HistoryPopover({
                 {conversation.status === 'working' ? (
                   <Badge tone="info">Working</Badge>
                 ) : null}
+                {finished.get(conversation.id) === 'failed' ? (
+                  <Badge tone="danger">Failed</Badge>
+                ) : finished.get(conversation.id) === 'stopped' ? (
+                  <Badge>Stopped</Badge>
+                ) : finished.has(conversation.id) ? (
+                  <Badge tone="success">Done</Badge>
+                ) : null}
                 <span className={styles.historyMeta}>
                   {listTime(conversation.updatedAt)}
                 </span>
@@ -159,7 +168,7 @@ export function HistoryPopover({
               onClick={() =>
                 void api.call('conversations.create', {}).then(
                   (created) => {
-                    noteFresh()
+                    noteCompose()
                     open_(created.id)
                   },
                   (err: unknown) =>

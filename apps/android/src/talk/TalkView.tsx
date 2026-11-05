@@ -20,12 +20,13 @@ import {
   type HostInstance,
   type ScrollViewInstance,
 } from 'react-native'
-import { useNav, useNavigate } from '../nav/NavProvider.tsx'
+import { useDestinationActive, useNav, useNavigate } from '../nav/NavProvider.tsx'
 import { claimFocus, FocusFallback } from '../overlay/opener.ts'
 import { useTheme } from '../theme/theme.tsx'
 import { ArrowDown, ChevronDown, PanelBottom, Plus } from '../ui/icons.ts'
 import { Button, Dot, ErrorText, focusRing, Press, Txt } from '../ui/primitives.tsx'
 import { Composer } from './Composer.tsx'
+import { noteStatuses } from './finished.ts'
 import { HistorySheet } from './HistorySheet.tsx'
 import { MessageView, turnStateOf } from './MessageView.tsx'
 import { keepPlace, placeOf, useSelectedStep } from './places.ts'
@@ -59,6 +60,12 @@ export function TalkView() {
     ? undefined
     : (nav.conversationId ?? main?.id ?? conversations[0]?.id)
   const conversation = useConversation(conversationId)
+  // What Hermes finishes while the owner looks elsewhere is marked "Done".
+  const onScreen = useDestinationActive()
+  useEffect(
+    () => noteStatuses(conversations, onScreen ? conversationId : undefined),
+    [conversations, conversationId, onScreen],
+  )
   const messages = useMessages(conversationId)
   const activity = useConversationActivity(conversationId)
   const uncertain = useUncertainPrompts(conversationId)

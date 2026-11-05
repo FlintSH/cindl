@@ -104,6 +104,12 @@ const selected = () =>
     .filter((t) => t.getAttribute('aria-selected') === 'true')
     .map((t) => t.textContent)
 
+/** Steps sit in a work log that folds once it is done: open it to reach them. */
+const openSteps = () => {
+  const head = screen.queryByRole('button', { name: /^2 steps/ })
+  if (head?.getAttribute('aria-expanded') === 'false') fireEvent.click(head)
+}
+
 describe('the working margin, as the conversation’s panel', () => {
   it('opens on what the conversation waits on, with the count on its tab', async () => {
     await renderShell()
@@ -127,6 +133,7 @@ describe('the working margin, as the conversation’s panel', () => {
     await renderShell()
     // Even with Waiting chosen, selecting a step opens it on Step.
     fireEvent.click(tab(/^Waiting/))
+    openSteps()
     fireEvent.click(screen.getByRole('button', { name: /Checked the studio calendar/ }))
     await settle()
     expect(selected()).toEqual(['Step'])
@@ -181,6 +188,7 @@ describe('the working margin, as the conversation’s panel', () => {
 
   it('un-pressing a step leaves Step chosen, as "Clear the step" does', async () => {
     await renderShell()
+    openSteps()
     const step = screen.getByRole('button', { name: /Checked the studio calendar/ })
     fireEvent.click(step)
     await settle()
@@ -192,6 +200,7 @@ describe('the working margin, as the conversation’s panel', () => {
 
   it('keeps the selected step while another tool is chosen, for when Step is chosen again', async () => {
     await renderShell()
+    openSteps()
     fireEvent.click(screen.getByRole('button', { name: /Checked the studio calendar/ }))
     await settle()
     fireEvent.click(tab(/^Waiting/))
@@ -204,6 +213,7 @@ describe('the working margin, as the conversation’s panel', () => {
 
   it('"Clear the step" leaves focus on the Step tab', async () => {
     await renderShell()
+    openSteps()
     fireEvent.click(screen.getByRole('button', { name: /Checked the studio calendar/ }))
     await settle()
     fireEvent.click(margin().getByRole('button', { name: 'Clear the step' }))

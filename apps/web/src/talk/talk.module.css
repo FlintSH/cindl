@@ -27,6 +27,11 @@
   padding: var(--space-2) var(--space-4) var(--space-2) var(--space-5);
   border-bottom: 1px solid var(--color-border);
 }
+/* With the conversation list hidden, its show button leads the header. */
+.header[data-list='hidden'] {
+  grid-template-columns: auto minmax(0, auto) minmax(0, 1fr) auto;
+  padding-left: var(--space-2);
+}
 .switcher {
   display: inline-flex;
   align-items: center;
@@ -133,11 +138,24 @@
   margin: 0 auto;
   padding: var(--space-8) var(--space-5) var(--space-6);
 }
-/* A conversation with nothing in it yet: one quiet line, in the middle. */
+/* A conversation with nothing in it yet: a quiet prompt in the middle (after
+   T3 Code's "What should we work on?"). */
 .emptyConversation {
+  display: grid;
+  gap: var(--space-1);
   margin: auto 0;
   color: var(--color-text-tertiary);
   text-align: center;
+}
+.emptyConversation p {
+  margin: 0;
+}
+.emptyTitle {
+  color: var(--color-text);
+  font-size: var(--text-heading-size);
+  line-height: var(--text-heading-line);
+  font-weight: 600;
+  letter-spacing: var(--text-heading-tracking);
 }
 .loading,
 .emptyTalk {
@@ -168,6 +186,44 @@
   line-height: var(--text-body-line);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+/* A long message folds to about six lines, fading out above its toggle. */
+.userBubble[data-folded='true'] .userText {
+  max-height: calc(6 * var(--text-body-line));
+  overflow: hidden;
+  mask-image: linear-gradient(to bottom, var(--color-text) 65%, transparent);
+}
+.unfold {
+  margin-top: var(--space-1);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-accent-text);
+  font-size: var(--text-label-size);
+  font-weight: 500;
+}
+.unfold:hover {
+  text-decoration: underline;
+}
+/* Copy beside the owner's message, on hover or focus (desktop). */
+.user {
+  align-items: flex-start;
+  gap: var(--space-1);
+}
+.user .copyMine {
+  opacity: 0;
+  transition: opacity var(--duration-fast) var(--ease-standard);
+}
+.user:hover .copyMine,
+.user:focus-within .copyMine,
+.user .copyMine[data-state='copied'],
+.user .copyMine[data-state='failed'] {
+  opacity: 1;
+}
+@media (max-width: 767px), (hover: none), (pointer: coarse) {
+  .user .copyMine {
+    display: none;
+  }
 }
 
 .assistant {
@@ -309,6 +365,86 @@
 .toolChevron {
   color: var(--color-text-tertiary);
 }
+/* The live step's label: a slow sweep of light across it (functional, not
+   decoration: it marks the one step running now). Off with reduced motion. */
+.toolTitle[data-live='true'] {
+  background: linear-gradient(
+      90deg,
+      var(--color-text-secondary) 0%,
+      var(--color-text-secondary) 40%,
+      var(--color-text) 50%,
+      var(--color-text-secondary) 60%,
+      var(--color-text-secondary) 100%
+    )
+    0 0 / 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shimmer 2.2s linear infinite;
+}
+@keyframes shimmer {
+  from {
+    background-position: 100% 0;
+  }
+  to {
+    background-position: -150% 0;
+  }
+}
+/* Work log: consecutive steps as one line that opens into them. */
+.workGroup {
+  display: flex;
+  flex-direction: column;
+}
+.workHead {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  width: 100%;
+  min-height: var(--pointer-target);
+  padding: var(--space-1) var(--space-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: var(--text-ui-size);
+  text-align: left;
+}
+.workHead:hover {
+  border-color: var(--color-border);
+  background: var(--color-surface);
+}
+.workHead[data-status='complete'] .toolIcon {
+  color: var(--color-success);
+}
+.workHead[data-status='error'] .toolIcon {
+  color: var(--color-danger);
+}
+.workHead[data-status='running'] .toolIcon,
+.workHead[data-status='blocked'] .toolIcon {
+  color: var(--color-accent-text);
+}
+.workLabel {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.workChevron {
+  color: var(--color-text-tertiary);
+  transition: transform var(--duration-base) var(--ease-standard);
+}
+.workHead[aria-expanded='true'] .workChevron {
+  transform: rotate(90deg);
+}
+/* The steps hang from the group's icon on a thin rule. */
+.workSteps {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-0_5);
+  margin: var(--space-0_5) 0 0 calc(var(--space-2) + 0.625rem - 0.5px);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--color-border);
+}
 .spin {
   animation: spin 1.1s linear infinite;
 }
@@ -318,8 +454,13 @@
   }
 }
 @media (prefers-reduced-motion: reduce) {
-  .spin {
+  .spin,
+  .toolTitle[data-live='true'] {
     animation: none;
+  }
+  .toolTitle[data-live='true'] {
+    color: var(--color-text-secondary);
+    background: none;
   }
 }
 
@@ -498,9 +639,125 @@
   accent-color: var(--color-accent);
   flex: none;
 }
+.otherRow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-1) var(--space-3);
+  margin-top: var(--space-1);
+}
 .otherLabel {
   display: flex;
-  margin-top: var(--space-1);
+  flex: 1 1 12rem;
+  min-width: 0;
+}
+/* Everything below a card's heading; a docked set folds it away. */
+.requestContent {
+  display: contents;
+}
+.requestContent[hidden] {
+  display: none;
+}
+
+/* A question set docked above the composer, after T3 Code's pending-input
+   drawer: one line for what it is and where you are in it, then one question
+   at a time with number keys on its choices. It folds to that line. */
+.dock {
+  position: relative;
+  max-width: var(--reading-measure);
+  max-height: min(26rem, 45dvh);
+  margin: 0 auto var(--space-2);
+  overflow-y: auto;
+  border-radius: var(--radius-lg);
+}
+.request[data-layout='dock'] {
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3) var(--space-4) var(--space-4);
+  border-radius: var(--radius-lg);
+}
+.request[data-layout='dock'][data-folded='true'] {
+  padding-bottom: var(--space-2);
+}
+.request[data-layout='dock'] .requestHeader {
+  flex-direction: row;
+  align-items: center;
+  gap: var(--space-2);
+  min-height: 2rem;
+}
+.request[data-layout='dock'] .requestKind {
+  flex: none;
+}
+.request[data-layout='dock'] .requestTitle {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--text-ui-size);
+  line-height: var(--text-ui-line);
+}
+.request[data-layout='dock'] .requestTitle::before {
+  content: '·' / '';
+  margin-right: var(--space-2);
+  color: var(--color-text-tertiary);
+  font-weight: 400;
+}
+.request[data-layout='dock'] .questionForm {
+  gap: var(--space-3);
+  padding-right: var(--space-1);
+}
+/* Choices are whole rows, as in T3 Code, with their number key at the end. */
+.request[data-layout='dock'] .option {
+  margin: 0 calc(-1 * var(--space-2));
+  padding: 0 var(--space-2);
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast) var(--ease-standard);
+}
+.request[data-layout='dock'] .option:hover {
+  background: var(--color-surface-sunken);
+}
+.request[data-layout='dock'] .otherRow .option {
+  margin-right: 0;
+}
+/* Its actions stay in reach while a long question scrolls inside the dock. */
+.request[data-layout='dock'] .questionForm > .requestFooter {
+  position: sticky;
+  bottom: calc(-1 * var(--space-4));
+  /* Edge to edge: the card's padding, and the question's own on the right. */
+  margin: 0 calc(-1 * var(--space-4)) calc(-1 * var(--space-4));
+  padding: var(--space-2) var(--space-4) var(--space-3);
+  border-top: 1px solid var(--color-border);
+  border-radius: 0 0 calc(var(--radius-lg) - 1px) calc(var(--radius-lg) - 1px);
+  background: var(--color-surface-raised);
+}
+.stepper {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-0_5);
+  flex: none;
+  color: var(--color-text-tertiary);
+  font-size: var(--text-label-size);
+  line-height: var(--text-label-line);
+  font-weight: 500;
+}
+.stepCount {
+  margin-right: var(--space-1);
+  font-variant-numeric: tabular-nums;
+}
+.optionKey {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  margin-left: auto;
+  border: 1px solid var(--color-border);
+  border-bottom-width: 2px;
+  border-radius: var(--radius-xs);
+  background: var(--color-surface);
+  color: var(--color-text-tertiary);
+  font-family: inherit;
+  font-size: var(--text-caption-size);
 }
 
 /* Composer ---------------------------------------------------------------- */
@@ -511,11 +768,10 @@
   max-width: var(--reading-measure);
   margin: 0 auto;
 }
+/* After T3 Code: the text on top, a bar beneath it inside the same box. */
 .composerBox {
   display: flex;
-  align-items: flex-end;
-  gap: var(--space-2);
-  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4);
+  flex-direction: column;
   border: 1px solid var(--color-border-strong);
   border-radius: var(--radius-lg);
   background: var(--color-surface-raised);
@@ -526,10 +782,11 @@
   box-shadow: 0 0 0 1px var(--color-focus);
 }
 .composerInput {
-  flex: 1;
-  min-height: 2.25rem;
+  width: 100%;
+  /* Two lines to start with on a wide screen, growing with the text. */
+  min-height: calc(2 * var(--text-body-line) + var(--space-3));
   max-height: 40dvh;
-  padding: var(--space-1_5) 0;
+  padding: var(--space-3) var(--space-4) 0;
   border: 0;
   background: transparent;
   resize: none;
@@ -538,17 +795,34 @@
   line-height: var(--text-body-line);
   outline: none;
 }
+.composerBar {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-1) var(--space-2) var(--space-2) var(--space-4);
+}
 .composerInput:focus-visible {
   outline: none;
 }
 .composerActions {
   display: flex;
   gap: var(--space-1);
+  margin-left: auto;
 }
-/* Stop is a bordered control beside Send, so its square never reads as a stray glyph. */
+/* After T3 Code, Send and Stop are round and share the bar's one slot. Stop is
+   filled, so its square never reads as a stray glyph. */
+.composerActions .send,
 .composerActions .stop {
-  border-color: var(--color-border-strong);
-  color: var(--color-text);
+  border-radius: var(--radius-pill);
+}
+.composerActions .stop {
+  border-color: var(--color-text);
+  background: var(--color-text);
+  color: var(--color-surface-raised);
+}
+.composerActions .stop:hover:not(:disabled) {
+  border-color: var(--color-text-secondary);
+  background: var(--color-text-secondary);
 }
 /* An empty box has no intent yet: Send stays neutral until there is text to send. */
 .composerActions .send:disabled {
@@ -557,7 +831,21 @@
   color: var(--color-text-tertiary);
   opacity: 1;
 }
+/* What sending does now, or the keys, along the bar's left. */
 .composerHint,
+.composerKeys {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  font-size: var(--text-label-size);
+  line-height: var(--text-label-line);
+  color: var(--color-text-tertiary);
+}
+.composerKeys kbd {
+  font-family: inherit;
+  font-size: inherit;
+  color: var(--color-text-secondary);
+}
 .composerError {
   margin: var(--space-2) var(--space-1) 0;
   font-size: var(--text-label-size);
@@ -863,6 +1151,15 @@ dialog .margin {
   }
   .composerDock {
     padding: 0 var(--space-3) var(--space-3);
+  }
+  .composerInput {
+    min-height: calc(var(--text-body-line) + var(--space-3));
+  }
+}
+@media (max-width: 767px), (hover: none), (pointer: coarse) {
+  /* No keyboard to hint at; the bar keeps only what sending does now. */
+  .composerKeys {
+    visibility: hidden;
   }
 }
 @media (max-width: 767px), (pointer: coarse) {

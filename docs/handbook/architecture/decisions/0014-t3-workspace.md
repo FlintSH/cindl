@@ -1,0 +1,106 @@
+# 0014 Talk's workspace after T3 Code
+
+**Status:** Accepted (owner direction, 2026-11-05). Web and desktop (shared
+renderer): built and tested in a browser on the synthetic demo. Android:
+partly; see Consequences.
+
+**Context.** The owner named T3 Code the best agent interface they use and
+asked Cindl to take its best features, with heavier inspiration than the
+papercut pass that preceded this. T3 Code was read, not run, at
+`pingdotgg/t3code` commit `a21d788`: its thread sidebar
+(`components/Sidebar.tsx`, `components/sidebar/`), work log
+(`components/chat/MessagesTimeline.logic.ts`, `TimelineWorkGroupRows.tsx`,
+`WorkLog.tsx`), composer (`ComposerSurface.tsx`, `ComposerPrimaryActions.tsx`,
+`composerPromptHistory.ts`), pending-input panel
+(`ComposerPendingUserInputPanel.tsx`) and command palette
+(`CommandPaletteContent.tsx`).
+
+An earlier left sidebar was shelved (`flintsh/shelved-left-sidebar`): it
+replaced the four-destination spine, and the owner had asked for T3 Code's
+right panel, not its navigation ([ADR 0013](0013-conversation-panel.md)).
+This decision keeps the spine, the bottom navigation and the panel as they
+are.
+
+**Decision.** Talk takes five things from T3 Code:
+
+- **A conversation list** beside the conversation, on wide screens (1280px
+  and up) only, inside Talk. It holds the main conversation (pinned), what
+  needs the owner, then the rest by recency. A row's right-hand slot shows
+  a status worth a glance in place of how long ago it changed ("5m", "3h",
+  "Jun 2"), in T3 Code's order and each with the icon of what it stands
+  for: what the owner must answer ("Approval", "Question", "2 need you"),
+  then "Working", then "Done" for a conversation Hermes finished while the
+  owner looked elsewhere, until they open it ("Failed" or "Stopped" when
+  this client saw the reply end with an error or interruption). The arrow keys move through
+  it without opening anything, Enter opens and keeps focus in the list, a
+  pointer pick opens with focus in the message box, F2 or a double click
+  renames when Hermes offers renaming, and typing searches. `Ctrl/⌘ B` hides and shows it
+  (remembered on the device); `Ctrl/⌘ J` goes to its search while it is
+  shown, and to the switcher otherwise. `Ctrl/⌘ Shift [` and `]` open the
+  previous and next conversation in the list's order. Its edge resizes it
+  (208px to 384px, kept on the device). Narrower windows, tablets and phones
+  keep the switcher.
+- **A work log:** two or more consecutive steps in a reply fold into one line
+  that says how many and how long they took ("2 steps · 1m 24s") once all of
+  them are done. The line stays open while Hermes works, waits on the owner
+  or has a failure, and while one of its steps is selected; the owner's own
+  open or closed choice wins for the session. The step that is running has a
+  slow sweep across its label.
+- **A composer in two parts:** the text on top, a bar beneath it in the same
+  box with what sending does now (or the keys) on the left and one round
+  primary button on the right. That button is Stop while Hermes works and the
+  box is empty, and Send as soon as there is text, so Stop and Send never
+  compete. A rapid second press after Send becomes Stop cannot interrupt the
+  turn; on Android, Send stays until its request settles.
+  Its presses never take focus from the text. ArrowUp in an empty box brings
+  back what the owner sent in this conversation; ArrowDown goes forward.
+- **Questions docked above the composer:** on Talk, with room (768px wide and
+  640px tall or more), a question set waits right where the owner types,
+  after T3 Code's drawer: one line with what it is, where the owner is in it
+  and a chevron that folds it to that line, then one question at a time with
+  number keys on its choices, and a short pause before a single-choice pick
+  moves on. Arrow keys select without moving on, successive number keys
+  carry on to the next question, and focus stays in the set as it changes.
+  Folding answers nothing. It is the same card as before,
+  with the same answer-once lock, drafts and refusals; only its layout
+  changed. Approvals stay in the conversation, beside the step they hold.
+  Work shows every card in full.
+- **A grouped command palette:** Go to, Actions, Conversations and Theme,
+  each with a heading and its rows' icons; the most recent conversations
+  other than the one on screen when nothing is typed; a leading `>` for
+  commands only; the keys along its foot.
+
+**Not taken, on purpose.**
+
+- Standing grants ("Always allow this session"): Cindl sends only `once` or
+  `deny` (AGENTS.md invariant 4).
+- A secret-entry card: Cindl never answers secret, sudo or vault prompts.
+- Remote loads (images, favicons) and drafts in browser storage.
+- The composer as the questions' answer box: a question's own answer field
+  keeps answers apart from messages to Hermes.
+- Shortcuts that answer: number keys only pick choices in the docked card,
+  never send, and never act on a single quick question.
+- A resizable panel, hover menus, archive, snooze, settling and pinning:
+  Hermes v0.22.5 has no archive or snooze, and the main conversation is the
+  only pinned one.
+- Unread kept across sessions or devices, and "Mark unread": "Done" is only
+  what this session saw finish, in memory, so it never needs a stored visit
+  history.
+- A live elapsed time on "Working" rows: Hermes v0.22.5 gives Cindl no start
+  time for a conversation it is not showing.
+- `Ctrl/⌘ 1` to `9` for the list's rows: browsers keep them for their tabs.
+- Glass and 16px corners: DESIGN.md keeps radii at 12px and no glass.
+
+**Consequences.**
+
+- Wide windows show four columns: the spine, the list, the conversation and
+  the panel. At exactly 1280px with the panel open the conversation is about
+  544px wide; either side can be hidden (`Ctrl/⌘ B`, `Ctrl/⌘ .`). The desktop
+  app opens at 1360px.
+- Steps addressed by title (tests, the panel's Show) are inside a folded line
+  when finished; the selected step's line stays open.
+- Android takes the work log, the live timer, the one-slot round Stop and
+  Send, and "Done", "Failed" or "Stopped" in its conversation sheet; it keeps the sheet and its
+  question cards in the conversation, since a phone has no room for a list
+  or a dock.
+- Round Send and Stop are the only round buttons; DESIGN.md names them.

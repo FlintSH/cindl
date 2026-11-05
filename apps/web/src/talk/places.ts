@@ -1,4 +1,6 @@
 import { useSyncExternalStore } from 'react'
+import { forgetFinished } from './finished.ts'
+import { groupChoice } from './workGroups.ts'
 
 /** The working margin's tools (ADR 0013). */
 export type MarginTool = 'waiting' | 'step' | 'computer'
@@ -61,26 +63,29 @@ export function takeSwitch(): boolean {
   return was
 }
 
-// Cindl just created the conversation now opening: the owner made it to
-// write in it, so it opens with focus in its message box.
-let fresh = false
+// The conversation now opening takes focus in its message box: Cindl just
+// created it (the owner made it to write in it), or the owner picked it with
+// the pointer from the conversation list, as in T3 Code.
+let compose = false
 
-export function noteFresh() {
-  fresh = true
+export function noteCompose() {
+  compose = true
 }
 
-/** Whether the conversation now opening was just created here (asked once). */
-export function takeFresh(): boolean {
-  const was = fresh
-  fresh = false
+/** Whether the conversation now opening takes focus in its message box (asked once). */
+export function takeCompose(): boolean {
+  const was = compose
+  compose = false
   return was
 }
 
 /** The session ended: nothing typed or read on this device outlives it. */
 export function forgetPlaces() {
   places.clear()
+  groupChoice.forget()
+  forgetFinished()
   switched = false
-  fresh = false
+  compose = false
   for (const listener of listeners) listener()
 }
 

@@ -8,7 +8,23 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { AppShell } from '../src/shell/AppShell.tsx'
 import { forgetPlaces } from '../src/talk/places.ts'
 
+const dialogPrototype = HTMLDialogElement.prototype as unknown as Record<
+  'showModal' | 'close',
+  unknown
+>
+const dialogMethods = {
+  showModal: dialogPrototype.showModal,
+  close: dialogPrototype.close,
+}
+
 beforeEach(() => {
+  // jsdom supplies dialog elements but not their native open/close methods.
+  HTMLDialogElement.prototype.showModal = function () {
+    this.open = true
+  }
+  HTMLDialogElement.prototype.close = function () {
+    this.open = false
+  }
   // jsdom has no matchMedia: a wide window, where the margin is a column.
   vi.stubGlobal('matchMedia', (media: string) => ({
     matches: media === '(min-width: 1280px)',
@@ -22,6 +38,7 @@ afterEach(() => {
   cleanup()
   forgetPlaces()
   vi.unstubAllGlobals()
+  Object.assign(HTMLDialogElement.prototype, dialogMethods)
 })
 
 const settle = () =>
@@ -52,7 +69,35 @@ async function renderShell(hash = '#/talk/demo-main') {
   return scenario
 }
 
+/** Steps sit in a work log that folds once it is done: open it to reach them. */
+const openSteps = () => {
+  const head = screen.queryByRole('button', { name: /^2 steps/ })
+  if (head?.getAttribute('aria-expanded') === 'false') fireEvent.click(head)
+}
+
 describe('where the owner left a conversation', () => {
+  it.each(['j', 'b'])(
+    'Ctrl+%s opens the phone switcher when resize notification has not arrived yet',
+    async (key) => {
+      let wide = true
+      vi.stubGlobal('matchMedia', (media: string) => ({
+        get matches() {
+          return wide && media === '(min-width: 1280px)'
+        },
+        media,
+        // The browser has resized, but has not delivered its change event.
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }))
+      await renderShell()
+      wide = false
+      fireEvent.keyDown(document.body, { key, ctrlKey: true })
+      await settle()
+      expect(screen.getByRole('dialog', { name: 'Conversations' })).toBeTruthy()
+      expect(box().value).toBe('')
+    },
+  )
+
   it('keeps an unsent message with its own conversation, never another', async () => {
     await renderShell()
     fireEvent.change(box(), { target: { value: 'Ask about the glaze order (fixture)' } })
@@ -93,6 +138,7 @@ describe('where the owner left a conversation', () => {
     await renderShell()
     const step = () =>
       screen.getByRole('button', { name: /Checked the studio calendar for Thursday/ })
+    openSteps()
     fireEvent.click(step())
     await settle()
     expect(step().getAttribute('aria-pressed')).toBe('true')

@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { createScenarioClient } from '@cindl/fixtures/scenario'
+import { createScenarioClient, scenarioData } from '@cindl/fixtures/scenario'
 import { CindlError } from '@cindl/contracts'
 import type {
   CapabilityMap,
@@ -164,6 +164,7 @@ async function talk(s = scenario(), strict = false) {
 
 const STEP = /^Checked the studio calendar for Thursday\. /
 const STEP_EMPTY = 'Select a step in the conversation to see what Hermes did.'
+const STEPS = /^2 steps/
 
 describe('the working margin, as the conversation’s panel', () => {
   it('opens from the conversation on Waiting, with the count on its tab and focus there', async () => {
@@ -180,6 +181,8 @@ describe('the working margin, as the conversation’s panel', () => {
 
   it('opens on Step when a step is selected; Clear the step empties it, Step stays chosen, focus on its tab', async () => {
     const t = await talk()
+    // Finished steps fold into one work-log line: open it first (ADR 0014).
+    await t.press(STEPS)
     await t.press(STEP)
     expect(t.open()).toBe(true)
     expect(t.tabs()).toEqual(['Waiting 2', 'Step *', 'Computer'])
@@ -194,6 +197,8 @@ describe('the working margin, as the conversation’s panel', () => {
 
   it('un-selecting a step clears it without opening the margin, and Step stays chosen', async () => {
     const t = await talk()
+    // Finished steps fold into one work-log line: open it first (ADR 0014).
+    await t.press(STEPS)
     await t.press(STEP)
     await t.back()
     expect(t.open()).toBe(false)
@@ -207,6 +212,8 @@ describe('the working margin, as the conversation’s panel', () => {
 
   it('never switches tools by itself: a new request changes the count, not the tool', async () => {
     const t = await talk()
+    // Finished steps fold into one work-log line: open it first (ADR 0014).
+    await t.press(STEPS)
     await t.press(STEP)
     const request: ServerRequest = {
       requestId: 'srq-00000000dea9',
@@ -275,6 +282,71 @@ describe('the working margin, as the conversation’s panel', () => {
     expect(t.composer()).toBe('Ask about the glaze order (fixture)')
     await t.press('Show the working margin')
     expect(t.tabs()).toEqual(['Waiting 2', 'Step', 'Computer *'])
+  })
+})
+
+describe('the conversation sheet (web parity, after T3 Code)', () => {
+  it.each([
+    ['error', 'Failed'],
+    ['interrupted', 'Stopped'],
+  ] as const)(
+    'says %s as %s for an unseen reply, until its conversation is opened',
+    async (status, label) => {
+      const t = await talk()
+      const offsite = scenarioData.conversations.find((c) => c.id === 'demo-offsite')
+      if (!offsite) throw new Error('no offsite conversation in the scenario')
+      act(() =>
+        t.s.emit({
+          type: 'conversation.upserted',
+          conversation: { ...offsite, status: 'working' },
+        }),
+      )
+      await t.settle()
+      act(() => {
+        t.s.emit({
+          type: 'message.started',
+          conversationId: offsite.id,
+          messageId: 'unseen-reply',
+          role: 'assistant',
+        })
+        t.s.emit({
+          type: 'message.completed',
+          conversationId: offsite.id,
+          messageId: 'unseen-reply',
+          status,
+        })
+        t.s.emit({
+          type: 'conversation.upserted',
+          conversation: { ...offsite, status: 'idle' },
+        })
+      })
+      await t.settle()
+      await t.press('Today, Main. Switch conversation')
+      expect(t.has(label)).toBe(true)
+      expect(t.has('Done')).toBe(false)
+      await t.press(new RegExp(`^Studio offsite planning, ${label}`))
+      await t.press(/^Studio offsite planning.*Switch conversation$/)
+      expect(t.has(label)).toBe(false)
+    },
+  )
+
+  it('says Done for a conversation Hermes finished while you were elsewhere, until you open it', async () => {
+    const t = await talk()
+    const offsite = scenarioData.conversations.find((c) => c.id === 'demo-offsite')
+    if (!offsite) throw new Error('no offsite conversation in the scenario')
+    // It works and finishes while Today is on screen.
+    for (const status of ['working', 'idle'] as const) {
+      act(() =>
+        t.s.emit({ type: 'conversation.upserted', conversation: { ...offsite, status } }),
+      )
+      await t.settle()
+    }
+    await t.press('Today, Main. Switch conversation')
+    expect(t.has('Done')).toBe(true)
+    await t.press(/^Studio offsite planning, Done/)
+    // Opened, it is seen.
+    await t.press(/^Studio offsite planning.*Switch conversation$/)
+    expect(t.has('Done')).toBe(false)
   })
 })
 

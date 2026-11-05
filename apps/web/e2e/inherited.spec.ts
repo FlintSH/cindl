@@ -7,7 +7,7 @@ import { expect, test } from './fixtures.ts'
 for (const [route, expected] of [
   ['/#/talk/constructor', 'This conversation is not available on this connection.'],
   ['/#/talk/toString', 'This conversation is not available on this connection.'],
-  ['/#/talk/__proto__', /Today/],
+  ['/#/talk/__proto__', /Today.*Switch conversation/],
   ['/#/library/skills/constructor', 'That skill is not installed.'],
   ['/#/library/skills/__proto__', 'That skill is not installed.'],
 ] as const)

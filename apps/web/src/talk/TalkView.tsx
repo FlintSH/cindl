@@ -10,7 +10,7 @@ import {
   useMessages,
   useUncertainPrompts,
 } from '@cindl/client-react'
-import { ArrowDown, ChevronDown, PanelRight, Plus } from 'lucide-react'
+import { ArrowDown, ChevronDown, PanelLeftOpen, PanelRight, Plus } from 'lucide-react'
 import {
   forwardRef,
   useEffect,
@@ -32,9 +32,9 @@ import { HistoryPopover } from './HistoryPopover.tsx'
 import { MessageView, turnStateOf } from './MessageView.tsx'
 import {
   keepPlace,
-  noteFresh,
+  noteCompose,
   placeOf,
-  takeFresh,
+  takeCompose,
   takeSwitch,
   useSelectedStep,
 } from './places.ts'
@@ -73,9 +73,11 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     const uncertain = useUncertainPrompts(conversationId)
     const [historyOpen, setHistoryOpen] = useState(false)
     const [marginPreference, setMarginPreference] = usePreference('marginOpen')
+    const [listOpen, setListOpen] = usePreference('conversationsOpen')
     // Wide screens keep the margin as a column (remembered); narrower screens show it
     // as a modal sheet that starts closed, so it never covers live controls.
     const wide = useMediaQuery('(min-width: 1280px)')
+    const roomy = useMediaQuery('(min-width: 768px) and (min-height: 640px)')
     const [sheetOpen, setSheetOpen] = useState(false)
     const marginOpen = wide ? marginPreference : sheetOpen
     const setMarginOpen = wide ? setMarginPreference : setSheetOpen
@@ -103,7 +105,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
         if (!canCreate) return
         try {
           const created = await api.call('conversations.create', {})
-          noteFresh()
+          noteCompose()
           navigate({ view: 'talk', conversationId: created.id })
         } catch (err) {
           setProblem(failureText(err, 'The side conversation could not be started.'))
@@ -144,9 +146,9 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     // Cindl just created opens with focus in its message box, once that is shown.
     const composeOnArrival = useRef(false)
     useEffect(() => {
-      const fresh = takeFresh()
+      const compose = takeCompose()
       const switched = takeSwitch()
-      if (fresh) composeOnArrival.current = true
+      if (compose) composeOnArrival.current = true
       else if (switched) switcher.current?.focus()
     }, [conversationId])
     useEffect(() => {
@@ -218,7 +220,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                     await api.call('conversations.setMain', {
                       conversationId: created.id,
                     })
-                    noteFresh()
+                    noteCompose()
                     navigate({ view: 'talk', conversationId: created.id })
                   } catch (err) {
                     setProblem(failureText(err, 'The conversation could not be started.'))
@@ -239,6 +241,11 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     }
 
     const presence = presenceCopy(link, activity)
+    // Docked only where there is room for it and the conversation both: a
+    // phone (or a short window) keeps the set in the conversation instead.
+    const docked = roomy
+      ? activity.openRequests.find((request) => request.kind === 'clarify')
+      : undefined
     // The open cards sit at the end of the conversation: below, while the owner reads back.
     const waitingBelow = activity.openRequests.some((r) => r.kind !== 'unsupported')
     // Selection belongs to one conversation and comes back with it. Selecting
@@ -255,7 +262,7 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
     const startSide = async () => {
       try {
         const created = await api.call('conversations.create', {})
-        noteFresh()
+        noteCompose()
         navigate({ view: 'talk', conversationId: created.id })
       } catch (err) {
         setProblem(failureText(err, 'The side conversation could not be started.'))
@@ -286,7 +293,22 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
           className={styles.conversation}
           aria-label={`Conversation: ${conversation.title}`}
         >
-          <header className={styles.header}>
+          <header
+            className={styles.header}
+            data-list={wide && !listOpen ? 'hidden' : undefined}
+          >
+            {wide && !listOpen ? (
+              <Button
+                variant="quiet"
+                icon
+                data-show-conversations
+                aria-label="Show the conversation list"
+                title={`Show conversations (${shortcutText('toggle-conversations')})`}
+                onClick={() => setListOpen(true)}
+              >
+                <PanelLeftOpen size={18} aria-hidden="true" />
+              </Button>
+            ) : null}
             <button
               ref={switcher}
               type="button"
@@ -310,7 +332,8 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
               ) : null}
             </p>
             <div className={styles.headerActions}>
-              {canCreate ? (
+              {/* With the conversation list shown, its own new-conversation button stands in. */}
+              {canCreate && !(wide && listOpen) ? (
                 <Button
                   variant="quiet"
                   icon
@@ -390,15 +413,20 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
                     }
                   />
                 ))}
-                {activity.openRequests.map((request) => (
-                  <RequestCard key={request.requestId} request={request} />
-                ))}
+                {activity.openRequests
+                  .filter((request) => request !== docked)
+                  .map((request) => (
+                    <RequestCard key={request.requestId} request={request} />
+                  ))}
                 {loaded && !messages.length && !activity.openRequests.length ? (
-                  <p className={styles.emptyConversation}>
-                    {conversation.kind === 'main'
-                      ? 'Nothing here yet.'
-                      : 'Nothing here yet. This side conversation runs apart from the main one.'}
-                  </p>
+                  <div className={styles.emptyConversation}>
+                    <p className={styles.emptyTitle}>What should Hermes do?</p>
+                    <p>
+                      {conversation.kind === 'main'
+                        ? 'This is your main conversation with Hermes.'
+                        : 'This side conversation runs apart from the main one.'}
+                    </p>
+                  </div>
                 ) : null}
               </div>
             </div>
@@ -434,6 +462,13 @@ export const TalkView = forwardRef<TalkHandle, { conversationId: string | undefi
             ) : null}
           </div>
           <div className={styles.composerDock}>
+            {docked ? (
+              // The oldest question set waits right where the owner types (after
+              // T3 Code's pending-input panel); approvals stay in the conversation.
+              <div className={styles.dock}>
+                <RequestCard key={docked.requestId} request={docked} layout="dock" />
+              </div>
+            ) : null}
             {uncertain.map((prompt) => (
               <div key={prompt.clientId} className={styles.uncertain} role="status">
                 <p>

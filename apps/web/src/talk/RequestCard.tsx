@@ -8,8 +8,23 @@ import {
   type ServerRequest,
   type UnsupportedRequestKind,
 } from '@cindl/contracts'
-import { HelpCircle, KeyRound, ShieldAlert } from 'lucide-react'
-import { useId, useRef, useState } from 'react'
+import {
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  HelpCircle,
+  KeyRound,
+  ShieldAlert,
+} from 'lucide-react'
+import {
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+} from 'react'
 import { Button } from '../ui/primitives.tsx'
 import styles from './talk.module.css'
 
@@ -31,10 +46,15 @@ const emptyDraft: Draft = { selected: [], other: '', useOther: false, skipped: f
 /** Drafts survive remounts (switching views, re-sent requests) while a request is open. */
 const draftsByRequest = new Map<string, Record<string, Draft>>()
 
+/** Docked question sets the owner folded away, so a remount keeps them folded. */
+const foldedRequests = new Set<string>()
+
 /** Drop drafts of requests that are no longer open (all of them when `open` is empty). */
 export function pruneRequestDrafts(open: ReadonlySet<string>) {
   for (const requestId of draftsByRequest.keys())
     if (!open.has(requestId)) draftsByRequest.delete(requestId)
+  for (const requestId of foldedRequests)
+    if (!open.has(requestId)) foldedRequests.delete(requestId)
 }
 
 function responseFor(
@@ -64,16 +84,25 @@ function QuestionFields({
   draft,
   disabled,
   onChange,
+  keyHints = false,
+  onPicked,
 }: {
   question: ClarifyQuestion
   draft: Draft
   disabled: boolean
   onChange: (draft: Draft) => void
+  /** Docked above the composer: each choice shows the number key that picks it. */
+  keyHints?: boolean
+  /** A single-choice pick, so a docked set can move on to its next question. */
+  onPicked?: () => void
 }) {
   const name = useId()
   const choices = question.choices ?? []
   const single = !question.multiSelect && choices.length > 0
-  const pick = (choice: string) =>
+  // The arrow keys move through a radio group by picking each choice they
+  // pass: only a deliberate pick (a press, Space or a number key) moves on.
+  const arrowed = useRef(false)
+  const pick = (choice: string) => {
     onChange({
       ...draft,
       useOther: false,
@@ -83,10 +112,24 @@ function QuestionFields({
           : [...draft.selected, choice]
         : [choice],
     })
+    if (single && !arrowed.current) onPicked?.()
+  }
   return (
-    <fieldset className={styles.questionSet} disabled={disabled}>
+    <fieldset
+      className={styles.questionSet}
+      disabled={disabled}
+      onKeyDown={(event) => {
+        arrowed.current = event.key.startsWith('Arrow')
+      }}
+      onKeyUp={() => {
+        arrowed.current = false
+      }}
+      onPointerDown={() => {
+        arrowed.current = false
+      }}
+    >
       <legend className={styles.requestBody}>{question.question}</legend>
-      {choices.map((choice) => (
+      {choices.map((choice, index) => (
         <label key={choice} className={styles.option}>
           <input
             type={question.multiSelect ? 'checkbox' : 'radio'}
@@ -98,44 +141,60 @@ function QuestionFields({
                 : !draft.useOther && draft.selected[0] === choice
             }
             onChange={() => pick(choice)}
+            onKeyDown={(event) => {
+              // Space confirms a radio already selected with the arrows too;
+              // browsers do not fire change again for that selection.
+              if (single && event.key === ' ' && event.currentTarget.checked) {
+                event.preventDefault()
+                onPicked?.()
+              }
+            }}
           />
           <span>{choice}</span>
+          {keyHints && index < 9 ? (
+            <kbd className={styles.optionKey} aria-hidden="true">
+              {index + 1}
+            </kbd>
+          ) : null}
         </label>
       ))}
-      {single ? (
-        <label className={styles.option}>
+      {/* "Other" shares its row with the answer it stands for. */}
+      <div className={styles.otherRow}>
+        {single ? (
+          <label className={styles.option}>
+            <input
+              type="radio"
+              name={name}
+              disabled={draft.skipped}
+              checked={draft.useOther}
+              onChange={() => onChange({ ...draft, useOther: true })}
+            />
+            <span>Other</span>
+          </label>
+        ) : null}
+        <label className={styles.otherLabel}>
+          <span className="visually-hidden">Your own answer to: {question.question}</span>
           <input
-            type="radio"
-            name={name}
+            className={styles.clarifyInput}
+            placeholder={
+              !choices.length
+                ? 'Type your answer'
+                : question.multiSelect
+                  ? 'Add your own answer'
+                  : 'Your own answer'
+            }
+            value={draft.other}
             disabled={draft.skipped}
-            checked={draft.useOther}
-            onChange={() => onChange({ ...draft, useOther: true })}
+            onChange={(event) =>
+              onChange({
+                ...draft,
+                other: event.target.value,
+                useOther: single ? true : draft.useOther,
+              })
+            }
           />
-          <span>Other</span>
         </label>
-      ) : null}
-      <label className={styles.otherLabel}>
-        <span className="visually-hidden">Your own answer to: {question.question}</span>
-        <input
-          className={styles.clarifyInput}
-          placeholder={
-            !choices.length
-              ? 'Type your answer'
-              : question.multiSelect
-                ? 'Add your own answer'
-                : 'Your own answer'
-          }
-          value={draft.other}
-          disabled={draft.skipped}
-          onChange={(event) =>
-            onChange({
-              ...draft,
-              other: event.target.value,
-              useOther: single ? true : draft.useOther,
-            })
-          }
-        />
-      </label>
+      </div>
       <label className={styles.option}>
         <input
           type="checkbox"
@@ -148,12 +207,22 @@ function QuestionFields({
   )
 }
 
-/** One card per open request; prompts Cindl does not answer are read-only. */
-export function RequestCard({ request }: { request: ServerRequest }) {
+/**
+ * One card per open request; prompts Cindl does not answer are read-only. On
+ * Talk a question set docks above the composer (`dock`), after T3 Code's
+ * pending-input panel: one question at a time, with its number keys.
+ */
+export function RequestCard({
+  request,
+  layout = 'card',
+}: {
+  request: ServerRequest
+  layout?: 'card' | 'dock'
+}) {
   return request.kind === 'unsupported' ? (
     <UnsupportedCard request={request} />
   ) : (
-    <DecisionCard request={request} />
+    <DecisionCard request={request} layout={layout} />
   )
 }
 
@@ -211,9 +280,27 @@ function UnsupportedCard({ request }: { request: ServerRequest }) {
  * is answered in one submission. Buttons lock on the first click so a quick
  * second click cannot send a second answer.
  */
-function DecisionCard({ request }: { request: ServerRequest }) {
+function DecisionCard({
+  request,
+  layout,
+}: {
+  request: ServerRequest
+  layout: 'card' | 'dock'
+}) {
   const api = useCindlApi()
   const titleId = useId()
+  const [step, setStep] = useState(0)
+  const bodyId = useId()
+  const [folded, setFoldedState] = useState(
+    () => layout === 'dock' && foldedRequests.has(request.requestId),
+  )
+  const setFolded = (to: boolean) => {
+    if (to) foldedRequests.add(request.requestId)
+    else foldedRequests.delete(request.requestId)
+    setFoldedState(to)
+  }
+  const advance = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(advance.current), [])
   const [error, setError] = useState<string>()
   const [submitting, setSubmitting] = useState(false)
   const [drafts, setDraftsState] = useState<Record<string, Draft>>(
@@ -274,13 +361,97 @@ function DecisionCard({ request }: { request: ServerRequest }) {
     }),
   )
   const complete = clarifyAnswersComplete(request, answers)
+  // Docked, a set shows one question at a time; every draft stays kept.
+  const stepper = layout === 'dock' && !approval && questions.length > 1
+  const at = Math.min(step, Math.max(questions.length - 1, 0))
+  const shown = stepper ? questions.slice(at, at + 1) : questions
+  // Where a pick that is about to move on is going.
+  const pending = useRef<number | undefined>(undefined)
+  const card = useRef<HTMLElement>(null)
+  const follow = useRef(false)
+  const goTo = (to: number) => {
+    window.clearTimeout(advance.current)
+    pending.current = undefined
+    const next = Math.max(0, Math.min(to, questions.length - 1))
+    if (next === at) return
+    follow.current = card.current?.contains(document.activeElement) ?? false
+    setStep(next)
+  }
+  // Focus that was in the set stays in it as it moves on: the old question's
+  // choices go, and Previous or Next is disabled at either end. It goes to the
+  // new question's choice, never down to the page (where typing would start a
+  // message).
+  useLayoutEffect(() => {
+    if (!follow.current) return
+    follow.current = false
+    // Chrome lets go of a control that was disabled under focus only later:
+    // it counts as lost already.
+    const active = document.activeElement
+    if (
+      active &&
+      active !== document.body &&
+      card.current?.contains(active) &&
+      !(active instanceof HTMLButtonElement && active.disabled)
+    )
+      return
+    card.current
+      ?.querySelector<HTMLInputElement>(
+        'fieldset input:checked:not(:disabled), fieldset input:not(:disabled)',
+      )
+      ?.focus()
+  }, [at])
+  // A single-choice pick moves on after a moment, so the pick is seen first.
+  const pickedAt = (index: number) => () => {
+    if (!stepper || index >= questions.length - 1) return
+    window.clearTimeout(advance.current)
+    pending.current = index + 1
+    advance.current = window.setTimeout(() => goTo(index + 1), 200)
+  }
+  // Number keys pick the shown question's choices, unless typing in its own answer.
+  const numberKeys = (event: KeyboardEvent<HTMLElement>) => {
+    // A quick question sends on its button: one stray key must never answer it.
+    // Folded away, its choices are out of sight and out of reach.
+    if (layout !== 'dock' || busy || quick || folded) return
+    if (event.altKey || event.ctrlKey || event.metaKey) return
+    const target = event.target as HTMLElement
+    if (target.tagName === 'INPUT' && (target as HTMLInputElement).type === 'text') return
+    if (!/^[1-9]$/.test(event.key)) return
+    // A pick still waiting to move on moves on now, so quick digits answer
+    // one question each.
+    const index = stepper ? (pending.current ?? at) : 0
+    const question = stepper ? questions[index] : shown[0]
+    const choice = question?.choices?.[Number(event.key) - 1]
+    if (!question || !choice) return
+    event.preventDefault()
+    if (stepper && pending.current !== undefined) goTo(pending.current)
+    const draft = draftFor(question.qid) ?? emptyDraft
+    if (draft.skipped) return
+    setDraft(question.qid, {
+      ...draft,
+      useOther: false,
+      selected: question.multiSelect
+        ? draft.selected.includes(choice)
+          ? draft.selected.filter((c) => c !== choice)
+          : [...draft.selected, choice]
+        : [choice],
+    })
+    if (!question.multiSelect) pickedAt(questions.indexOf(question))()
+  }
+
+  const foldLabel = `${folded ? 'Show' : 'Hide'} ${
+    questions.length > 1 ? 'the questions' : 'the question'
+  }`
 
   return (
     <section
       id={requestDomId(request)}
       className={styles.request}
       data-kind={request.kind}
+      data-layout={layout}
+      data-folded={folded ? 'true' : undefined}
       aria-labelledby={titleId}
+      ref={card}
+      onKeyDown={numberKeys}
     >
       <header className={styles.requestHeader}>
         <span className={styles.requestKind}>
@@ -297,167 +468,217 @@ function DecisionCard({ request }: { request: ServerRequest }) {
           </span>
           {request.title}
         </h3>
-      </header>
-      {!approval && lockedQuestions.length ? (
-        <ul className={styles.lockedList} aria-label="Answered on another device">
-          {lockedQuestions.map((question) => (
-            <li key={question.qid}>
-              <span className={styles.lockedQuestion}>{question.question}</span>
-              <span className={styles.lockedAnswer}>
-                Answered on another device: {describeResponse(locked[question.qid])}
-              </span>
-            </li>
-          ))}
-        </ul>
-      ) : null}
-      {approval ? (
-        <>
-          {request.command ? (
-            <pre className={styles.command} aria-label="Command">
-              <code>{request.command}</code>
-            </pre>
-          ) : null}
-          {request.description ? (
-            <p className={styles.requestBody}>{request.description}</p>
-          ) : null}
-          {request.choices.length ? (
-            <div className={styles.requestFooter}>
-              <p className={styles.requestScope}>Applies to this action only.</p>
-              <div className={styles.requestActions}>
-                {request.choices.includes('deny') ? (
-                  <Button
-                    disabled={busy}
-                    onClick={() => void send({ kind: 'approval', choice: 'deny' })}
-                  >
-                    Deny
-                  </Button>
-                ) : null}
-                {request.choices.includes('once') ? (
-                  <Button
-                    variant="primary"
-                    disabled={busy}
-                    onClick={() => void send({ kind: 'approval', choice: 'once' })}
-                  >
-                    Allow once
-                  </Button>
-                ) : null}
-              </div>
-            </div>
-          ) : (
-            <p className={styles.requestNote}>
-              Hermes did not offer a choice Cindl can send. Answer this on the Hermes
-              host.
-            </p>
-          )}
-          {request.withheldChoices?.length ? (
-            <details className={styles.requestDetails}>
-              <summary>Why only once?</summary>
-              <p>
-                Hermes also offers approval for the rest of the session or permanently.
-                Cindl only sends one-time decisions; make broader grants on the Hermes
-                host if you want them.
-              </p>
-            </details>
-          ) : null}
-        </>
-      ) : !questions.length ? (
-        <p className={styles.requestNote}>
-          Every question was answered on another device. Hermes is using those answers.
-        </p>
-      ) : quick && questions[0] ? (
-        <div className={styles.question}>
-          <p className={styles.requestBody}>{questions[0].question}</p>
-          <div className={styles.choiceList}>
-            {(questions[0].choices ?? []).map((choice) => (
-              <Button
-                key={choice}
-                disabled={busy}
-                onClick={() =>
-                  void send({
-                    kind: 'clarify',
-                    answers: { [questions[0]?.qid ?? '']: { choices: [choice] } },
-                  })
-                }
-              >
-                {choice}
-              </Button>
-            ))}
-          </div>
-          <div className={styles.clarifyActions}>
+        {stepper && !folded ? (
+          <span className={styles.stepper}>
+            <span className={styles.stepCount}>
+              {at + 1} of {questions.length}
+            </span>
             <Button
               variant="quiet"
-              disabled={busy}
-              onClick={() =>
-                void send({
-                  kind: 'clarify',
-                  answers: { [questions[0]?.qid ?? '']: { skipped: true } },
-                })
-              }
+              icon
+              className={styles.stepButton}
+              aria-label="Previous question"
+              disabled={at === 0}
+              onClick={() => goTo(at - 1)}
             >
-              Skip
+              <ChevronLeft size={14} aria-hidden="true" />
             </Button>
-          </div>
-        </div>
-      ) : (
-        <form
-          className={styles.questionForm}
-          onSubmit={(event) => {
-            event.preventDefault()
-            if (complete) void send({ kind: 'clarify', answers })
-          }}
-        >
-          {questions.map((question) => (
-            <QuestionFields
-              key={question.qid}
-              question={question}
-              draft={draftFor(question.qid) ?? emptyDraft}
-              disabled={busy}
-              onChange={(draft) => setDraft(question.qid, draft)}
-            />
-          ))}
-          <div className={styles.requestFooter}>
-            <p className={styles.requestScope}>
-              {complete
-                ? 'Ready to send all answers together.'
-                : 'Answer or skip each question, then send once.'}
-            </p>
-            <div className={styles.requestActions}>
+            <Button
+              variant="quiet"
+              icon
+              className={styles.stepButton}
+              aria-label="Next question"
+              disabled={at >= questions.length - 1}
+              onClick={() => goTo(at + 1)}
+            >
+              <ChevronRight size={14} aria-hidden="true" />
+            </Button>
+          </span>
+        ) : null}
+        {layout === 'dock' ? (
+          // Folds the set down to this line, to read the conversation; nothing is answered.
+          <Button
+            variant="quiet"
+            icon
+            className={styles.stepButton}
+            aria-expanded={!folded}
+            aria-controls={bodyId}
+            aria-label={foldLabel}
+            title={foldLabel}
+            onClick={() => setFolded(!folded)}
+          >
+            {folded ? (
+              <ChevronUp size={14} aria-hidden="true" />
+            ) : (
+              <ChevronDown size={14} aria-hidden="true" />
+            )}
+          </Button>
+        ) : null}
+      </header>
+      <div id={bodyId} className={styles.requestContent} hidden={folded}>
+        {!approval && lockedQuestions.length ? (
+          <ul className={styles.lockedList} aria-label="Answered on another device">
+            {lockedQuestions.map((question) => (
+              <li key={question.qid}>
+                <span className={styles.lockedQuestion}>{question.question}</span>
+                <span className={styles.lockedAnswer}>
+                  Answered on another device: {describeResponse(locked[question.qid])}
+                </span>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+        {approval ? (
+          <>
+            {request.command ? (
+              <pre className={styles.command} aria-label="Command">
+                <code>{request.command}</code>
+              </pre>
+            ) : null}
+            {request.description ? (
+              <p className={styles.requestBody}>{request.description}</p>
+            ) : null}
+            {request.choices.length ? (
+              <div className={styles.requestFooter}>
+                <p className={styles.requestScope}>Applies to this action only.</p>
+                <div className={styles.requestActions}>
+                  {request.choices.includes('deny') ? (
+                    <Button
+                      disabled={busy}
+                      onClick={() => void send({ kind: 'approval', choice: 'deny' })}
+                    >
+                      Deny
+                    </Button>
+                  ) : null}
+                  {request.choices.includes('once') ? (
+                    <Button
+                      variant="primary"
+                      disabled={busy}
+                      onClick={() => void send({ kind: 'approval', choice: 'once' })}
+                    >
+                      Allow once
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            ) : (
+              <p className={styles.requestNote}>
+                Hermes did not offer a choice Cindl can send. Answer this on the Hermes
+                host.
+              </p>
+            )}
+            {request.withheldChoices?.length ? (
+              <details className={styles.requestDetails}>
+                <summary>Why only once?</summary>
+                <p>
+                  Hermes also offers approval for the rest of the session or permanently.
+                  Cindl only sends one-time decisions; make broader grants on the Hermes
+                  host if you want them.
+                </p>
+              </details>
+            ) : null}
+          </>
+        ) : !questions.length ? (
+          <p className={styles.requestNote}>
+            Every question was answered on another device. Hermes is using those answers.
+          </p>
+        ) : quick && questions[0] ? (
+          <div className={styles.question}>
+            <p className={styles.requestBody}>{questions[0].question}</p>
+            <div className={styles.choiceList}>
+              {(questions[0].choices ?? []).map((choice) => (
+                <Button
+                  key={choice}
+                  disabled={busy}
+                  onClick={() =>
+                    void send({
+                      kind: 'clarify',
+                      answers: { [questions[0]?.qid ?? '']: { choices: [choice] } },
+                    })
+                  }
+                >
+                  {choice}
+                </Button>
+              ))}
+            </div>
+            <div className={styles.clarifyActions}>
               <Button
                 variant="quiet"
                 disabled={busy}
-                // There is no "decline": an empty reply reads to the agent like an
-                // interrupt. Skipping every open question gives each a clean "skipped".
                 onClick={() =>
                   void send({
                     kind: 'clarify',
-                    answers: Object.fromEntries(
-                      questions.map((question) => [
-                        question.qid,
-                        { skipped: true as const },
-                      ]),
-                    ),
+                    answers: { [questions[0]?.qid ?? '']: { skipped: true } },
                   })
                 }
               >
-                Skip all
-              </Button>
-              <Button type="submit" variant="primary" disabled={busy || !complete}>
-                Send answers
+                Skip
               </Button>
             </div>
           </div>
-        </form>
-      )}
-      {busy && !error ? (
-        <p className={styles.requestNote} role="status">
-          Sending your answer…
-        </p>
-      ) : null}
-      {error ? (
-        <p className={styles.requestError} role="alert">
-          {error}
-        </p>
-      ) : null}
+        ) : (
+          <form
+            className={styles.questionForm}
+            onSubmit={(event) => {
+              event.preventDefault()
+              if (complete) void send({ kind: 'clarify', answers })
+            }}
+          >
+            {shown.map((question) => (
+              <QuestionFields
+                key={question.qid}
+                question={question}
+                draft={draftFor(question.qid) ?? emptyDraft}
+                disabled={busy}
+                onChange={(draft) => setDraft(question.qid, draft)}
+                keyHints={layout === 'dock'}
+                onPicked={pickedAt(questions.indexOf(question))}
+              />
+            ))}
+            <div className={styles.requestFooter}>
+              <p className={styles.requestScope}>
+                {complete
+                  ? 'Ready to send all answers together.'
+                  : 'Answer or skip each question, then send once.'}
+              </p>
+              <div className={styles.requestActions}>
+                <Button
+                  variant="quiet"
+                  disabled={busy}
+                  // There is no "decline": an empty reply reads to the agent like an
+                  // interrupt. Skipping every open question gives each a clean "skipped".
+                  onClick={() =>
+                    void send({
+                      kind: 'clarify',
+                      answers: Object.fromEntries(
+                        questions.map((question) => [
+                          question.qid,
+                          { skipped: true as const },
+                        ]),
+                      ),
+                    })
+                  }
+                >
+                  Skip all
+                </Button>
+                <Button type="submit" variant="primary" disabled={busy || !complete}>
+                  Send answers
+                </Button>
+              </div>
+            </div>
+          </form>
+        )}
+        {busy && !error ? (
+          <p className={styles.requestNote} role="status">
+            Sending your answer…
+          </p>
+        ) : null}
+        {error ? (
+          <p className={styles.requestError} role="alert">
+            {error}
+          </p>
+        ) : null}
+      </div>
     </section>
   )
 }

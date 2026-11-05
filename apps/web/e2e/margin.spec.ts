@@ -62,7 +62,8 @@ test('the margin switches tools only when asked, and keeps the conversation in v
     margin.getByRole('img', { name: 'The agent’s screen, live.' }),
   ).toHaveCount(0)
   await expect(margin.locator('canvas')).toHaveCount(0)
-  // Selecting a step opens Step.
+  // Selecting a step opens Step (its finished work log opens first).
+  await page.getByRole('button', { name: /^2 steps/ }).click()
   await page.getByRole('button', { name: /Checked the studio calendar/ }).click()
   await expect(margin.getByRole('tab', { name: 'Step', selected: true })).toBeVisible()
   await expect(margin.getByText('calendar.search')).toBeVisible()
@@ -141,6 +142,7 @@ test('on a tablet, a step opens the sheet on Step with focus on that tab, and ar
 }) => {
   await page.setViewportSize({ width: 768, height: 1024 })
   await page.goto('/#/talk')
+  await page.getByRole('button', { name: /^2 steps/ }).click()
   await page.getByRole('button', { name: /Checked the studio calendar/ }).focus()
   await page.keyboard.press('Enter')
   const sheet = page.getByRole('dialog', { name: 'Working margin' })

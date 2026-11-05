@@ -1,5 +1,5 @@
 import { useCan, useCindlApi, useLink } from '@cindl/client-react'
-import { useState } from 'react'
+import { useLayoutEffect, useRef, useState } from 'react'
 import { TextInput, View, useWindowDimensions } from 'react-native'
 import { newClientId } from '../platform/ids.ts'
 import { useTheme } from '../theme/theme.tsx'
@@ -59,6 +59,13 @@ export function Composer({
   const connected = link.phase === 'online'
   const ready = connected && canSend
   const sendable = ready && !sending && text.trim().length > 0
+  // Not while a send is on its way; and a press right after Stop appears
+  // under the finger (the second tap of a double tap on Send) is not a stop.
+  const stopping = canStop && canInterrupt && !text.trim() && !sending
+  const stopShown = useRef(0)
+  useLayoutEffect(() => {
+    if (stopping) stopShown.current = Date.now()
+  }, [stopping])
 
   const submit = async () => {
     const value = text.trim()
@@ -154,15 +161,19 @@ export function Composer({
             },
           ]}
         />
-        {canStop && canInterrupt ? (
-          // A bordered control with a solid square, so it never reads as a checkbox.
+        {/* One primary slot (web parity, after T3 Code): Stop while Hermes works
+            and the box is empty, Send as soon as there is text. */}
+        {stopping ? (
+          // Round and filled, with a solid square, so it never reads as a checkbox.
           <Button
             label="Stop the current turn"
             icon={Square}
             filledIcon
             iconOnly
-            style={{ borderColor: theme.colors.borderStrong }}
-            onPress={() =>
+            variant="strong"
+            style={{ borderRadius: theme.radius.pill }}
+            onPress={() => {
+              if (Date.now() - stopShown.current < 600) return
               void api.call('conversation.interrupt', { conversationId }).then(
                 () => setError(undefined),
                 (failure: unknown) =>
@@ -173,24 +184,28 @@ export function Composer({
                     ).message,
                   ),
               )
-            }
+            }}
           />
-        ) : null}
-        {/* Ember only once there is something to send (web parity). */}
-        <Button
-          label="Send"
-          icon={ArrowUp}
-          iconOnly
-          variant={sendable ? 'primary' : 'quiet'}
-          disabled={!sendable}
-          busy={sending}
-          style={
-            sendable
-              ? undefined
-              : { backgroundColor: theme.colors.surfaceSunken, opacity: 1 }
-          }
-          onPress={() => void submit()}
-        />
+        ) : (
+          <Button
+            label="Send"
+            icon={ArrowUp}
+            iconOnly
+            variant={sendable ? 'primary' : 'quiet'}
+            disabled={!sendable}
+            busy={sending}
+            style={
+              sendable
+                ? { borderRadius: theme.radius.pill }
+                : {
+                    borderRadius: theme.radius.pill,
+                    backgroundColor: theme.colors.surfaceSunken,
+                    opacity: 1,
+                  }
+            }
+            onPress={() => void submit()}
+          />
+        )}
       </View>
       {hint ? (
         <Txt variant="label" tone="tertiary">

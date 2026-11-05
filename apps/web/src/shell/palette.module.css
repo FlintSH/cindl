@@ -22,6 +22,18 @@
   list-style: none;
   overflow-y: auto;
 }
+.group + .group {
+  margin-top: var(--space-1);
+}
+.groupLabel {
+  padding: var(--space-2) var(--space-3) var(--space-1);
+  color: var(--color-text-tertiary);
+  font-size: var(--text-caption-size);
+  line-height: var(--text-caption-line);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
 .result {
   display: flex;
   align-items: center;
@@ -31,17 +43,30 @@
   border-radius: var(--radius-md);
   cursor: pointer;
 }
+.icon {
+  flex: none;
+  color: var(--color-text-tertiary);
+}
+.result[aria-selected='true'] .icon {
+  color: var(--color-text-secondary);
+}
 .result[aria-selected='true'] {
   background: var(--color-surface-sunken);
 }
 .label {
-  flex: 1;
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+/* The hint gives way first: a row's label always shows. */
 .hint {
+  flex: 0 10 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   color: var(--color-text-tertiary);
   font-size: var(--text-label-size);
 }
@@ -71,6 +96,13 @@
     min-height: var(--touch-target);
   }
   .footer {
+    display: none;
+  }
+}
+@media (max-width: 767px) {
+  /* No keyboard to hint at on a phone, and no room for hints beside a label. */
+  .result kbd,
+  .hint {
     display: none;
   }
 }

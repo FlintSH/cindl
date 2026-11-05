@@ -665,9 +665,12 @@ Hermes server, Chrome's Custom Tab, and a phone.
 - **Keyboard:** the composer and sheets stay above the on-screen keyboard; the
   bottom navigation steps aside while it is open. Enter adds a line; the Send
   button sends.
-- **Composer:** Send stays neutral (no ember) until there is text to send.
-  While Hermes works, **Stop** sits beside it as a bordered button with a
-  solid square, so it never reads as a checkbox. A reply in progress says
+- **Composer:** one round primary slot, after T3 Code (web parity): **Stop**,
+  filled in the text colour with a solid square (so it never reads as a
+  checkbox), while Hermes works and the box is empty, and **Send** as soon as
+  there is text, neutral (no ember) until then. Send stays while its request
+  is pending; a rapid second tap when Stop appears cannot stop the turn. A
+  reply in progress says
   in its header, in place of its time, "Working for 12s" while Hermes works
   and "Waiting for you" while it waits on you (web parity). A conversation
   with nothing in it yet says so in one line, instead of an empty screen; a
@@ -682,6 +685,20 @@ Hermes server, Chrome's Custom Tab, and a phone.
   run went ("last run yesterday at 7:30 AM, succeeded").
 - **Needs you** on Work names the conversation each request belongs to ("In
   Kiln inventory sheet"), as on the web.
+- **Work log** ([ADR 0014](../architecture/decisions/0014-t3-workspace.md)):
+  two or more consecutive steps fold into one 48dp row once they are all
+  done ("2 steps, 1m 24s"; TalkBack hears "2 steps, 1m 24s. Show the
+  steps.", and whether it is expanded). It stays open while Hermes works,
+  waits on you or has a failure, and while one of its steps is selected; your
+  own choice holds for the session. Android keeps its conversation sheet and
+  its question cards in the conversation: a phone has no room for the web's
+  conversation list or its docked questions.
+- **Done** (web parity): the conversation sheet marks a conversation Hermes
+  finished while you were elsewhere (another conversation, or another
+  destination) with "Done" until you open it. If Cindl saw the reply end with
+  an error or an interruption, the mark says "Failed" or "Stopped" instead.
+  Only finishes this session saw
+  count, and sign-out forgets them.
 - **Tabs:** a page's tab strip fades at its end, so a tab cut off there
   (Agent's five on a phone) reads as more to come, and the last tab scrolls
   clear of the fade. React Native 0.88 draws an edge's fade at a fixed

@@ -1,11 +1,37 @@
 import type { Message } from '@cindl/contracts'
 import { ChevronDown } from 'lucide-react'
-import { useEffect, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { CopyButton } from '../ui/CopyButton.tsx'
 import { Markdown } from './Markdown.tsx'
 import { ToolRow } from './ToolRow.tsx'
+import { WorkGroup } from './WorkGroup.tsx'
+import { segmentsOf } from './workGroups.ts'
 import { elapsed, fullTime, messageTime, momentInSentence } from './format.ts'
 import styles from './talk.module.css'
+
+/** Past this, an owner's message folds (after T3 Code): a pasted log never buries the thread. */
+const LONG = { chars: 600, lines: 8 }
+
+/** The owner's own message, folded to a few lines when it is long. */
+function OwnText({ text }: { text: string }) {
+  const long = text.length > LONG.chars || text.split('\n').length > LONG.lines
+  const [open, setOpen] = useState(false)
+  return (
+    <div className={styles.userBubble} data-folded={long && !open ? 'true' : undefined}>
+      <p className={styles.userText}>{text}</p>
+      {long ? (
+        <button
+          type="button"
+          className={styles.unfold}
+          aria-expanded={open}
+          onClick={() => setOpen(!open)}
+        >
+          {open ? 'Show less' : 'Show full message'}
+        </button>
+      ) : null}
+    </div>
+  )
+}
 
 /** While a reply streams, its header counts up from when it started. */
 function Working({ since }: { since: string | undefined }) {
@@ -54,6 +80,20 @@ export function MessageView({
   /** The conversation's turn, for a streaming reply's header. */
   turn?: TurnState
 }) {
+  // A step's row that becomes part of a work log (a second step arrived) is
+  // a new element, which drops focus; React reports no blur for it, as it
+  // happens in its commit. Focus follows the step; a blur lets go.
+  const body = useRef<HTMLDivElement>(null)
+  const holding = useRef<string | undefined>(undefined)
+  useLayoutEffect(() => {
+    const held = holding.current
+    if (!held || document.activeElement !== document.body) return
+    for (const row of body.current?.querySelectorAll<HTMLElement>('[data-tool-id]') ?? [])
+      if (row.dataset.toolId === held) {
+        row.focus()
+        break
+      }
+  })
   const time = messageTime(message.createdAt)
   // Spoken as part of the message's name: "You, today at 8:03 AM".
   const moment = momentInSentence(message.createdAt)
@@ -67,9 +107,8 @@ export function MessageView({
         aria-label={`You${moment ? `, ${moment}` : ''}`}
         title={fullTime(message.createdAt)}
       >
-        <div className={styles.userBubble}>
-          <p className={styles.userText}>{text}</p>
-        </div>
+        <CopyButton label="Copy message" className={styles.copyMine} text={() => text} />
+        <OwnText text={text} />
       </article>
     )
   }
@@ -112,8 +151,30 @@ export function MessageView({
           <CopyButton label="Copy reply" className={styles.copyReply} text={words} />
         ) : null}
       </header>
-      <div className={styles.assistantBody}>
-        {message.parts.map((part, index) => {
+      <div
+        ref={body}
+        className={styles.assistantBody}
+        onFocus={(event) => {
+          holding.current =
+            event.target instanceof HTMLElement ? event.target.dataset.toolId : undefined
+        }}
+        onBlur={() => {
+          holding.current = undefined
+        }}
+      >
+        {segmentsOf(message.parts).map((segment) => {
+          if (segment.kind === 'work')
+            return (
+              <WorkGroup
+                key={segment.key}
+                groupKey={`${message.id}:${segment.key}`}
+                toolIds={segment.toolIds}
+                selectedToolId={selectedToolId}
+                blockedToolIds={blockedToolIds}
+                onSelectTool={onSelectTool}
+              />
+            )
+          const { part, index } = segment
           switch (part.type) {
             case 'text':
               return <Markdown key={index} text={part.text} />

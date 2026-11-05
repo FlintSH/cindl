@@ -99,7 +99,8 @@ export function Txt({
   )
 }
 
-export type ButtonVariant = 'default' | 'primary' | 'quiet' | 'danger'
+/** `strong`: filled in the text colour, for the composer's Stop (web parity). */
+export type ButtonVariant = 'default' | 'primary' | 'quiet' | 'danger' | 'strong'
 
 export function Button({
   ref,
@@ -144,7 +145,9 @@ export function Button({
         ? theme.colors.textSecondary
         : variant === 'danger'
           ? theme.colors.danger
-          : theme.colors.text
+          : variant === 'strong'
+            ? theme.colors.surfaceRaised
+            : theme.colors.text
   return (
     <Press
       {...(ref ? { ref } : {})}
@@ -213,6 +216,7 @@ const buttonStyles = (theme: CindlTheme) => {
       borderColor: colors.accentHover,
     },
     quiet: { backgroundColor: 'transparent', borderColor: 'transparent' },
+    strong: { backgroundColor: colors.text, borderColor: colors.text },
     iconOnly: { width: layout.touchTarget, paddingHorizontal: 0 },
     disabled: { opacity: 0.55 },
   } satisfies Record<string, ViewStyle>
