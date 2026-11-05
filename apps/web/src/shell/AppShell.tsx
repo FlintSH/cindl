@@ -265,12 +265,17 @@ export function AppShell() {
       const id = matchShortcut(event)
       if (!id) return
       event.preventDefault()
+      // A key can arrive after a resize but before matchMedia's change event
+      // has updated React. Choose a visible surface using the viewport now.
+      const wideNow =
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(min-width: 1280px)').matches
       switch (id) {
         case 'palette':
           setPaletteOpen(true)
           break
         case 'toggle-conversations':
-          if (!wide) {
+          if (!wideNow) {
             // No room for the list: the conversation switcher instead, over
             // the conversation already open.
             navigate({
@@ -287,7 +292,7 @@ export function AppShell() {
           else setListOpen(true)
           break
         case 'switch-conversation':
-          if (showList) {
+          if (wideNow && showList) {
             list.current?.focusSearch()
             break
           }
@@ -345,7 +350,6 @@ export function AppShell() {
   }, [
     route,
     canCreate,
-    wide,
     listOpen,
     showList,
     hideList,
