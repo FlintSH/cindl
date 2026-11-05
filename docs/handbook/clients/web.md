@@ -133,9 +133,11 @@ Screenshots of the synthetic demo (every name, message and status is
 invented; the banner says so), and of the desktop app's signed-out screen,
 which has no data to label.
 
-![Talk on a wide screen: an approval and a question set waiting, with the working margin open on its Waiting tool listing both](/screenshots/web/talk-desktop-light.png)
+![Talk on a wide screen: the conversation list beside the conversation, an approval in the conversation and a question set docked above the composer, with the working margin open on its Waiting tool listing both](/screenshots/web/talk-desktop-light.png)
 
 ![The working margin's Computer tool beside the conversation: the agent's synthetic screen, live, with its status and Take control](/screenshots/web/talk-margin-computer-light.png)
+
+![Talk in the dark theme: a side conversation Hermes finished out of sight marked Done in the list, finished steps folded into one line, and the question set folded to its line above the composer](/screenshots/web/talk-workspace-dark.png)
 
 ![Work on a phone in the dark theme: a sudo prompt Cindl does not answer, above an approval](/screenshots/web/work-phone-dark.png)
 
@@ -143,11 +145,11 @@ which has no data to label.
 
 ![Deleting a memory entry on a phone: Cindl warns that Hermes keeps no backup](/screenshots/web/memory-delete-phone-dark.png)
 
-![Talk on a tablet in the dark theme: day-aware message times, a reply waiting on the owner, and Latest noting that something below needs you](/screenshots/web/talk-tablet-dark.png)
+![Talk on a tablet in the dark theme: an approval in the conversation and the question set docked above the composer, one question at a time with its number keys](/screenshots/web/talk-tablet-dark.png)
 
 ![The conversation list on a phone: a sheet with its own title and close button](/screenshots/web/history-phone-light.png)
 
-![The command palette in the dark theme: the theme in use marked Current, and its keys along the foot](/screenshots/web/palette-desktop-dark.png)
+![The command palette in the dark theme: its rows grouped under Go to and Actions with their icons and keys, and its keys along the foot](/screenshots/web/palette-desktop-dark.png)
 
 ![Agent, Runtime on a phone in the dark theme: the section strip fades where more sections are, and each capability's state sits above its reason](/screenshots/web/agent-runtime-phone-dark.png)
 
