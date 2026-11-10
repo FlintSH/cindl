@@ -20,7 +20,7 @@
     "@cindl/contracts": "workspace:*",
     "@cindl/hermes-adapter": "workspace:*",
     "@cindl/tokens": "workspace:*",
-    "lucide-react": "1.66.0",
+    "lucide-react": "1.67.0",
     "react": "catalog:",
     "react-dom": "catalog:",
     "react-markdown": "10.1.0",
@@ -33,7 +33,7 @@
     "@testing-library/react": "16.3.3",
     "@types/react": "catalog:",
     "@types/react-dom": "catalog:",
-    "@vitejs/plugin-react": "6.1.2",
+    "@vitejs/plugin-react": "6.2.1",
     "jsdom": "30.1.3",
     "typescript": "catalog:",
     "vite": "8.3.5"
