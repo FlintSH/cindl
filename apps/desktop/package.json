@@ -29,7 +29,7 @@
     "@playwright/test": "1.64.1",
     "@types/node": "catalog:",
     "@types/ws": "8.18.2",
-    "electron": "45.2.1",
+    "electron": "45.2.2",
     "electron-builder": "26.18.0",
     "esbuild": "0.28.2",
     "typescript": "catalog:",
